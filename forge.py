@@ -554,11 +554,14 @@ SPLIT_RUN_RE = re.compile(
 CHAR_SPAN_RE = re.compile(rf"(<span\b[^>]*>)({_CHAR})</span>")
 
 
-def _regen_split_runs(t, pairs):
+def _regen_split_runs(t, pairs, stats=None):
     want = {}
     for p in pairs:
-        if p["scope"] != "cms" and " " in p["old"] and p["new"].strip():
-            want[re.sub(r"\s+", " ", p["old"]).strip()] = p["new"].strip()
+        # single WORDS split per-char are common (giant marquee text) —
+        # match case-insensitively and transfer the run's casing
+        if p["scope"] != "cms" and p["new"].strip() and len(p["old"]) >= 3:
+            want[re.sub(r"\s+", " ", p["old"]).strip().lower()] = \
+                (p["old"], p["new"].strip())
     if not want:
         return t, 0
     out, pos, count = [], 0, 0
@@ -566,9 +569,14 @@ def _regen_split_runs(t, pairs):
         seg = m.group(0)
         key = re.sub(r"\s+", " ",
                      html_mod.unescape(re.sub(r"<[^>]+>", "", seg))).strip()
-        new = want.get(key)
-        if new is None:
+        hit = want.get(key.lower())
+        if hit is None:
             continue
+        orig_old, new = hit
+        if key.isupper() and not new.isupper():
+            new = new.upper()
+        elif key[:1].isupper() and orig_old[:1].islower():
+            new = new[:1].upper() + new[1:]
         wrap_open = re.match(r"<span\b[^>]*>", seg).group(0)
         chars = CHAR_SPAN_RE.findall(seg)
         if len({c[0] for c in chars}) != 1:
@@ -584,6 +592,8 @@ def _regen_split_runs(t, pairs):
         out.append(rebuilt)
         pos = m.end()
         count += 1
+        if stats is not None:
+            stats[orig_old] = stats.get(orig_old, 0) + 1
     if not count:
         return t, 0
     out.append(t[pos:])
@@ -681,7 +691,7 @@ def _rx(pairs, escaped):
         if re.fullmatch(r"\w+", old, re.A):
             pat = rf"\b{pat}\b"
         parts.append(pat)
-        lookup[old] = new
+        lookup[old] = (new, p["old"])       # (replacement, original old)
     if not parts:
         return None, None
     return re.compile("|".join(parts)), lookup
@@ -705,7 +715,7 @@ CDN_URL_RE = re.compile(
     r"[^\"'\s()<>`]+")  # backtick ends template-literal urls in chunks
 
 
-def _apply(text, pairs, escaped=False):
+def _apply(text, pairs, escaped=False, stats=None):
     pair_urls = tuple(p["old"] for p in pairs if p["old"].startswith("http"))
     vault = []
 
@@ -716,27 +726,41 @@ def _apply(text, pairs, escaped=False):
         vault.append(u)
         return f"\x00CDN{len(vault) - 1}\x00"
 
+    def bump(orig, n=1):
+        if stats is not None and n:
+            stats[orig] = stats.get(orig, 0) + n
+
     text = CDN_URL_RE.sub(_shield, text)
     rx, lookup = _rx(pairs, escaped=False)
     if rx:
-        text = rx.sub(lambda m: lookup[m.group(0)], text)
+        def repl(m):
+            new, orig = lookup[m.group(0)]
+            bump(orig)
+            return new
+        text = rx.sub(repl, text)
     # editor-picked entries carry the DOM-normalized text, which may
     # differ from the source's whitespace — match those flexibly
     for p in pairs:
         if p.get("flex") and p["scope"] != "cms" and " " in p["old"]:
-            text = re.sub(_flex_pat(p["old"]),
-                          p["new"].replace("\\", "\\\\"), text)
+            text, n = re.subn(_flex_pat(p["old"]),
+                              p["new"].replace("\\", "\\\\"), text)
+            bump(p["old"], n)
     if escaped:
         rx2, lk2 = _rx(pairs, escaped=True)
         if rx2:
-            text = rx2.sub(lambda m: lk2[m.group(0)], text)
+            def repl2(m):
+                new, orig = lk2[m.group(0)]
+                bump(orig)
+                return new
+            text = rx2.sub(repl2, text)
         for p in pairs:  # exports hard-wrap long text nodes
             if p["scope"] == "cms" or " " not in p["old"]:
                 continue
             o = html_mod.escape(p["old"], quote=False)
             n = html_mod.escape(p["new"], quote=False)
             pat = r"\s+".join(re.escape(w) for w in o.split())
-            text = re.sub(pat, n.replace("\\", "\\\\"), text)
+            text, k = re.subn(pat, n.replace("\\", "\\\\"), text)
+            bump(p["old"], k)
     for i, u in enumerate(vault):
         text = text.replace(f"\x00CDN{i}\x00", u)
     return text
@@ -761,6 +785,7 @@ def cmd_build(_args):
     cms_blobs = [p.read_bytes() for p in cms_src.glob("*.framercms")] \
         if cms_src.exists() else []
     pairs = _pairs_from_map(root, cms_blobs)
+    stats = {p["old"]: 0 for p in pairs}   # per-entry replacement counts
     cm_all = json.loads((root / "copy_map.json").read_text(
         encoding="utf-8")) if (root / "copy_map.json").exists() else {}
     removals = cm_all.get("remove", [])
@@ -848,9 +873,9 @@ def cmd_build(_args):
         t = re.sub(r"<script>[^<]*(?:validation-worker|__WF_REVIEW_BRIDGE)"
                    r"[^<]*</script>\n?", "", t)
         t = t.replace("</head>", hide_css + "\n</head>")
-        t = _apply(t, pairs, escaped=True)
+        t = _apply(t, pairs, escaped=True, stats=stats)
         t = _localize_refs(t, cfg.get("localized", {}))
-        t, n_regen = _regen_split_runs(t, pairs)
+        t, n_regen = _regen_split_runs(t, pairs, stats=stats)
         if n_regen:
             log(f"{page}: {n_regen} split-text run(s) regenerated "
                 "(animation preserved)")
@@ -914,7 +939,7 @@ def cmd_build(_args):
                 t = t.replace(ib, "${location.origin}" + pub + "/icons/")
             t = re.sub(r"EditorBar:([A-Za-z$_][\w$]*)===void 0\?void 0:",
                        "EditorBar:!0?void 0:", t)
-            t = _apply(t, pairs)
+            t = _apply(t, pairs, stats=stats)
             t = _localize_refs(t, cfg.get("localized", {}))
             (cdir / p.name).write_text(t, encoding="utf-8")
             n_patched += t != orig
@@ -935,8 +960,9 @@ def cmd_build(_args):
             if re.fullmatch(r"\w+", pr["old"], re.A):
                 pat = rb"\b" + pat + rb"\b"
             bparts.append(pat)
-            blookup[old_b] = pr["new"].encode() \
-                + b" " * (len(old_b) - len(pr["new"].encode()))
+            blookup[old_b] = (pr["new"].encode()
+                              + b" " * (len(old_b) - len(pr["new"].encode())),
+                              pr["old"])
         brx = re.compile(b"|".join(bparts)) if bparts else None
         flex_subs = []
         for pr in pairs:
@@ -945,13 +971,20 @@ def cmd_build(_args):
                 flex_subs.append((
                     re.compile(_flex_pat(pr["old"]).encode()),
                     lambda m, nb=nb: nb + b" " * (len(m.group(0)) - len(nb))
-                    if len(nb) <= len(m.group(0)) else m.group(0)))
+                    if len(nb) <= len(m.group(0)) else m.group(0),
+                    pr["old"]))
+
+        def brepl(m):
+            new_b, orig = blookup[m.group(0)]
+            stats[orig] = stats.get(orig, 0) + 1
+            return new_b
         for p in cms_src.glob("*.framercms"):
             data = p.read_bytes()
             if brx:
-                data = brx.sub(lambda m: blookup[m.group(0)], data)
-            for frx, frepl in flex_subs:  # per-occurrence padding
-                data = frx.sub(frepl, data)
+                data = brx.sub(brepl, data)
+            for frx, frepl, forig in flex_subs:  # per-occurrence padding
+                data, k = frx.subn(frepl, data)
+                stats[forig] = stats.get(forig, 0) + k
             assert len(data) == p.stat().st_size, f"size drift in {p.name}"
             (mdir / p.name).write_bytes(data)
         log(f"CMS: {len(list(cms_src.glob('*.framercms')))} binaries patched")
@@ -1005,6 +1038,16 @@ def cmd_build(_args):
                 shutil.copy(f, dest)
                 n += 1
         log(f"user assets: {n} file(s) from assets/")
+
+    # effectiveness report: how many times each filled entry actually
+    # replaced something, across ALL layers. Zero = the edit is a
+    # silent no-op — surfaced loudly by the studio and MCP.
+    (site / ".forge-report.json").write_text(
+        json.dumps(stats, indent=1, ensure_ascii=False), encoding="utf-8")
+    zeros = [o for o, n in stats.items() if n == 0]
+    if zeros:
+        log(f"WARNING: {len(zeros)} filled entr(ies) replaced NOTHING "
+            f"(first: {zeros[0][:50]!r}) — see site/.forge-report.json")
 
     # ship the runner + a README so the folder is self-explanatory to
     # any human or AI that receives it

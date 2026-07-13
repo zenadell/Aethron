@@ -561,6 +561,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"forbidden_words": cfg.get("forbidden_words", []),
                                 "hide_selectors": cfg.get("hide_selectors", []),
                                 "reduce_motion": cfg.get("reduce_motion", False)})
+            elif u.path == "/api/report":
+                d = self.project_dir(q)
+                f = d / "site" / ".forge-report.json"
+                self.send_json(json.loads(f.read_text(encoding="utf-8"))
+                               if f.exists() else {})
             elif u.path == "/api/job":
                 self.send_json(JOBS.get(q.get("id", [""])[0])
                                or {"error": "no such job"})
@@ -1964,15 +1969,33 @@ function openImageChooser(srcs,el){
     openEditPanel('image',r,el);
   });
 }
-async function rebuildAndReload(statusEl){
+async function rebuildAndReload(statusEl,keepOpen){
   statusEl.textContent='rebuilding…';
   const {job}=await api('/api/run',{project:S.cur,cmd:'build'});
   let j;do{await new Promise(x=>setTimeout(x,900));
     j=await api('/api/job?id='+job);}while(!j.done);
   if(!j.ok){statusEl.textContent='build failed — see Logs';S.log=j.log;return false}
-  closePanel();
+  if(!keepOpen)closePanel();
   const f=$('editframe');if(f)f.src='/edit/'+S.cur+'/?r='+Date.now();
   refresh(true);
+  return true;
+}
+async function assertTookEffect(old,statusEl){
+  // BULLETPROOF RULE: a save must never silently no-op. If the build
+  // report says this entry replaced nothing, keep the panel open and
+  // say so loudly.
+  try{
+    const rep=await api('/api/report?project='+S.cur);
+    if(old in rep&&rep[old]===0){
+      statusEl.innerHTML='<b style="color:var(--err)">⚠ saved, but this '
+       +'edit changed NOTHING in the built site.</b> The text probably '
+       +'differs from the source (casing, splitting, punctuation). Try '
+       +'clicking a shorter/different fragment, or tell the 🤖 AI what '
+       +'you want instead.';
+      return false;
+    }
+    if(old in rep)statusEl.textContent=`✓ applied in ${rep[old]} place(s)`;
+  }catch(e){}
   return true;
 }
 let LIVE=[]; // nodes touched by live style preview — cleaned on Cancel
@@ -2089,18 +2112,25 @@ function openEditPanel(kind,r,el){
     try{
       $('epstatus').textContent='saving…';
       const rots=[...p.querySelectorAll('input.rotph')];
+      let checkOld=r.old;
       if(rots.length){                        // rotating text: save all
         for(const inp of rots){
           const old=inp.dataset.old, val=inp.value;
-          if(val!==( (r.rotator.find(x=>x.old===old)||{}).new||'' ))
+          if(val!==( (r.rotator.find(x=>x.old===old)||{}).new||'' )){
             await api('/api/entry/set',{project:S.cur,section:'strings',
               old,new:val});
+            checkOld=old;
+          }
         }
       }else{
         await api('/api/entry/set',{project:S.cur,section:r.section,
           old:r.old,new:$('epval').value});
       }
-      await rebuildAndReload($('epstatus'));
+      const built=await rebuildAndReload($('epstatus'),true);
+      if(built===false)return;
+      const took=($('epval')&&!$('epval').value.trim()&&!rots.length)
+        ||await assertTookEffect(checkOld,$('epstatus'));
+      if(took)setTimeout(closePanel,900);
     }catch(e){$('epstatus').textContent=e.message}
   };
   if(el&&el.ancestors)p.querySelectorAll('button[data-anc]').forEach(b=>{

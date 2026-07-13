@@ -213,6 +213,16 @@ def t_set_content_bulk(a):
     if a.get("build", True) and applied:
         ok, log = run_forge(str(a["project"]), "build")
         out += "\nbuild: " + ("OK" if ok else "FAILED\n" + log)
+        rep_f = d / "site" / ".forge-report.json"
+        if ok and rep_f.exists():
+            rep = json.loads(rep_f.read_text(encoding="utf-8"))
+            sent = {i.get("old", "") for i in a["entries"]}
+            zero = [o for o in sent if rep.get(o) == 0]
+            if zero:
+                out += ("\n⚠ ZERO-EFFECT (saved but replaced NOTHING — "
+                        "the source text differs in casing/splitting; "
+                        "verify and rewrite these):\n- "
+                        + "\n- ".join(z[:60] for z in zero[:15]))
     return out
 
 
