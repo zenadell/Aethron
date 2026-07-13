@@ -1437,6 +1437,10 @@ function renderHeader(){
    +`</div></details>`
    +(ready?`<button class="big" onclick="runStep('build')"
       title="apply your edits to the site">🔨 Build</button>`:'')
+   +(S.zeroFx&&S.zeroFx.length?`<button onclick="showZeroFx()"
+      style="border-color:var(--err);color:var(--err)"
+      title="filled entries that replaced nothing in the last build"
+      >⚠ ${S.zeroFx.length} dead edit(s)</button>`:'')
    +(S.info&&S.info.undo?`<button onclick="doUndo()"
       title="revert the last change (copy map, styles, removals, config)"
       >↩ Undo (${S.info.undo})</button>`:'')
@@ -1521,8 +1525,38 @@ async function watchJob(job,label){
   await refresh(true);
   if(['inventory','build'].includes(label)||label==='ai')
     try{S.cm=await api('/api/copymap?project='+S.cur);}catch(e){}
+  if(j.ok&&(label==='build'||label==='ai')){
+    // a build ALWAYS refreshes what you're looking at — stale previews
+    // made real edits look like silent failures
+    reloadFrames();
+    checkZeroEffect();
+  }
   renderHeader();renderTab();
   return j.ok;
+}
+function reloadFrames(){
+  const pf=$('previewframe');
+  if(pf)pf.src=pf.src.split('?')[0]+'?r='+Date.now();
+  const ef=$('editframe');
+  if(ef)ef.src='/edit/'+S.cur+'/?r='+Date.now();
+}
+async function checkZeroEffect(){
+  try{
+    const rep=await api('/api/report?project='+S.cur);
+    const zeros=[];
+    for(const sec of ['strings','images','links'])
+      for(const e of (S.cm&&S.cm[sec])||[])
+        if(e.new&&(e.old in rep)&&rep[e.old]===0)
+          zeros.push(e.old.slice(0,70));
+    S.zeroFx=zeros;
+  }catch(e){S.zeroFx=[]}
+  renderHeader();
+}
+function showZeroFx(){
+  alert('⚠ These filled entries replaced NOTHING in the last build — '
+   +'the source text differs (casing/splitting/punctuation). Re-pick '
+   +'the element in edit mode or reword the entry:\n\n- '
+   +(S.zeroFx||[]).join('\n- '));
 }
 
 let RT=0; // render token: async renderers must not overwrite a newer tab
@@ -1892,7 +1926,7 @@ async function renderPreview(c,t){
       style="color:var(--acc2)">http://127.0.0.1:${port}/</a> — a real
       forge serve (range protocol + MIME), so what you see is what ships</span>
      <button onclick="renderPreview($('content'))">↻ reload</button></div>
-     <iframe src="http://127.0.0.1:${port}/"></iframe>`;
+     <iframe id="previewframe" src="http://127.0.0.1:${port}/"></iframe>`;
   }catch(e){c.innerHTML=`<div class="empty">${esc(e.message)}<br><br>
     Run <b>Build</b> first, then come back.</div>`}
 }
@@ -1976,8 +2010,9 @@ async function rebuildAndReload(statusEl,keepOpen){
     j=await api('/api/job?id='+job);}while(!j.done);
   if(!j.ok){statusEl.textContent='build failed — see Logs';S.log=j.log;return false}
   if(!keepOpen)closePanel();
-  const f=$('editframe');if(f)f.src='/edit/'+S.cur+'/?r='+Date.now();
+  reloadFrames();
   refresh(true);
+  checkZeroEffect();
   return true;
 }
 async function assertTookEffect(old,statusEl){
