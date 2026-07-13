@@ -1403,6 +1403,8 @@ def _img_slot_selectors(html: str, url: str):
             self.tag, self.id, self.classes = tag, eid, classes
             self.nth, self.parent, self.children = nth, parent, []
 
+    doc_counts = {}
+
     class P(HTMLParser):
         def __init__(self):
             super().__init__()
@@ -1414,15 +1416,21 @@ def _img_slot_selectors(html: str, url: str):
             ad = dict(attrs)
             classes = [c for c in (ad.get("class") or "").split()
                        if ok_cls.match(c)]
+            if classes:
+                k = (tag, tuple(classes))
+                doc_counts[k] = doc_counts.get(k, 0) + 1
             n = Node(tag, ad.get("id"), classes,
                      len(self.cur.children) + 1, self.cur)
             self.cur.children.append(n)
             hay = (ad.get("src") or "") + " " + (ad.get("srcset") or "")
             style = ad.get("style") or ""
             if tag == "img" and base in hay:
-                self.hits.append((n, "img"))
+                m = re.search(r"[?&]width=(\d+)", hay) or \
+                    re.search(r"(\d+)w\b", ad.get("srcset") or "")
+                w = int(m.group(1)) if m else 0
+                self.hits.append((n, "img", w))
             elif base in style and "background" in style:
-                self.hits.append((n, "bg"))
+                self.hits.append((n, "bg", 9999))
             return n
 
         def handle_starttag(self, tag, attrs):
@@ -1442,6 +1450,12 @@ def _img_slot_selectors(html: str, url: str):
                 c = c.parent
 
     def sel_for(node):
+        """Chain upward. A classed hop needs sibling-uniqueness (else
+        nth-child); the chain only STOPS at an ancestor whose tag+class
+        set is (near-)unique DOCUMENT-WIDE — sibling-unique classes
+        repeat across cousin cards and would over-match (learned the
+        hard way: logos painted onto section backgrounds). Count <= 3
+        allows breakpoint-variant twins, which SHOULD share the rule."""
         segs = []
         cur = node
         while cur.parent is not None:
@@ -1454,17 +1468,20 @@ def _img_slot_selectors(html: str, url: str):
             if cur.classes:
                 same = [s for s in cur.parent.children
                         if s.tag == cur.tag and s.classes == cur.classes]
-                if len(same) == 1:      # unique among siblings — anchor
+                if len(same) == 1:
                     segs.append(cur.tag + "".join("." + c
                                                   for c in cur.classes[:3]))
-                    break
+                    if doc_counts.get((cur.tag, tuple(cur.classes)), 99) <= 3:
+                        break           # document-unique-ish — anchor here
+                    cur = cur.parent
+                    continue
             segs.append(f"{cur.tag}:nth-child({cur.nth})")
             cur = cur.parent
         return " > ".join(reversed(segs))
 
     p = P()
     p.feed(html)
-    return [(sel_for(n), kind) for n, kind in p.hits]
+    return [(sel_for(n), kind, w) for n, kind, w in p.hits]
 
 
 def image_slot_styles(root: Path, old_url: str, new_urls: list):
@@ -1478,7 +1495,9 @@ def image_slot_styles(root: Path, old_url: str, new_urls: list):
             src = root / "pristine" / page
         slots = _img_slot_selectors(
             src.read_text(encoding="utf-8", errors="ignore"), old_url)
-        for sel, kind in slots:
+        for sel, kind, w in slots:
+            if w > 700:      # background-sized usage of the same asset:
+                continue     # replacing it paints a logo over a section
             new = new_urls[n % len(new_urls)]
             css = ({"content": f'url("{new}")', "object-fit": "contain"}
                    if kind == "img" else
