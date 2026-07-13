@@ -1,0 +1,12 @@
+# migration projects are user data, not source
+projects/
+
+# python
+__pycache__/
+*.pyc
+
+# per-project history/snapshots live inside projects/ but belt-and-braces
+.history/
+
+# OS noise
+.DS_Store

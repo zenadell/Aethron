@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "template-forge": {
+      "command": "python3",
+      "args": ["forge_mcp.py"]
+    }
+  }
+}
