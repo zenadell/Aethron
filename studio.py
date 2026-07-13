@@ -166,6 +166,31 @@ PROMPT_RULES = """Rules:
 Return the complete JSON you were given, nothing else."""
 
 
+AI_EDIT_PROMPT = """You are editing ONE element of a live website on the \
+owner's instruction. Reply with ONLY a JSON object, nothing else:
+{"text": "<replacement text>" or null,
+ "css": {"property": "value", ...} or null,
+ "explain": "<one short line describing what you did>"}
+
+Rules:
+- "text" replaces the element's text. %(budget)s Never use backticks \
+or ${ in text. Keep roughly the same length/shape unless asked.
+- "css" is applied to the element as !important overrides. Plain \
+values only (colors as hex/rgb, sizes with units). Choose colors that \
+harmonize with the page palette given below.
+- Change ONLY what the instruction asks. If the instruction is about \
+color/spacing/size, set css and leave text null. If about wording, \
+set text and leave css null.
+
+Owner instruction: %(instruction)s
+
+Element context:
+%(context)s
+
+Project plan (brand voice/details):
+%(plan)s
+"""
+
 PLAN_POLISH_PROMPT = """The owner of a website-template migration tool \
 wrote a rough, incomplete migration plan. Rewrite it into the exact \
 format below. Rules: never drop or contradict anything the owner wrote; \
@@ -759,6 +784,80 @@ class Handler(BaseHTTPRequestHandler):
                 out = re.sub(r"^```\w*\n?|```$", "", out.strip(), flags=re.M)
                 (d / "project_plan.md").write_text(out, encoding="utf-8")
                 self.send_json({"plan": out})
+            elif u.path == "/api/ai/edit":
+                # natural-language element editing: instruction + element
+                # context in, guarded text/css changes out
+                d = self.project_dir({"name": [body.get("project", "")]})
+                snapshot(d)
+                st = {k: body.get(k, "") for k in
+                      ("provider", "base_url", "api_key", "model")}
+                if not st["model"]:
+                    return self.fail("set a model + API key in Plan & AI first")
+                ctx = body.get("context") or {}
+                instruction = (body.get("instruction") or "").strip()
+                if not instruction:
+                    return self.fail("say what you want changed")
+                plan_f = d / "project_plan.md"
+                plan = plan_f.read_text(encoding="utf-8") \
+                    if plan_f.exists() else "(no plan)"
+                mb = ctx.get("max_bytes")
+                budget = (f"HARD LIMIT: text must be <= {mb} UTF-8 bytes "
+                          "(em-dash/curly quotes = 3 bytes)." if mb else "")
+                prompt = AI_EDIT_PROMPT % {
+                    "budget": budget, "instruction": instruction,
+                    "context": json.dumps(ctx, indent=1)[:4000],
+                    "plan": plan[:1500]}
+                act = extract_json(call_model(st, prompt))
+                did, errs = [], []
+                new_text = act.get("text")
+                if new_text and ctx.get("old"):
+                    if "`" in new_text or "${" in new_text:
+                        errs.append("AI text contained backtick/${ — rejected")
+                    elif mb and len(new_text.encode()) > mb:
+                        errs.append(f"AI text over budget "
+                                    f"({len(new_text.encode())}>{mb}B) — rejected")
+                    else:
+                        cm_f = d / "copy_map.json"
+                        cm = json.loads(cm_f.read_text(encoding="utf-8"))
+                        for e in cm.get("strings", []):
+                            if e["old"] == ctx["old"]:
+                                e["new"] = new_text
+                                cm_f.write_text(json.dumps(
+                                    cm, indent=1, ensure_ascii=False),
+                                    encoding="utf-8")
+                                did.append(f'text -> "{new_text[:60]}"')
+                                break
+                        else:
+                            errs.append("entry not found for text change")
+                css = act.get("css")
+                if css and ctx.get("selector"):
+                    clean = {p: str(v).strip() for p, v in dict(css).items()
+                             if re.fullmatch(r"[a-zA-Z-]+", p)
+                             and str(v).strip()
+                             and not re.search(r"[{}<>;\\]|expression",
+                                               str(v), re.I)}
+                    if clean:
+                        cm_f = d / "copy_map.json"
+                        cm = json.loads(cm_f.read_text(encoding="utf-8"))
+                        for s in cm.setdefault("styles", []):
+                            if s["selector"] == ctx["selector"]:
+                                s["css"].update(clean)
+                                break
+                        else:
+                            cm["styles"].append({
+                                "selector": ctx["selector"], "css": clean,
+                                "label": "ai: " + instruction[:40]})
+                        cm_f.write_text(json.dumps(cm, indent=1,
+                                        ensure_ascii=False), encoding="utf-8")
+                        did.append("css -> " + "; ".join(
+                            f"{p}:{v}" for p, v in clean.items()))
+                if not did:
+                    return self.fail("no applicable change ("
+                                     + "; ".join(errs) if errs else
+                                     "AI returned nothing usable — "
+                                     + str(act.get("explain", ""))[:100] + ")")
+                self.send_json({"did": did, "errors": errs,
+                                "explain": act.get("explain", "")})
             elif u.path == "/api/ai/fill":
                 name = body.get("project", "")
                 d = self.project_dir({"name": [name]})
@@ -1549,6 +1648,57 @@ async function mergePaste(){
   }catch(e){$('mergeres').textContent=e.message}
 }
 
+// ---------- 🤖 natural-language element editing ----------
+function elementContext(el,r){
+  const ctx={tag:el.tag,name:el.frname||null,classes:el.classes,
+    old:r.old||null,current_text:r.new||r.old||null,
+    max_bytes:r.max_bytes||null,selector:styleTargets(el)};
+  try{
+    const doc=$('editframe').contentDocument;
+    const n=doc.querySelector(el.path);
+    if(n){
+      const cs=getComputedStyle(n);
+      ctx.computed={color:cs.color,background:cs.backgroundColor,
+        fontSize:cs.fontSize,fontWeight:cs.fontWeight,
+        borderRadius:cs.borderRadius};
+      // sample the page palette so the AI can harmonize colors
+      const pal=new Set();
+      let a=n;
+      for(let i=0;i<6&&a;i++,a=a.parentElement){
+        const c=getComputedStyle(a);
+        [c.color,c.backgroundColor].forEach(x=>{
+          if(x&&x!=='rgba(0, 0, 0, 0)')pal.add(x)});
+      }
+      [...doc.querySelectorAll('h1,h2,a,button')].slice(0,12).forEach(e2=>{
+        const c=getComputedStyle(e2);
+        [c.color,c.backgroundColor].forEach(x=>{
+          if(x&&x!=='rgba(0, 0, 0, 0)')pal.add(x)});
+      });
+      ctx.page_palette=[...pal].slice(0,14);
+    }
+  }catch(e){}
+  return ctx;
+}
+function wireAI(el,r){
+  const go=$('aigo');if(!go)return;
+  const run=async()=>{
+    const instr=$('aiinstr').value.trim();
+    if(!instr)return;
+    const a=aiCfg();
+    if(!a.api_key)return $('aiexplain').textContent=
+      'set your model + API key in Plan & AI first';
+    $('aiexplain').textContent='🤖 thinking…';
+    try{
+      const res=await api('/api/ai/edit',{project:S.cur,instruction:instr,
+        context:elementContext(el,r),...a});
+      $('aiexplain').textContent='🤖 '+(res.explain||res.did.join(' · '));
+      await rebuildAndReload($('epstatus'));
+    }catch(e){$('aiexplain').textContent=e.message}
+  };
+  go.onclick=run;
+  $('aiinstr').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
+}
+
 // ---------- style editor (🎨 in the pick panel) ----------
 const FREEZE={animation:'none',transition:'none',transform:'none',opacity:'1'};
 function styleTargets(el){
@@ -1897,6 +2047,10 @@ function openEditPanel(kind,r,el){
     ${el?`<button id="epremove" style="border-color:var(--err);color:var(--err)">🗑 Remove</button>`:''}
     <button onclick="closePanel()">Cancel</button>
     <span class="hint" id="epstatus"></span></div>
+   ${el?`<div class="toolbar" style="margin-top:8px">
+     <input id="aiinstr" class="grow" placeholder='🤖 tell the AI… e.g. "better color to match the page" or "punchier wording"'>
+     <button id="aigo">Do it</button></div>
+     <div class="hint" id="aiexplain"></div>`:''}
    ${el?`<details id="styledet" style="margin-top:8px"${isC?' open':''}>
     <summary>🎨 Style & motion (baked into the code)</summary>
     <div class="row" style="margin-top:8px">
@@ -1956,7 +2110,7 @@ function openEditPanel(kind,r,el){
     b.onmouseenter=()=>hlTarget(a.path);
     b.onmouseleave=()=>hlTarget(el.path);
   });
-  if(el){hlTarget(el.path);wireStylePanel(el);}
+  if(el){hlTarget(el.path);wireStylePanel(el);wireAI(el,r);}
   if(el&&$('epremove'))$('epremove').onclick=async()=>{
     if(!confirm(`Remove "${el.label||el.tag}" from the site entirely?`))return;
     try{
