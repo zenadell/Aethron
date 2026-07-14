@@ -18,7 +18,7 @@ the page — can fill.
 |---|---|
 | `forge.py` | the engine — init/scrape, fetch, inventory, build, verify, logo, localize, backend, card |
 | `studio.py` | the visual IDE — click-to-edit anything, AI fill, live preview, undo, design library |
-| `forge_mcp.py` | the MCP server — 22 tools so ANY AI agent drives migrations natively |
+| `forge_mcp.py` | the MCP server — 23 tools so ANY AI agent drives migrations natively |
 
 ## Quickstart (2 minutes)
 
@@ -84,13 +84,15 @@ builds only from templates they own.
     "command": "python3", "args": ["forge_mcp.py"] } } }
 ```
 
-22 tools: create_project (from URL or file), fetch, inventory, plan,
+23 tools: create_project (from URL or file), fetch, inventory, plan,
 paged content read, guarded bulk writes, styles, per-slot image
-replacement, logo generation, localize, build, verify, backend,
-preview, undo, plus the design library (list_library /
-save_to_library / create_from_library — the agent itself ranks the
-cards against the owner's plan). The agent is the copy model — no API
-keys; the guardrails enforce the physics on every call.
+replacement, logo generation, localize, build, verify, self-heal
+(broken fills fixed deterministically — flex/casing/nearest-source
+adoption, honest STUCK reasons), backend, preview, undo, plus the
+design library (list_library / save_to_library / create_from_library —
+the agent itself ranks the cards against the owner's plan). The agent
+is the copy model — no API keys; the guardrails enforce the physics
+on every call.
 
 ## CLI
 
@@ -101,6 +103,7 @@ python3 forge.py fetch        # localize runtime (chunks/CMS/icons)
 python3 forge.py inventory    # -> copy_map.json (the AI fills this)
 python3 forge.py build        # apply to every layer, guarded
 python3 forge.py verify       # machine checks before you ship
+python3 forge.py heal         # self-heal broken fills (deterministic)
 python3 forge.py localize     # optional: full CDN independence
 python3 forge.py logo "Name"  # SVG wordmark in the template's own font
 python3 forge.py backend      # content API + AGENT_GUIDE.md

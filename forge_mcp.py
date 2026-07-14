@@ -218,12 +218,13 @@ def t_set_content_bulk(a):
         if ok and rep_f.exists():
             rep = json.loads(rep_f.read_text(encoding="utf-8"))
             sent = {i.get("old", "") for i in a["entries"]}
-            zero = [o for o in sent if rep.get(o) == 0]
-            if zero:
-                out += ("\n⚠ ZERO-EFFECT (saved but replaced NOTHING — "
-                        "the source text differs in casing/splitting; "
-                        "verify and rewrite these):\n- "
-                        + "\n- ".join(z[:60] for z in zero[:15]))
+            moot = set(rep.get("__moot__", []))
+            zero = [o for o in sent if rep.get(o) == 0 and o not in moot]
+            risk = [o for o in sent if o in set(rep.get("__at_risk__", []))]
+            if zero or risk:
+                out += ("\n⚠ BROKEN FILLS (zero-effect or hydration would "
+                        "revert them). Run the heal tool, then build:\n- "
+                        + "\n- ".join(z[:60] for z in (zero + risk)[:15]))
     return out
 
 
@@ -283,6 +284,13 @@ def t_replace_image_slots(a):
     return (f"assigned {len(news)} image(s) across {len(entries)} slot(s) "
             f"via per-slot CSS overrides (hydration-proof):\n{plan}\n"
             "build: " + ("OK" if ok else "FAILED\n" + log))
+
+
+def t_heal(a):
+    d = pdir(str(a["project"]))
+    snapshot(d)
+    ok, log = run_forge(str(a["project"]), "heal")
+    return ("OK" if ok else "FAILED") + "\n" + log
 
 
 def t_undo(a):
@@ -536,6 +544,16 @@ TOOLS = [
     ("serve_preview", "Serve the built site locally with the exact "
      "protocols production needs; returns the URL.",
      S(P, ["project"]), t_serve_preview),
+    ("heal", "SELF-HEAL broken fills. Run whenever build's report shows "
+     "zero-effect entries or __at_risk__ ones (replaced in pages but "
+     "the chunks still spell the old text = hydration reverts it). "
+     "Deterministic ladder, never a guess: flex upgrade (whitespace-"
+     "tolerant matching), source-casing adoption, nearest-source-string "
+     "adoption (>=85% similar, CMS byte budgets enforced). Whatever it "
+     "can't fix safely comes back as STUCK with the exact reason and "
+     "closest candidates — fix the entry via set_content instead of "
+     "hand-editing anything. Snapshotted (undo covers it). Run build "
+     "afterwards to apply.", S(P, ["project"]), t_heal),
     ("undo", "Revert the last content/plan/config change (snapshots are "
      "taken before every write) and rebuild.", S(P, ["project"]), t_undo),
     ("delete_project", "Delete a project entirely (needs confirm=true).",

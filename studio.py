@@ -1068,6 +1068,36 @@ class Handler(BaseHTTPRequestHandler):
                 filled = extract_json(body.get("text", ""))
                 applied, errors = merge_fill(d, filled)
                 self.send_json({"applied": applied, "errors": errors})
+            elif u.path == "/api/heal":
+                # deterministic self-heal for broken fills (zero-effect
+                # or hydration-revert): flex upgrade / source-casing /
+                # nearest-source adoption — never a model, never a guess
+                d = self.project_dir({"name": [body.get("project", "")]})
+                snapshot(d)
+                cmd = [sys.executable, str(FORGE), "heal"]
+                idx0 = None
+                if body.get("old"):
+                    cmd += ["--entry", body["old"]]
+                    try:
+                        cmb = json.loads((d / "copy_map.json").read_text())
+                        idx0 = next(i for i, s in enumerate(cmb["strings"])
+                                    if s["old"] == body["old"])
+                    except Exception:
+                        idx0 = None
+                r = subprocess.run(cmd, cwd=d, capture_output=True, text=True)
+                out = (r.stdout + r.stderr).strip()
+                new_old = body.get("old")
+                if idx0 is not None:   # adoption may have changed the key
+                    try:
+                        cma = json.loads((d / "copy_map.json").read_text())
+                        new_old = cma["strings"][idx0]["old"]
+                    except Exception:
+                        pass
+                self.send_json({"ok": r.returncode == 0,
+                                "healed": out.count("HEALED:"),
+                                "stuck": out.count("STUCK:"),
+                                "new_old": new_old,
+                                "log": out[-4000:]})
             elif u.path == "/api/undo":
                 d = self.project_dir({"name": [body.get("project", "")]})
                 hist = d / ".history"
@@ -1905,22 +1935,33 @@ async function checkZeroEffect(){
   try{
     const rep=await api('/api/report?project='+S.cur);
     const risk=new Set(rep.__at_risk__||[]);
+    const moot=new Set(rep.__moot__||[]);   // mopped-up already = fine
     const zeros=[];
     for(const sec of ['strings','images','links'])
       for(const e of (S.cm&&S.cm[sec])||[])
-        if(e.new&&(((e.old in rep)&&rep[e.old]===0)||risk.has(e.old)))
+        if(e.new&&(((e.old in rep)&&rep[e.old]===0&&!moot.has(e.old))
+                   ||risk.has(e.old)))
           zeros.push(e.old.slice(0,70));
     S.zeroFx=zeros;
   }catch(e){S.zeroFx=[]}
   renderHeader();
 }
-function showZeroFx(){
-  alert('⚠ These filled entries did NOT take effect in the last build — '
-   +'either they replaced nothing (source text differs: casing/'
-   +'splitting/punctuation) or the chunks still spell the old text '
-   +'(hydration would revert them). Re-pick the element in edit mode '
-   +'or reword the entry:\n\n- '
-   +(S.zeroFx||[]).join('\n- '));
+async function showZeroFx(){
+  if(!confirm('⚠ These filled entries did NOT take effect in the last '
+   +'build (replaced nothing, or the chunks still spell the old text '
+   +'so the live page reverts them):\n\n- '
+   +(S.zeroFx||[]).join('\n- ')
+   +'\n\n🩺 Run SELF-HEAL now? Deterministic only — flex matching, '
+   +'source casing, nearest-source adoption. Nothing is guessed; '
+   +'whatever it can\'t fix safely is reported with the reason. '
+   +'(Undo covers it.)'))return;
+  try{
+    const h=await api('/api/heal',{project:S.cur});
+    if(h.healed>0)await runStep('build');
+    alert(`🩺 self-heal: ${h.healed} fixed, ${h.stuck} need you\n\n`
+      +(h.log||'').split('\n').filter(l=>/^(HEALED|STUCK)/.test(l))
+        .join('\n').slice(0,1500));
+  }catch(e){alert(e.message)}
 }
 
 // ---------- design library ----------
@@ -2485,27 +2526,40 @@ async function rebuildAndReload(statusEl,keepOpen){
   return true;
 }
 async function assertTookEffect(old,statusEl){
-  // BULLETPROOF RULE: a save must never silently no-op. If the build
-  // report says this entry replaced nothing, keep the panel open and
-  // say so loudly.
+  // BULLETPROOF RULE: a save must never silently no-op. If the report
+  // says this entry replaced nothing (or hydration would revert it),
+  // run the SELF-HEAL loop: deterministic fixer (flex upgrade, source
+  // casing, nearest-source adoption) -> rebuild -> re-verify. One
+  // bounded attempt, snapshotted (undo covers it), never a guess.
   try{
-    const rep=await api('/api/report?project='+S.cur);
-    if(old in rep&&rep[old]===0){
-      statusEl.innerHTML='<b style="color:var(--err)">⚠ saved, but this '
-       +'edit changed NOTHING in the built site.</b> The text probably '
-       +'differs from the source (casing, splitting, punctuation). Try '
-       +'clicking a shorter/different fragment, or tell the 🤖 AI what '
-       +'you want instead.';
-      return false;
+    let rep=await api('/api/report?project='+S.cur);
+    const broken=o=>((o in rep)&&rep[o]===0&&!(rep.__moot__||[]).includes(o))
+                    ||(rep.__at_risk__||[]).includes(o);
+    if(!broken(old)){
+      if(old in rep)statusEl.textContent=`✓ applied in ${rep[old]} place(s)`;
+      return true;
     }
-    if((rep.__at_risk__||[]).includes(old)){
-      statusEl.innerHTML='<b style="color:var(--err)">⚠ saved, but the '
-       +'chunks still spell the OLD text — the live page would revert '
-       +'this edit.</b> Re-pick the element and save again (the entry '
-       +'is now whitespace-flexible), or reword slightly.';
-      return false;
+    statusEl.textContent='🩺 self-healing…';
+    const h=await api('/api/heal',{project:S.cur,old});
+    if(h.healed>0){
+      const ok=await rebuildAndReload(statusEl,true);
+      if(ok){
+        rep=await api('/api/report?project='+S.cur);
+        const key=h.new_old||old;
+        if(!broken(key)){
+          statusEl.innerHTML=`✓ <b>self-healed</b> — applied in `
+            +`${rep[key]??'?'} place(s)`;
+          return true;
+        }
+      }
     }
-    if(old in rep)statusEl.textContent=`✓ applied in ${rep[old]} place(s)`;
+    const why=((h.log||'').match(/STUCK:.*$/m)||[])[0]||'';
+    statusEl.innerHTML='<b style="color:var(--err)">⚠ this edit did not '
+     +'take effect, and self-heal could not fix it safely.</b> '
+     +(why?esc(why.replace(/^STUCK:\s*/,''))
+          :'The text differs from the source — click a shorter/different '
+           +'fragment, or tell the 🤖 AI what you want instead.');
+    return false;
   }catch(e){}
   return true;
 }

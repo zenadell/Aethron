@@ -20,6 +20,9 @@ Commands (run inside a project dir, except init):
   forge.py localize     download every CDN asset under brand-free names
   forge.py card         design fingerprint (palette/fonts/motion) ->
                         design_card.json — feeds the studio's library
+  forge.py heal         SELF-HEAL broken fills from the last report:
+                        flex/casing/nearest-source adoption — never a
+                        guess; prints HEALED/STUCK per entry
 
 Read PLAYBOOK.md for the model-facing workflow.
 """
@@ -819,6 +822,155 @@ def _static_slice(m):
         + rest)
 
 
+# ─────────────────────────── heal ────────────────────────────────────
+# SELF-HEALING for failed edits. The report tells us with certainty
+# which fills replaced nothing (zeros) or would be reverted by
+# hydration (__at_risk__). Every cause we know has a DETERMINISTIC
+# fix, so no model touches the mechanics — the ladder:
+#   1. flex upgrade        old matches source, just wrapped/spaced
+#   2. casing adoption     old matches a real source string except case
+#   3. fuzzy adoption      old is a near-miss of ONE clear source
+#                          string (>=0.85 similarity) — adopt its exact
+#                          spelling, keep the owner's new text
+#   4. honest diagnosis    say exactly why + the closest candidates,
+#                          never guess
+# Byte budgets stay law: a healed old that lives in CMS refuses the
+# fix (with the exact overshoot) rather than let build die later.
+
+def _heal_corpus(root: Path, cfg: dict):
+    """Every string a user could legitimately be editing, from all
+    three layers — the candidate universe for adoption."""
+    texts = [(root / "pristine" / p).read_text(encoding="utf-8",
+                                               errors="ignore")
+             for p in cfg["pages"]]
+    chunk_ts = [p.read_text(encoding="utf-8", errors="ignore")
+                for p in (root / "pristine" / "chunks").glob("*.mjs")]
+    blobs = [p.read_bytes()
+             for p in (root / "pristine" / "cms").glob("*.framercms")]
+    cands = set()
+    for t in texts:
+        te = TextExtract()
+        te.feed(t)
+        cands |= {s for s in te.out if len(s) >= 3}
+    for t in chunk_ts:
+        cands |= {m.group(1) for m in
+                  re.finditer(r"(?:text|children):\s*`([^`]{3,400})`", t)}
+    for p in (root / "pristine" / "cms").glob("*.framercms"):
+        cands |= {s for s in _string_dump_cms(p) if len(s) >= 3}
+    return texts + chunk_ts, blobs, sorted(cands)
+
+
+def cmd_heal(args):
+    import difflib
+    root = Path.cwd()
+    cfg = read_cfg(root)
+    cm = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+    report = {}
+    rp = root / "site" / ".forge-report.json"
+    if rp.exists():
+        report = json.loads(rp.read_text(encoding="utf-8"))
+    at_risk = set(report.get("__at_risk__", []))
+    only = args[args.index("--entry") + 1] if "--entry" in args else None
+
+    texts, blobs, cands = _heal_corpus(root, cfg)
+
+    def exact_any(s):
+        sb = s.encode()
+        return any(s in t for t in texts) or any(sb in b for b in blobs)
+
+    def flex_any(s):
+        pat = re.compile(_flex_pat(s))
+        return any(pat.search(t) for t in texts) or \
+            any(re.search(pat.pattern.encode(), b) for b in blobs)
+
+    def norm(s):
+        return re.sub(r"\s+", " ", s).strip()
+
+    def cms_budget(s):
+        sb = s.encode()
+        if any(sb in b for b in blobs):
+            return len(sb)
+        m = [len(x.group(0)) for b in blobs
+             for x in [re.search(re.compile(_flex_pat(s).encode()), b)] if x]
+        return min(m) if m else None
+
+    healed, stuck, changed = [], [], False
+    for e in cm.get("strings", []):
+        old, new = e["old"], (e.get("new") or "")
+        if not new or new == old:
+            continue
+        if only is not None:
+            if old != only:
+                continue
+        elif not (report.get(old) == 0 or old in at_risk):
+            continue                       # only touch what is broken
+        if old in set(report.get("__moot__", [])):
+            print(f"OK:     {old[:60]!r} -> nothing left to replace — "
+                  "longer fills already cover every mention")
+            continue
+
+        def adopt(src):
+            nonlocal changed
+            e["old"] = src
+            if " " in src and not exact_any(src):
+                e["flex"] = True
+            budget = cms_budget(src)
+            if budget is not None:
+                e["max_bytes"] = budget
+            changed = True
+
+        budget_new = len(new.encode())
+        if " " in old and not e.get("flex") and flex_any(old):
+            e["flex"] = True
+            changed = True
+            healed.append((old, "flex — source wraps/spaces it differently"))
+            continue
+        # casing: a real source string that differs only by case/space
+        ci = [c for c in cands if norm(c).lower() == norm(old).lower()]
+        if ci:
+            b = cms_budget(ci[0])
+            if b is not None and budget_new > b:
+                stuck.append((old, f"found the real string but your text "
+                              f"is {budget_new - b} byte(s) over its CMS "
+                              "budget — shorten it"))
+                continue
+            adopt(ci[0])
+            healed.append((old, f"adopted source casing: {ci[0][:60]!r}"))
+            continue
+        # fuzzy: ONE clear near-miss in the source
+        scored = sorted(((difflib.SequenceMatcher(None, norm(old).lower(),
+                                                  norm(c).lower()).ratio(), c)
+                         for c in cands if abs(len(c) - len(old)) <
+                         max(20, len(old))), reverse=True)
+        if scored and scored[0][0] >= 0.85:
+            best = scored[0][1]
+            b = cms_budget(best)
+            if b is not None and budget_new > b:
+                stuck.append((old, f"nearest source string found but your "
+                              f"text is {budget_new - b} byte(s) over its "
+                              "CMS budget — shorten it"))
+                continue
+            adopt(best)
+            healed.append((old, f"adopted nearest source string "
+                           f"({scored[0][0]:.0%}): {best[:60]!r}"))
+            continue
+        near = [c[:60] for _, c in scored[:3]]
+        stuck.append((old, "no source string is close enough — re-pick "
+                      f"the element in edit mode. Closest: {near}"))
+
+    if changed:
+        (root / "copy_map.json").write_text(
+            json.dumps(cm, indent=1, ensure_ascii=False), encoding="utf-8")
+    for o, why in healed:
+        print(f"HEALED: {o[:60]!r} -> {why}")
+    for o, why in stuck:
+        print(f"STUCK:  {o[:60]!r} -> {why}")
+    if not healed and not stuck:
+        print("nothing to heal — no broken fills in the last report")
+    print(f"heal: {len(healed)} fixed, {len(stuck)} need the owner"
+          + (" — rebuild to apply" if changed else ""))
+
+
 def _write_deploy(site: Path, cfg: dict):
     """Every build ships deploy-ready: the output is fully static
     (client-side CMS range slicing, real .js icon names), so the only
@@ -1188,12 +1340,47 @@ def cmd_build(_args):
             log(f"WARNING: {len(at_risk)} edit(s) landed in the pages but "
                 f"the chunks still spell the OLD text — hydration will "
                 f"revert them (first: {at_risk[0][:50]!r})")
+    # moot fills: zero hits BUT the old text existed in pristine and is
+    # GONE from the built output — longer fills already consumed every
+    # mention (classic brand mop-up tokens). That's success, not a dead
+    # edit; only zero-hit entries whose target never existed (typos) or
+    # still survives are genuinely broken.
+    tsuf = (".html", ".htm", ".mjs", ".js", ".css", ".svg")
+    pristine_txt = "\n".join(
+        f.read_text(encoding="utf-8", errors="ignore")
+        for f in (root / "pristine").rglob("*")
+        if f.is_file() and f.suffix in tsuf)
+    built_txt = "\n".join(
+        f.read_text(encoding="utf-8", errors="ignore")
+        for f in site.rglob("*") if f.is_file() and f.suffix in tsuf)
+    pristine_cms = [p.read_bytes()
+                    for p in (root / "pristine" / "cms").glob("*.framercms")]
+    built_cms = [p.read_bytes()
+                 for p in (site / "assets" / "cms").glob("*.framercms")] \
+        if (site / "assets" / "cms").exists() else []
+    # brand tokens are SPECULATIVE mop-up nets (inventory mints every
+    # case variant); one that never occurred is expected, not broken
+    cm_all = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+    token_olds = {e["old"] for sec in ("strings", "images", "links")
+                  for e in cm_all.get(sec, [])
+                  if "brand-token" in str(e.get("where", ""))}
+    moot = []
+    for p in pairs:
+        if stats.get(p["old"], 0):
+            continue
+        po, pb = p["old"], p["old"].encode()
+        in_pristine = po in pristine_txt or any(pb in b for b in pristine_cms)
+        in_built = po in built_txt or any(pb in b for b in built_cms)
+        if (in_pristine or po in token_olds) and not in_built:
+            moot.append(po)
     report = dict(stats)
     if at_risk:
         report["__at_risk__"] = at_risk
+    if moot:
+        report["__moot__"] = moot
     (site / ".forge-report.json").write_text(
         json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
-    zeros = [o for o, n in stats.items() if n == 0]
+    zeros = [o for o, n in stats.items() if n == 0 and o not in set(moot)]
     if zeros:
         log(f"WARNING: {len(zeros)} filled entr(ies) replaced NOTHING "
             f"(first: {zeros[0][:50]!r}) — see site/.forge-report.json")
@@ -1887,6 +2074,23 @@ local dev; the only host-side nicety left is routing unknown
 extension-less paths to /index.html for deep links (the shipped
 _redirects / 404.html / vercel.json cover the big hosts).
 
+## WHEN AN EDIT FAILS — the runbook (follow it, in order)
+A fill that "didn't work" is NEVER fixed by editing site/, pristine/
+or this platform's code. The system tells you exactly what happened:
+1. Read site/.forge-report.json after build. Your entry's count is
+   the number of real replacements. 0 = it matched nothing.
+   "__at_risk__" = it changed the pages but the chunks still spell
+   the old text — the browser will revert it on hydration.
+2. Run `python3 forge.py heal` (MCP: the heal tool). Deterministic
+   ladder: whitespace-flexible matching, source-casing adoption,
+   nearest-source-string adoption. It prints HEALED/STUCK per entry.
+3. Rebuild. Re-check the report.
+4. Still STUCK? The reason line says why (usually: the text you
+   targeted doesn't exist in the source, or your replacement is over
+   a CMS byte budget). Fix the ENTRY (copy_map.json via the content
+   API / set_content) — adjust "old" to the printed closest candidate
+   or shorten "new" — and rebuild. Never work around the pipeline.
+
 ## Where YOUR code goes
 - backend/app.py -> "EXTEND HERE" section: add endpoints freely
   (forms, auth, dashboards, webhooks). The static/API serving above it
@@ -2243,7 +2447,7 @@ def cmd_card(_args):
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "serve": cmd_serve,
-            "verify": cmd_verify, "card": cmd_card}
+            "verify": cmd_verify, "card": cmd_card, "heal": cmd_heal}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
