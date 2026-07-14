@@ -418,6 +418,9 @@ def cmd_inventory(_args):
                    for p in (root / "pristine" / "chunks").glob("*.mjs")] \
         if (root / "pristine" / "chunks").exists() else []
 
+    page_texts = {page: (root / "pristine" / page).read_text(
+        encoding="utf-8", errors="ignore") for page in cfg["pages"]}
+
     seen, strings = set(), []
 
     def add(s, source):
@@ -426,17 +429,34 @@ def cmd_inventory(_args):
         seen.add(s)
         b = s.encode()
         in_cms = any(b in blob for blob in cms_blobs)
-        strings.append({
+        entry = {
             "old": s,
             "new": "",
             "max_bytes": len(b) if in_cms else None,
             "scope": "all",
             "where": source + (["cms"] if in_cms else []),
-        })
+        }
+        # the HTML parser normalizes whitespace runs while harvesting —
+        # if the stored form no longer appears byte-for-byte in ANY
+        # layer (double spaces, hard wraps in the export), an exact
+        # replacement would hit the pages' tolerant pass but MISS the
+        # chunks, and hydration would revert the edit. Mark it flexible
+        # so every layer matches whitespace-tolerantly.
+        if " " in s and not in_cms \
+                and not any(s in t for t in page_texts.values()) \
+                and not any(s in t for t in chunk_texts):
+            entry["flex"] = True
+            fpat = re.compile(_flex_pat(s).encode())
+            sizes = [len(m.group(0)) for blob in cms_blobs
+                     for m in [fpat.search(blob)] if m]
+            if sizes:   # it DOES live in CMS, just wrapped — budget is law
+                entry["max_bytes"] = min(sizes)
+                entry["where"] = entry["where"] + ["cms"]
+        strings.append(entry)
 
     images, links = set(), set()
     for page in cfg["pages"]:
-        t = (root / "pristine" / page).read_text(encoding="utf-8", errors="ignore")
+        t = page_texts[page]
         p = TextExtract()
         p.feed(t)
         for s in p.out:
@@ -1150,8 +1170,29 @@ def cmd_build(_args):
     # effectiveness report: how many times each filled entry actually
     # replaced something, across ALL layers. Zero = the edit is a
     # silent no-op — surfaced loudly by the studio and MCP.
+    # hydration-revert guard: WORSE than zero is a multi-word fill that
+    # landed in the pages while the built chunks still spell the OLD
+    # text — React re-renders from the chunks, so the browser quietly
+    # shows the old text over a "successful" build. Flag those too.
+    at_risk = []
+    bdir = site / "assets" / "chunks"
+    if cfg["platform"] == "framer" and bdir.exists():
+        bc = "\n".join(p.read_text(encoding="utf-8", errors="ignore")
+                       for p in bdir.glob("*.mjs"))
+        for p in pairs:
+            if " " not in p["old"] or not p["new"].strip():
+                continue
+            if stats.get(p["old"], 0) and re.search(_flex_pat(p["old"]), bc):
+                at_risk.append(p["old"])
+        if at_risk:
+            log(f"WARNING: {len(at_risk)} edit(s) landed in the pages but "
+                f"the chunks still spell the OLD text — hydration will "
+                f"revert them (first: {at_risk[0][:50]!r})")
+    report = dict(stats)
+    if at_risk:
+        report["__at_risk__"] = at_risk
     (site / ".forge-report.json").write_text(
-        json.dumps(stats, indent=1, ensure_ascii=False), encoding="utf-8")
+        json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
     zeros = [o for o, n in stats.items() if n == 0]
     if zeros:
         log(f"WARNING: {len(zeros)} filled entr(ies) replaced NOTHING "

@@ -1122,6 +1122,24 @@ class Handler(BaseHTTPRequestHandler):
                         if c in idxn:
                             out = idxn[c]
                             break
+                    if out is not None and not out.get("flex") \
+                            and " " in (out.get("old") or ""):
+                        # inventory normalizes whitespace when it harvests
+                        # (double spaces, hard wraps) — if the stored form
+                        # no longer appears byte-for-byte in the source,
+                        # exact replacement misses the CHUNKS and hydration
+                        # reverts the edit. Upgrade to flexible matching.
+                        cfgx = json.loads((d / "forge.json").read_text())
+                        exact = any(
+                            out["old"] in (d / "pristine" / pg).read_text(
+                                encoding="utf-8", errors="ignore")
+                            for pg in cfgx["pages"]) or any(
+                            out["old"] in c2.read_text(
+                                encoding="utf-8", errors="ignore")
+                            for c2 in (d / "pristine" / "chunks").glob("*.mjs"))
+                        if not exact:
+                            out["flex"] = True
+                            created = True      # forces the copy-map save
                     if out is not None and \
                             "picked-in-editor" in str(out.get("where", "")):
                         # re-edit of a picked entry: recompute where it
@@ -1886,19 +1904,22 @@ function reloadFrames(){
 async function checkZeroEffect(){
   try{
     const rep=await api('/api/report?project='+S.cur);
+    const risk=new Set(rep.__at_risk__||[]);
     const zeros=[];
     for(const sec of ['strings','images','links'])
       for(const e of (S.cm&&S.cm[sec])||[])
-        if(e.new&&(e.old in rep)&&rep[e.old]===0)
+        if(e.new&&(((e.old in rep)&&rep[e.old]===0)||risk.has(e.old)))
           zeros.push(e.old.slice(0,70));
     S.zeroFx=zeros;
   }catch(e){S.zeroFx=[]}
   renderHeader();
 }
 function showZeroFx(){
-  alert('⚠ These filled entries replaced NOTHING in the last build — '
-   +'the source text differs (casing/splitting/punctuation). Re-pick '
-   +'the element in edit mode or reword the entry:\n\n- '
+  alert('⚠ These filled entries did NOT take effect in the last build — '
+   +'either they replaced nothing (source text differs: casing/'
+   +'splitting/punctuation) or the chunks still spell the old text '
+   +'(hydration would revert them). Re-pick the element in edit mode '
+   +'or reword the entry:\n\n- '
    +(S.zeroFx||[]).join('\n- '));
 }
 
@@ -2475,6 +2496,13 @@ async function assertTookEffect(old,statusEl){
        +'differs from the source (casing, splitting, punctuation). Try '
        +'clicking a shorter/different fragment, or tell the 🤖 AI what '
        +'you want instead.';
+      return false;
+    }
+    if((rep.__at_risk__||[]).includes(old)){
+      statusEl.innerHTML='<b style="color:var(--err)">⚠ saved, but the '
+       +'chunks still spell the OLD text — the live page would revert '
+       +'this edit.</b> Re-pick the element and save again (the entry '
+       +'is now whitespace-flexible), or reword slightly.';
       return false;
     }
     if(old in rep)statusEl.textContent=`✓ applied in ${rep[old]} place(s)`;
