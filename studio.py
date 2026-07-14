@@ -881,7 +881,7 @@ class Handler(BaseHTTPRequestHandler):
                          "fonts", "sections", "features", "counts")}})
                 if not cards:
                     return self.fail("library is empty — open a project "
-                                     "and hit 📚 save design first")
+                                     "and hit Save design first")
                 out = call_model(st, MATCH_PROMPT % {
                     "plan": plan[:2000],
                     "cards": json.dumps(cards, ensure_ascii=False)[:12000]})
@@ -1364,8 +1364,8 @@ class Handler(BaseHTTPRequestHandler):
                                     f'"{el["frname"]}" is a generic Framer '
                                     "name used all over the site — hiding "
                                     "by it would remove unrelated elements "
-                                    "too. Click ⬆ to a more specific "
-                                    "parent and remove that instead.")
+                                    "too. Climb the breadcrumb chips to a "
+                                    "more specific parent and remove that.")
                     elif el.get("classes"):
                         sel = el["tag"] + "".join("." + c
                                                   for c in el["classes"])
@@ -1475,18 +1475,18 @@ INDEX_HTML = r"""<!doctype html>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root{
---bg:#0b0d12;--panel:#11141b;--panel2:#171b24;--field:#0d1016;
---line:rgba(148,163,184,.10);--line2:rgba(148,163,184,.20);
---tx:#edf1f7;--dim:#8b96a9;
---acc:#f59e0b;--acc2:#fbbf24;--accg:linear-gradient(135deg,#fbbf24,#f97316);
---ok:#4ade80;--err:#fb7185;
+--bg:#161513;--panel:#1c1b19;--panel2:#232220;--field:#111110;
+--line:rgba(255,255,255,.06);--line2:rgba(255,255,255,.13);
+--tx:#f2f0ea;--dim:#96938a;
+--acc:#d97757;--acc2:#e08b6d;--accg:#cd6f4f;
+--ok:#7ec699;--err:#e5695e;
 --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
---r:10px;--r2:14px;
+--r:8px;--r2:12px;
 --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -8px rgba(0,0,0,.5);
 --inset:inset 0 1px 0 rgba(255,255,255,.04);
 --ease:cubic-bezier(.2,.8,.2,1)}
 *{box-sizing:border-box;margin:0}
-::selection{background:rgba(245,158,11,.28)}
+::selection{background:rgba(217,119,87,.30)}
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:rgba(148,163,184,.16);border-radius:99px;
 border:3px solid var(--bg)}
@@ -1496,19 +1496,35 @@ body{display:flex;height:100vh;background:var(--bg);color:var(--tx);
 font:14px/1.55 Inter,-apple-system,system-ui,sans-serif;overflow:hidden;
 -webkit-font-smoothing:antialiased;letter-spacing:.005em}
 button,input,select,textarea{font:inherit}
+.ic{flex:none;pointer-events:none}
+button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+button.iconbtn{width:31px;height:31px;padding:0;color:var(--dim);
+border-radius:8px}
+button.iconbtn:hover{color:var(--tx)}
+#tour{position:fixed;inset:0;z-index:1000;display:none}
+#tour.on{display:block}
+#tourhole{position:absolute;border-radius:12px;pointer-events:none;
+box-shadow:0 0 0 9999px rgba(12,11,10,.72);
+border:1.5px solid rgba(217,119,87,.7);transition:all .3s var(--ease)}
+.tourbox{position:absolute;width:330px;max-width:calc(100vw - 32px);
+background:var(--panel2);border:1px solid var(--line2);border-radius:12px;
+padding:16px 16px 13px;box-shadow:0 16px 48px rgba(0,0,0,.55)}
+.tourbox h4{font-size:14px;margin:0 0 6px;letter-spacing:-.01em}
+.tourbox p{font-size:12.5px;color:var(--dim);line-height:1.65;margin:0}
+.tourbox .tnav{display:flex;gap:8px;margin-top:13px;align-items:center}
+.tourbox .tstep{font-size:11px;color:var(--dim);margin-right:auto;
+letter-spacing:.06em}
 
 /* ── sidebar ─────────────────────────────────────────────── */
-aside{width:264px;min-width:264px;background:
-linear-gradient(180deg,#12151d 0%,#0d1016 100%);
+aside{width:264px;min-width:264px;background:var(--panel);
 border-right:1px solid var(--line);display:flex;flex-direction:column;
 position:relative}
 aside::before{content:"";position:absolute;inset:0 0 auto 0;height:220px;
-background:radial-gradient(420px 200px at 20% -40px,rgba(245,158,11,.10),transparent 70%);
+background:radial-gradient(420px 200px at 20% -40px,rgba(217,119,87,.08),transparent 70%);
 pointer-events:none}
 .brand{padding:20px 18px 16px;font-weight:800;font-size:16.5px;
 letter-spacing:-.02em;border-bottom:1px solid var(--line);position:relative}
-.brand b{background:var(--accg);-webkit-background-clip:text;
-background-clip:text;color:transparent}
+.brand b{color:var(--tx)}
 .brand span{color:var(--dim);font-weight:500;font-size:13px}
 #plist{flex:1;overflow-y:auto;padding:10px}
 .pitem{padding:11px 12px;border-radius:var(--r);cursor:pointer;display:flex;
@@ -1527,8 +1543,8 @@ font-size:10.5px;color:var(--dim)}
 .plat{text-transform:uppercase;letter-spacing:.08em;font-weight:600;
 font-size:9.5px;padding:1.5px 7px;border-radius:99px;
 border:1px solid var(--line2)}
-.plat.framer{color:#93b4ff;border-color:rgba(99,140,255,.35)}
-.plat.webflow{color:#7dd3fc;border-color:rgba(56,189,248,.35)}
+.plat.framer{color:#a8b8e8;border-color:rgba(148,163,220,.3)}
+.plat.webflow{color:#8fc8e8;border-color:rgba(120,180,220,.3)}
 .pbar{height:3px;border-radius:99px;background:rgba(148,163,184,.12);
 margin-top:7px;overflow:hidden}
 .pbar i{display:block;height:100%;background:var(--accg);
@@ -1553,7 +1569,7 @@ border-radius:var(--r2);padding:15px;box-shadow:var(--shadow);
 display:flex;flex-direction:column;gap:9px;
 transition:border-color .16s var(--ease)}
 .libcard:hover{border-color:var(--line2)}
-.libcard.hit{border-color:rgba(245,158,11,.55)}
+.libcard.hit{border-color:rgba(217,119,87,.6)}
 .lc-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .lc-top b{font-size:14px;letter-spacing:-.01em;overflow:hidden;
 text-overflow:ellipsis;white-space:nowrap}
@@ -1578,7 +1594,7 @@ border:1px solid var(--line2);border-radius:9px;padding:8px 11px;
 width:100%;transition:border-color .15s,box-shadow .15s}
 input::placeholder,textarea::placeholder{color:var(--dim);opacity:.7}
 input:focus,textarea:focus,select:focus{outline:none;
-border-color:var(--acc);box-shadow:0 0 0 3px rgba(245,158,11,.18)}
+border-color:var(--acc);box-shadow:0 0 0 3px rgba(217,119,87,.20)}
 input[type=color]{padding:3px;height:34px;cursor:pointer}
 input[type=file]{border-style:dashed;cursor:pointer;font-size:12.5px}
 
@@ -1587,16 +1603,16 @@ button{background:var(--panel2);color:var(--tx);
 border:1px solid var(--line2);border-radius:9px;padding:7.5px 13px;
 cursor:pointer;white-space:nowrap;font-weight:500;font-size:13px;
 transition:all .16s var(--ease);box-shadow:var(--inset)}
-button:hover{border-color:rgba(245,158,11,.5);color:var(--acc2);
+button:hover{border-color:rgba(217,119,87,.55);color:var(--acc2);
 transform:translateY(-1px);box-shadow:var(--inset),0 4px 12px -4px rgba(0,0,0,.5)}
 button:active{transform:translateY(0) scale(.98)}
-button:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(245,158,11,.3)}
+button:focus-visible{outline:none;box-shadow:0 0 0 3px rgba(217,119,87,.35)}
 button.primary,button.big{background:var(--accg);border:none;
-color:#1a1206;font-weight:700;
-box-shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px -4px rgba(249,115,22,.45)}
-button.primary:hover,button.big:hover{color:#1a1206;filter:brightness(1.08);
+color:#fff7f2;font-weight:650;
+box-shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px -4px rgba(205,111,79,.35)}
+button.primary:hover,button.big:hover{color:#fff;filter:brightness(1.07);
 transform:translateY(-1px);
-box-shadow:0 2px 4px rgba(0,0,0,.3),0 8px 24px -6px rgba(249,115,22,.55)}
+box-shadow:0 2px 4px rgba(0,0,0,.3),0 8px 24px -6px rgba(205,111,79,.45)}
 button.big{font-size:13.5px;padding:9px 18px;border-radius:10px}
 button:disabled{opacity:.4;pointer-events:none}
 
@@ -1604,7 +1620,7 @@ button:disabled{opacity:.4;pointer-events:none}
 main{flex:1;display:flex;flex-direction:column;min-width:0}
 header{display:flex;align-items:center;gap:14px;padding:13px 20px;
 border-bottom:1px solid var(--line);
-background:rgba(17,20,27,.85);backdrop-filter:blur(14px);z-index:5}
+background:rgba(28,27,25,.85);backdrop-filter:blur(14px);z-index:5}
 #ptitle{font-weight:700;font-size:15px;letter-spacing:-.015em}
 .steps{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;
 align-items:center}
@@ -1612,12 +1628,12 @@ align-items:center}
 padding:6.5px 13px;border:1px solid var(--line2);border-radius:99px;
 cursor:pointer;color:var(--dim);font-weight:500;
 transition:all .16s var(--ease)}
-.step:hover{border-color:rgba(245,158,11,.5);color:var(--acc2);
+.step:hover{border-color:rgba(217,119,87,.55);color:var(--acc2);
 transform:translateY(-1px)}
 .step.done{color:var(--ok);border-color:rgba(74,222,128,.3);
 background:rgba(74,222,128,.06)}
-.step.run{color:var(--acc2);border-color:rgba(245,158,11,.5);
-background:rgba(245,158,11,.08)}
+.step.run{color:var(--acc2);border-color:rgba(217,119,87,.55);
+background:rgba(217,119,87,.10)}
 .step.run::before{content:"";width:9px;height:9px;border-radius:50%;
 border:2px solid var(--acc);border-top-color:transparent;
 animation:sp .7s linear infinite}
@@ -1640,7 +1656,7 @@ background:var(--panel2);border-bottom:1px solid var(--line)}
 background:rgba(148,163,184,.12);overflow:hidden}
 #progress .fill{height:100%;background:var(--accg);width:0;
 border-radius:99px;transition:width .45s var(--ease);
-box-shadow:0 0 12px rgba(249,115,22,.5)}
+box-shadow:0 0 12px rgba(205,111,79,.45)}
 #progress .lbl{font-size:13px;color:var(--acc2);white-space:nowrap;
 display:flex;align-items:center;gap:9px;font-weight:500}
 #progress .lbl::before{content:"";width:11px;height:11px;border-radius:50%;
@@ -1729,17 +1745,17 @@ display:flex;gap:8px;align-items:center;font-weight:600}
 transition-duration:.01ms !important}}
 </style></head><body>
 <aside>
-  <div class="brand">⚒ <b>Template Forge</b> <span>Studio</span></div>
+  <div class="brand"><span data-ic="anvil" data-ics="17"></span><b>Template Forge</b> <span>Studio</span></div>
   <div id="plist"></div>
   <button class="libbtn" id="libbtn" onclick="openLibrary()"
    title="every migration you save becomes a design card — palette,
 fonts, motion, structure. Describe a new project and the AI ranks
-your saved designs by fit.">📚 Design library</button>
+your saved designs by fit."><span data-ic="library"></span>Design library</button>
   <div class="newproj">
     <input id="npname" placeholder="new project name">
     <input id="npurl" placeholder="live template URL (scrapes all pages)">
     <input id="npfile" type="file" accept=".html,.htm,.zip" multiple>
-    <button class="primary" onclick="createProject()">＋ Create project</button>
+    <button class="primary" onclick="createProject()"><span data-ic="plus"></span>Create project</button>
     <div class="hint" style="font-size:11px">paste the LIVE template URL
      (home + subpages scraped automatically) — or upload an export, a
      zip, or all your separately-saved pages at once</div>
@@ -1749,6 +1765,7 @@ your saved designs by fit.">📚 Design library</button>
   <header>
     <div id="ptitle">no project selected</div>
     <div class="steps" id="steps"></div>
+    <button class="iconbtn" id="helpbtn" title="show the walkthrough" onclick="startTour(0)"><span data-ic="help"></span></button>
   </header>
   <div id="progress"><div class="lbl" id="prog-lbl">working…</div>
     <div class="bar"><div class="fill" id="prog-fill"></div></div></div>
@@ -1758,11 +1775,38 @@ your saved designs by fit.">📚 Design library</button>
    Paste a live Framer or Webflow URL on the left — or drop an export —
    and get back a rebranded site you fully own: your copy, your images,
    your links. No badge, no telemetry, pixel-identical design.<br><br>
-   <span style="font-size:12.5px;opacity:.75">⚡ Prepare · ✦ AI fill ·
-   ✏️ click-to-edit · 🔨 build · ⬇ ship</span></div></section>
+   <span style="font-size:12.5px;opacity:.75">Prepare · AI fill ·
+   click-to-edit · build · ship</span><br><br>
+   <button onclick="startTour(0)">Show me around</button></div></section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
+const ICONS={
+anvil:'<path d="M7 10H6a4 4 0 0 1-4-4 1 1 0 0 1 1-1h4"/><path d="M7 5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1 7 7 0 0 1-7 7H8a1 1 0 0 1-1-1z"/><path d="M9 12v5"/><path d="M15 12v5"/><path d="M5 20a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3 1 1 0 0 1-1 1H6a1 1 0 0 1-1-1"/>',
+zap:'<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+hammer:'<path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/>',
+undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>',
+play:'<polygon points="6 3 20 12 6 21 6 3"/>',
+download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+package:'<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+library:'<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+compass:'<circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>',
+trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>',
+palette:'<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+sparkles:'<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/>',
+wand:'<path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/>',
+alert:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+home:'<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+check:'<path d="M20 6 9 17l-5-5"/>',
+plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+snow:'<line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/><path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/><path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/>',
+pin:'<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/>',
+up:'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+rocket:'<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+help:'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'};
+const I=(n,s=14)=>`<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
+document.querySelectorAll('[data-ic]').forEach(n=>{n.outerHTML=I(n.dataset.ic,+(n.dataset.ics||14))});
 const S={projects:[],cur:null,info:null,cm:null,tab:'plan',log:'',running:null};
 const enc=new TextEncoder();
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -1834,7 +1878,7 @@ async function createProject(){
 const STEPS=[['fetch','1 Fetch'],['inventory','2 Inventory'],
              ['build','3 Build'],['verify','4 Verify']];
 function renderHeader(){
-  $('ptitle').textContent=S.view==='library'?'📚 Design library'
+  $('ptitle').textContent=S.view==='library'?'Design library'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
   if(!S.cur){$('steps').innerHTML='';$('tabs').innerHTML='';return;}
   const done={fetch:S.info?.fetched,inventory:S.info?.inventoried,
@@ -1845,39 +1889,39 @@ function renderHeader(){
   $('steps').innerHTML=
     (ready?'':`<button class="big" onclick="runAll()"
       title="fetch → inventory → build, in order, automatically">
-      ⚡ ${busy?'Preparing…':'Prepare project'}</button>`)
+      ${I('zap')}${busy?'Preparing…':'Prepare project'}</button>`)
    +`<details class="stepwrap"><summary>steps</summary><div class="stepchips">`
    +STEPS.map(([c,l])=>
     `<div class="step ${S.running===c?'run':done[c]?'done':''}"
       onclick="runStep('${c}')">${done[c]&&S.running!==c?'✓ ':''}${l}</div>`).join('')
    +(ready?`<div class="step" onclick="runAll()"
       title="re-fetch + re-inventory + build (fills are preserved)">
-      ⚡ Re-run all</div>
+      ${I('zap')}Re-run all</div>
      <div class="step" onclick="if(confirm('Download EVERY remote asset (css/js/images/fonts) into the project with brand-free names, then rebuild? The site stops depending on the template platform\\'s CDN entirely.'))runStep('localize').then(ok=>ok!==false&&runStep('build'))"
       title="full ownership: no more CDN dependency">
-      🏠 Localize assets</div>`:'')
+      ${I('home')}Localize assets</div>`:'')
    +`</div></details>`
    +(ready?`<button class="big" onclick="runStep('build')"
-      title="apply your edits to the site">🔨 Build</button>`:'')
+      title="apply your edits to the site">${I('hammer')}Build</button>`:'')
    +(S.zeroFx&&S.zeroFx.length?`<button onclick="showZeroFx()"
       style="border-color:var(--err);color:var(--err)"
       title="filled entries that replaced nothing in the last build"
-      >⚠ ${S.zeroFx.length} dead edit(s)</button>`:'')
+      >${I('alert')}${S.zeroFx.length} dead edit(s)</button>`:'')
    +(S.info&&S.info.undo?`<button onclick="doUndo()"
       title="revert the last change (copy map, styles, removals, config)"
-      >↩ Undo (${S.info.undo})</button>`:'')
-   +`<button onclick="openPreview()">▶ Preview</button>
+      >${I('undo')}Undo (${S.info.undo})</button>`:'')
+   +`<button onclick="openPreview()">${I('play')}Preview</button>
      <button title="deploy-ready: fully static, works on any host —
       DEPLOY.md inside has one-step instructions for Cloudflare Pages,
       Netlify, Vercel, GitHub Pages"
-      onclick="location='/api/download?project='+S.cur">⬇ site.zip</button>
+      onclick="location='/api/download?project='+S.cur">${I('download')}site.zip</button>
      <button title="whole rebuildable project: pristine + copy map +
       forge.py + backend API + AGENT_GUIDE — hand this to any dev or AI IDE"
-      onclick="location='/api/download?full=1&project='+S.cur">⬇ dev handoff</button>
+      onclick="location='/api/download?full=1&project='+S.cur">${I('package')}Dev handoff</button>
      <button title="save this template's design fingerprint (palette,
       fonts, motion, structure — never the files) to the library, so
       future plans can be matched against it"
-      onclick="saveToLibrary()">📚 save design</button>`;
+      onclick="saveToLibrary()">${I('library')}Save design</button>`;
   const tabs=[['plan','Plan & AI'],['strings','Strings'],['images','Images'],
               ['links','Links'],['preview','Preview'],['logs','Logs']];
   $('tabs').innerHTML=tabs.map(([t,l])=>
@@ -1985,18 +2029,18 @@ async function checkZeroEffect(){
   renderHeader();
 }
 async function showZeroFx(){
-  if(!confirm('⚠ These filled entries did NOT take effect in the last '
+  if(!confirm('These filled entries did NOT take effect in the last '
    +'build (replaced nothing, or the chunks still spell the old text '
    +'so the live page reverts them):\n\n- '
    +(S.zeroFx||[]).join('\n- ')
-   +'\n\n🩺 Run SELF-HEAL now? Deterministic only — flex matching, '
+   +'\n\nRun SELF-HEAL now? Deterministic only — flex matching, '
    +'source casing, nearest-source adoption. Nothing is guessed; '
    +'whatever it can\'t fix safely is reported with the reason. '
    +'(Undo covers it.)'))return;
   try{
     const h=await api('/api/heal',{project:S.cur});
     if(h.healed>0)await runStep('build');
-    alert(`🩺 self-heal: ${h.healed} fixed, ${h.stuck} need you\n\n`
+    alert(`self-heal: ${h.healed} fixed, ${h.stuck} need you\n\n`
       +(h.log||'').split('\n').filter(l=>/^(HEALED|STUCK)/.test(l))
         .join('\n').slice(0,1500));
   }catch(e){alert(e.message)}
@@ -2012,7 +2056,7 @@ async function openLibrary(){
 async function saveToLibrary(){
   try{
     const r=await api('/api/library/save',{project:S.cur});
-    alert(`saved "${r.id}" to the design library 📚 — `
+    alert(`saved "${r.id}" to the design library — `
       +`${(r.card.palette||[]).length} colors, `
       +`${(r.card.fonts||[]).length} fonts, `
       +`${(r.card.sections||[]).length} sections captured`);
@@ -2022,11 +2066,11 @@ function libCard(cd,reason){
   const pal=(cd.palette||[]).slice(0,8)
     .map(x=>`<i title="${esc(x)}" style="background:${esc(x)}"></i>`).join('');
   const f=cd.features||{},ct=cd.counts||{},feats=[];
-  if(f.hover_variants)feats.push('✦ hover cards');
+  if(f.hover_variants)feats.push('hover cards');
   if(f.rotators)feats.push('⟳ text rotator');
-  if(f.split_text_runs)feats.push('✂ split text');
+  if(f.split_text_runs)feats.push('split text');
   if(f.marquee)feats.push('∞ marquee');
-  if(f.appear_animations)feats.push('✨ appear');
+  if(f.appear_animations)feats.push('appear');
   if(f.cms_collections)feats.push(`${f.cms_collections} CMS`);
   feats.push(`${ct.pages||1} page${(ct.pages||1)>1?'s':''}`);
   if(ct.images)feats.push(`${ct.images} images`);
@@ -2041,7 +2085,7 @@ function libCard(cd,reason){
    <div class="lc-feats">${feats.map(x=>`<span>${x}</span>`).join('')}</div>
    ${reason?`<div class="lc-why">${esc(reason)}</div>`:''}
    <div class="lc-btns">
-    <button class="primary" onclick="startFromLibrary('${esc(cd.id)}')">🚀 Start from this</button>
+    <button class="primary" onclick="startFromLibrary('${esc(cd.id)}')">${I('rocket')}Start from this</button>
     <button title="remove the card (the project itself is untouched)"
      onclick="delLibrary('${esc(cd.id)}')">✕</button></div></div>`;
 }
@@ -2052,20 +2096,20 @@ async function renderLibrary(c){
   c.innerHTML=`<div class="libwrap">
    <div class="libmatch">
     <textarea id="libplan" rows="3" placeholder="describe the new project — brand, industry, tone, must-have sections… the AI ranks your saved designs by fit">${esc(S.libPlan||'')}</textarea>
-    <button class="primary" onclick="matchLibrary()">✦ Match my plan</button>
+    <button class="primary" onclick="matchLibrary()">${I('sparkles')}Match my plan</button>
    </div>
    <div class="hint" style="margin-top:8px">cards hold only design
     fingerprints (palette, fonts, motion, structure) — never template
-    files. 🚀 re-imports from the card's source URL or your own local
+    files. Start-from re-imports from the card's source URL or your own local
     project, so a shared library stays license-clean.</div>
    <div id="libmatches"></div>
    <div class="libgrid">${cards.map(cd=>libCard(cd)).join('')
-     ||'<div class="empty" style="grid-column:1/-1">library is empty — open a project and hit 📚 save design</div>'}</div></div>`;
+     ||'<div class="empty" style="grid-column:1/-1">library is empty — open a project and hit Save design</div>'}</div></div>`;
 }
 async function matchLibrary(){
   const plan=$('libplan').value.trim();S.libPlan=plan;
   const btn=document.querySelector('.libmatch .primary');
-  btn.disabled=true;btn.textContent='✦ matching…';
+  btn.disabled=true;btn.textContent='matching…';
   try{
     const r=await api('/api/ai/match',{plan,...aiCfg()});
     $('libmatches').innerHTML=
@@ -2075,7 +2119,7 @@ async function matchLibrary(){
         return cd?libCard(cd,(m.score!=null?m.score+'% — ':'')+(m.reason||'')):'';
       }).join('')+'</div>';
   }catch(e){alert(e.message)}
-  btn.disabled=false;btn.textContent='✦ Match my plan';
+  btn.disabled=false;btn.innerHTML=I('sparkles')+'Match my plan';
 }
 async function startFromLibrary(id){
   const name=prompt(`new project name (built from "${id}"):`);
@@ -2083,7 +2127,7 @@ async function startFromLibrary(id){
   try{
     const r=await api('/api/library/start',{id,name});
     await select(r.name);
-    alert(`project "${r.name}" created — hit ⚡ Prepare project, then
+    alert(`project "${r.name}" created — hit Prepare project, then
 write your plan and fill.`);
   }catch(e){alert(e.message)}
 }
@@ -2140,7 +2184,7 @@ async function renderPlan(c,t){
     (near-instant animations — baked into the build)</label>
   <div class="toolbar" style="margin-top:10px">
     <button class="primary" onclick="savePlan()">Save plan</button>
-    <button onclick="polishPlan()">✨ Polish rough plan with AI</button>
+    <button onclick="polishPlan()">${I('wand')}Polish rough plan with AI</button>
     <span class="hint" id="plansaved"></span></div>
   <div class="hint">too lazy for the format? type a few rough words
    ("jomiez, ai agency, chill tone, insta @jomiez") and hit Polish —
@@ -2156,7 +2200,7 @@ async function renderPlan(c,t){
    <div><label>API key</label><input id="aikey" type="password" value="${esc(a.api_key||'')}"></div>
   </div>
   <div class="toolbar">
-   <button class="primary" onclick="aiFill()">✦ Fill copy map with AI</button>
+   <button class="primary" onclick="aiFill()">${I('sparkles')}Fill copy map with AI</button>
    <span class="hint">batched · byte budgets & forbidden chars enforced
    server-side · rejected lines shown in Logs</span></div>
   <details><summary>No API key? Manual mode — paste into any chat model</summary>
@@ -2222,7 +2266,7 @@ async function mergePaste(){
   }catch(e){$('mergeres').textContent=e.message}
 }
 
-// ---------- 🤖 natural-language element editing ----------
+// ---------- natural-language element editing ----------
 function elementContext(el,r){
   const ctx={tag:el.tag,name:el.frname||null,classes:el.classes,
     old:r.old||null,current_text:r.new||r.old||null,
@@ -2261,11 +2305,11 @@ function wireAI(el,r){
     const a=aiCfg();
     if(!a.api_key)return $('aiexplain').textContent=
       'set your model + API key in Plan & AI first';
-    $('aiexplain').textContent='🤖 thinking…';
+    $('aiexplain').textContent='AI is thinking…';
     try{
       const res=await api('/api/ai/edit',{project:S.cur,instruction:instr,
         context:elementContext(el,r),...a});
-      $('aiexplain').textContent='🤖 '+(res.explain||res.did.join(' · '));
+      $('aiexplain').textContent=(res.explain||res.did.join(' · '));
       await rebuildAndReload($('epstatus'));
     }catch(e){$('aiexplain').textContent=e.message}
   };
@@ -2273,7 +2317,7 @@ function wireAI(el,r){
   $('aiinstr').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
 }
 
-// ---------- style editor (🎨 in the pick panel) ----------
+// ---------- style editor (in the pick panel) ----------
 const FREEZE={animation:'none',transition:'none',transform:'none',opacity:'1'};
 function styleTargets(el){
   const scope=document.querySelector('input[name=stscope]:checked')?.value||'one';
@@ -2437,19 +2481,19 @@ async function renderPreview(c,t){
   c.innerHTML='<div class="empty">starting preview…</div>';
   if(S.editMode){
     c.innerHTML=`<div class="toolbar">
-     <button class="primary" onclick="S.editMode=false;renderTab()">✔ done editing</button>
-     <button id="pickToggle" onclick="togglePick()">🧭 Browse</button>
+     <button class="primary" onclick="S.editMode=false;renderTab()">${I('check')}Done editing</button>
+     <button id="pickToggle" onclick="togglePick()">${I('compass')}Browse</button>
      <button id="hoverToggle" onclick="toggleHover()"
       title="frozen: hover cards stay in rest state so you can edit the
 front. sticky: hovering PINS a card's hover state so you can edit the
-back (bio, socials).">🧊 hover frozen</button>
+back (bio, socials).">${I('snow')}Hover frozen</button>
      <button onclick="try{$('editframe').contentWindow.history.back()}catch(e){}"
        title="back">←</button>
      <select id="editpage" style="max-width:200px"
       onchange="if(this.value!=='')$('editframe').src='/edit/${S.cur}/'+(this.value==='index.html'?'':this.value)">
       <option value="index.html">home</option></select>
      <span class="hint" id="edithint">EDIT MODE — click anything to change
-      it. 🧭 Browse switches to normal clicking (links navigate); the
+      it. Browse switches to normal clicking (links navigate); the
       dropdown lists this site's pages.</span></div>
      <iframe id="editframe" src="/edit/${S.cur}/"
       onload="harvestRoutes();syncPickMode()"></iframe>`;
@@ -2460,7 +2504,7 @@ back (bio, socials).">🧊 hover frozen</button>
     const {port}=await api('/api/preview',{project:S.cur});
     if(t!==undefined&&t!==RT)return;
     c.innerHTML=`<div class="toolbar">
-     <button onclick="S.editMode=true;renderTab()">✏️ edit mode</button>
+     <button onclick="S.editMode=true;renderTab()">${I('pencil')}Edit mode</button>
      <span class="hint">live at <a href="http://127.0.0.1:${port}/" target="_blank"
       style="color:var(--acc2)">http://127.0.0.1:${port}/</a> — a real
       forge serve (range protocol + MIME), so what you see is what ships</span>
@@ -2478,14 +2522,14 @@ function syncPickMode(){
     f.contentWindow.postMessage({forge:'mode',picking:S.picking!==false,
       hover:S.hoverMode||'freeze'},'*');
   const b=$('pickToggle');
-  if(b)b.textContent=S.picking===false?'✏️ Edit':'🧭 Browse';
+  if(b)b.innerHTML=S.picking===false?I('pencil')+'Edit':I('compass')+'Browse';
   const ht=$('hoverToggle');
-  if(ht)ht.textContent=(S.hoverMode||'freeze')==='freeze'
-    ?'🧊 hover frozen':'📌 hover sticky';
+  if(ht)ht.innerHTML=(S.hoverMode||'freeze')==='freeze'
+    ?I('snow')+'Hover frozen':I('pin')+'Hover sticky';
   const h=$('edithint');
   if(h)h.textContent=S.picking===false
-    ?'BROWSE MODE — clicks navigate like a normal site. Hit ✏️ Edit to pick elements again.'
-    :'EDIT MODE — click anything to change it. 🧭 Browse switches to normal clicking (links navigate); the dropdown lists this site\'s pages.';
+    ?'BROWSE MODE — clicks navigate like a normal site. Hit Edit to pick elements again.'
+    :'EDIT MODE — click anything to change it. Browse switches to normal clicking (links navigate); the dropdown lists this site\'s pages.';
 }
 function togglePick(){S.picking=S.picking===false?true:false;syncPickMode();}
 function toggleHover(){
@@ -2577,7 +2621,7 @@ async function assertTookEffect(old,statusEl){
       if(old in rep)statusEl.textContent=`✓ applied in ${rep[old]} place(s)`;
       return true;
     }
-    statusEl.textContent='🩺 self-healing…';
+    statusEl.textContent='self-healing…';
     const h=await api('/api/heal',{project:S.cur,old});
     if(h.healed>0){
       const ok=await rebuildAndReload(statusEl,true);
@@ -2592,11 +2636,11 @@ async function assertTookEffect(old,statusEl){
       }
     }
     const why=((h.log||'').match(/STUCK:.*$/m)||[])[0]||'';
-    statusEl.innerHTML='<b style="color:var(--err)">⚠ this edit did not '
+    statusEl.innerHTML='<b style="color:var(--err)">This edit did not '
      +'take effect, and self-heal could not fix it safely.</b> '
      +(why?esc(why.replace(/^STUCK:\s*/,''))
           :'The text differs from the source — click a shorter/different '
-           +'fragment, or tell the 🤖 AI what you want instead.');
+           +'fragment, or tell the AI what you want instead.');
     return false;
   }catch(e){}
   return true;
@@ -2632,7 +2676,7 @@ function openEditPanel(kind,r,el){
    `<div class="toolbar" style="flex-wrap:wrap;gap:4px;margin-top:6px">
      <span class="pill ok">${esc(el.tag)}${el.frname?' “'+esc(el.frname)+'”':''}</span>
      ${el.ancestors.map((a,i)=>`<button data-anc="${i}"
-       style="font-size:11px;padding:3px 8px">⬆ ${esc(a.tag)}${
+       style="font-size:11px;padding:3px 8px">${I('up',11)}${esc(a.tag)}${
        a.frname?' “'+esc(a.frname.slice(0,18))+'”':
        a.classes[0]?'.'+esc(a.classes[0].slice(0,16)):''}</button>`).join('')}
     </div><div class="hint">HOVER a chip to light up that element in
@@ -2640,14 +2684,14 @@ function openEditPanel(kind,r,el){
      want to style</div>`:'';
   p.innerHTML=`<h3>${isC?'Style element':kind==='image'?'Replace image':'Edit text'}
     ${r.created?'<span class="pill">new entry</span>':''}</h3>
-   ${lost?`<div class="hint" style="color:var(--err)">⚠ this exact text
+   ${lost?`<div class="hint" style="color:var(--err)">Heads-up: this exact text
     couldn't be located in the source — it's probably split into
     fragments. Try clicking a SHORTER piece of it.</div>`:''}
    ${f&&f.chunks&&!f.html?`<div class="hint" style="color:var(--ok)">
-    ✂ split-per-character text detected — handled automatically: the
+    Split-per-character text detected — handled automatically: the
     build rebuilds the character spans so the entrance animation is
     fully preserved.</div>`:''}
-   ${r.huge?`<div class="hint" style="color:var(--acc2)">⚠ this element
+   ${r.huge?`<div class="hint" style="color:var(--acc2)">Careful: this element
     spans (almost) the whole page — a background here paints
     everything. Check the green outline before applying.</div>`:''}
    <div class="hint" style="word-break:break-word">${esc((r.old||'').slice(0,140))}</div>
@@ -2656,7 +2700,7 @@ function openEditPanel(kind,r,el){
      ?`<input id="epval" placeholder="/assets/… or any URL" value="${esc(r.new||'')}">
        <input type="file" id="epfile" accept="image/*,.svg" style="margin-top:8px">
        <div class="hint">replacing changes EVERY use of this image. Need a
-        different image only in THIS spot (shared asset)? use 🎨 custom
+        different image only in THIS spot (shared asset)? use custom
         CSS below: content: url(/assets/yourfile.svg) with "this element
         only"</div>`
      :r.rotator?`<div class="hint" style="color:var(--acc2)">⟳ rotating
@@ -2670,15 +2714,15 @@ function openEditPanel(kind,r,el){
    ${budget}
    <div class="toolbar" style="margin-top:10px">
     ${isC?'':'<button class="primary" id="epsave">Save & rebuild</button>'}
-    ${el?`<button id="epremove" style="border-color:var(--err);color:var(--err)">🗑 Remove</button>`:''}
+    ${el?`<button id="epremove" style="border-color:var(--err);color:var(--err)">${I('trash')}Remove</button>`:''}
     <button onclick="closePanel()">Cancel</button>
     <span class="hint" id="epstatus"></span></div>
    ${el?`<div class="toolbar" style="margin-top:8px">
-     <input id="aiinstr" class="grow" placeholder='🤖 tell the AI… e.g. "better color to match the page" or "punchier wording"'>
+     <input id="aiinstr" class="grow" placeholder='tell the AI… e.g. "better color to match the page" or "punchier wording"'>
      <button id="aigo">Do it</button></div>
      <div class="hint" id="aiexplain"></div>`:''}
    ${el?`<details id="styledet" style="margin-top:8px"${isC?' open':''}>
-    <summary>🎨 Style & motion (baked into the code)</summary>
+    <summary>${I('palette')}Style & motion (baked into the code)</summary>
     <div class="row" style="margin-top:8px">
      <div><label>Text color</label><input type="color" id="stcolor" data-p="color"></div>
      <div><label>Background</label><input type="color" id="stbg" data-p="background-color"></div>
@@ -2756,7 +2800,63 @@ function openEditPanel(kind,r,el){
   };
 }
 
+// ---------- first-run walkthrough ----------
+const TOUR=[
+ {sel:'.newproj',t:'Bring a template',
+  b:'Paste a live Framer or Webflow URL — every page is scraped automatically — or drop an export file, a zip, or all your separately saved pages at once.'},
+ {sel:'#plist',t:'Your projects',
+  b:'Each project tracks how much of the template\'s copy is already yours. Click one to open it; nothing you do here ever touches the pristine original.'},
+ {sel:'#steps',t:'Prepare, then build',
+  b:'Prepare runs fetch → inventory → build in order, automatically. After that: Build applies your edits to every layer, Verify runs machine checks, Undo reverts any change.'},
+ {sel:'#tabs',t:'Fill it with AI — or by hand',
+  b:'In Plan & AI, write a few rough words about your brand; the AI polishes a plan and fills every string within hard byte budgets — any model works, or paste fills manually with no API key. Strings, Images and Links give precise control.'},
+ {sel:'#tabs',t:'Click-to-edit anything',
+  b:'Preview → Edit mode: click any text, image, button or section on the live site to rewrite, restyle or remove it. Every change is baked into the shipped code — and edits that don\'t take effect self-heal automatically.'},
+ {sel:'#steps',t:'Ship it anywhere',
+  b:'site.zip is fully static — Cloudflare Pages, Netlify, Vercel, GitHub Pages, any host. Dev handoff exports the whole rebuildable project with a content API and an agent guide for AI IDEs.'}];
+let tourEl=null;
+function startTour(i){
+  if(i==null||i<0||i>=TOUR.length){endTour();return}
+  if(!tourEl){
+    tourEl=document.createElement('div');tourEl.id='tour';
+    tourEl.innerHTML='<div id="tourhole"></div><div class="tourbox"></div>';
+    tourEl.onclick=e=>{if(e.target===tourEl)endTour()};
+    document.body.appendChild(tourEl);
+  }
+  tourEl.className='on';
+  const st=TOUR[i],el=document.querySelector(st.sel),
+        hole=tourEl.querySelector('#tourhole'),
+        box=tourEl.querySelector('.tourbox');
+  let r=el&&el.getBoundingClientRect();
+  if(!r||r.width<4||r.height<4)r=null;
+  if(r){
+    hole.style.display='block';
+    hole.style.left=(r.left-7)+'px';hole.style.top=(r.top-7)+'px';
+    hole.style.width=(r.width+14)+'px';hole.style.height=(r.height+14)+'px';
+  }else hole.style.display='none';
+  box.innerHTML=`<h4>${st.t}</h4><p>${st.b}</p>
+   <div class="tnav"><span class="tstep">${i+1} / ${TOUR.length}</span>
+   <button onclick="endTour()" style="border:none;background:none;color:var(--dim)">Skip</button>
+   ${i?'<button onclick="startTour('+(i-1)+')">Back</button>':''}
+   <button class="primary" onclick="${i<TOUR.length-1?'startTour('+(i+1)+')':'endTour()'}">
+   ${i<TOUR.length-1?'Next':'Done'}</button></div>`;
+  const bw=346,bh=box.offsetHeight||190,vw=innerWidth,vh=innerHeight;
+  let x,y;
+  if(r){
+    x=Math.min(Math.max(r.left,16),vw-bw-16);
+    y=r.bottom+18+bh<vh?r.bottom+16:r.top-bh-16;
+    if(y<16)y=Math.max(16,(vh-bh)/2);
+    if(r.right+bw+32<vw&&(r.bottom+18+bh>=vh)&&(r.top-bh-16<16))x=r.right+16,y=Math.max(16,Math.min(r.top,vh-bh-16));
+  }else{x=(vw-bw)/2;y=(vh-bh)/2}
+  box.style.left=x+'px';box.style.top=y+'px';
+}
+function endTour(){
+  if(tourEl)tourEl.className='';
+  localStorage.forge_tour='done';
+}
+
 refresh();
+if(!localStorage.forge_tour)setTimeout(()=>startTour(0),700);
 </script></body></html>
 """
 
