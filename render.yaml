@@ -1,0 +1,14 @@
+# One-click Render deploy: your own private Aethron instance.
+#   1. Fork/clone the repo  2. render.com -> New -> Blueprint -> pick it
+#   3. Set STUDIO_PASSWORD when prompted (user is 'aethron')
+# Free tier note: the disk is ephemeral — projects reset on redeploy.
+# Attach a paid disk to /app/projects if you want them to persist.
+services:
+  - type: web
+    name: aethron-studio
+    runtime: docker
+    plan: free
+    envVars:
+      - key: STUDIO_PASSWORD
+        sync: false   # you choose it in the dashboard — never commit it
+    healthCheckPath: /

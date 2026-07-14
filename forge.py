@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Template Forge — make bought/designed Framer & Webflow templates YOURS.
+"""Aethron — make bought/designed Framer & Webflow templates YOURS.
 
 Automates the full ownership migration proven on the Servly project:
 pristine sources in, one editable copy_map.json, generated site out.
@@ -1071,7 +1071,7 @@ Upload as-is. Optional: route unknown extension-less paths to
 
 ## Local
 `python3 serve.py` -> http://127.0.0.1:8000/
-(platform: {cfg['platform']}; migrated with Template Forge)
+(platform: {cfg['platform']}; migrated with Aethron)
 """, encoding="utf-8")
 
 
@@ -1443,7 +1443,7 @@ def cmd_build(_args):
     # ship the runner + a README so the folder is self-explanatory to
     # any human or AI that receives it
     (site / "serve.py").write_text(SERVE_PY, encoding="utf-8")
-    readme = ("This site was migrated with Template Forge.\n\n"
+    readme = ("This site was migrated with Aethron.\n\n"
               "RUN IT LOCALLY:  python3 serve.py  ->  "
               "http://127.0.0.1:8000/\n\n"
               "DEPLOY IT: this folder is fully static — see DEPLOY.md "
@@ -1642,7 +1642,7 @@ The build is fully static — see DEPLOY.md for one-step hosting
 (Cloudflare Pages, Netlify, Vercel, GitHub Pages, any CDN). This
 runner is the nicest local dev server: it also implements the exact
 Framer protocols (CMS ?range= byte slices, .js MIME, SPA route
-fallback), which older Template Forge builds require.
+fallback), which older Aethron builds require.
 """
 import re, sys, urllib.parse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -2089,7 +2089,7 @@ if __name__ == "__main__":
 AGENT_GUIDE = """# AGENT GUIDE — read this before touching anything
 
 This folder is a migrated {PLATFORM} template project produced by
-Template Forge. It is fully self-contained: you can rebuild, serve,
+Aethron. It is fully self-contained: you can rebuild, serve,
 and extend it. There is exactly ONE rule that keeps everything safe:
 
     NEVER hand-edit site/ or pristine/.

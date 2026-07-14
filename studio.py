@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Template Forge Studio — a local AI IDE for template migrations.
+"""Aethron Studio — a local AI IDE for template migrations.
 
 One command:  python3 studio.py [port]   (default 8899, binds 127.0.0.1)
 
@@ -23,6 +23,7 @@ through copy_map.json + build, keeping all forge invariants intact.
 """
 import atexit
 import base64
+import os
 import io
 import json
 import mimetypes
@@ -576,6 +577,22 @@ document.addEventListener('click',function(e){
 # ───────────────────────── HTTP handler ──────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
+    def _authed(self):
+        # HTTP Basic auth, only when STUDIO_PASSWORD is set (hosted
+        # instances). User is always 'aethron'.
+        pw = os.environ.get("STUDIO_PASSWORD")
+        if not pw:
+            return True
+        want = "Basic " + base64.b64encode(
+            f"aethron:{pw}".encode()).decode()
+        if self.headers.get("Authorization", "") == want:
+            return True
+        self.send_response(401)
+        self.send_header("WWW-Authenticate",
+                         'Basic realm="Aethron Studio"')
+        self.end_headers()
+        return False
+
     def log_message(self, *a):
         pass
 
@@ -600,6 +617,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ GET
     def do_GET(self):
+        if not self._authed():
+            return
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:
@@ -764,6 +783,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ----------------------------------------------------------- POST
     def do_POST(self):
+        if not self._authed():
+            return
         u = urllib.parse.urlparse(self.path)
         try:
             n = int(self.headers.get("Content-Length") or 0)
@@ -1471,7 +1492,7 @@ class Handler(BaseHTTPRequestHandler):
 INDEX_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Template Forge Studio</title>
+<title>Aethron Studio</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root{
@@ -1730,12 +1751,24 @@ details summary:hover{color:var(--tx)}
 
 /* ── edit panel ──────────────────────────────────────────── */
 #editpanel{position:fixed;right:20px;bottom:20px;width:392px;z-index:99;
-background:rgba(17,20,27,.92);backdrop-filter:blur(20px);
-border:1px solid rgba(245,158,11,.45);border-radius:16px;
-padding:18px;box-shadow:0 24px 64px -12px rgba(0,0,0,.7),
-0 0 0 1px rgba(0,0,0,.3),var(--inset);
+background:rgba(28,27,25,.94);backdrop-filter:blur(20px);
+border:1px solid var(--line2);border-radius:14px;
+padding:18px;box-shadow:0 24px 64px -12px rgba(0,0,0,.7);
 animation:panelin .28s var(--ease);max-height:calc(100vh - 60px);
 overflow-y:auto}
+/* edit mode docks the panel in its own right rail so the TEMPLATE
+   stays fully visible and clickable — nothing floats over the site */
+#editrow{flex:1;display:flex;min-height:0}
+#editrow iframe{flex:1;min-width:0}
+#editdock{width:0;overflow:hidden;flex:none;background:var(--panel);
+transition:width .26s var(--ease)}
+#editdock.on{width:390px;border-left:1px solid var(--line);
+overflow-y:auto}
+#editdock #editpanel{position:static;width:100%;max-height:none;
+border:none;border-radius:0;box-shadow:none;background:transparent;
+backdrop-filter:none;animation:dockin .24s var(--ease)}
+@keyframes dockin{from{opacity:0;transform:translateX(16px)}
+to{opacity:1;transform:none}}
 @keyframes panelin{from{opacity:0;transform:translateY(14px) scale(.98)}
 to{opacity:1;transform:none}}
 #editpanel h3{font-size:13.5px;color:var(--acc2);margin-bottom:8px;
@@ -1745,7 +1778,7 @@ display:flex;gap:8px;align-items:center;font-weight:600}
 transition-duration:.01ms !important}}
 </style></head><body>
 <aside>
-  <div class="brand"><span data-ic="anvil" data-ics="17"></span><b>Template Forge</b> <span>Studio</span></div>
+  <div class="brand"><span data-ic="anvil" data-ics="17"></span><b>Aethron</b> <span>Studio</span></div>
   <div id="plist"></div>
   <button class="libbtn" id="libbtn" onclick="openLibrary()"
    title="every migration you save becomes a design card — palette,
@@ -2495,8 +2528,9 @@ back (bio, socials).">${I('snow')}Hover frozen</button>
      <span class="hint" id="edithint">EDIT MODE — click anything to change
       it. Browse switches to normal clicking (links navigate); the
       dropdown lists this site's pages.</span></div>
-     <iframe id="editframe" src="/edit/${S.cur}/"
-      onload="harvestRoutes();syncPickMode()"></iframe>`;
+     <div id="editrow"><iframe id="editframe" src="/edit/${S.cur}/"
+      onload="harvestRoutes();syncPickMode()"></iframe>
+      <div id="editdock"></div></div>`;
     S.picking=true;
     return;
   }
@@ -2588,7 +2622,7 @@ function openImageChooser(srcs,el){
      <span class="hint grow" style="word-break:break-all">…${esc(s.slice(-42))}</span>
      <button data-pick="${i}">this one</button></div>`).join('')
    +`<div class="toolbar"><button onclick="closePanel()">Cancel</button></div>`;
-  document.body.appendChild(p);
+  mountPanel(p);
   p.querySelectorAll('button[data-pick]').forEach(b=>b.onclick=async()=>{
     const r=await api('/api/entry/resolve',
       {project:S.cur,kind:'image',src:srcs[+b.dataset.pick]});
@@ -2662,7 +2696,13 @@ function hlTarget(sel){
   }catch(e){}
 }
 function closePanel(){const p=$('editpanel');if(p)p.remove();
+  const dk=$('editdock');if(dk)dk.classList.remove('on');
   hlTarget(null);clearLive();}
+function mountPanel(p){
+  const dk=$('editdock');
+  if(dk){dk.appendChild(p);dk.classList.add('on')}
+  else document.body.appendChild(p);
+}
 function openEditPanel(kind,r,el){
   closePanel();
   const p=document.createElement('div');
@@ -2743,7 +2783,7 @@ function openEditPanel(kind,r,el){
     <div class="hint">changes preview live; Apply writes them into the
      shipped code as !important rules (beats inline/runtime styles)</div>
    </details>`:''}`;
-  document.body.appendChild(p);
+  mountPanel(p);
   const upd=()=>{const b=$('epbudget');if(!b||!$('epval'))return;
     const n=enc.encode($('epval').value).length;
     b.textContent=n+' / '+r.max_bytes+' bytes (CMS)';
@@ -2866,8 +2906,20 @@ if __name__ == "__main__":
     if not FORGE.exists():
         print("ERROR: forge.py must sit next to studio.py")
         sys.exit(1)
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8899
+    # local by default; PORT env (Render/Railway/Fly) binds 0.0.0.0 so
+    # the platform's router can reach it. STUDIO_PASSWORD adds HTTP
+    # Basic auth — REQUIRED before exposing an instance to the internet
+    # (the studio is single-user by design: it writes to disk and runs
+    # subprocesses on behalf of whoever can reach it).
+    env_port = os.environ.get("PORT")
+    port = int(sys.argv[1] if len(sys.argv) > 1 else (env_port or 8899))
+    host = "0.0.0.0" if env_port else "127.0.0.1"
     PROJECTS.mkdir(exist_ok=True)
-    print(f"Template Forge Studio → http://127.0.0.1:{port}/")
+    if os.environ.get("STUDIO_PASSWORD"):
+        print("HTTP Basic auth: ON (user 'aethron')")
+    elif env_port:
+        print("WARNING: public bind without STUDIO_PASSWORD — anyone "
+              "who finds the URL controls this instance.")
+    print(f"Aethron Studio → http://{'127.0.0.1' if host != '0.0.0.0' else host}:{port}/")
     print(f"projects dir: {PROJECTS}")
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    ThreadingHTTPServer((host, port), Handler).serve_forever()

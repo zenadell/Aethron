@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Template Forge MCP server — drive template migrations from ANY AI
+"""Aethron MCP server — drive template migrations from ANY AI
 agent (Claude Code, Antigravity, Cursor, anything MCP-speaking).
 
 Zero dependencies: stdio JSON-RPC 2.0, newline-delimited.
