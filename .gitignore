@@ -13,3 +13,6 @@ __pycache__/
 
 # OS noise
 .DS_Store
+
+# cloud dry-run telemetry log
+events.jsonl

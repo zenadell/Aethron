@@ -48,6 +48,12 @@ LIBRARY = ROOT / "library"   # design cards: fingerprints, never files
 
 sys.path.insert(0, str(ROOT))
 from forge import _flex_pat, hide_selector_audit  # shared matchers  # noqa: E402
+import secrets  # noqa: E402
+import aethron_cloud as cloud  # noqa: E402
+
+# server-side login sessions (cloud mode only): opaque cookie -> user.
+# The Supabase access token stays here, never in the browser.
+SESSIONS = {}
 
 JOBS = {}       # job id -> {"done": bool, "ok": bool|None, "log": str}
 PREVIEWS = {}   # project -> (port, Popen)
@@ -596,6 +602,33 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def _session(self):
+        # returns the logged-in user dict, or None. Cloud mode only.
+        cookie = self.headers.get("Cookie", "")
+        m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", cookie)
+        return SESSIONS.get(m.group(1)) if m else None
+
+    def _gate(self, u):
+        # When cloud auth is ON, everything except the login page and the
+        # auth endpoints requires a session. Dormant otherwise (local /
+        # desktop-offline use never sees a login screen).
+        if not cloud.ENABLED:
+            return True
+        if u.path in ("/login", "/api/auth/login", "/api/auth/signup"):
+            return True
+        if self._session():
+            return True
+        if u.path == "/" or not u.path.startswith("/api"):
+            body = LOGIN_HTML.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.fail("login required", 401)
+        return False
+
     def send_json(self, obj, code=200):
         body = json.dumps(obj).encode()
         self.send_response(code)
@@ -621,7 +654,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
+        if not self._gate(u):
+            return
         try:
+            if u.path == "/login":
+                body = LOGIN_HTML.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
+            if u.path == "/api/auth/me":
+                s = self._session()
+                return self.send_json({"email": s["email"]} if s else {}, 200)
             if u.path.startswith("/edit/"):
                 return self.serve_edit(u, q)
             if u.path == "/":
@@ -792,6 +837,16 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self.fail("bad JSON body")
         try:
+            if u.path in ("/api/auth/login", "/api/auth/signup"):
+                return self.api_auth(u.path, body)
+            if u.path == "/api/auth/logout":
+                s = self.headers.get("Cookie", "")
+                m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", s)
+                if m:
+                    SESSIONS.pop(m.group(1), None)
+                return self.send_json({"ok": True})
+            if not self._gate(u):
+                return
             if u.path == "/api/projects":
                 self.api_create(body)
             elif u.path == "/api/projects/delete":
@@ -813,6 +868,7 @@ class Handler(BaseHTTPRequestHandler):
                     argv = [sys.executable, str(FORGE), cmd]
                 else:
                     return self.fail("command not allowed")
+                self._track("run_step", step=cmd)
                 self.send_json({"job": start_job(argv, d)})
             elif u.path == "/api/library/save":
                 d = self.project_dir({"name": [body.get("project", "")]})
@@ -1114,6 +1170,9 @@ class Handler(BaseHTTPRequestHandler):
                         new_old = cma["strings"][idx0]["old"]
                     except Exception:
                         pass
+                self._track("heal", ok=r.returncode == 0,
+                            healed=out.count("HEALED:"),
+                            stuck=out.count("STUCK:"))
                 self.send_json({"ok": r.returncode == 0,
                                 "healed": out.count("HEALED:"),
                                 "stuck": out.count("STUCK:"),
@@ -1438,6 +1497,41 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             self.fail(e, 500)
 
+    def api_auth(self, path, body):
+        email = (body.get("email") or "").strip()
+        pw = body.get("password") or ""
+        if not email or not pw:
+            return self.fail("email and password required")
+        try:
+            res = (cloud.signup if path.endswith("signup") else cloud.login)(
+                email, pw)
+        except Exception as e:
+            return self.fail(str(e), 401)
+        user = cloud.user_of(res)
+        if not user.get("id"):
+            # signup with email-confirmation on: no session yet
+            return self.send_json({"ok": True, "confirm": True})
+        tok = secrets.token_urlsafe(24)
+        SESSIONS[tok] = user
+        cloud.track("login", token=user["token"], source=path.rsplit("/", 1)[-1])
+        body_out = json.dumps({"ok": True, "email": user["email"]}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Set-Cookie",
+                         f"aethron_sess={tok}; Path=/; HttpOnly; SameSite=Lax")
+        self.send_header("Content-Length", str(len(body_out)))
+        self.end_headers()
+        self.wfile.write(body_out)
+
+    def _track(self, event, **props):
+        # telemetry with the current session's token (cloud mode); a
+        # no-op locally. Never raises into the request.
+        try:
+            s = self._session()
+            cloud.track(event, token=(s or {}).get("token", ""), **props)
+        except Exception:
+            pass
+
     def api_create(self, body):
         raw = body.get("name", "")
         name = re.sub(r"[^\w-]+", "-", raw.strip().lower()).strip("-")
@@ -1456,6 +1550,7 @@ class Handler(BaseHTTPRequestHandler):
                 cwd=PROJECTS, capture_output=True, text=True)
             if r.returncode:
                 return self.fail((r.stdout + r.stderr).strip() or "init failed")
+            self._track_created(name, "url")
             return self.send_json({"name": name, "log": r.stdout})
         # single file, a zip, or MANY loose files (scattered per-page
         # saves) — init normalizes whatever lands in the temp dir
@@ -1484,10 +1579,90 @@ class Handler(BaseHTTPRequestHandler):
                 cwd=PROJECTS, capture_output=True, text=True)
         if r.returncode:
             return self.fail((r.stdout + r.stderr).strip() or "init failed")
+        self._track_created(name, "upload")
         self.send_json({"name": name, "log": r.stdout})
+
+    def _track_created(self, name, source):
+        try:
+            cfg = json.loads((PROJECTS / name / "forge.json").read_text())
+            self._track("project_created", platform=cfg.get("platform"),
+                        pages=len(cfg.get("pages", [])), source=source)
+        except Exception:
+            pass
 
 
 # ───────────────────────── the app (single page) ─────────────────────
+
+LOGIN_HTML = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aethron — sign in</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+:root{--bg:#161513;--panel:#1c1b19;--field:#111110;--line:rgba(255,255,255,.13);
+--tx:#f2f0ea;--dim:#96938a;--acc:#d97757}
+*{box-sizing:border-box;margin:0}
+body{height:100vh;display:flex;align-items:center;justify-content:center;
+background:var(--bg);color:var(--tx);font:15px/1.5 Inter,system-ui,sans-serif;
+-webkit-font-smoothing:antialiased}
+.card{width:360px;max-width:calc(100vw - 32px);background:var(--panel);
+border:1px solid var(--line);border-radius:16px;padding:30px 28px;
+box-shadow:0 24px 64px -16px rgba(0,0,0,.6)}
+.brand{font-weight:800;font-size:20px;letter-spacing:-.02em;margin-bottom:4px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:22px}
+label{display:block;font-size:12.5px;color:var(--dim);margin:12px 0 5px}
+input{width:100%;background:var(--field);color:var(--tx);
+border:1px solid var(--line);border-radius:9px;padding:10px 12px;font:inherit}
+input:focus{outline:none;border-color:var(--acc);
+box-shadow:0 0 0 3px rgba(217,119,87,.2)}
+button{width:100%;margin-top:20px;background:var(--acc);color:#fff7f2;
+border:none;border-radius:9px;padding:11px;font:inherit;font-weight:650;
+cursor:pointer}
+button:hover{filter:brightness(1.07)}
+button:disabled{opacity:.5;cursor:default}
+.toggle{margin-top:16px;text-align:center;font-size:13px;color:var(--dim)}
+.toggle a{color:var(--acc);cursor:pointer;text-decoration:none}
+.err{color:#e5695e;font-size:13px;margin-top:14px;min-height:18px}
+</style></head><body>
+<div class="card">
+  <div class="brand">Aethron</div>
+  <div class="sub" id="sub">Sign in to your account</div>
+  <label>Email</label><input id="email" type="email" autocomplete="email">
+  <label>Password</label>
+  <input id="pw" type="password" autocomplete="current-password">
+  <button id="go" onclick="submit()">Sign in</button>
+  <div class="err" id="err"></div>
+  <div class="toggle" id="tog">New here?
+   <a onclick="setMode('signup')">Create an account</a></div>
+</div>
+<script>
+let MODE='login';
+const $=id=>document.getElementById(id);
+function setMode(m){MODE=m;
+  $('sub').textContent=m==='signup'?'Create your account':'Sign in to your account';
+  $('go').textContent=m==='signup'?'Create account':'Sign in';
+  $('tog').innerHTML=m==='signup'
+    ?'Have an account? <a onclick="setMode(\'login\')">Sign in</a>'
+    :'New here? <a onclick="setMode(\'signup\')">Create an account</a>';
+  $('err').textContent='';}
+async function submit(){
+  $('err').textContent='';$('go').disabled=true;
+  try{
+    const r=await fetch('/api/auth/'+MODE,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email:$('email').value.trim(),password:$('pw').value})});
+    const j=await r.json();
+    if(!r.ok)throw new Error(j.error||'failed');
+    if(j.confirm){$('err').style.color='#7ec699';
+      $('err').textContent='Check your email to confirm, then sign in.';
+      return setMode('login');}
+    location.href='/';
+  }catch(e){$('err').style.color='#e5695e';$('err').textContent=e.message;}
+  finally{$('go').disabled=false;}
+}
+$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+</script></body></html>
+"""
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
