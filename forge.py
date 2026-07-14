@@ -17,6 +17,9 @@ Commands (run inside a project dir, except init):
                         site server + AGENT_GUIDE.md for AI IDEs
   forge.py serve [port] dev server with Framer protocols (default 8777)
   forge.py verify       machine checks: leftovers, budgets, dead refs
+  forge.py localize     download every CDN asset under brand-free names
+  forge.py card         design fingerprint (palette/fonts/motion) ->
+                        design_card.json — feeds the studio's library
 
 Read PLAYBOOK.md for the model-facing workflow.
 """
@@ -164,11 +167,13 @@ def cmd_init(args):
     if len(args) < 1:
         die("usage: forge.py init <export.html|dir|https://url> "
             "--name <project>")
+    source_url = ""
     if args[0].startswith(("http://", "https://")):
         import tempfile
         tmp = Path(tempfile.mkdtemp(prefix="forge-scrape-"))
         _scrape_site(args[0], tmp)
         src = tmp
+        source_url = args[0]
     else:
         src = Path(args[0]).expanduser().resolve()
     name = args[args.index("--name") + 1] if "--name" in args else "my-template"
@@ -247,6 +252,7 @@ def cmd_init(args):
         "pages": htmls,
         "routes": routes,           # site path -> local page file
         "own_hosts": sorted(hosts),  # the template's own live domain(s)
+        "source_url": source_url,   # live URL this was scraped from ("" if upload)
         "public_base": "/assets",   # URL prefix the deployed site mounts assets at
         "forbidden_words": [],       # old brand words that must not survive build
         "hide_selectors": [],        # extra CSS selectors to hide (promos etc.)
@@ -1956,10 +1962,151 @@ def cmd_verify(_args):
 
 # ─────────────────────────── main ────────────────────────────────────
 
+# ─────────────────────────── card ────────────────────────────────────
+# The design library is built from CARDS: a distilled fingerprint of a
+# template's look and motion — palette, fonts, sections, animation
+# features, scale — NEVER the template files themselves. A shared
+# library therefore stays license-clean: each user re-imports their own
+# purchase (or the card's source URL) to actually build from it.
+
+def cmd_card(_args):
+    from collections import Counter
+    root = Path.cwd()
+    cfg = read_cfg(root)
+    # index.html first: title/description/preview must come from the
+    # HOME page, not the alphabetically first one (the brand-token
+    # lesson, again)
+    all_html = "\n".join(
+        (root / "pristine" / p).read_text(encoding="utf-8", errors="ignore")
+        for p in sorted(cfg["pages"], key=lambda p: p != "index.html"))
+    style_soup = all_html + "\n" + "\n".join(
+        f.read_text(encoding="utf-8", errors="ignore")
+        for f in (root / "pristine").rglob("*.css"))
+
+    # palette: every color literal in pages+css, frequency-ranked
+    cnt = Counter()
+    for m in re.finditer(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b", style_soup):
+        h = m.group(1).lower()
+        cnt["#" + ("".join(c * 2 for c in h) if len(h) == 3 else h)] += 1
+    for m in re.finditer(r"rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)",
+                         style_soup):
+        r_, g_, b_ = (min(255, int(x)) for x in m.groups())
+        cnt[f"#{r_:02x}{g_:02x}{b_:02x}"] += 1
+    palette = [c for c, n in cnt.most_common(60)
+               if c not in ("#000000", "#ffffff")][:8]
+
+    # fonts: template @font-face families + google fonts <link>s
+    fams = []
+    for f in _discover_fonts(root, cfg):
+        toks = (f["label"] or "").split()
+        while toks and (toks[-1].isdigit() or toks[-1].lower() in
+                        ("normal", "italic", "oblique")):
+            toks.pop()
+        fam = " ".join(toks)
+        if fam and fam not in fams:
+            fams.append(fam)
+    for m in re.finditer(r"fonts\.googleapis\.com/css2?\?family=([^\"'&]+)",
+                         all_html):
+        for fam in urllib.parse.unquote(m.group(1)).replace("+", " ") \
+                                                   .split("|"):
+            fam = fam.split(":")[0].strip()
+            if fam and fam not in fams:
+                fams.append(fam)
+    # Webflow loads fonts via WebFont.load({google:{families:[...]}})
+    for m in re.finditer(r"families:\s*\[([^\]]*)\]",
+                         html_mod.unescape(all_html)):
+        for frag in m.group(1).split(","):
+            frag = frag.strip()
+            if not frag.startswith('"'):
+                continue          # a weights fragment, not a family
+            fam = frag.lstrip('"').split(":")[0].strip().rstrip('"')
+            if fam and fam != "Material Icons" and fam not in fams:
+                fams.append(fam)
+
+    def meta(attr, val):
+        m = (re.search(rf'{attr}="{val}"[^>]*content="([^"]*)"', all_html)
+             or re.search(rf'content="([^"]*)"[^>]*{attr}="{val}"', all_html))
+        return html_mod.unescape(m.group(1)).strip() if m else ""
+
+    tm = re.search(r"<title[^>]*>([^<]*)</title>", all_html)
+    title = html_mod.unescape(tm.group(1)).strip() if tm else ""
+
+    # authored section names (framer) / section ids (webflow, static)
+    sections = []
+    for m in re.finditer(
+            r'<(?:section|header|footer|nav)[^>]+data-framer-name="([^"]+)"',
+            all_html):
+        s = html_mod.unescape(m.group(1))
+        if s not in sections:
+            sections.append(s)
+    if not sections:
+        for m in re.finditer(r'<(?:section|header|footer)[^>]+id="([^"]+)"',
+                             all_html):
+            if m.group(1) not in sections:
+                sections.append(m.group(1))
+    if not sections:
+        # webflow: sections are named by class; the class shared by
+        # (almost) every section is the generic wrapper — drop it
+        lists = [m.group(1).split() for m in re.finditer(
+            r'<section[^>]+class="([^"]+)"', all_html)]
+        freq = Counter(c for cl in lists for c in set(cl))
+        for cl in lists:
+            for c in cl:
+                if freq[c] <= max(3, len(lists) // 3) and c not in sections:
+                    sections.append(c)
+                    break
+
+    # motion / component features that make a template feel alive
+    chunks = list((root / "pristine" / "chunks").glob("*.mjs")) \
+        if (root / "pristine" / "chunks").is_dir() else []
+    rotators = 0
+    for p in chunks:
+        rotators += len(re.findall(
+            r"text:`[^`]{2,80}`(?:\s*\}\s*,\s*\{\s*text:`[^`]{2,80}`){2,}",
+            p.read_text(encoding="utf-8", errors="ignore")))
+    feats = {
+        "hover_variants": len(re.findall(
+            r'data-framer-name="[^"]*[Hh]over', all_html)),
+        "split_text_runs": sum(1 for _ in SPLIT_RUN_RE.finditer(all_html)),
+        "rotators": rotators,
+        "marquee": bool(re.search(
+            r'data-framer-name="[^"]*(?:[Mm]arquee|[Tt]icker)', all_html)),
+        "appear_animations": bool(re.search(
+            r"data-framer-appear-id|__framer-appear", all_html)),
+        "chunks": len(chunks),
+        "cms_collections": len(list((root / "pristine" / "cms")
+                                    .glob("*.framercms")))
+        if (root / "pristine" / "cms").is_dir() else 0,
+    }
+
+    cm = {}
+    if (root / "copy_map.json").exists():
+        cm = json.loads((root / "copy_map.json")
+                        .read_text(encoding="utf-8"))
+    counts = {"pages": len(cfg["pages"]),
+              "strings": len(cm.get("strings", [])),
+              "images": len(cm.get("images", [])),
+              "links": len(cm.get("links", []))}
+
+    card = {
+        "name": cfg["name"], "platform": cfg["platform"],
+        "title": title, "description": meta("name", "description"),
+        "source_url": cfg.get("source_url", ""),
+        "preview_image": meta("property", "og:image"),
+        "palette": palette, "fonts": fams, "sections": sections[:16],
+        "features": feats, "counts": counts,
+    }
+    (root / "design_card.json").write_text(json.dumps(card, indent=1),
+                                           encoding="utf-8")
+    print(f"design card: {len(palette)} colors, {len(fams)} fonts, "
+          f"{len(sections)} sections, {counts['pages']} page(s), "
+          f"features: " + ", ".join(k for k, v in feats.items() if v))
+
+
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "serve": cmd_serve,
-            "verify": cmd_verify}
+            "verify": cmd_verify, "card": cmd_card}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:

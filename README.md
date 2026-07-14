@@ -16,9 +16,9 @@ the page — can fill.
 
 | | |
 |---|---|
-| `forge.py` | the engine — init/scrape, fetch, inventory, build, verify, logo, localize, backend |
-| `studio.py` | the visual IDE — click-to-edit anything, AI fill, live preview, undo |
-| `forge_mcp.py` | the MCP server — 19 tools so ANY AI agent drives migrations natively |
+| `forge.py` | the engine — init/scrape, fetch, inventory, build, verify, logo, localize, backend, card |
+| `studio.py` | the visual IDE — click-to-edit anything, AI fill, live preview, undo, design library |
+| `forge_mcp.py` | the MCP server — 22 tools so ANY AI agent drives migrations natively |
 
 ## Quickstart (2 minutes)
 
@@ -60,6 +60,18 @@ Read [PLAYBOOK.md](PLAYBOOK.md) for the full physics.
 - **Backend included**: `backend` generates a content API where the
   copy map is the database — writes are guarded and auto-rebuild.
 
+## The design library
+
+Every migration you finish can be saved as a **design card** — a
+fingerprint of the template's look and motion (palette, fonts, section
+structure, hover/split-text/rotator/marquee features, scale) extracted
+by `forge.py card`. Describe a new project in the studio's 📚 Library
+view and the AI ranks your saved designs by fit; one click re-imports
+the winner and starts the migration. Cards **never contain template
+files** — starting from a card re-imports from its source URL or your
+own local project, so a shared library stays license-clean: every user
+builds only from templates they own.
+
 ## For AI agents (MCP)
 
 ```jsonc
@@ -68,11 +80,13 @@ Read [PLAYBOOK.md](PLAYBOOK.md) for the full physics.
     "command": "python3", "args": ["forge_mcp.py"] } } }
 ```
 
-19 tools: create_project (from URL or file), fetch, inventory, plan,
+22 tools: create_project (from URL or file), fetch, inventory, plan,
 paged content read, guarded bulk writes, styles, per-slot image
 replacement, logo generation, localize, build, verify, backend,
-preview, undo. The agent is the copy model — no API keys; the
-guardrails enforce the physics on every call.
+preview, undo, plus the design library (list_library /
+save_to_library / create_from_library — the agent itself ranks the
+cards against the owner's plan). The agent is the copy model — no API
+keys; the guardrails enforce the physics on every call.
 
 ## CLI
 

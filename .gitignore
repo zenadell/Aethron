@@ -1,6 +1,9 @@
 # migration projects are user data, not source
 projects/
 
+# design cards derive from the user's projects — user data too
+library/
+
 # python
 __pycache__/
 *.pyc

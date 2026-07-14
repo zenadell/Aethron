@@ -43,6 +43,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 FORGE = ROOT / "forge.py"
 PROJECTS = ROOT / "projects"
+LIBRARY = ROOT / "library"   # design cards: fingerprints, never files
 
 sys.path.insert(0, str(ROOT))
 from forge import _flex_pat  # shared whitespace-tolerant matcher  # noqa: E402
@@ -213,6 +214,24 @@ Keep internal anchors (#...) unchanged.
 <each extra owner instruction, restated clearly on its own line>
 
 Owner's rough plan:
+"""
+
+MATCH_PROMPT = """You match a site owner's project idea against a \
+library of saved template DESIGN CARDS (fingerprints: palette, fonts, \
+section structure, motion features, scale — extracted from real \
+templates). Rank the best-fitting cards for this project. Judge by: \
+purpose/industry fit (title, description, sections), tone implied by \
+the palette and fonts, structure (pages, sections), and motion \
+features the plan calls for. Return ONLY a JSON array of the top 3 \
+(fewer if the library is small), best first:
+[{"id": "<card id>", "score": <0-100>, "reason": "<one plain sentence \
+the owner will read>"}]
+
+OWNER'S PROJECT:
+%(plan)s
+
+LIBRARY CARDS:
+%(cards)s
 """
 
 
@@ -636,6 +655,17 @@ class Handler(BaseHTTPRequestHandler):
                     if left:
                         batch[sec] = left
                 self.send_json({"prompt": build_prompt(plan, batch)})
+            elif u.path == "/api/library":
+                cards = []
+                for f in sorted(LIBRARY.glob("*.json")) \
+                        if LIBRARY.is_dir() else []:
+                    try:
+                        c = json.loads(f.read_text(encoding="utf-8"))
+                    except Exception:
+                        continue
+                    c["id"] = f.stem
+                    cards.append(c)
+                self.send_json(cards)
             elif u.path == "/api/download":
                 d = self.project_dir(q)
                 site = d / "site"
@@ -763,6 +793,110 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     return self.fail("command not allowed")
                 self.send_json({"job": start_job(argv, d)})
+            elif u.path == "/api/library/save":
+                d = self.project_dir({"name": [body.get("project", "")]})
+                r = subprocess.run([sys.executable, str(FORGE), "card"],
+                                   cwd=d, capture_output=True, text=True)
+                if r.returncode:
+                    return self.fail((r.stdout + r.stderr).strip()
+                                     or "card extraction failed")
+                card = json.loads((d / "design_card.json")
+                                  .read_text(encoding="utf-8"))
+                card["project"] = d.name
+                card["saved"] = time.strftime("%Y-%m-%d")
+                LIBRARY.mkdir(exist_ok=True)
+                (LIBRARY / f"{d.name}.json").write_text(
+                    json.dumps(card, indent=1, ensure_ascii=False),
+                    encoding="utf-8")
+                self.send_json({"ok": True, "id": d.name, "card": card})
+            elif u.path == "/api/library/delete":
+                lid = re.sub(r"[^\w-]+", "", body.get("id", ""))
+                f = LIBRARY / f"{lid}.json"
+                if not lid or not f.exists():
+                    return self.fail("unknown library entry")
+                f.unlink()
+                self.send_json({"ok": True})
+            elif u.path == "/api/library/start":
+                lid = re.sub(r"[^\w-]+", "", body.get("id", ""))
+                f = LIBRARY / f"{lid}.json"
+                if not f.exists():
+                    return self.fail("unknown library entry")
+                card = json.loads(f.read_text(encoding="utf-8"))
+                # licence-clean by construction: we re-import from the
+                # card's live source URL, or from the owner's own local
+                # project — a card alone can't rebuild a template
+                if card.get("source_url"):
+                    return self.api_create({"name": body.get("name", ""),
+                                            "url": card["source_url"]})
+                src = PROJECTS / card.get("project", "_")
+                if not (src / "forge.json").exists():
+                    return self.fail(
+                        "this card has no source URL and the original "
+                        "project is gone — re-import the template you "
+                        "own, then save it to the library again")
+                pcfg = json.loads((src / "forge.json")
+                                  .read_text(encoding="utf-8"))
+                with tempfile.TemporaryDirectory() as td:
+                    for p in pcfg.get("pages", []):
+                        pg = src / "pristine" / p
+                        if pg.is_file():
+                            shutil.copy(pg, Path(td) / p)
+                    if not list(Path(td).iterdir()):
+                        return self.fail("original project has no pages")
+                    raw = body.get("name", "")
+                    name = re.sub(r"[^\w-]+", "-",
+                                  raw.strip().lower()).strip("-")
+                    if not name:
+                        return self.fail("give the new project a name")
+                    if (PROJECTS / name).exists():
+                        return self.fail(f"project '{name}' already exists")
+                    r = subprocess.run(
+                        [sys.executable, str(FORGE), "init", td,
+                         "--name", name],
+                        cwd=PROJECTS, capture_output=True, text=True)
+                if r.returncode:
+                    return self.fail((r.stdout + r.stderr).strip()
+                                     or "init failed")
+                self.send_json({"name": name, "log": r.stdout})
+            elif u.path == "/api/ai/match":
+                plan = (body.get("plan") or "").strip()
+                if not plan:
+                    return self.fail("describe the project first — even "
+                                     "a few rough words work")
+                st = {k: body.get(k, "") for k in
+                      ("provider", "base_url", "api_key", "model")}
+                if not st["model"]:
+                    return self.fail("set a model + API key in any "
+                                     "project's Plan & AI tab first")
+                cards = []
+                for f in sorted(LIBRARY.glob("*.json")) \
+                        if LIBRARY.is_dir() else []:
+                    try:
+                        c = json.loads(f.read_text(encoding="utf-8"))
+                    except Exception:
+                        continue
+                    cards.append({"id": f.stem, **{
+                        k: c.get(k) for k in
+                        ("title", "description", "platform", "palette",
+                         "fonts", "sections", "features", "counts")}})
+                if not cards:
+                    return self.fail("library is empty — open a project "
+                                     "and hit 📚 save design first")
+                out = call_model(st, MATCH_PROMPT % {
+                    "plan": plan[:2000],
+                    "cards": json.dumps(cards, ensure_ascii=False)[:12000]})
+                m = re.search(r"\[.*\]", out, re.S)
+                try:
+                    ranked = json.loads(m.group(0)) if m else []
+                except Exception:
+                    ranked = []
+                ids = {c["id"] for c in cards}
+                ranked = [r for r in ranked if isinstance(r, dict)
+                          and r.get("id") in ids][:3]
+                if not ranked:
+                    return self.fail("the model returned no usable "
+                                     "ranking — try again or rephrase")
+                self.send_json({"matches": ranked})
             elif u.path == "/api/copymap":
                 d = self.project_dir({"name": [body.get("project", "")]})
                 cm = body.get("copymap")
@@ -1319,6 +1453,38 @@ padding:4px 7px;border-radius:7px;transition:all .15s}
 .pitem .del:hover{color:var(--err);background:rgba(251,113,133,.12)}
 .newproj{padding:14px;border-top:1px solid var(--line);display:flex;
 flex-direction:column;gap:9px;background:rgba(255,255,255,.015)}
+.libbtn{margin:2px 12px 10px;text-align:left;font-size:13px}
+.libbtn.sel{border-color:var(--acc);color:var(--acc2)}
+
+/* ── design library ──────────────────────────────────────── */
+.libwrap{padding:20px;overflow:auto;height:100%}
+.libmatch{display:flex;gap:10px;align-items:stretch}
+.libmatch textarea{flex:1;resize:vertical}
+.libgrid{display:grid;gap:14px;margin-top:16px;
+grid-template-columns:repeat(auto-fill,minmax(255px,1fr))}
+.libcard{background:var(--panel);border:1px solid var(--line);
+border-radius:var(--r2);padding:15px;box-shadow:var(--shadow);
+display:flex;flex-direction:column;gap:9px;
+transition:border-color .16s var(--ease)}
+.libcard:hover{border-color:var(--line2)}
+.libcard.hit{border-color:rgba(245,158,11,.55)}
+.lc-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.lc-top b{font-size:14px;letter-spacing:-.01em;overflow:hidden;
+text-overflow:ellipsis;white-space:nowrap}
+.lc-title{font-size:12px;color:var(--dim);line-height:1.5;
+display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+overflow:hidden}
+.lc-pal{display:flex;gap:5px}
+.lc-pal i{width:24px;height:24px;border-radius:7px;
+border:1px solid var(--line2);box-shadow:var(--inset)}
+.lc-fonts{font-size:12px;color:var(--dim)}
+.lc-feats{display:flex;flex-wrap:wrap;gap:6px}
+.lc-feats span{font-size:11px;padding:3px 9px;border-radius:99px;
+border:1px solid var(--line2);color:var(--dim)}
+.lc-why{font-size:12.5px;color:var(--acc2);line-height:1.55;
+border-top:1px dashed var(--line2);padding-top:9px}
+.lc-btns{display:flex;gap:8px;margin-top:auto;padding-top:4px}
+.lc-btns .primary{flex:1}
 
 /* ── fields ──────────────────────────────────────────────── */
 input,textarea,select{background:var(--field);color:var(--tx);
@@ -1479,6 +1645,10 @@ transition-duration:.01ms !important}}
 <aside>
   <div class="brand">⚒ <b>Template Forge</b> <span>Studio</span></div>
   <div id="plist"></div>
+  <button class="libbtn" id="libbtn" onclick="openLibrary()"
+   title="every migration you save becomes a design card — palette,
+fonts, motion, structure. Describe a new project and the AI ranks
+your saved designs by fit.">📚 Design library</button>
   <div class="newproj">
     <input id="npname" placeholder="new project name">
     <input id="npurl" placeholder="live template URL (scrapes all pages)">
@@ -1544,7 +1714,8 @@ function renderSidebar(){
      </div>`}).join('')||'<div class="hint" style="padding:8px">no projects yet</div>';
 }
 async function select(name){
-  S.cur=name;S.cm=null;S.tab='plan';
+  S.cur=name;S.cm=null;S.tab='plan';S.view='project';
+  const lb=$('libbtn');if(lb)lb.classList.remove('sel');
   await refresh();
   try{S.cm=await api('/api/copymap?project='+name);}catch(e){}
   renderTab();renderSidebar();
@@ -1577,7 +1748,8 @@ async function createProject(){
 const STEPS=[['fetch','1 Fetch'],['inventory','2 Inventory'],
              ['build','3 Build'],['verify','4 Verify']];
 function renderHeader(){
-  $('ptitle').textContent=S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
+  $('ptitle').textContent=S.view==='library'?'📚 Design library'
+    :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
   if(!S.cur){$('steps').innerHTML='';$('tabs').innerHTML='';return;}
   const done={fetch:S.info?.fetched,inventory:S.info?.inventoried,
               build:S.info?.built,verify:false};
@@ -1612,7 +1784,11 @@ function renderHeader(){
      <button onclick="location='/api/download?project='+S.cur">⬇ site.zip</button>
      <button title="whole rebuildable project: pristine + copy map +
       forge.py + backend API + AGENT_GUIDE — hand this to any dev or AI IDE"
-      onclick="location='/api/download?full=1&project='+S.cur">⬇ dev handoff</button>`;
+      onclick="location='/api/download?full=1&project='+S.cur">⬇ dev handoff</button>
+     <button title="save this template's design fingerprint (palette,
+      fonts, motion, structure — never the files) to the library, so
+      future plans can be matched against it"
+      onclick="saveToLibrary()">📚 save design</button>`;
   const tabs=[['plan','Plan & AI'],['strings','Strings'],['images','Images'],
               ['links','Links'],['preview','Preview'],['logs','Logs']];
   $('tabs').innerHTML=tabs.map(([t,l])=>
@@ -1723,9 +1899,101 @@ function showZeroFx(){
    +(S.zeroFx||[]).join('\n- '));
 }
 
+// ---------- design library ----------
+async function openLibrary(){
+  S.view='library';S.cur=null;S.cm=null;
+  renderSidebar();renderHeader();
+  const lb=$('libbtn');if(lb)lb.classList.add('sel');
+  renderTab();
+}
+async function saveToLibrary(){
+  try{
+    const r=await api('/api/library/save',{project:S.cur});
+    alert(`saved "${r.id}" to the design library 📚 — `
+      +`${(r.card.palette||[]).length} colors, `
+      +`${(r.card.fonts||[]).length} fonts, `
+      +`${(r.card.sections||[]).length} sections captured`);
+  }catch(e){alert(e.message)}
+}
+function libCard(cd,reason){
+  const pal=(cd.palette||[]).slice(0,8)
+    .map(x=>`<i title="${esc(x)}" style="background:${esc(x)}"></i>`).join('');
+  const f=cd.features||{},ct=cd.counts||{},feats=[];
+  if(f.hover_variants)feats.push('✦ hover cards');
+  if(f.rotators)feats.push('⟳ text rotator');
+  if(f.split_text_runs)feats.push('✂ split text');
+  if(f.marquee)feats.push('∞ marquee');
+  if(f.appear_animations)feats.push('✨ appear');
+  if(f.cms_collections)feats.push(`${f.cms_collections} CMS`);
+  feats.push(`${ct.pages||1} page${(ct.pages||1)>1?'s':''}`);
+  if(ct.images)feats.push(`${ct.images} images`);
+  return `<div class="libcard${reason?' hit':''}">
+   <div class="lc-top"><b>${esc(cd.id)}</b>
+    <span class="plat ${esc(cd.platform||'static')}">${esc(cd.platform||'?')}</span></div>
+   ${cd.title||cd.description
+     ?`<div class="lc-title">${esc(cd.description||cd.title)}</div>`:''}
+   <div class="lc-pal">${pal}</div>
+   ${(cd.fonts||[]).length
+     ?`<div class="lc-fonts">${esc(cd.fonts.slice(0,3).join(' · '))}</div>`:''}
+   <div class="lc-feats">${feats.map(x=>`<span>${x}</span>`).join('')}</div>
+   ${reason?`<div class="lc-why">${esc(reason)}</div>`:''}
+   <div class="lc-btns">
+    <button class="primary" onclick="startFromLibrary('${esc(cd.id)}')">🚀 Start from this</button>
+    <button title="remove the card (the project itself is untouched)"
+     onclick="delLibrary('${esc(cd.id)}')">✕</button></div></div>`;
+}
+async function renderLibrary(c){
+  let cards=[];
+  try{cards=await api('/api/library')}catch(e){}
+  S.libCards=cards;
+  c.innerHTML=`<div class="libwrap">
+   <div class="libmatch">
+    <textarea id="libplan" rows="3" placeholder="describe the new project — brand, industry, tone, must-have sections… the AI ranks your saved designs by fit">${esc(S.libPlan||'')}</textarea>
+    <button class="primary" onclick="matchLibrary()">✦ Match my plan</button>
+   </div>
+   <div class="hint" style="margin-top:8px">cards hold only design
+    fingerprints (palette, fonts, motion, structure) — never template
+    files. 🚀 re-imports from the card's source URL or your own local
+    project, so a shared library stays license-clean.</div>
+   <div id="libmatches"></div>
+   <div class="libgrid">${cards.map(cd=>libCard(cd)).join('')
+     ||'<div class="empty" style="grid-column:1/-1">library is empty — open a project and hit 📚 save design</div>'}</div></div>`;
+}
+async function matchLibrary(){
+  const plan=$('libplan').value.trim();S.libPlan=plan;
+  const btn=document.querySelector('.libmatch .primary');
+  btn.disabled=true;btn.textContent='✦ matching…';
+  try{
+    const r=await api('/api/ai/match',{plan,...aiCfg()});
+    $('libmatches').innerHTML=
+     `<h3 style="margin:18px 0 2px;color:var(--acc2)">top matches</h3>
+      <div class="libgrid">`+r.matches.map(m=>{
+        const cd=S.libCards.find(c=>c.id===m.id);
+        return cd?libCard(cd,(m.score!=null?m.score+'% — ':'')+(m.reason||'')):'';
+      }).join('')+'</div>';
+  }catch(e){alert(e.message)}
+  btn.disabled=false;btn.textContent='✦ Match my plan';
+}
+async function startFromLibrary(id){
+  const name=prompt(`new project name (built from "${id}"):`);
+  if(!name)return;
+  try{
+    const r=await api('/api/library/start',{id,name});
+    await select(r.name);
+    alert(`project "${r.name}" created — hit ⚡ Prepare project, then
+write your plan and fill.`);
+  }catch(e){alert(e.message)}
+}
+async function delLibrary(id){
+  if(!confirm(`Remove "${id}" from the library? (the project itself is untouched)`))return;
+  try{await api('/api/library/delete',{id});renderTab();}
+  catch(e){alert(e.message)}
+}
+
 let RT=0; // render token: async renderers must not overwrite a newer tab
 function renderTab(){
   const c=$('content');
+  if(S.view==='library')return renderLibrary(c);
   if(!S.cur){return}
   const t=++RT;
   if(S.tab==='plan')return renderPlan(c,t);

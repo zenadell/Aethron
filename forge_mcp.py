@@ -27,6 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 FORGE = ROOT / "forge.py"
 PROJECTS = ROOT / "projects"
+LIBRARY = ROOT / "library"   # design cards: fingerprints, never files
 PREVIEWS = {}
 
 sys.path.insert(0, str(ROOT))
@@ -357,6 +358,74 @@ def S(props, req):
 
 P = {"project": {"type": "string", "description": "project name (see list_projects)"}}
 
+def t_list_library(a):
+    cards = []
+    if LIBRARY.is_dir():
+        for f in sorted(LIBRARY.glob("*.json")):
+            try:
+                c = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            c["id"] = f.stem
+            cards.append(c)
+    if not cards:
+        return ("library is empty — save_to_library captures a project's "
+                "design fingerprint as a card")
+    return json.dumps(cards, indent=1, ensure_ascii=False)
+
+
+def t_save_to_library(a):
+    d = pdir(str(a["project"]))
+    ok, log = run_forge(str(a["project"]), "card")
+    if not ok:
+        raise ValueError(log)
+    card = json.loads((d / "design_card.json").read_text(encoding="utf-8"))
+    card["project"] = d.name
+    card["saved"] = time.strftime("%Y-%m-%d")
+    LIBRARY.mkdir(exist_ok=True)
+    (LIBRARY / f"{d.name}.json").write_text(
+        json.dumps(card, indent=1, ensure_ascii=False), encoding="utf-8")
+    return f"saved design card '{d.name}' — {log}"
+
+
+def t_create_from_library(a):
+    lid = re.sub(r"[^\w-]+", "", str(a["id"]))
+    f = LIBRARY / f"{lid}.json"
+    if not f.exists():
+        raise ValueError("unknown library entry — list_library first")
+    card = json.loads(f.read_text(encoding="utf-8"))
+    # license-clean by construction: re-import from the card's live
+    # source URL, or from the owner's own local project — a card alone
+    # can never rebuild a template
+    if card.get("source_url"):
+        return t_create_project({"name": a["name"],
+                                 "url": card["source_url"]})
+    src = PROJECTS / card.get("project", "_")
+    if not (src / "forge.json").exists():
+        raise ValueError("card has no source URL and the original project "
+                         "is gone — re-import the template you own, then "
+                         "save_to_library again")
+    import tempfile
+    pcfg = json.loads((src / "forge.json").read_text(encoding="utf-8"))
+    name = re.sub(r"[^\w-]+", "-", str(a["name"]).strip().lower()).strip("-")
+    if not name:
+        raise ValueError("give the new project a name")
+    if (PROJECTS / name).exists():
+        raise ValueError(f"project '{name}' already exists")
+    with tempfile.TemporaryDirectory() as td:
+        for p in pcfg.get("pages", []):
+            pg = src / "pristine" / p
+            if pg.is_file():
+                shutil.copy(pg, Path(td) / p)
+        r = subprocess.run([sys.executable, str(FORGE), "init", td,
+                            "--name", name], cwd=PROJECTS,
+                           capture_output=True, text=True)
+    if r.returncode:
+        raise ValueError((r.stdout + r.stderr).strip())
+    return (r.stdout.strip()
+            + "\nNext: fetch -> inventory -> set_plan -> fill.")
+
+
 TOOLS = [
     ("list_projects", "List all migration projects with platform, fill "
      "progress and build state.", S({}, []), t_list_projects),
@@ -472,6 +541,23 @@ TOOLS = [
     ("delete_project", "Delete a project entirely (needs confirm=true).",
      S({**P, "confirm": {"type": "boolean"}}, ["project"]),
      t_delete_project),
+    ("list_library", "Read the DESIGN LIBRARY: one card per saved "
+     "template — palette, fonts, section structure, motion features "
+     "(hover variants, split text, rotators, marquee), scale, source "
+     "URL. YOU are the matcher: when the owner describes a new project, "
+     "read the cards and rank the best-fitting designs yourself, then "
+     "create_from_library. Cards never contain template files.",
+     S({}, []), t_list_library),
+    ("save_to_library", "Extract a project's design fingerprint "
+     "(forge card) and save it as a library card. Do this after a "
+     "successful migration so the design is findable for future "
+     "projects.", S(P, ["project"]), t_save_to_library),
+    ("create_from_library", "Start a NEW project from a library card: "
+     "re-imports from the card's source URL (or the owner's local "
+     "project when it was an upload) — license-clean, the card alone "
+     "can't rebuild a template. Then: fetch -> inventory -> set_plan "
+     "-> fill.", S({"id": {"type": "string"}, "name": {"type": "string"}},
+                   ["id", "name"]), t_create_from_library),
 ]
 
 TOOL_DEFS = [{"name": n, "description": d, "inputSchema": s}
