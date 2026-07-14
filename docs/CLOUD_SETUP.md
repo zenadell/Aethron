@@ -34,6 +34,29 @@ not by policy — anything not on the list is dropped before it can leave.
    you may turn *off* "Confirm email" during beta (users get a session
    immediately); leave it on for production and they confirm by email first.
 
+## 1b. Add "Continue with Google" (the branded consent screen)
+
+The "**Aethron wants to use your Google Account**" screen is free — it comes
+from Google Cloud's OAuth consent screen, and Supabase just forwards to it.
+
+1. **Google Cloud Console** (console.cloud.google.com) → create/select a project.
+2. **APIs & Services → OAuth consent screen**: choose *External*, set the **App
+   name** to `Aethron`, upload a logo, set your support email. (For beta you can
+   stay in "Testing" with your own test users; publish later. Basic
+   email/profile scopes don't need heavy verification.)
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID →
+   Web application**. Under **Authorized redirect URIs** add your Supabase
+   callback: `https://<ref>.supabase.co/auth/v1/callback`. Copy the **Client ID**
+   and **Client secret**.
+4. **Supabase → Authentication → Providers → Google**: enable it, paste the
+   Client ID + secret, save.
+5. **Supabase → Authentication → URL Configuration → Redirect URLs**: add
+   `http://127.0.0.1:8899/auth/callback` (the desktop app's local callback; keep
+   it on port 8899). Add other ports/domains if you ever change them.
+
+That's it — the login page's "Continue with Google" button now shows the
+branded consent screen and drops the user straight into the app.
+
 ## 2. Point the app at it
 
 Set two environment variables (the packaged desktop build bakes these in):

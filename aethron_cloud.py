@@ -117,6 +117,38 @@ def user_of(auth_result: dict):
             "token": auth_result.get("access_token", "")}
 
 
+# ── Google (or any provider) sign-in ────────────────────────────────
+# The studio redirects the browser to Supabase's authorize endpoint;
+# Supabase bounces through Google and back to our localhost callback
+# with the session. The branded "Aethron wants to use your Google
+# Account" screen is configured (free) in Google Cloud's OAuth consent
+# screen — Supabase just forwards to it.
+
+def oauth_url(provider: str, redirect_to: str):
+    """Supabase authorize URL, or None in dry/dormant mode."""
+    if not REAL:
+        return None
+    import urllib.parse
+    q = urllib.parse.urlencode({"provider": provider,
+                                "redirect_to": redirect_to})
+    return f"{SUPABASE_URL}/auth/v1/authorize?{q}"
+
+
+def user_from_token(access_token: str) -> dict:
+    """Resolve an access token to {id,email,token} (post-OAuth)."""
+    if DRY:
+        return {"id": "debug-user", "email": "google@dry.local",
+                "token": access_token or "debug-token"}
+    if not REAL:
+        raise RuntimeError("cloud auth is not configured")
+    req = urllib.request.Request(SUPABASE_URL + "/auth/v1/user", method="GET")
+    req.add_header("apikey", ANON_KEY)
+    req.add_header("Authorization", "Bearer " + access_token)
+    with urllib.request.urlopen(req, timeout=8) as r:
+        u = json.loads(r.read().decode())
+    return {"id": u.get("id"), "email": u.get("email"), "token": access_token}
+
+
 # ───────────────────────── telemetry ─────────────────────────────────
 # Fire-and-forget: never blocks a request, never raises into the app.
 

@@ -614,7 +614,9 @@ class Handler(BaseHTTPRequestHandler):
         # desktop-offline use never sees a login screen).
         if not cloud.ENABLED:
             return True
-        if u.path in ("/login", "/api/auth/login", "/api/auth/signup"):
+        if u.path in ("/login", "/api/auth/login", "/api/auth/signup",
+                      "/api/auth/google", "/auth/callback",
+                      "/api/auth/session"):
             return True
         if self._session():
             return True
@@ -667,6 +669,32 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/auth/me":
                 s = self._session()
                 return self.send_json({"email": s["email"]} if s else {}, 200)
+            if u.path == "/api/auth/google":
+                port = self.server.server_address[1]
+                cb = f"http://127.0.0.1:{port}/auth/callback"
+                url = cloud.oauth_url("google", cb)
+                if not url:      # dry/dormant: simulate a successful login
+                    user = cloud.user_from_token("")
+                    tok = secrets.token_urlsafe(24)
+                    SESSIONS[tok] = user
+                    cloud.track("login", token=user["token"], source="google")
+                    self.send_response(302)
+                    self.send_header("Set-Cookie", f"aethron_sess={tok}; "
+                                     "Path=/; HttpOnly; SameSite=Lax")
+                    self.send_header("Location", "/")
+                    self.end_headers()
+                    return
+                self.send_response(302)
+                self.send_header("Location", url)
+                self.end_headers()
+                return
+            if u.path == "/auth/callback":
+                body = CALLBACK_HTML.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             if u.path.startswith("/edit/"):
                 return self.serve_edit(u, q)
             if u.path == "/":
@@ -839,6 +867,28 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path in ("/api/auth/login", "/api/auth/signup"):
                 return self.api_auth(u.path, body)
+            if u.path == "/api/auth/session":
+                # OAuth callback landed with an access token in the URL
+                # fragment; the callback page POSTs it here so we can
+                # build a server-side session (token never persists in
+                # the browser beyond this hop).
+                try:
+                    user = cloud.user_from_token(body.get("access_token", ""))
+                except Exception as e:
+                    return self.fail(str(e), 401)
+                if not user.get("id"):
+                    return self.fail("could not resolve user", 401)
+                tok = secrets.token_urlsafe(24)
+                SESSIONS[tok] = user
+                cloud.track("login", token=user["token"], source="google")
+                out = json.dumps({"ok": True}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Set-Cookie", f"aethron_sess={tok}; "
+                                 "Path=/; HttpOnly; SameSite=Lax")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                return self.wfile.write(out)
             if u.path == "/api/auth/logout":
                 s = self.headers.get("Cookie", "")
                 m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", s)
@@ -1593,6 +1643,32 @@ class Handler(BaseHTTPRequestHandler):
 
 # ───────────────────────── the app (single page) ─────────────────────
 
+CALLBACK_HTML = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Signing in…</title>
+<style>body{background:#161513;color:#96938a;font:15px system-ui,sans-serif;
+height:100vh;display:flex;align-items:center;justify-content:center}</style>
+</head><body><div id="m">Signing you in…</div>
+<script>
+(async()=>{
+  // Supabase returns the session in the URL FRAGMENT (never sent to a
+  // server); read it here and hand it to our backend for a session.
+  const h=new URLSearchParams(location.hash.slice(1));
+  const at=h.get('access_token');
+  const err=h.get('error_description')||h.get('error');
+  if(err){document.getElementById('m').textContent='Sign-in failed: '+err;return;}
+  if(!at){document.getElementById('m').textContent='Sign-in failed (no token).';return;}
+  try{
+    const r=await fetch('/api/auth/session',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({access_token:at})});
+    if(!r.ok)throw new Error((await r.json()).error||'failed');
+    location.href='/';
+  }catch(e){document.getElementById('m').textContent='Sign-in failed: '+e.message;}
+})();
+</script></body></html>
+"""
+
 LOGIN_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1620,6 +1696,14 @@ border:none;border-radius:9px;padding:11px;font:inherit;font-weight:650;
 cursor:pointer}
 button:hover{filter:brightness(1.07)}
 button:disabled{opacity:.5;cursor:default}
+button.google{background:#fff;color:#1f1f1f;font-weight:600;
+display:flex;align-items:center;justify-content:center;gap:9px;margin-top:12px}
+button.google:hover{filter:none;background:#f2f2f2}
+button.google svg{width:17px;height:17px}
+.divider{display:flex;align-items:center;gap:12px;color:var(--dim);
+font-size:12px;margin:18px 0 2px}
+.divider::before,.divider::after{content:"";flex:1;height:1px;
+background:var(--line)}
 .toggle{margin-top:16px;text-align:center;font-size:13px;color:var(--dim)}
 .toggle a{color:var(--acc);cursor:pointer;text-decoration:none}
 .err{color:#e5695e;font-size:13px;margin-top:14px;min-height:18px}
@@ -1627,6 +1711,10 @@ button:disabled{opacity:.5;cursor:default}
 <div class="card">
   <div class="brand">Aethron</div>
   <div class="sub" id="sub">Sign in to your account</div>
+  <button class="google" onclick="location='/api/auth/google'">
+   <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+   Continue with Google</button>
+  <div class="divider">or</div>
   <label>Email</label><input id="email" type="email" autocomplete="email">
   <label>Password</label>
   <input id="pw" type="password" autocomplete="current-password">
