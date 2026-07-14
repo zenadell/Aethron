@@ -363,9 +363,26 @@ def start_ai_job(name: str, st: dict) -> str:
 # just a pointing device.
 
 OVERLAY_JS = """<script data-forge-editor>(function(){
-var PICKING=true;
+var PICKING=true,HOVERMODE='freeze';  // freeze | sticky | live
 window.addEventListener('message',function(e){
-  if(e.data&&e.data.forge==='mode')PICKING=!!e.data.picking;
+  if(e.data&&e.data.forge==='mode'){
+    PICKING=!!e.data.picking;
+    if(e.data.hover)HOVERMODE=e.data.hover;
+  }
+});
+/* Hover-variant cards flip their content on mouseenter — the text you
+   want to edit vanishes as you approach it. In picking mode we control
+   hover delivery to the page:
+   - freeze: block ALL enter/leave — cards stay in rest state
+   - sticky: allow enter, block leave — hovering PINS the hover state
+   (React synthesizes enter/leave from bubbling over/out, so stopping
+   those at document-capture starves its delegated listeners.) */
+['mouseover','mouseout','pointerover','pointerout'].forEach(function(t){
+  document.addEventListener(t,function(e){
+    if(!PICKING||HOVERMODE==='live')return;
+    if(HOVERMODE==='freeze')e.stopPropagation();
+    else if(t==='mouseout'||t==='pointerout')e.stopPropagation();
+  },true);
 });
 var st=document.createElement('style');
 st.textContent='.__forge-hl{outline:2px dashed #f59e0b !important;'+
@@ -2012,6 +2029,10 @@ async function renderPreview(c,t){
     c.innerHTML=`<div class="toolbar">
      <button class="primary" onclick="S.editMode=false;renderTab()">✔ done editing</button>
      <button id="pickToggle" onclick="togglePick()">🧭 Browse</button>
+     <button id="hoverToggle" onclick="toggleHover()"
+      title="frozen: hover cards stay in rest state so you can edit the
+front. sticky: hovering PINS a card's hover state so you can edit the
+back (bio, socials).">🧊 hover frozen</button>
      <button onclick="try{$('editframe').contentWindow.history.back()}catch(e){}"
        title="back">←</button>
      <select id="editpage" style="max-width:200px"
@@ -2044,15 +2065,24 @@ async function openPreview(){S.tab='preview';renderHeader();renderTab();}
 function syncPickMode(){
   const f=$('editframe');
   if(f&&f.contentWindow)
-    f.contentWindow.postMessage({forge:'mode',picking:S.picking!==false},'*');
+    f.contentWindow.postMessage({forge:'mode',picking:S.picking!==false,
+      hover:S.hoverMode||'freeze'},'*');
   const b=$('pickToggle');
   if(b)b.textContent=S.picking===false?'✏️ Edit':'🧭 Browse';
+  const ht=$('hoverToggle');
+  if(ht)ht.textContent=(S.hoverMode||'freeze')==='freeze'
+    ?'🧊 hover frozen':'📌 hover sticky';
   const h=$('edithint');
   if(h)h.textContent=S.picking===false
     ?'BROWSE MODE — clicks navigate like a normal site. Hit ✏️ Edit to pick elements again.'
     :'EDIT MODE — click anything to change it. 🧭 Browse switches to normal clicking (links navigate); the dropdown lists this site\'s pages.';
 }
 function togglePick(){S.picking=S.picking===false?true:false;syncPickMode();}
+function toggleHover(){
+  S.hoverMode=(S.hoverMode||'freeze')==='freeze'?'sticky':'freeze';
+  syncPickMode();
+  if(S.hoverMode==='freeze')reloadFrames();  // unpin any stuck cards
+}
 function harvestRoutes(){
   try{
     const doc=$('editframe').contentDocument;
