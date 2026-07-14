@@ -544,16 +544,19 @@ TOOLS = [
     ("serve_preview", "Serve the built site locally with the exact "
      "protocols production needs; returns the URL.",
      S(P, ["project"]), t_serve_preview),
-    ("heal", "SELF-HEAL broken fills. Run whenever build's report shows "
+    ("heal", "SELF-HEAL broken edits. Run whenever build's report shows "
      "zero-effect entries or __at_risk__ ones (replaced in pages but "
      "the chunks still spell the old text = hydration reverts it). "
-     "Deterministic ladder, never a guess: flex upgrade (whitespace-"
+     "Deterministic, never a guess. TEXT: flex upgrade (whitespace-"
      "tolerant matching), source-casing adoption, nearest-source-string "
-     "adoption (>=85% similar, CMS byte budgets enforced). Whatever it "
-     "can't fix safely comes back as STUCK with the exact reason and "
-     "closest candidates — fix the entry via set_content instead of "
-     "hand-editing anything. Snapshotted (undo covers it). Run build "
-     "afterwards to apply.", S(P, ["project"]), t_heal),
+     "adoption (>=85% similar, CMS byte budgets enforced). IMAGES: finds "
+     "every real source URL sharing the asset id (all srcset size/format "
+     "variants, any filename encoding) and points them at your new image "
+     "— fixes mangled Webflow picks and partial srcset swaps, drops junk "
+     "entries. Whatever it can't fix safely comes back as STUCK with the "
+     "exact reason — fix the entry via set_content, never hand-edit. "
+     "Snapshotted (undo covers it). Run build afterwards.",
+     S(P, ["project"]), t_heal),
     ("undo", "Revert the last content/plan/config change (snapshots are "
      "taken before every write) and rebuild.", S(P, ["project"]), t_undo),
     ("delete_project", "Delete a project entirely (needs confirm=true).",

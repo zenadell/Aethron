@@ -146,6 +146,9 @@ edit actually replaced something across all three layers. If an edit landed nowh
 - **casing adoption** — matches a real source string except for case
 - **nearest-source adoption** — a typo'd target ≥85% similar to exactly one real
   string is corrected to it (byte budgets still enforced)
+- **image variants** — an image edit that missed (a mangled Webflow filename pick,
+  or only one srcset size swapped) is healed by finding every real source URL that
+  shares the asset id — all sizes and formats — and pointing them at your new image
 - **honest STUCK** — anything it can't fix safely is reported with the exact reason
   and the closest candidates. It never guesses.
 

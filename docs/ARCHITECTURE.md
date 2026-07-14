@@ -107,10 +107,16 @@ actually replaced something across all layers.
 - **`__moot__`** → zero hits but the target is *gone* from the output (a longer fill
   already consumed it, or it's a speculative brand-token net) — success, not a defect
 
-`heal` reads this report and fixes broken edits **deterministically** (flex upgrade,
-source-casing adoption, nearest-source adoption ≥85% with byte budgets enforced),
-or reports exactly why it can't with the closest candidates. No model touches the
-mechanics; nothing fails silently.
+`heal` reads this report and fixes broken edits **deterministically**. For text:
+flex upgrade, source-casing adoption, nearest-source adoption (≥85%, byte budgets
+enforced). For images: it derives the asset id from the filename and finds every
+real source URL that shares it — all srcset size variants and every filename
+encoding — then points them all at the new image. This fixes two image-specific
+failures at once: a *mangled pick* (edit mode decoded the `%20` spaces out of a
+Webflow filename, so it matched nothing) and a *partial swap* (only one srcset
+variant changed, so the browser still showed the old asset at other sizes).
+Anything it can't fix safely is reported with the exact reason. No model touches
+the mechanics; nothing fails silently.
 
 ## Tamper-evidence
 

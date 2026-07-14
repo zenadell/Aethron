@@ -20,9 +20,10 @@ Commands (run inside a project dir, except init):
   forge.py localize     download every CDN asset under brand-free names
   forge.py card         design fingerprint (palette/fonts/motion) ->
                         design_card.json — feeds the studio's library
-  forge.py heal         SELF-HEAL broken fills from the last report:
-                        flex/casing/nearest-source adoption — never a
-                        guess; prints HEALED/STUCK per entry
+  forge.py heal         SELF-HEAL broken edits from the last report:
+                        text (flex/casing/nearest-source adoption) AND
+                        images (srcset variants + mangled Webflow picks);
+                        never a guess — prints HEALED/STUCK per entry
 
 Read PLAYBOOK.md for the model-facing workflow.
 """
@@ -741,7 +742,10 @@ def _flex_pat(old):
 # owner deliberately retargeted that exact asset (it's a pair old).
 CDN_URL_RE = re.compile(
     r"https://[a-z0-9.-]*(?:website-files\.com|framerusercontent\.com)"
-    r"[^\"'\s()<>`]+")  # backtick ends template-literal urls in chunks
+    r"[^\"'\s<>`]+")  # backtick ends template-literal urls in chunks;
+# parens ARE allowed — Webflow filenames embed them ("Portrait (6).avif"),
+# and the shield's pair-old exception matches by prefix so a trailing
+# url(...) paren is harmless (vault+restore is byte-exact either way)
 
 
 def _apply(text, pairs, escaped=False, stats=None):
@@ -895,6 +899,33 @@ def _heal_corpus(root: Path, cfg: dict):
     return texts + chunk_ts, blobs, sorted(cands)
 
 
+def _asset_stem(url: str):
+    """The stable identifier a CDN asset keeps across every size/format
+    variant: the longest alphanumeric run in its FILENAME (Webflow
+    content hash / asset id, Framer image id). Filename only — the
+    site-id path segment is shared by EVERY asset and would match the
+    whole site. 16+ chars = unique enough to never collide."""
+    tail = url.split("?")[0].split("#")[0].rsplit("/", 1)[-1]
+    runs = re.findall(r"[A-Za-z0-9]{16,}", tail)
+    return max(runs, key=len) if runs else None
+
+
+def _image_variant_urls(stem: str, texts):
+    """Every real source URL sharing this asset id — all srcset size
+    variants and every filename encoding, exactly as the source spells
+    them (so replacement lands byte-for-byte). The char class allows
+    ( ) because Webflow filenames embed them ("Portrait (6).avif");
+    trailing punctuation (from url(…) / srcset / prose) is stripped,
+    same as the asset localizer."""
+    pat = re.compile(r"https?://[^\"'\s<>`\\]*" + re.escape(stem)
+                     + r"[^\"'\s<>`\\]*")
+    urls = set()
+    for t in texts:
+        for m in pat.finditer(t):
+            urls.add(m.group(0).rstrip(",);."))
+    return urls
+
+
 def cmd_heal(args):
     import difflib
     root = Path.cwd()
@@ -1012,17 +1043,68 @@ def cmd_heal(args):
         stuck.append((old, "no source string is close enough — re-pick "
                       f"the element in edit mode. Closest: {near}"))
 
+    # ── IMAGE heal ── an image fill can miss for reasons no string edit
+    # has: (1) the picked URL was mangled (edit-mode decoded %20 spaces
+    # out of a Webflow filename → matches nothing); (2) the asset ships
+    # as SRCSET VARIANTS (…-p-500 …-p-2000 …) and only one was swapped,
+    # so the browser still shows the old one at other sizes. Both heal
+    # the same way: find every REAL source URL that shares this asset's
+    # id, point them all at the new image, and drop the junk pick.
+    img_src_texts = list(texts)   # pages + chunks
+    for cf in (root / "pristine").rglob("*.css"):
+        img_src_texts.append(cf.read_text(encoding="utf-8", errors="ignore"))
+    img_healed, img_stuck = [], []
+    moot_set = set(report.get("__moot__", []))
+    existing = {e["old"] for e in cm.get("images", [])}
+    for e in list(cm.get("images", [])):
+        old, new = e["old"], (e.get("new") or "")
+        if not new or new == old:
+            continue
+        if only is not None:
+            if old != only:
+                continue
+        elif not (report.get(old) == 0 or old in at_risk) or old in moot_set:
+            continue
+        stem = _asset_stem(old)
+        if not stem:
+            img_stuck.append((old, "couldn't derive an asset id from the "
+                              "URL — re-pick the image in edit mode"))
+            continue
+        variants = _image_variant_urls(stem, img_src_texts)
+        if not variants:
+            img_stuck.append((old, "this image isn't in the source — it may "
+                              "already be swapped, or the URL is stale"))
+            continue
+        old_is_real = old in variants
+        n_filled = 0
+        for v in sorted(variants):
+            ex = next((x for x in cm["images"] if x["old"] == v), None)
+            if ex is None:
+                cm["images"].append({"old": v, "new": new,
+                                     "scope": e.get("scope", "all"),
+                                     "where": ["heal-image-variant"]})
+                existing.add(v)
+                n_filled += 1
+            elif not ex.get("new"):
+                ex["new"] = new
+                n_filled += 1
+        if not old_is_real:   # the mangled/junk pick: retire it
+            cm["images"] = [x for x in cm["images"] if x is not e]
+        changed = True
+        img_healed.append((old, f"swapped {n_filled} real source variant(s) "
+                           "of this image (all sizes/formats)"))
+
     if changed:
         (root / "copy_map.json").write_text(
             json.dumps(cm, indent=1, ensure_ascii=False), encoding="utf-8")
-    for o, why in healed:
+    for o, why in healed + img_healed:
         print(f"HEALED: {o[:60]!r} -> {why}")
-    for o, why in stuck:
+    for o, why in stuck + img_stuck:
         print(f"STUCK:  {o[:60]!r} -> {why}")
-    if not healed and not stuck and not dropped:
+    if not (healed or stuck or dropped or img_healed or img_stuck):
         print("nothing to heal — no broken fills in the last report")
-    print(f"heal: {len(healed) + len(dropped)} fixed, "
-          f"{len(stuck)} need the owner"
+    print(f"heal: {len(healed) + len(dropped) + len(img_healed)} fixed, "
+          f"{len(stuck) + len(img_stuck)} need the owner"
           + (" — rebuild to apply" if changed or dropped else ""))
 
 
@@ -2136,9 +2218,12 @@ or this platform's code. The system tells you exactly what happened:
    the number of real replacements. 0 = it matched nothing.
    "__at_risk__" = it changed the pages but the chunks still spell
    the old text — the browser will revert it on hydration.
-2. Run `python3 forge.py heal` (MCP: the heal tool). Deterministic
-   ladder: whitespace-flexible matching, source-casing adoption,
-   nearest-source-string adoption. It prints HEALED/STUCK per entry.
+2. Run `python3 forge.py heal` (MCP: the heal tool). Deterministic,
+   never a guess. Text: whitespace-flexible matching, source-casing
+   adoption, nearest-source adoption. Images: finds every real source
+   URL sharing the asset id (all srcset size/format variants) and
+   points them at your new image, fixing mangled picks and partial
+   swaps. Prints HEALED/STUCK per entry.
 3. Rebuild. Re-check the report.
 4. Still STUCK? The reason line says why (usually: the text you
    targeted doesn't exist in the source, or your replacement is over
