@@ -822,6 +822,41 @@ def _static_slice(m):
         + rest)
 
 
+# Framer's default/auto component names. Hiding by one of these hits
+# unrelated components site-wide — and hydration mints MORE instances
+# than the SSR HTML shows (the "Variant 1" incident: SSR counted 3,
+# the live rule also swallowed nav arrows and a menu item).
+GENERIC_FRAMER_NAME_RE = re.compile(
+    r"^(?:Variant \d+|Desktop|Phone|Mobile|Tablet|Frame(?: \d+)?|"
+    r"Container|Content|Wrapper|Stack|Group|Text|Image|Icon|Arrow|"
+    r"Nav|Top|Menu|Item|Card|Button|Link|\d+)$")
+
+
+def hide_selector_audit(sel, page_texts):
+    """Blast-radius audit for OUR hide-selector grammar.
+    Returns {count, generic, risky, why} — risky selectors hide
+    unrelated parts of the site and must be scoped or dropped."""
+    sel = sel.strip()
+    m = re.fullmatch(r'\[data-framer-name="([^"]+)"\]', sel)
+    if m:
+        name = m.group(1)
+        n = sum(t.count(f'data-framer-name="{name}"') for t in page_texts)
+        generic = bool(GENERIC_FRAMER_NAME_RE.fullmatch(name))
+        why = (f"'{name}' is a Framer default name — hydration re-creates "
+               "it on unrelated components site-wide" if generic else
+               f"matches {n} elements across the pages")
+        return {"count": n, "generic": generic,
+                "risky": generic or n > 3, "why": why}
+    cls = re.findall(r"\.([\w-]+)", sel)
+    if cls and " " not in sel and ">" not in sel:
+        n = sum(1 for t in page_texts
+                for cm_ in re.finditer(r'class="([^"]*)"', t)
+                if all(c in cm_.group(1).split() for c in cls))
+        return {"count": n, "generic": False, "risky": n > 3,
+                "why": f"matches {n} elements across the pages"}
+    return {"count": None, "generic": False, "risky": False, "why": ""}
+
+
 # ─────────────────────────── heal ────────────────────────────────────
 # SELF-HEALING for failed edits. The report tells us with certainty
 # which fills replaced nothing (zeros) or would be reverted by
@@ -873,6 +908,25 @@ def cmd_heal(args):
     only = args[args.index("--entry") + 1] if "--entry" in args else None
 
     texts, blobs, cands = _heal_corpus(root, cfg)
+
+    # destructive hide rules first (the "Variant 1" incident): a hide
+    # selector with a generic Framer default name — or one matching
+    # many elements — swallows unrelated parts of the site. Drop it;
+    # re-removing in edit mode now produces a safely scoped selector.
+    page_texts_only = [(root / "pristine" / p).read_text(
+        encoding="utf-8", errors="ignore") for p in cfg["pages"]]
+    kept, dropped = [], []
+    for sel in cfg.get("hide_selectors", []):
+        a = hide_selector_audit(sel, page_texts_only)
+        (dropped if a["risky"] else kept).append((sel, a))
+    if dropped:
+        cfg["hide_selectors"] = [s for s, _ in kept]
+        write_cfg(root, cfg)
+        for sel, a in dropped:
+            print(f"HEALED: destructive hide rule DROPPED: {sel} — "
+                  f"{a['why']}. It was hiding unrelated elements; "
+                  "re-remove the element in edit mode (selectors are "
+                  "now scoped safely).")
 
     def exact_any(s):
         sb = s.encode()
@@ -965,10 +1019,11 @@ def cmd_heal(args):
         print(f"HEALED: {o[:60]!r} -> {why}")
     for o, why in stuck:
         print(f"STUCK:  {o[:60]!r} -> {why}")
-    if not healed and not stuck:
+    if not healed and not stuck and not dropped:
         print("nothing to heal — no broken fills in the last report")
-    print(f"heal: {len(healed)} fixed, {len(stuck)} need the owner"
-          + (" — rebuild to apply" if changed else ""))
+    print(f"heal: {len(healed) + len(dropped)} fixed, "
+          f"{len(stuck)} need the owner"
+          + (" — rebuild to apply" if changed or dropped else ""))
 
 
 def _write_deploy(site: Path, cfg: dict):
@@ -2295,6 +2350,20 @@ def cmd_verify(_args):
                   "signature) are usually IMAGES — words drawn inside "
                   "them are invisible to these checks. Eyeball the "
                   "header/footer; `forge.py logo` renders replacements.")
+
+    # destructive hide rules: a selector built from a generic Framer
+    # default name (or matching many elements) hides unrelated parts
+    # of the site — hydration mints more instances than SSR shows
+    page_texts = [(root / "pristine" / p).read_text(encoding="utf-8",
+                                                    errors="ignore")
+                  for p in cfg["pages"]]
+    for sel in cfg.get("hide_selectors", []):
+        a = hide_selector_audit(sel, page_texts)
+        if a["risky"]:
+            print(f"FAIL destructive hide rule: {sel} — {a['why']} "
+                  "(fix: python3 forge.py heal drops it; then re-remove "
+                  "the element in edit mode)")
+            fails += 1
 
     print("\nVERDICT:", "CLEAN — open it in a browser and run the human checklist"
           if not fails else f"{fails} problem(s) — fix and rebuild")

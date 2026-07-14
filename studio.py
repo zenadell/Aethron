@@ -46,7 +46,7 @@ PROJECTS = ROOT / "projects"
 LIBRARY = ROOT / "library"   # design cards: fingerprints, never files
 
 sys.path.insert(0, str(ROOT))
-from forge import _flex_pat  # shared whitespace-tolerant matcher  # noqa: E402
+from forge import _flex_pat, hide_selector_audit  # shared matchers  # noqa: E402
 
 JOBS = {}       # job id -> {"done": bool, "ok": bool|None, "log": str}
 PREVIEWS = {}   # project -> (port, Popen)
@@ -1323,11 +1323,49 @@ class Handler(BaseHTTPRequestHandler):
                 cfg = json.loads((d / "forge.json").read_text())
                 if cfg["platform"] == "framer":
                     # React re-creates deleted DOM (hydration breaks) —
-                    # bake a permanent hide rule into every build instead
+                    # bake a permanent hide rule into every build instead.
+                    # BLAST-RADIUS GUARD (the "Variant 1" incident): a
+                    # generic Framer default name hides unrelated
+                    # components site-wide — scope by unique classes or
+                    # a unique ancestor, or refuse; never hide blindly.
+                    pages_txt = [(d / "pristine" / pg).read_text(
+                        encoding="utf-8", errors="ignore")
+                        for pg in cfg["pages"]]
+
+                    def audit(s):
+                        return hide_selector_audit(s, pages_txt)
+
+                    def class_sel(info):
+                        cls = [c for c in (info.get("classes") or [])
+                               if re.match(r"framer-[\w-]+$", c)]
+                        return (info.get("tag", "div")
+                                + "".join("." + c for c in cls)) \
+                            if cls else None
+
+                    sel = None
                     if el.get("id"):
                         sel = "#" + el["id"]
                     elif el.get("frname"):
-                        sel = f'[data-framer-name="{el["frname"]}"]'
+                        cand = f'[data-framer-name="{el["frname"]}"]'
+                        if not audit(cand)["risky"]:
+                            sel = cand
+                        else:
+                            cs = class_sel(el)
+                            if cs and audit(cs)["count"] == 1:
+                                sel = cs
+                            else:   # anchor on a unique ancestor
+                                for anc in (el.get("ancestors") or []):
+                                    asel = class_sel(anc)
+                                    if asel and audit(asel)["count"] == 1:
+                                        sel = f"{asel} {cand}"
+                                        break
+                            if sel is None:
+                                return self.fail(
+                                    f'"{el["frname"]}" is a generic Framer '
+                                    "name used all over the site — hiding "
+                                    "by it would remove unrelated elements "
+                                    "too. Click ⬆ to a more specific "
+                                    "parent and remove that instead.")
                     elif el.get("classes"):
                         sel = el["tag"] + "".join("." + c
                                                   for c in el["classes"])
