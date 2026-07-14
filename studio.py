@@ -364,10 +364,14 @@ def start_ai_job(name: str, st: dict) -> str:
 
 OVERLAY_JS = """<script data-forge-editor>(function(){
 var PICKING=true,HOVERMODE='freeze';  // freeze | sticky | live
+window.__forgeState=function(){return {picking:PICKING,hover:HOVERMODE}};
 window.addEventListener('message',function(e){
   if(e.data&&e.data.forge==='mode'){
     PICKING=!!e.data.picking;
-    if(e.data.hover)HOVERMODE=e.data.hover;
+    if(e.data.hover){
+      if(e.data.hover!==HOVERMODE){entered=[];stickyLast=null}
+      HOVERMODE=e.data.hover;
+    }
   }
 });
 /* Hover-variant cards flip their content on mouseenter — the text you
@@ -377,13 +381,46 @@ window.addEventListener('message',function(e){
    - sticky: allow enter, block leave — hovering PINS the hover state
    (React synthesizes enter/leave from bubbling over/out, so stopping
    those at document-capture starves its delegated listeners.) */
-['mouseover','mouseout','pointerover','pointerout'].forEach(function(t){
+/* enter/leave don't bubble but DO capture — stopping them at document
+   capture starves even listeners attached directly on elements */
+['mouseover','mouseout','pointerover','pointerout',
+ 'mouseenter','mouseleave','pointerenter','pointerleave']
+.forEach(function(t){
   document.addEventListener(t,function(e){
+    if(!e.isTrusted)return;   // our own synthetic hover must pass
     if(!PICKING||HOVERMODE==='live')return;
-    if(HOVERMODE==='freeze')e.stopPropagation();
-    else if(t==='mouseout'||t==='pointerout')e.stopPropagation();
+    var leaving=/out|leave/.test(t);
+    if(HOVERMODE==='freeze'||leaving)e.stopPropagation();
   },true);
 });
+/* STICKY doesn't just let real hover through — runtime/mount quirks
+   can starve it — it DRIVES the flip: dispatch synthetic enter/over
+   for everything under the cursor (framer-motion and React don't
+   check isTrusted) and never send the matching leaves. Sweep a
+   hover-variant card and it flips AND STAYS flipped, so the hover
+   side is clickable/editable. Reset = toggle back to freeze
+   (reloads) or rebuild. */
+var entered=[],stickyLast=null;
+function stickyEnter(x,y){
+  var deep=document.elementFromPoint(x,y);
+  if(!deep||deep===stickyLast)return;stickyLast=deep;
+  entered=entered.filter(function(el){return el.isConnected});
+  var chain=[],n=deep;
+  while(n&&n.nodeType===1){chain.unshift(n);n=n.parentElement}
+  chain.forEach(function(el){
+    if(entered.indexOf(el)>=0)return;entered.push(el);
+    [['pointerenter',PointerEvent],['mouseenter',MouseEvent]]
+    .forEach(function(te){el.dispatchEvent(new te[1](te[0],
+      {bubbles:false,cancelable:true,clientX:x,clientY:y,
+       pointerId:1,pointerType:'mouse',isPrimary:true,view:window}))});
+  });
+  [['pointerover',PointerEvent],['mouseover',MouseEvent],
+   ['pointermove',PointerEvent],['mousemove',MouseEvent]]
+  .forEach(function(te){deep.dispatchEvent(new te[1](te[0],
+    {bubbles:true,cancelable:true,clientX:x,clientY:y,
+     pointerId:1,pointerType:'mouse',isPrimary:true,view:window}))});
+}
+window.__forgeHover=stickyEnter;
 var st=document.createElement('style');
 st.textContent='.__forge-hl{outline:2px dashed #f59e0b !important;'+
  'outline-offset:2px;cursor:crosshair !important}'+
@@ -455,7 +492,9 @@ function findPick(x,y){
   return null;
 }
 document.addEventListener('mousemove',function(e){
+  if(!e.isTrusted)return; // synthetic moves (incl. our own) don't re-pick
   if(!PICKING){if(cur){cur.classList.remove('__forge-hl');cur=null}return}
+  if(HOVERMODE==='sticky')stickyEnter(e.clientX,e.clientY);
   var p=findPick(e.clientX,e.clientY);
   var el=p?p.el:null;
   if(cur&&cur!==el)cur.classList.remove('__forge-hl');
