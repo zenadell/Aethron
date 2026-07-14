@@ -772,6 +772,82 @@ def _apply(text, pairs, escaped=False, stats=None):
     return text
 
 
+# The Framer CMS loader's response guard, as shipped (minified names
+# vary per template, structure doesn't):
+#   let c=await s.arrayBuffer(),l=new Uint8Array(c);
+#   if(l.length!==i)throw Error(`…Unexpected response length`);
+#   let u=new We,d=0;for(let e of n){…}
+# where n = the merged {from,to} range list the request was built from.
+RANGE_GUARD_RE = re.compile(
+    r"let ([\w$]+)=await ([\w$]+)\.arrayBuffer\(\),"
+    r"([\w$]+)=new Uint8Array\(\1\);"
+    r"if\(\3\.length!==([\w$]+)\)throw Error\(`[^`]*`\);"
+    r"(let [\w$]+=new [\w$]+,[\w$]+=0;for\(let [\w$]+ of ([\w$]+)\))")
+
+
+def _static_slice(m):
+    c, s, l, i, rest, n = m.groups()
+    return (
+        f"let {c}=await {s}.arrayBuffer(),{l}=new Uint8Array({c});"
+        # full file came back (static host ignored ?range=): slice it
+        # ourselves into exactly what a protocol server would have sent
+        f"if({l}.length>{i}){{let __fw=new Uint8Array({i}),__fo=0;"
+        f"for(let __fr of {n}){{__fw.set({l}.subarray(__fr.from,__fr.to),"
+        f"__fo),__fo+=__fr.to-__fr.from}}{l}=__fw}}"
+        f"if({l}.length!=={i})"
+        f"throw Error(`Request failed: Unexpected response length`);"
+        + rest)
+
+
+def _write_deploy(site: Path, cfg: dict):
+    """Every build ships deploy-ready: the output is fully static
+    (client-side CMS range slicing, real .js icon names), so the only
+    host-side need left is the SPA fallback for deep routes — covered
+    per host family below."""
+    # Netlify + Cloudflare Pages: shadow fallback (real files win)
+    (site / "_redirects").write_text("/* /index.html 200\n",
+                                     encoding="utf-8")
+    # GitHub Pages & friends: 404 page = the app shell (client routes)
+    if (site / "index.html").exists():
+        shutil.copy(site / "index.html", site / "404.html")
+    # Vercel: filesystem wins, extension-less routes fall back
+    (site / "vercel.json").write_text(json.dumps({"rewrites": [
+        {"source": "/((?!.*\\.).*)", "destination": "/index.html"}]},
+        indent=1), encoding="utf-8")
+    (site / "DEPLOY.md").write_text(f"""# Deploy this site
+
+This folder is **fully static** — no server logic needed. The build
+already handles the Framer runtime's quirks (CMS byte ranges are
+sliced client-side; icon modules ship with real `.js` names). The
+files `_redirects`, `404.html` and `vercel.json` cover deep-link
+routing per host; hosts ignore the ones they don't use.
+
+## Cloudflare Pages (recommended — free, custom domains)
+Dashboard -> Workers & Pages -> Create -> Pages -> Upload assets ->
+drop THIS folder. Or: `npx wrangler pages deploy .`
+
+## Netlify
+Drag THIS folder onto https://app.netlify.com/drop — done.
+
+## Vercel
+`npx vercel .` in this folder (or import in the dashboard).
+
+## GitHub Pages
+Push this folder's CONTENTS to your `username.github.io` repo (or a
+custom-domain site). NOTE: project pages served under `/repo-name/`
+won't work — asset paths are root-absolute; use a user site or a
+custom domain.
+
+## Any other static host / CDN / S3 / nginx
+Upload as-is. Optional: route unknown extension-less paths to
+/index.html so deep links work (real pages and assets must win).
+
+## Local
+`python3 serve.py` -> http://127.0.0.1:8000/
+(platform: {cfg['platform']}; migrated with Template Forge)
+""", encoding="utf-8")
+
+
 def cmd_build(_args):
     root = Path.cwd()
     cfg = read_cfg(root)
@@ -934,7 +1010,7 @@ def cmd_build(_args):
     if chunks_src.exists():
         cdir = site / "assets" / "chunks"
         cdir.mkdir()
-        n_patched = 0
+        n_patched = n_static = 0
         for p in chunks_src.glob("*.mjs"):
             t = p.read_text(encoding="utf-8", errors="ignore")
             orig = t
@@ -945,11 +1021,27 @@ def cmd_build(_args):
                 t = t.replace(ib, "${location.origin}" + pub + "/icons/")
             t = re.sub(r"EditorBar:([A-Za-z$_][\w$]*)===void 0\?void 0:",
                        "EditorBar:!0?void 0:", t)
+            # STATIC-HOST HARDENING (the blank-page killer): the CMS
+            # loader requests ?range=a-b,c-d and THROWS if the response
+            # length differs — a dumb static host ignores the query and
+            # returns the whole file. Patch the guard: an over-long
+            # response IS the full file, so slice it client-side from
+            # the merged range list (identical bytes to a protocol
+            # server's reply). Protocol servers still return exact
+            # slices and take the untouched fast path.
+            t, k = RANGE_GUARD_RE.subn(_static_slice, t)
+            n_static += k
+            # icon modules are import()ed — name.js@1.2.3 gets a wrong
+            # MIME on static hosts, which module scripts hard-reject.
+            # Ship them as name.1.2.3.js instead (copy is renamed below)
+            t = re.sub(r"\.js@([0-9.]+)", r".\1.js", t)
             t = _apply(t, pairs, stats=stats)
             t = _localize_refs(t, cfg.get("localized", {}))
             (cdir / p.name).write_text(t, encoding="utf-8")
             n_patched += t != orig
-        log(f"chunks: {n_patched} patched, {len(list(chunks_src.glob('*.mjs')))} total")
+        log(f"chunks: {n_patched} patched "
+            f"({n_static} static-host range guard(s)), "
+            f"{len(list(chunks_src.glob('*.mjs')))} total")
 
     # CMS binaries: exact-byte-length padded replacement (offsets are law)
     if cms_src.exists() and list(cms_src.glob("*.framercms")):
@@ -997,7 +1089,17 @@ def cmd_build(_args):
 
     icons_src = root / "pristine" / "icons"
     if icons_src.exists() and any(icons_src.iterdir()):
-        shutil.copytree(icons_src, site / "assets" / "icons")
+        # ship name.js@1.2.3 as name.1.2.3.js — real extension, real
+        # MIME on any static host (chunk import()s were rewritten to
+        # match). pristine keeps the original names.
+        idir = site / "assets" / "icons"
+        idir.mkdir(parents=True)
+        for f in icons_src.iterdir():
+            if not f.is_file():
+                continue
+            m = re.fullmatch(r"(.+)\.js@([0-9.]+)", f.name)
+            shutil.copy(f, idir / (f"{m.group(1)}.{m.group(2)}.js"
+                                   if m else f.name))
 
     # localized remote assets -> site/assets/r/ (css gets its internal
     # refs rewritten: absolute CDN urls AND relative url(...) paths)
@@ -1058,20 +1160,14 @@ def cmd_build(_args):
     # ship the runner + a README so the folder is self-explanatory to
     # any human or AI that receives it
     (site / "serve.py").write_text(SERVE_PY, encoding="utf-8")
-    if cfg["platform"] == "framer":
-        readme = ("This site was migrated with Template Forge.\n\n"
-                  "RUN IT:  python3 serve.py   ->  http://127.0.0.1:8000/\n\n"
-                  "IMPORTANT: a plain static file server shows a BLANK "
-                  "PAGE.\nThe Framer runtime needs the three behaviors "
-                  "implemented in serve.py\n(CMS ?range= byte slices, "
-                  ".js@ MIME type, SPA route fallback).\nReplicate them "
-                  "on your production server — it is ~30 lines.\n")
-    else:
-        readme = ("This site was migrated with Template Forge.\n\n"
-                  "RUN IT:  python3 serve.py   ->  http://127.0.0.1:8000/\n\n"
-                  "Any static host (Netlify, nginx, S3…) also works "
-                  "as-is for this\nexport type.\n")
+    readme = ("This site was migrated with Template Forge.\n\n"
+              "RUN IT LOCALLY:  python3 serve.py  ->  "
+              "http://127.0.0.1:8000/\n\n"
+              "DEPLOY IT: this folder is fully static — see DEPLOY.md "
+              "for one-step\ninstructions (Cloudflare Pages, Netlify, "
+              "Vercel, GitHub Pages, any\nstatic host or CDN).\n")
     (site / "README.txt").write_text(readme, encoding="utf-8")
+    _write_deploy(site, cfg)
 
     print("Build complete -> site/   (self-hosting: python3 serve.py)"
           "   Next: serve, then verify")
@@ -1252,22 +1348,18 @@ def cmd_logo(args):
               f'"{pub}/{out.name}" — build copies assets/ into the site.')
 
 
-# Every built site ships with its own runner: a plain static server
-# blank-pages Framer sites (CMS ?range= protocol + .js@ MIME + SPA
-# routes). Whoever receives the folder — a human, an AI agent, a VPS —
-# just runs `python3 serve.py`.
+# Every built site ships with its own runner. Builds are static-host
+# safe (client-side CMS range slicing, real .js icon names) — this
+# runner adds the exact protocols + SPA fallback for local dev, and
+# keeps OLDER builds (pre static-hardening) working too.
 SERVE_PY = '''#!/usr/bin/env python3
 """Run this site:  python3 serve.py [port]   (default 8000)
 
-A PLAIN static server will show a BLANK PAGE for Framer-based sites.
-This runner replicates the three behaviors the runtime needs; any
-production server (nginx, Django, Node) must do the same:
-  1. GET *.framercms?range=a-b,c-d -> exactly those inclusive byte
-     slices, concatenated, with correct Content-Length
-  2. *.js@* and *.mjs served as text/javascript
-  3. extension-less paths (about, works) fall back to index.html
-Webflow/static exports work on any host; this runner is still the
-easiest way to view them locally.
+The build is fully static — see DEPLOY.md for one-step hosting
+(Cloudflare Pages, Netlify, Vercel, GitHub Pages, any CDN). This
+runner is the nicest local dev server: it also implements the exact
+Framer protocols (CMS ?range= byte slices, .js MIME, SPA route
+fallback), which older Template Forge builds require.
 """
 import re, sys, urllib.parse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -1743,12 +1835,16 @@ writes are validated (byte budgets, forbidden characters) and trigger
 the rebuild automatically. That IS the safe "database-driven content"
 path — treat copy_map.json as the database.
 
-## Serving (why a plain static server shows a BLANK page on Framer)
-The runtime needs three behaviors, all implemented in backend/app.py
-and site/serve.py — replicate them on any production server:
-1. GET *.framercms?range=a-b,c-d -> exact concatenated byte slices
-2. *.js@* and *.mjs served as text/javascript
-3. extension-less paths fall back to index.html (SPA routes)
+## Serving
+site/ is STATIC-HOST SAFE as built: the CMS ?range= responses are
+sliced client-side when a dumb server returns the full file, and icon
+modules ship with real .js names — see site/DEPLOY.md for one-step
+hosting (Cloudflare Pages/Netlify/Vercel/GitHub Pages/any CDN).
+backend/app.py and site/serve.py additionally implement the exact
+protocols (range slices, .js MIME, SPA fallback) — use either for
+local dev; the only host-side nicety left is routing unknown
+extension-less paths to /index.html for deep links (the shipped
+_redirects / 404.html / vercel.json cover the big hosts).
 
 ## Where YOUR code goes
 - backend/app.py -> "EXTEND HERE" section: add endpoints freely

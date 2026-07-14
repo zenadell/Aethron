@@ -1781,7 +1781,10 @@ function renderHeader(){
       title="revert the last change (copy map, styles, removals, config)"
       >↩ Undo (${S.info.undo})</button>`:'')
    +`<button onclick="openPreview()">▶ Preview</button>
-     <button onclick="location='/api/download?project='+S.cur">⬇ site.zip</button>
+     <button title="deploy-ready: fully static, works on any host —
+      DEPLOY.md inside has one-step instructions for Cloudflare Pages,
+      Netlify, Vercel, GitHub Pages"
+      onclick="location='/api/download?project='+S.cur">⬇ site.zip</button>
      <button title="whole rebuildable project: pristine + copy map +
       forge.py + backend API + AGENT_GUIDE — hand this to any dev or AI IDE"
       onclick="location='/api/download?full=1&project='+S.cur">⬇ dev handoff</button>

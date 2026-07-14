@@ -55,8 +55,12 @@ Read [PLAYBOOK.md](PLAYBOOK.md) for the full physics.
   fonts/motion — all baked into the code, all undoable.
 - **Full ownership**: `localize` downloads every CDN asset under
   brand-free names; the site runs with zero platform dependency.
-- **Self-hosting builds**: every `site/` ships `serve.py` + README —
-  hand the folder to anyone (or any AI) and it just works.
+- **Deploy anywhere, no server logic**: builds are static-host safe —
+  the Framer runtime's byte-range CMS protocol is handled client-side
+  and icon modules ship with real `.js` names. Drop `site/` on
+  Cloudflare Pages, Netlify, Vercel, GitHub Pages or any CDN
+  (`DEPLOY.md` inside has the one-step instructions), or run the
+  bundled `serve.py` locally.
 - **Backend included**: `backend` generates a content API where the
   copy map is the database — writes are guarded and auto-rebuild.
 
