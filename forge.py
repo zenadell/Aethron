@@ -1113,16 +1113,29 @@ def _write_deploy(site: Path, cfg: dict):
     (client-side CMS range slicing, real .js icon names), so the only
     host-side need left is the SPA fallback for deep routes — covered
     per host family below."""
-    # Netlify + Cloudflare Pages: shadow fallback (real files win)
-    (site / "_redirects").write_text("/* /index.html 200\n",
-                                     encoding="utf-8")
-    # GitHub Pages & friends: 404 page = the app shell (client routes)
-    if (site / "index.html").exists():
-        shutil.copy(site / "index.html", site / "404.html")
-    # Vercel: filesystem wins, extension-less routes fall back
-    (site / "vercel.json").write_text(json.dumps({"rewrites": [
-        {"source": "/((?!.*\\.).*)", "destination": "/index.html"}]},
-        indent=1), encoding="utf-8")
+    framer = cfg.get("platform") == "framer"
+    if framer:
+        # single-page app: unmatched deep links are client routes ->
+        # index.html (real files still win).
+        (site / "_redirects").write_text("/* /index.html 200\n",
+                                         encoding="utf-8")
+        if (site / "index.html").exists():
+            shutil.copy(site / "index.html", site / "404.html")
+        (site / "vercel.json").write_text(json.dumps({"rewrites": [
+            {"source": "/((?!.*\\.).*)", "destination": "/index.html"}]},
+            indent=1), encoding="utf-8")
+    else:
+        # multi-page (Webflow/static): an unmatched path is a genuine
+        # 404 -> the styled 404.html with a 404 status, NEVER the home
+        # page. (The scraped 404.html is the template's own not-found
+        # page; only synthesize one if it's missing.)
+        (site / "_redirects").write_text("/* /404.html 404\n",
+                                         encoding="utf-8")
+        if not (site / "404.html").exists() and (site / "index.html").exists():
+            shutil.copy(site / "index.html", site / "404.html")
+        # Vercel serves 404.html automatically on not-found — no rewrite.
+        (site / "vercel.json").write_text(json.dumps({}, indent=1),
+                                          encoding="utf-8")
     (site / "DEPLOY.md").write_text(f"""# Deploy this site
 
 This folder is **fully static** — no server logic needed. The build
@@ -1524,7 +1537,9 @@ def cmd_build(_args):
 
     # ship the runner + a README so the folder is self-explanatory to
     # any human or AI that receives it
-    (site / "serve.py").write_text(SERVE_PY, encoding="utf-8")
+    (site / "serve.py").write_text(
+        SERVE_PY.replace("__AETHRON_PLATFORM__", cfg.get("platform", "static")),
+        encoding="utf-8")
     readme = ("This site was migrated with Aethron.\n\n"
               "RUN IT LOCALLY:  python3 serve.py  ->  "
               "http://127.0.0.1:8000/\n\n"
@@ -1731,6 +1746,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+PLATFORM = "__AETHRON_PLATFORM__"  # set by build (framer|webflow|static)
 
 
 class H(SimpleHTTPRequestHandler):
@@ -1765,9 +1781,24 @@ class H(SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        # platform-aware not-found: Framer = SPA (client routes ->
+        # index.html); Webflow/static = multi-page (unmatched path is a
+        # real 404 -> styled 404.html, never the wrong home page).
         f = Path(self.translate_path(u.path))
-        if not f.exists() and "." not in Path(u.path).name:
-            self.path = "/index.html"
+        if not f.exists():
+            extensionless = "." not in Path(u.path).name
+            if PLATFORM == "framer" and extensionless \\
+                    and (ROOT / "index.html").exists():
+                self.path = "/index.html"
+            else:
+                fb = ROOT / "404.html"
+                if fb.exists():
+                    body = fb.read_bytes()
+                    self.send_response(404)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    return self.wfile.write(body)
         return super().do_GET()
 
 
@@ -2289,7 +2320,7 @@ def cmd_serve(args):
     from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
     import urllib.parse
     root = Path.cwd()
-    read_cfg(root)
+    platform = read_cfg(root).get("platform", "static")
     port = int(args[0]) if args else 8777
     site = root / "site"
     if not site.exists():
@@ -2332,12 +2363,30 @@ def cmd_serve(args):
                 self.end_headers()
                 self.wfile.write(body)
                 return
-            # SPA fallback: extension-less paths are client-side routes
-            # (about, works, …) — the runtime router renders them from
-            # index.html. Replicate on production servers too.
+            # Not-found routing is PLATFORM-AWARE:
+            #  • Framer is a single-page app — extension-less deep links
+            #    (about, works, …) are CLIENT ROUTES rendered from
+            #    index.html, so fall back there.
+            #  • Webflow/static is multi-page — an unmatched path is a
+            #    genuine 404 (a dead CMS/collection link), so serve the
+            #    styled 404.html with a real 404 status instead of
+            #    wrongly showing the home page.
             f = Path(self.translate_path(u.path))
-            if not f.exists() and "." not in Path(u.path).name:
-                self.path = "/index.html"
+            if not f.exists():
+                extensionless = "." not in Path(u.path).name
+                if platform == "framer" and extensionless \
+                        and (site / "index.html").exists():
+                    self.path = "/index.html"
+                else:
+                    fb = site / "404.html"
+                    if fb.exists():
+                        body = fb.read_bytes()
+                        self.send_response(404)
+                        self.send_header("Content-Type",
+                                         "text/html; charset=utf-8")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        return self.wfile.write(body)
             return super().do_GET()
 
     print(f"Serving site/ at http://localhost:{port}/  (Ctrl-C to stop)")
