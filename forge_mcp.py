@@ -283,6 +283,10 @@ def t_remove_element(a):
     if not target:
         raise ValueError(f"no element found containing {contains!r} — try a "
                          "shorter/exact snippet, or name the `page`")
+    if target["index"] < 0 or target["tag"] in ("html", "head", "body"):
+        raise ValueError(f"{contains!r} only resolves to a page-level/"
+                         "un-targetable element — use a more specific "
+                         "snippet or a `page`")
     preview = (target["tag"]
                + ("#" + target["id"] if target["id"] else "")
                + ("." + ".".join(target["classes"]) if target["classes"] else "")

@@ -703,7 +703,10 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
             n = Node(tag, ad.get("id"), classes, self.cur)
             self.cur.children.append(n)
             self.order.append(n)
-            if tag in ("script", "style", "svg"):
+            # never harvest text from <head> (title/meta) or non-visual
+            # nodes — otherwise a word in the page <title> becomes a
+            # "hit" and the target climbs to <html>.
+            if tag in ("script", "style", "svg", "head"):
                 self.skip += 1
             if tag not in VOID_TAGS:
                 self.cur = n
@@ -717,7 +720,7 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
             self.order.append(n)
 
         def handle_endtag(self, tag):
-            if tag in ("script", "style", "svg") and self.skip:
+            if tag in ("script", "style", "svg", "head") and self.skip:
                 self.skip -= 1
             c = self.cur
             while c.parent is not None:
@@ -772,6 +775,11 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
     while not target.id and not target.classes \
             and target.parent is not None and target.parent is not p.root:
         target = target.parent
+    # never hand back a structural wrapper (deleting <html>/<body> nukes
+    # the page) or an un-addressable element — refuse instead.
+    if target.tag in ("html", "head", "body", "root") \
+            or (not target.id and not target.classes):
+        return None
 
     # index among document-order elements matching this remove predicate
     def matches(n):
@@ -1383,7 +1391,11 @@ def cmd_build(_args):
         # Framer projects route removals to hide_selectors instead
         # (React re-creates DOM). A removal may be scoped to one page
         # via "page"; absent = applies to every page (shared chrome).
-        for rm in removals:
+        # apply highest index first: deleting a low-index element shifts
+        # every higher index of the SAME selector down by one, so removing
+        # e.g. footer-link #8 then #10 would hit the wrong element. Sorting
+        # descending keeps every entry's index valid at delete time.
+        for rm in sorted(removals, key=lambda r: -(r.get("index") or 0)):
             if rm.get("page") and rm["page"] != page:
                 continue
             t = _remove_nth_element(t, rm)
