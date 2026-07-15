@@ -563,7 +563,18 @@ function elInfoFull(el){
 }
 document.addEventListener('click',function(e){
   if(!PICKING)return;            // browse mode: clicks navigate normally
-  if(e.altKey||e.metaKey)return; // ⌥/⌘-click: follow links, navigate
+  if(e.altKey||e.metaKey){
+    // ⌥/⌘-click should NAVIGATE to another page — but the browser's
+    // native ⌥-click DOWNLOADS the link and ⌘-click opens a new tab.
+    // Intercept and navigate the edit-mount iframe in place instead.
+    var a=e.target.closest&&e.target.closest('a[href]');
+    if(a){var h=a.getAttribute('href')||'';
+      if(h&&!/^(#|mailto:|tel:|javascript:)/.test(h)){
+        e.preventDefault();e.stopPropagation();
+        try{location.href=a.href;}catch(_){}
+      }}
+    return;
+  }
   var p=findPick(e.clientX,e.clientY);
   if(!p)return;
   e.preventDefault();e.stopPropagation();
@@ -830,8 +841,17 @@ class Handler(BaseHTTPRequestHandler):
         if not f.is_relative_to(site):
             return self.send_error(404)
         if not f.is_file():
-            if "." not in Path(rest).name:   # SPA route (about, works…)
+            # platform-aware: Framer is a SPA (extensionless deep links
+            # are client routes -> index.html); Webflow is multi-page, so
+            # an unmatched path is a real page miss -> 404.html, NEVER the
+            # home page (that's the "selecting a page just shows home" bug).
+            platform = json.loads((d / "forge.json").read_text()) \
+                .get("platform", "static")
+            extless = "." not in Path(rest).name
+            if platform == "framer" and extless:
                 f = site / "index.html"
+            elif (site / "404.html").is_file():
+                f = site / "404.html"
             else:
                 return self.send_error(404)
         data = f.read_bytes()
@@ -2878,23 +2898,33 @@ function harvestRoutes(){
     const doc=$('editframe').contentDocument;
     const sel=$('editpage');
     if(!doc||!sel)return;
-    const set=new Set((S.info&&S.info.pages||[]).map(p=>p==='index.html'?'':p.replace(/\.html$/,'')));
+    // Framer = SPA: routes are extension-less (client-side). Webflow =
+    // multi-page: routes are real .html FILES — keep the extension so
+    // navigating loads the actual page instead of the SPA-fallback home.
+    const framer=!(S.info&&S.info.platform==='webflow');
+    const norm=r=>framer?r.replace(/\.html$/,''):(r&&!/\.html$/.test(r)?r+'.html':r);
+    const set=new Set();
+    (S.info&&S.info.pages||[]).forEach(p=>set.add(p==='index.html'?'':(framer?p.replace(/\.html$/,''):p)));
     [...doc.querySelectorAll('a[href]')].forEach(a=>{
       const h=a.getAttribute('href')||'';
       let r=null;
       if(h.startsWith('./'))r=h.slice(2);
       else if(h.startsWith('/')&&!h.startsWith('//'))r=h.slice(1);
       if(r===null)return;
-      r=r.split('#')[0].split('?')[0].replace(/\.html$/,'');
+      r=r.split('#')[0].split('?')[0];
       if(r.includes(':')||r.includes('//'))return;
       if(r.match(/\.(css|js|mjs|png|jpg|svg|ico|webp|zip|pdf)$/))return;
-      set.add(r);
+      set.add(norm(r));
     });
-    const cur=new URL($('editframe').contentWindow.location.href)
-      .pathname.split('/').slice(3).join('/').replace(/\.html$/,'');
-    sel.innerHTML=[...set].sort().map(r=>
-      `<option value="${esc(r===''?'index.html':r)}"
-        ${r===cur?'selected':''}>${esc(r===''?'home':r)}</option>`).join('');
+    let cur=new URL($('editframe').contentWindow.location.href)
+      .pathname.split('/').slice(3).join('/');
+    if(framer)cur=cur.replace(/\.html$/,'');
+    sel.innerHTML=[...set].sort().map(r=>{
+      const val=r===''?'index.html':r;
+      const home=(r===''||r==='index.html');
+      return `<option value="${esc(val)}"
+        ${val===cur||(home&&(cur===''||cur==='index.html'))?'selected':''}
+        >${esc(home?'home':r.replace(/\.html$/,''))}</option>`;}).join('');
   }catch(e){}
 }
 
