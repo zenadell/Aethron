@@ -666,6 +666,132 @@ def _remove_nth_element(html, rm):
         return html[:start] + html[pos:]
     return html
 
+def _locate_element(html, contains, ancestor=0, occurrence=0):
+    """Find the element whose visible text contains `contains`, climb
+    `ancestor` levels, and return a {tag,id,classes,index,label}
+    descriptor that _remove_nth_element can delete — plus a text preview
+    so the caller can confirm before deleting. None if not found.
+
+    This is the agent-facing analogue of the visual editor's click +
+    breadcrumb: the editor picks the element from a DOM click; here we
+    pick it from the text an agent already knows (via get_content)."""
+    from html.parser import HTMLParser
+    want = re.sub(r"\s+", " ", contains or "").strip().lower()
+    if not want:
+        return None
+    ok_cls = re.compile(r"^[A-Za-z0-9_-]+$")
+
+    class Node:
+        __slots__ = ("tag", "id", "classes", "parent", "children", "own")
+
+        def __init__(self, tag, eid, classes, parent):
+            self.tag, self.id, self.classes, self.parent = tag, eid, classes, parent
+            self.children, self.own = [], ""
+
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.root = Node("root", None, [], None)
+            self.cur = self.root
+            self.order = []          # every element in document order
+            self.skip = 0
+
+        def handle_starttag(self, tag, attrs):
+            ad = dict(attrs)
+            classes = [c for c in (ad.get("class") or "").split()
+                       if ok_cls.match(c)]
+            n = Node(tag, ad.get("id"), classes, self.cur)
+            self.cur.children.append(n)
+            self.order.append(n)
+            if tag in ("script", "style", "svg"):
+                self.skip += 1
+            if tag not in VOID_TAGS:
+                self.cur = n
+
+        def handle_startendtag(self, tag, attrs):
+            ad = dict(attrs)
+            classes = [c for c in (ad.get("class") or "").split()
+                       if ok_cls.match(c)]
+            n = Node(tag, ad.get("id"), classes, self.cur)
+            self.cur.children.append(n)
+            self.order.append(n)
+
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "svg") and self.skip:
+                self.skip -= 1
+            c = self.cur
+            while c.parent is not None:
+                if c.tag == tag:
+                    self.cur = c.parent
+                    return
+                c = c.parent
+
+        def handle_data(self, d):
+            if self.skip:
+                return
+            t = d.strip()
+            if t:
+                self.cur.own = (self.cur.own + " " + t).strip()
+
+    p = P()
+    try:
+        p.feed(html)
+    except Exception:
+        return None
+
+    fulltext = {}
+
+    def full(n):
+        if id(n) in fulltext:
+            return fulltext[id(n)]
+        s = n.own
+        for c in n.children:
+            s = (s + " " + full(c)).strip()
+        s = re.sub(r"\s+", " ", s).strip()
+        fulltext[id(n)] = s
+        return s
+
+    # tightest elements whose text contains the query — i.e. those with
+    # no CHILD that also contains it (so the nav "Careers" link and the
+    # footer "Careers" link are two distinct hits, not one collapsed).
+    # `occurrence` picks among them in document order.
+    tight = [n for n in p.order if want in full(n).lower()
+             and not any(want in full(c).lower() for c in n.children)]
+    if not tight:
+        return None
+    if occurrence >= len(tight):
+        return None
+    target = tight[occurrence]
+    for _ in range(max(0, ancestor)):
+        if target.parent is None or target.parent is p.root:
+            break
+        target = target.parent
+    # _remove_nth_element targets by tag+id/classes, so a bare element
+    # with neither can't be addressed — climb to the nearest ancestor
+    # that CAN be (keeps the agent from getting an un-deletable target).
+    while not target.id and not target.classes \
+            and target.parent is not None and target.parent is not p.root:
+        target = target.parent
+
+    # index among document-order elements matching this remove predicate
+    def matches(n):
+        if n.tag != target.tag:
+            return False
+        if target.id:
+            return n.id == target.id
+        return target.classes and set(target.classes) <= set(n.classes)
+
+    idx = -1
+    for n in p.order:
+        if matches(n):
+            idx += 1
+            if n is target:
+                break
+    return {"tag": target.tag, "id": target.id,
+            "classes": target.classes, "index": idx,
+            "label": full(target)[:80]}
+
+
 def _pairs_from_map(root: Path, cms_blobs):
     cm = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
     pairs = []
@@ -1252,10 +1378,14 @@ def cmd_build(_args):
             # navigation is never touched
             t = re.sub(r'href="\./(?P<p>[^"#?]*)(?P<t>[^"]*)"', _localize, t)
 
-        # owner-requested element removals (visual editor's 🗑) —
-        # physically deleted from the code. Framer projects route
-        # removals to hide_selectors instead (React re-creates DOM).
+        # owner-requested element removals (visual editor's 🗑 or the
+        # MCP remove_element tool) — physically deleted from the code.
+        # Framer projects route removals to hide_selectors instead
+        # (React re-creates DOM). A removal may be scoped to one page
+        # via "page"; absent = applies to every page (shared chrome).
         for rm in removals:
+            if rm.get("page") and rm["page"] != page:
+                continue
             t = _remove_nth_element(t, rm)
         # strip platform identity/telemetry (design untouched by all of these)
         # tolerant forms: saved page sources entity-encode quotes (&#34;)
@@ -1314,7 +1444,11 @@ def cmd_build(_args):
         if not f.is_file():
             continue
         rel = f.relative_to(root / "pristine")
-        if rel.parts[0] in reserved or str(rel) in page_set:
+        # .html pages are handled by the page loop above; a pristine page
+        # NOT in page_set was intentionally removed (remove_page) — never
+        # pass it through as an "asset", or removed pages would reappear.
+        if rel.parts[0] in reserved or str(rel) in page_set \
+                or f.suffix.lower() in (".html", ".htm"):
             continue
         dest = site / rel
         dest.parent.mkdir(parents=True, exist_ok=True)

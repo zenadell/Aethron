@@ -31,7 +31,8 @@ LIBRARY = ROOT / "library"   # design cards: fingerprints, never files
 PREVIEWS = {}
 
 sys.path.insert(0, str(ROOT))
-from forge import image_slot_styles  # noqa: E402
+from forge import (image_slot_styles, _locate_element,  # noqa: E402
+                   hide_selector_audit)
 
 
 # ───────────────────────── shared plumbing ───────────────────────────
@@ -256,6 +257,104 @@ def t_add_style(a):
     save_cm(d, cm)
     ok, log = run_forge(str(a["project"]), "build")
     return f"style saved for {sel}\nbuild: " + ("OK" if ok else "FAILED\n" + log)
+
+
+def t_remove_element(a):
+    d = pdir(str(a["project"]))
+    cfg = json.loads((d / "forge.json").read_text())
+    contains = str(a.get("contains") or "").strip()
+    if not contains:
+        raise ValueError("pass `contains`: a snippet of the TEXT inside "
+                         "the element you want gone (see get_content)")
+    ancestor = int(a.get("ancestor", 0) or 0)
+    occurrence = int(a.get("occurrence", 0) or 0)
+    pages = cfg["pages"]
+    only = a.get("page")
+    scan = [only] if only else pages
+    target = found_page = None
+    for pg in scan:
+        if pg not in pages:
+            continue
+        html = (d / "pristine" / pg).read_text(encoding="utf-8", errors="ignore")
+        desc = _locate_element(html, contains, ancestor, occurrence)
+        if desc:
+            target, found_page = desc, pg
+            break
+    if not target:
+        raise ValueError(f"no element found containing {contains!r} — try a "
+                         "shorter/exact snippet, or name the `page`")
+    preview = (target["tag"]
+               + ("#" + target["id"] if target["id"] else "")
+               + ("." + ".".join(target["classes"]) if target["classes"] else "")
+               + f"  [{found_page}]  text: {target['label']!r}")
+    if a.get("preview_only"):
+        return ("WOULD REMOVE: " + preview
+                + "\n(call again without preview_only to delete; raise "
+                "`ancestor` to grab a bigger wrapper like a whole card)")
+    snapshot(d)
+    if cfg.get("platform") == "framer":
+        if target["id"]:
+            sel = "#" + target["id"]
+        elif target["classes"]:
+            sel = target["tag"] + "".join("." + c for c in target["classes"])
+        else:
+            raise ValueError("no id/classes to target this element safely "
+                             "on Framer — raise `ancestor` to a wrapper")
+        page_texts = [(d / "pristine" / p).read_text(encoding="utf-8",
+                      errors="ignore") for p in pages]
+        audit = hide_selector_audit(sel, page_texts)
+        if audit["risky"]:
+            raise ValueError(f"refusing {sel}: {audit['why']}. Raise "
+                             "`ancestor` to target a more specific wrapper.")
+        hs = cfg.setdefault("hide_selectors", [])
+        if sel not in hs:
+            hs.append(sel)
+        (d / "forge.json").write_text(json.dumps(cfg, indent=2))
+        mode = f"hidden via {sel} (Framer: baked CSS, hydration-safe)"
+    else:
+        cm = load_cm(d)
+        entry = {"tag": target["tag"], "id": target["id"],
+                 "classes": target["classes"], "index": target["index"],
+                 "label": target["label"]}
+        if not a.get("all_pages"):     # shared nav/footer -> every page
+            entry["page"] = found_page
+        cm.setdefault("remove", []).append(entry)
+        save_cm(d, cm)
+        mode = ("physically deleted (Webflow, EVERY page)"
+                if a.get("all_pages")
+                else "physically deleted (Webflow, page-scoped)")
+    if a.get("build", True):
+        ok, log = run_forge(str(a["project"]), "build")
+        b = "\nbuild: " + ("OK" if ok else "FAILED\n" + log)
+    else:
+        b = ""
+    return f"REMOVED [{mode}]: {preview}{b}"
+
+
+def t_remove_page(a):
+    d = pdir(str(a["project"]))
+    cfg = json.loads((d / "forge.json").read_text())
+    page = str(a.get("page") or "").strip()
+    pages = cfg["pages"]
+    routes = cfg.get("routes", {})
+    fname = page if page in pages else None
+    if not fname:
+        for r, f in routes.items():
+            if r == page.strip("/") or f == page:
+                fname = f
+                break
+    if not fname or fname not in pages:
+        raise ValueError(f"unknown page {page!r}. pages: {pages}")
+    if fname == "index.html":
+        raise ValueError("can't remove the home page")
+    snapshot(d)
+    cfg["pages"] = [p for p in pages if p != fname]
+    cfg["routes"] = {r: f for r, f in routes.items() if f != fname}
+    (d / "forge.json").write_text(json.dumps(cfg, indent=2))
+    ok, log = run_forge(str(a["project"]), "build")
+    return (f"removed page '{fname}' — links to it now 404 cleanly. Remove "
+            "its nav/footer link too with remove_element (contains the link "
+            "text).\nbuild: " + ("OK" if ok else "FAILED\n" + log))
 
 
 def t_replace_image_slots(a):
@@ -544,6 +643,38 @@ TOOLS = [
     ("serve_preview", "Serve the built site locally with the exact "
      "protocols production needs; returns the URL.",
      S(P, ["project"]), t_serve_preview),
+    ("remove_element", "Remove an element from the shipped code — the "
+     "agent-facing version of the visual editor's Remove (closes the MCP's "
+     "biggest parity gap). Give `contains`: a snippet of the TEXT inside "
+     "the element (from get_content), and optionally climb to a wrapper "
+     "with `ancestor` (0 = the tightest element holding the text, 1 = its "
+     "parent, 2 = grandparent … — use this to grab a whole CARD/SECTION, "
+     "not just the words). WEBFLOW/static: the element is physically "
+     "deleted, scoped to the page it's on. FRAMER: a permanent, blast-"
+     "radius-guarded hide rule is baked in (React re-creates deleted DOM); "
+     "over-broad selectors are refused — raise `ancestor` for a safer "
+     "target. Call with preview_only=true first to see exactly what would "
+     "go. Snapshotted (undo covers it).",
+     S({**P, "contains": {"type": "string", "description": "text inside "
+        "the element to remove"},
+        "ancestor": {"type": "integer", "description": "climb N levels "
+                     "from the text to a wrapper (whole card/section)"},
+        "occurrence": {"type": "integer", "description": "if the text "
+                       "appears in several spots (e.g. a nav AND a footer "
+                       "link), which one: 0=first, 1=second, …"},
+        "page": {"type": "string", "description": "restrict to one page file"},
+        "all_pages": {"type": "boolean", "description": "for SHARED chrome "
+                      "(nav/footer links) — remove it from every page, not "
+                      "just the one it was found on"},
+        "preview_only": {"type": "boolean", "description": "just report "
+                         "what would be removed, don't delete"}},
+       ["project", "contains"]), t_remove_element),
+    ("remove_page", "Remove a whole page from the site (e.g. a Careers "
+     "page you don't need yet). Takes the page file (careers.html) or its "
+     "route (careers). Links to it then 404 cleanly; remove its nav link "
+     "with remove_element. Can't remove the home page. Snapshotted.",
+     S({**P, "page": {"type": "string"}}, ["project", "page"]),
+     t_remove_page),
     ("heal", "SELF-HEAL broken edits. Run whenever build's report shows "
      "zero-effect entries or __at_risk__ ones (replaced in pages but "
      "the chunks still spell the old text = hydration reverts it). "
