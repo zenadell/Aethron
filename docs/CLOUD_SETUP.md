@@ -93,6 +93,24 @@ from events where created_at > now() - interval '7 days'
 group by 1, 2 order by 3 desc;
 ```
 
+## Beta → paid: locking out free users
+
+During beta, leave billing enforcement **off** — every signed-in account gets
+full access. When you're ready to charge:
+
+1. Set `AETHRON_ENFORCE_BILLING=1` on the app (env var) and restart.
+2. From that moment, only accounts whose `profiles.plan` is `pro` or `studio`
+   can use the app. **Every free account that was testing during the beta is
+   locked out on its next login**, shown "Your free beta access has ended —
+   upgrade to Pro." (Active sessions are re-checked too.)
+3. To grant access, set a user's plan: `update profiles set plan='pro' where
+   id='<user-uuid>';` — or, once Stripe is wired, flip it automatically on a
+   successful payment webhook.
+
+Test it locally with the dry-run: `AETHRON_CLOUD_DEBUG=… AETHRON_ENFORCE_BILLING=1
+AETHRON_CLOUD_DEBUG_PLAN=free python3 studio.py` → login is blocked;
+set `AETHRON_CLOUD_DEBUG_PLAN=pro` → login succeeds.
+
 ## Notes
 
 - **Local/offline is untouched.** With neither env var set, none of this

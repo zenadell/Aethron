@@ -618,8 +618,23 @@ class Handler(BaseHTTPRequestHandler):
                       "/api/auth/google", "/auth/callback",
                       "/api/auth/session"):
             return True
-        if self._session():
-            return True
+        s = self._session()
+        if s:
+            # billing enforcement re-check: if the switch is flipped on,
+            # a session on a free plan is locked out immediately, not
+            # just at next login.
+            if cloud.entitled(s.get("plan", "free")):
+                return True
+            if u.path == "/" or not u.path.startswith("/api"):
+                body = LOGIN_HTML.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            else:
+                self.fail("upgrade required", 402)
+            return False
         if u.path == "/" or not u.path.startswith("/api"):
             body = LOGIN_HTML.encode()
             self.send_response(200)
@@ -675,6 +690,12 @@ class Handler(BaseHTTPRequestHandler):
                 url = cloud.oauth_url("google", cb)
                 if not url:      # dry/dormant: simulate a successful login
                     user = cloud.user_from_token("")
+                    user["plan"] = cloud.plan_of(user["token"], user["id"])
+                    if not cloud.entitled(user["plan"]):
+                        self.send_response(302)
+                        self.send_header("Location", "/login?locked=1")
+                        self.end_headers()
+                        return
                     tok = secrets.token_urlsafe(24)
                     SESSIONS[tok] = user
                     cloud.track("login", token=user["token"], source="google")
@@ -878,6 +899,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(str(e), 401)
                 if not user.get("id"):
                     return self.fail("could not resolve user", 401)
+                user["plan"] = cloud.plan_of(user["token"], user["id"])
+                if not cloud.entitled(user["plan"]):
+                    cloud.track("login_blocked", token=user["token"],
+                                step="billing")
+                    return self.fail("Your free beta access has ended — "
+                                     "upgrade to Pro to keep using Aethron.",
+                                     402)
                 tok = secrets.token_urlsafe(24)
                 SESSIONS[tok] = user
                 cloud.track("login", token=user["token"], source="google")
@@ -1561,9 +1589,15 @@ class Handler(BaseHTTPRequestHandler):
         if not user.get("id"):
             # signup with email-confirmation on: no session yet
             return self.send_json({"ok": True, "confirm": True})
+        user["plan"] = cloud.plan_of(user["token"], user["id"])
+        if not cloud.entitled(user["plan"]):
+            cloud.track("login_blocked", token=user["token"], step="billing")
+            return self.fail("Your free beta access has ended — upgrade "
+                             "to Pro to keep using Aethron.", 402)
         tok = secrets.token_urlsafe(24)
         SESSIONS[tok] = user
-        cloud.track("login", token=user["token"], source=path.rsplit("/", 1)[-1])
+        cloud.track("login", token=user["token"],
+                    source=path.rsplit("/", 1)[-1])
         body_out = json.dumps({"ok": True, "email": user["email"]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -1749,6 +1783,11 @@ async function submit(){
   finally{$('go').disabled=false;}
 }
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+if(new URLSearchParams(location.search).get('locked')){
+  $('err').style.color='#e5695e';
+  $('err').textContent='Your free beta access has ended — upgrade to '
+    +'Pro to keep using Aethron.';
+}
 </script></body></html>
 """
 

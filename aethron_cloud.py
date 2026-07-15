@@ -39,6 +39,41 @@ REAL = bool(SUPABASE_URL and ANON_KEY)
 DRY = bool(DEBUG_LOG and not REAL)
 ENABLED = bool(REAL or DRY)
 
+# BILLING ENFORCEMENT (the beta -> paid switch).
+# During beta, leave AETHRON_ENFORCE_BILLING unset: every signed-in
+# account gets full access regardless of plan. When you're ready to
+# charge, set AETHRON_ENFORCE_BILLING=1 and restart — from that moment
+# only paid plans (pro/studio) get in, and every 'free' account that
+# was using it during the beta is locked out on its next login, shown
+# an upgrade prompt. Wiring Stripe later just means flipping a user's
+# profiles.plan to 'pro' on successful payment.
+ENFORCE_BILLING = bool(os.environ.get("AETHRON_ENFORCE_BILLING"))
+PAID_PLANS = {"pro", "studio"}
+
+
+def entitled(plan: str) -> bool:
+    return (not ENFORCE_BILLING) or (plan in PAID_PLANS)
+
+
+def plan_of(token: str, user_id: str) -> str:
+    """The signed-in user's plan (free/pro/studio) from the profiles
+    table. Fails safe to 'free' so a lookup error never grants access."""
+    if DRY:
+        return os.environ.get("AETHRON_CLOUD_DEBUG_PLAN", "free")
+    if not REAL:
+        return "free"
+    try:
+        req = urllib.request.Request(
+            SUPABASE_URL + f"/rest/v1/profiles?id=eq.{user_id}&select=plan",
+            method="GET")
+        req.add_header("apikey", ANON_KEY)
+        req.add_header("Authorization", "Bearer " + token)
+        with urllib.request.urlopen(req, timeout=8) as r:
+            rows = json.loads(r.read().decode())
+        return (rows[0].get("plan") if rows else "free") or "free"
+    except Exception:
+        return "free"
+
 # telemetry keys that are safe to leave the machine. Everything else is
 # dropped. Values are coerced to bounded scalars — no free-form content.
 _ALLOWED = {
