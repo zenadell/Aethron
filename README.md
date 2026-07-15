@@ -262,7 +262,7 @@ mybrand/
 Proven end-to-end on real templates across both platforms — multi-page live-site
 scraping, real Webflow migrations, foreign-agent migration via MCP
 (Gemini/Antigravity), per-slot image overrides, split-text and rotator editing,
-self-healing, and static-host deployment. Backed by a **74-scenario regression
+self-healing, and static-host deployment. Backed by a **86-scenario regression
 battery**, every one green.
 
 ## License
