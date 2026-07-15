@@ -639,6 +639,12 @@ def _remove_nth_element(html, rm):
     def pred(open_tag):
         if rm.get("id"):
             return re.search(rf'\bid="{re.escape(rm["id"])}"', open_tag)
+        # href match — lets us delete class-less links (Webflow's footer
+        # "Powered By" credit is a bare <a href="webflow.com"> with no
+        # class, un-targetable by tag+class alone).
+        if rm.get("href"):
+            return re.search(rf'href="[^"]*{re.escape(rm["href"])}',
+                             open_tag)
         want = rm.get("classes") or []
         if not want:
             return False
@@ -682,11 +688,12 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
     ok_cls = re.compile(r"^[A-Za-z0-9_-]+$")
 
     class Node:
-        __slots__ = ("tag", "id", "classes", "parent", "children", "own")
+        __slots__ = ("tag", "id", "classes", "parent", "children", "own",
+                     "href")
 
-        def __init__(self, tag, eid, classes, parent):
+        def __init__(self, tag, eid, classes, parent, href=None):
             self.tag, self.id, self.classes, self.parent = tag, eid, classes, parent
-            self.children, self.own = [], ""
+            self.children, self.own, self.href = [], "", href
 
     class P(HTMLParser):
         def __init__(self):
@@ -700,7 +707,8 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
             ad = dict(attrs)
             classes = [c for c in (ad.get("class") or "").split()
                        if ok_cls.match(c)]
-            n = Node(tag, ad.get("id"), classes, self.cur)
+            n = Node(tag, ad.get("id"), classes, self.cur,
+                     ad.get("href"))
             self.cur.children.append(n)
             self.order.append(n)
             # never harvest text from <head> (title/meta) or non-visual
@@ -715,7 +723,8 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
             ad = dict(attrs)
             classes = [c for c in (ad.get("class") or "").split()
                        if ok_cls.match(c)]
-            n = Node(tag, ad.get("id"), classes, self.cur)
+            n = Node(tag, ad.get("id"), classes, self.cur,
+                     ad.get("href"))
             self.cur.children.append(n)
             self.order.append(n)
 
@@ -773,13 +782,20 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
     # with neither can't be addressed — climb to the nearest ancestor
     # that CAN be (keeps the agent from getting an un-deletable target).
     while not target.id and not target.classes \
+            and not (target.href and not target.href.startswith("#")) \
             and target.parent is not None and target.parent is not p.root:
         target = target.parent
     # never hand back a structural wrapper (deleting <html>/<body> nukes
-    # the page) or an un-addressable element — refuse instead.
-    if target.tag in ("html", "head", "body", "root") \
-            or (not target.id and not target.classes):
+    # the page) or an un-addressable element — refuse instead. A
+    # class-less link is still addressable by its href.
+    if target.tag in ("html", "head", "body", "root"):
         return None
+    href_key = None
+    if not target.id and not target.classes:
+        if target.href and not target.href.startswith("#"):
+            href_key = target.href.split("?")[0]
+        else:
+            return None
 
     # index among document-order elements matching this remove predicate
     def matches(n):
@@ -787,6 +803,8 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
             return False
         if target.id:
             return n.id == target.id
+        if href_key:
+            return n.href and n.href.split("?")[0] == href_key
         return target.classes and set(target.classes) <= set(n.classes)
 
     idx = -1
@@ -795,9 +813,12 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
             idx += 1
             if n is target:
                 break
-    return {"tag": target.tag, "id": target.id,
-            "classes": target.classes, "index": idx,
-            "label": full(target)[:80]}
+    out = {"tag": target.tag, "id": target.id,
+           "classes": target.classes, "index": idx,
+           "label": full(target)[:80]}
+    if href_key:
+        out["href"] = href_key
+    return out
 
 
 def _pairs_from_map(root: Path, cms_blobs):
@@ -1442,6 +1463,23 @@ def cmd_build(_args):
                 return tag
             return re.sub(r'\s(?:srcset|sizes)="[^"]*"', "", tag)
         t = re.sub(r"<img[^>]*>", _strip_stale_srcset, t)
+
+        # Subresource Integrity on LOCAL assets: build rewrites CSS/JS
+        # content (brand replacement, localized url() refs), so a
+        # <link>/<script integrity="sha…"> hash from the original CDN no
+        # longer matches — the browser then SILENTLY refuses the file
+        # and the page renders unstyled. Once we own the asset, SRI is
+        # invalid; strip integrity/crossorigin from any LOCAL subresource
+        # (external CDN refs we didn't touch keep theirs).
+        def _drop_local_sri(m):
+            tag = m.group(0)
+            ref = re.search(r'(?:href|src)="([^"]*)"', tag)
+            if ref and not ref.group(1).startswith(("http://", "https://",
+                                                    "//")):
+                tag = re.sub(r'\s+(?:integrity|crossorigin)="[^"]*"', "", tag)
+            return tag
+        t = re.sub(r"<(?:link|script)\b[^>]*>", _drop_local_sri, t)
+
         dest = site / page
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(t, encoding="utf-8")
@@ -2613,6 +2651,45 @@ def cmd_verify(_args):
                     print(("PASS" if ok else "FAIL") + f" local image present: {new}")
                     fails += not ok
                     break
+
+    # 3b. asset health — the "unstyled page" catcher. A local CSS/JS
+    # that (a) is referenced but missing, or (b) carries a stale SRI
+    # integrity hash that no longer matches its (rewritten) content, is
+    # SILENTLY dropped by the browser -> the page renders unstyled.
+    import hashlib as _hl
+    import base64 as _b64
+    for pg in cfg["pages"]:
+        fp = site / pg
+        if not fp.exists():
+            continue
+        htxt = fp.read_text(encoding="utf-8", errors="ignore")
+        for m in re.finditer(r"<(?:link|script)\b[^>]*>", htxt):
+            tag = m.group(0)
+            ref = re.search(r'(?:href|src)="([^"]+\.(?:css|js|mjs))"', tag)
+            if not ref:
+                continue
+            url = ref.group(1)
+            if url.startswith(("http://", "https://", "//")):
+                continue
+            local = site / url.lstrip("/").lstrip("./")
+            if not local.exists():
+                local = site / url.split("/", 1)[-1] if "/" in url else local
+            if not local.exists():
+                print(f"FAIL missing asset {url} (referenced by {pg}) — "
+                      "the page will render unstyled/broken")
+                fails += 1
+                continue
+            ig = re.search(r'integrity="sha(\d+)-([^"]+)"', tag)
+            if ig:
+                algo = {"256": _hl.sha256, "384": _hl.sha384,
+                        "512": _hl.sha512}.get(ig.group(1))
+                if algo:
+                    got = _b64.b64encode(algo(local.read_bytes()).digest()).decode()
+                    if got != ig.group(2):
+                        print(f"FAIL stale SRI on {url} in {pg} — the browser "
+                              "will REJECT this file (unstyled page). Rebuild: "
+                              "build now strips SRI from local assets.")
+                        fails += 1
 
     # 4. CMS sizes unchanged vs pristine
     for p in (root / "pristine" / "cms").glob("*.framercms") \

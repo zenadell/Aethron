@@ -320,6 +320,8 @@ def t_remove_element(a):
         entry = {"tag": target["tag"], "id": target["id"],
                  "classes": target["classes"], "index": target["index"],
                  "label": target["label"]}
+        if target.get("href"):         # class-less link, targeted by href
+            entry["href"] = target["href"]
         if not a.get("all_pages"):     # shared nav/footer -> every page
             entry["page"] = found_page
         cm.setdefault("remove", []).append(entry)
