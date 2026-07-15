@@ -1344,6 +1344,57 @@ def cmd_build(_args):
     cms_blobs = [p.read_bytes() for p in cms_src.glob("*.framercms")] \
         if cms_src.exists() else []
     pairs = _pairs_from_map(root, cms_blobs)
+
+    # ── IMAGE SWAP = ASSET IDENTITY (can't-fail image editing) ──
+    # An image entry's `old` is whatever the picker captured — one CDN
+    # url, one srcset variant, a %20-mangled name, or (after localize) a
+    # hashed local path. Matching that exact string is fragile. Instead,
+    # for every filled image pair we find EVERY real source url that
+    # shares the asset's id/stem — all srcset sizes, all formats, all
+    # encodings — and point them ALL at the new image, PROACTIVELY (heal
+    # was doing this only after a failure). Localized picks are reverse-
+    # mapped to their original CDN url first, so the stem is recoverable.
+    _rev_localized = {v: k for k, v in cfg.get("localized", {}).items()}
+    _img_src = [(root / "pristine" / pg).read_text(encoding="utf-8",
+                errors="ignore") for pg in cfg["pages"]]
+    for _p in (root / "pristine").glob("chunks/*.mjs"):
+        _img_src.append(_p.read_text(encoding="utf-8", errors="ignore"))
+    for _p in (root / "pristine").rglob("*.css"):
+        _img_src.append(_p.read_text(encoding="utf-8", errors="ignore"))
+    _img_exts = (".avif", ".webp", ".png", ".jpg", ".jpeg", ".gif", ".svg")
+    _existing = {p["old"] for p in pairs}
+    _img_extra = []
+    _expanded_from = set()   # originals whose swap is done by their variants
+    for p in list(pairs):
+        old, new = p["old"], p["new"]
+        base_old = old.split("?")[0].split("#")[0]
+        if p.get("in_cms") or not new.startswith(("/", "http", "./")):
+            continue
+        if not base_old.lower().endswith(_img_exts) \
+                and "/images/" not in base_old \
+                and "website-files" not in base_old \
+                and "framerusercontent" not in base_old:
+            continue
+        base = base_old
+        if base.startswith("/assets/r/"):        # localized -> real url
+            base = _rev_localized.get(base.rsplit("/", 1)[-1], base)
+        stem = _asset_stem(base)
+        if not stem:
+            continue
+        for v in sorted(_image_variant_urls(stem, _img_src)):   # deterministic
+            if v != old:
+                _expanded_from.add(old)
+            if v not in _existing:
+                _existing.add(v)
+                _img_extra.append({"old": v, "new": new, "scope": "all",
+                                   "in_cms": False, "flex": False})
+    if _img_extra:
+        pairs += _img_extra
+        # longest-first, then by url — fully deterministic (idempotent builds)
+        pairs.sort(key=lambda p: (-len(p["old"]), p["old"]))
+        log(f"image variants: +{len(_img_extra)} source url(s) covered "
+            "(all sizes/formats/encodings)")
+
     stats = {p["old"]: 0 for p in pairs}   # per-entry replacement counts
     cm_all = json.loads((root / "copy_map.json").read_text(
         encoding="utf-8")) if (root / "copy_map.json").exists() else {}
@@ -1703,6 +1754,13 @@ def cmd_build(_args):
         if stats.get(p["old"], 0):
             continue
         po, pb = p["old"], p["old"].encode()
+        # an image entry whose swap was carried out by its expanded
+        # variants (localized/mangled/srcset picks) — the original url
+        # matched nothing itself, but the new image IS in the output.
+        # That's success, not a dead edit.
+        if po in _expanded_from and p.get("new", "") in built_txt:
+            moot.append(po)
+            continue
         in_pristine = po in pristine_txt or any(pb in b for b in pristine_cms)
         in_built = po in built_txt or any(pb in b for b in built_cms)
         if (in_pristine or po in token_olds) and not in_built:
@@ -1711,7 +1769,7 @@ def cmd_build(_args):
     if at_risk:
         report["__at_risk__"] = at_risk
     if moot:
-        report["__moot__"] = moot
+        report["__moot__"] = sorted(set(moot))
     (site / ".forge-report.json").write_text(
         json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
     zeros = [o for o, n in stats.items() if n == 0 and o not in set(moot)]
