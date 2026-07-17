@@ -1502,6 +1502,49 @@ def cmd_build(_args):
         for b in cfg.get("site_bases", []):
             t = t.replace(b, "./assets/chunks/")
 
+        # PER-ELEMENT link retargets (copy_map["retargets"]) — rewrite
+        # the href of anchors matching class/id AND (optionally) their
+        # current href, PHYSICALLY in the code. This is how CTA buttons
+        # get pointed somewhere new without touching same-URL nav links
+        # (a.primary-button href=/contact -> download, while the nav
+        # Contact link keeps /contact). Runs BEFORE the link localizer,
+        # so when_href matches the pristine form (/contact). Webflow/
+        # static only — Framer hydration re-renders hrefs from chunks.
+        if cfg["platform"] != "framer":
+            for rt in cm_all.get("retargets", []):
+                sel = str(rt.get("selector", "")).strip()
+                new_href = str(rt.get("href", "")).strip()
+                when = str(rt.get("when_href", "")).strip()
+                if not sel or not new_href \
+                        or re.search(r"[\"'<>`\s]", new_href) \
+                        or not re.fullmatch(r"[A-Za-z0-9 .#_-]+", sel):
+                    continue
+                m_id = re.match(r"#([\w-]+)$", sel)
+                tag = (re.match(r"([a-zA-Z]+)", sel) or [None, "a"])[1]
+                want_cls = re.findall(r"\.([\w-]+)", sel)
+
+                def _retarget(m):
+                    open_tag = m.group(0)
+                    if m_id:
+                        if not re.search(
+                                rf'\bid="{re.escape(m_id.group(1))}"',
+                                open_tag):
+                            return open_tag
+                    elif want_cls:
+                        cm_ = re.search(r'class="([^"]*)"', open_tag)
+                        if not cm_ or not set(want_cls) <= \
+                                set(cm_.group(1).split()):
+                            return open_tag
+                    href = re.search(r'href="([^"]*)"', open_tag)
+                    if not href:
+                        return open_tag
+                    if when and href.group(1).split("#")[0].split("?")[0] \
+                            .rstrip("/") != when.rstrip("/"):
+                        return open_tag
+                    return open_tag.replace(
+                        f'href="{href.group(1)}"', f'href="{new_href}"')
+                t = re.sub(rf"<{tag}\b[^>]*>", _retarget, t)
+
         # scattered saves link pages absolutely to the LIVE site
         # (https://foo.webflow.io/about) or root-relative (/about) —
         # point them at the local page files instead
