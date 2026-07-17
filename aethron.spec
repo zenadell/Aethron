@@ -12,20 +12,24 @@ a = Analysis(
     excludes=["tkinter", "test", "unittest", "pydoc_data"],
 )
 pyz = PYZ(a.pure)
+# ONEDIR, not onefile: onefile re-extracts the whole runtime to temp on
+# EVERY launch (~20s cold start). Onedir starts in ~2s; the .app bundle
+# hides the folder from users entirely. Windows ships the dist folder
+# zipped (users run Aethron.exe inside it).
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
+    exclude_binaries=True,
     name="Aethron",
     console=False,          # no terminal window on double-click
     upx=False,
 )
+coll = COLLECT(exe, a.binaries, a.datas, name="Aethron", upx=False)
 # macOS: wrap in a proper .app bundle so Finder/dock treat it right
 import sys
 if sys.platform == "darwin":
     app = BUNDLE(
-        exe,
+        coll,
         name="Aethron.app",
         bundle_identifier="app.aethron.studio",
         info_plist={

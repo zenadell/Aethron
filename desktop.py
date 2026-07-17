@@ -71,15 +71,14 @@ def main():
     port = free_port()
     url = f"http://127.0.0.1:{port}/"
     studio.PROJECTS.mkdir(parents=True, exist_ok=True)
+
+    # bind FIRST, then open the browser — never a "connection refused"
+    # tab, even on a slow cold start
+    server = studio.ThreadingHTTPServer(("127.0.0.1", port), studio.Handler)
     print(f"Aethron → {url}")
     print(f"your data: {home}")
-
-    # open the browser once the server socket is about to listen
-    import threading
-    threading.Timer(0.8, lambda: webbrowser.open(url)).start()
-
-    studio.ThreadingHTTPServer(("127.0.0.1", port),
-                               studio.Handler).serve_forever()
+    webbrowser.open(url)
+    server.serve_forever()
 
 
 if __name__ == "__main__":

@@ -2932,6 +2932,9 @@ function harvestRoutes(){
       r=r.split('#')[0].split('?')[0];
       if(r.includes(':')||r.includes('//'))return;
       if(r.match(/\.(css|js|mjs|png|jpg|svg|ico|webp|zip|pdf)$/))return;
+      // webflow = multi-page: only REAL pages belong in the dropdown
+      // (a harvested /blog/post link with no local page would 404)
+      if(!framer&&!(S.info&&S.info.pages||[]).includes(norm(r)))return;
       set.add(norm(r));
     });
     let cur=new URL($('editframe').contentWindow.location.href)

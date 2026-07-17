@@ -107,6 +107,14 @@ actually replaced something across all layers.
 - **`__moot__`** → zero hits but the target is *gone* from the output (a longer fill
   already consumed it, or it's a speculative brand-token net) — success, not a defect
 
+**Images are fixed at build time, proactively**: every image swap is expanded by
+*asset identity* — build reverse-maps localized paths to their real CDN asset,
+finds every source URL sharing the asset id (all srcset sizes, formats and
+encodings) and points them all at the new image. A local image whose path is too
+long for a byte-locked CMS slot ships as a short deterministic alias copy, so
+the swap still lands with the size lock intact. Fatal validation runs **before**
+the previous build is wiped — a failed build never leaves a broken site.
+
 `heal` reads this report and fixes broken edits **deterministically**. For text:
 flex upgrade, source-casing adoption, nearest-source adoption (≥85%, byte budgets
 enforced). For images: it derives the asset id from the filename and finds every

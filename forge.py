@@ -28,6 +28,7 @@ Commands (run inside a project dir, except init):
 Read PLAYBOOK.md for the model-facing workflow.
 """
 import concurrent.futures as cf
+import hashlib
 import html as html_mod
 import json
 import re
@@ -833,22 +834,33 @@ def _pairs_from_map(root: Path, cms_blobs):
                 "(these strings land inside JS template literals)")
         old_b, new_b = old.encode(), new.encode()
         in_cms = any(old_b in blob for blob in cms_blobs)
+        cms_over = False
         if in_cms:
             if len(new_b) > len(old_b):
-                die(f"CMS budget exceeded for {old[:40]!r}: "
-                    f"{len(new_b)} > {len(old_b)} bytes. Shorten the text.")
-            # identical padded text EVERYWHERE or hydration mismatches
-            pad = len(old_b) - len(new_b)
-            if pad and new.startswith(("/", "http", "./")):
-                # URLs: spaces inside a URL 404 (CMS often stores the
-                # url and its ?query contiguously — padding lands MID-
-                # url). A #fragment is never sent to the server, so it
-                # pads to exact byte length without breaking the fetch.
-                new = new + "#" + "0" * (pad - 1)
+                if new.startswith(("/", "http", "./")):
+                    # a URL that doesn't fit its byte-locked slot is
+                    # RECOVERABLE — cmd_build ships a short alias copy
+                    # (local assets) or falls back to text-layers-only
+                    # (external). Never a dead build.
+                    cms_over, in_cms = True, False
+                else:
+                    die(f"CMS budget exceeded for {old[:40]!r}: "
+                        f"{len(new_b)} > {len(old_b)} bytes. Shorten the "
+                        "text.")
             else:
-                new = new + " " * pad
+                # identical padded text EVERYWHERE or hydration mismatches
+                pad = len(old_b) - len(new_b)
+                if pad and new.startswith(("/", "http", "./")):
+                    # URLs: spaces inside a URL 404 (CMS often stores the
+                    # url and its ?query contiguously — padding lands MID-
+                    # url). A #fragment is never sent to the server, so it
+                    # pads to exact byte length without breaking the fetch.
+                    new = new + "#" + "0" * (pad - 1)
+                else:
+                    new = new + " " * pad
         pairs.append({"old": old, "new": new,
                       "scope": entry.get("scope", "all"), "in_cms": in_cms,
+                      "cms_over": cms_over,
                       "flex": bool(entry.get("flex"))})
     # longest-first ordering; replacement itself is single-pass (see _rx)
     # so pair collisions can no longer clobber each other's new text
@@ -1336,14 +1348,46 @@ def cmd_build(_args):
               "Restore it (re-init / re-scrape); make changes via "
               "copy_map.json instead.")
     site = root / "site"
-    if site.exists():
-        shutil.rmtree(site)
-    (site / "assets").mkdir(parents=True)
 
+    # VALIDATE BEFORE WIPING: pairs (and their budget checks) are built
+    # first, so a fatal copy-map problem aborts while the previous
+    # site/ is still intact — a failed build must never leave the user
+    # with a wiped or half-written site.
     cms_src = root / "pristine" / "cms"
     cms_blobs = [p.read_bytes() for p in cms_src.glob("*.framercms")] \
         if cms_src.exists() else []
     pairs = _pairs_from_map(root, cms_blobs)
+
+    # CAN'T-FAIL local images in CMS slots: a local asset whose path is
+    # longer than a byte-locked slot can't fit — so build ships a SHORT
+    # deterministic ALIAS copy (/assets/i<sha1-8>.<ext>) and swaps that
+    # in instead. (External urls can't be aliased — those occurrences
+    # stay text-layer-only, loudly noted.)
+    alias_files = []       # (alias_rel, source_rel) written once site exists
+    for p in pairs:
+        if not p.pop("cms_over", False):
+            continue
+        newp = p["new"]
+        if newp.startswith("/") and not newp.startswith("//"):
+            ext = ("." + newp.rsplit(".", 1)[-1][:5]) if "." in \
+                newp.rsplit("/", 1)[-1] else ""
+            alias = "/assets/i" + hashlib.sha1(
+                newp.encode()).hexdigest()[:8] + ext
+            pad = len(p["old"].encode()) - len(alias.encode())
+            if pad >= 0:
+                alias_files.append((alias, newp))
+                p["new"] = alias + ("#" + "0" * (pad - 1) if pad else "")
+                p["in_cms"] = True
+                log(f"NOTE: {newp} is longer than its CMS slot — shipped "
+                    f"as short alias {alias}")
+                continue
+        p["in_cms"] = False    # honest fallback: text layers only
+        log(f"NOTE: {p['new'][:50]} can't fit its CMS slot even aliased — "
+            "CMS occurrences keep the original (text layers swapped)")
+
+    if site.exists():
+        shutil.rmtree(site)
+    (site / "assets").mkdir(parents=True)
 
     # ── IMAGE SWAP = ASSET IDENTITY (can't-fail image editing) ──
     # An image entry's `old` is whatever the picker captured — one CDN
@@ -1384,10 +1428,27 @@ def cmd_build(_args):
         for v in sorted(_image_variant_urls(stem, _img_src)):   # deterministic
             if v != old:
                 _expanded_from.add(old)
-            if v not in _existing:
-                _existing.add(v)
-                _img_extra.append({"old": v, "new": new, "scope": "all",
-                                   "in_cms": False, "flex": False})
+            if v in _existing:
+                continue
+            # SAME budget rules as _pairs_from_map: a variant living in
+            # a CMS blob is byte-locked. Fragment-pad URLs (#000… — never
+            # sent to the server); if the new path simply doesn't fit,
+            # SKIP that variant gracefully (auto-generated pairs must
+            # never crash a build) — the report still shows the swap.
+            v_new, v_b = new, v.encode()
+            v_cms = any(v_b in blob for blob in cms_blobs)
+            if v_cms:
+                pad = len(v_b) - len(v_new.encode())
+                if pad < 0:
+                    log(f"NOTE: variant …{v[-40:]} is CMS-locked and "
+                        f"shorter than the new path — skipped (rename "
+                        "the new image shorter to cover it)")
+                    continue
+                if pad:
+                    v_new = v_new + "#" + "0" * (pad - 1)
+            _existing.add(v)
+            _img_extra.append({"old": v, "new": v_new, "scope": "all",
+                               "in_cms": v_cms, "flex": False})
     if _img_extra:
         pairs += _img_extra
         # longest-first, then by url — fully deterministic (idempotent builds)
@@ -1703,6 +1764,24 @@ def cmd_build(_args):
                 shutil.copy(f, dest)
                 n += 1
         log(f"user assets: {n} file(s) from assets/")
+
+    # short alias copies for CMS-slot-constrained local images (see the
+    # cms_over pass above) — physical files, so every layer's alias url
+    # resolves. Source is the user's own asset under /assets/…
+    for alias, src_url in alias_files:
+        rel = src_url.split("?")[0].split("#")[0]
+        rel = rel[len(pub):].lstrip("/") if rel.startswith(pub) \
+            else rel.lstrip("/")
+        srcf = root / "assets" / rel
+        if rel.startswith("r/"):          # localized asset store
+            srcf = root / "pristine" / "remote-assets" / rel[2:]
+        dest = site / alias.lstrip("/")
+        if srcf.is_file():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(srcf, dest)
+        else:
+            log(f"WARNING: alias source missing for {src_url} — the "
+                "aliased slot will 404 (upload the file to assets/)")
 
     # effectiveness report: how many times each filled entry actually
     # replaced something, across ALL layers. Zero = the edit is a
