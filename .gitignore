@@ -16,3 +16,7 @@ __pycache__/
 
 # cloud dry-run telemetry log
 events.jsonl
+
+# desktop build output
+build/
+dist/

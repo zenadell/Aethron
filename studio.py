@@ -43,8 +43,26 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FORGE = ROOT / "forge.py"
-PROJECTS = ROOT / "projects"
-LIBRARY = ROOT / "library"   # design cards: fingerprints, never files
+
+# Desktop build support:
+# - FROZEN (PyInstaller): sys.executable is the app binary, not python.
+#   The app doubles as the engine — `Aethron --forge <cmd> …` dispatches
+#   into forge (see desktop.py) — so subprocess calls stay subprocess
+#   calls (crash isolation, parallel previews) with no python needed.
+# - AETHRON_HOME: user data (projects/, library/) lives in a writable
+#   data dir (the bundle is read-only); set by desktop.py, defaults to
+#   the repo dir for normal dev use.
+FROZEN = bool(getattr(sys, "frozen", False))
+HOME = Path(os.environ.get("AETHRON_HOME", ROOT))
+PROJECTS = HOME / "projects"
+LIBRARY = HOME / "library"   # design cards: fingerprints, never files
+
+
+def forge_argv(*args):
+    """argv prefix that runs the forge engine, dev or frozen."""
+    if FROZEN:
+        return [sys.executable, "--forge", *map(str, args)]
+    return [sys.executable, str(FORGE), *map(str, args)]
 
 sys.path.insert(0, str(ROOT))
 from forge import _flex_pat, hide_selector_audit  # shared matchers  # noqa: E402
@@ -138,7 +156,7 @@ def preview_start(name: str) -> int:
     if name in PREVIEWS and PREVIEWS[name][1].poll() is None:
         return PREVIEWS[name][0]
     port = free_port()
-    p = subprocess.Popen([sys.executable, str(FORGE), "serve", str(port)],
+    p = subprocess.Popen(forge_argv("serve", str(port)),
                          cwd=PROJECTS / name,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     PREVIEWS[name] = (port, p)
@@ -737,7 +755,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(body)
             elif u.path == "/api/projects":
-                PROJECTS.mkdir(exist_ok=True)
+                PROJECTS.mkdir(parents=True, exist_ok=True)
                 out = []
                 for d in sorted(PROJECTS.iterdir()):
                     if (d / "forge.json").exists():
@@ -800,7 +818,7 @@ class Handler(BaseHTTPRequestHandler):
                 if full:
                     # dev/AI handoff: the WHOLE self-contained project —
                     # rebuildable, extendable, with the backend + guide
-                    subprocess.run([sys.executable, str(FORGE), "backend"],
+                    subprocess.run(forge_argv("backend"),
                                    cwd=d, capture_output=True)
                     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
                         z.write(FORGE, "forge.py")
@@ -957,20 +975,20 @@ class Handler(BaseHTTPRequestHandler):
                 d = self.project_dir({"name": [body.get("project", "")]})
                 cmd = body.get("cmd", "")
                 if cmd == "logo":
-                    argv = [sys.executable, str(FORGE), "logo",
-                            body.get("text") or "Brand"]
+                    argv = forge_argv("logo",
+                            body.get("text") or "Brand")
                     for flag in ("font", "color", "tracking"):
                         if body.get(flag):
                             argv += ["--" + flag, str(body[flag])]
                 elif cmd in RUN_CMDS:
-                    argv = [sys.executable, str(FORGE), cmd]
+                    argv = forge_argv(cmd)
                 else:
                     return self.fail("command not allowed")
                 self._track("run_step", step=cmd)
                 self.send_json({"job": start_job(argv, d)})
             elif u.path == "/api/library/save":
                 d = self.project_dir({"name": [body.get("project", "")]})
-                r = subprocess.run([sys.executable, str(FORGE), "card"],
+                r = subprocess.run(forge_argv("card"),
                                    cwd=d, capture_output=True, text=True)
                 if r.returncode:
                     return self.fail((r.stdout + r.stderr).strip()
@@ -1026,8 +1044,8 @@ class Handler(BaseHTTPRequestHandler):
                     if (PROJECTS / name).exists():
                         return self.fail(f"project '{name}' already exists")
                     r = subprocess.run(
-                        [sys.executable, str(FORGE), "init", td,
-                         "--name", name],
+                        forge_argv("init", td,
+                         "--name", name),
                         cwd=PROJECTS, capture_output=True, text=True)
                 if r.returncode:
                     return self.fail((r.stdout + r.stderr).strip()
@@ -1249,7 +1267,7 @@ class Handler(BaseHTTPRequestHandler):
                 # nearest-source adoption — never a model, never a guess
                 d = self.project_dir({"name": [body.get("project", "")]})
                 snapshot(d)
-                cmd = [sys.executable, str(FORGE), "heal"]
+                cmd = forge_argv("heal")
                 idx0 = None
                 if body.get("old"):
                     cmd += ["--entry", body["old"]]
@@ -1643,14 +1661,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail("give the project a name")
         if (PROJECTS / name).exists():
             return self.fail(f"project '{name}' already exists")
-        PROJECTS.mkdir(exist_ok=True)
+        PROJECTS.mkdir(parents=True, exist_ok=True)
         # a LIVE URL: forge scrapes the home page + same-host routes
         url = (body.get("url") or "").strip()
         if url:
             if not url.startswith(("http://", "https://")):
                 return self.fail("url must start with http(s)://")
             r = subprocess.run(
-                [sys.executable, str(FORGE), "init", url, "--name", name],
+                forge_argv("init", url, "--name", name),
                 cwd=PROJECTS, capture_output=True, text=True)
             if r.returncode:
                 return self.fail((r.stdout + r.stderr).strip() or "init failed")
@@ -1678,8 +1696,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 target = Path(td)
             r = subprocess.run(
-                [sys.executable, str(FORGE), "init", str(target),
-                 "--name", name],
+                forge_argv("init", str(target),
+                 "--name", name),
                 cwd=PROJECTS, capture_output=True, text=True)
         if r.returncode:
             return self.fail((r.stdout + r.stderr).strip() or "init failed")
@@ -3235,7 +3253,7 @@ if(!localStorage.forge_tour)setTimeout(()=>startTour(0),700);
 # ───────────────────────── main ──────────────────────────────────────
 
 if __name__ == "__main__":
-    if not FORGE.exists():
+    if not FROZEN and not FORGE.exists():
         print("ERROR: forge.py must sit next to studio.py")
         sys.exit(1)
     # local by default; PORT env (Render/Railway/Fly) binds 0.0.0.0 so
@@ -3246,7 +3264,7 @@ if __name__ == "__main__":
     env_port = os.environ.get("PORT")
     port = int(sys.argv[1] if len(sys.argv) > 1 else (env_port or 8899))
     host = "0.0.0.0" if env_port else "127.0.0.1"
-    PROJECTS.mkdir(exist_ok=True)
+    PROJECTS.mkdir(parents=True, exist_ok=True)
     if os.environ.get("STUDIO_PASSWORD"):
         print("HTTP Basic auth: ON (user 'aethron')")
     elif env_port:
