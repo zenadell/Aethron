@@ -1,7 +1,7 @@
 # Driving Aethron from an AI agent (MCP)
 
-Aethron ships an MCP server (`forge_mcp.py`) so any MCP-speaking agent — Claude Code,
-Antigravity, Cursor, or your own — can run migrations natively. **The agent is the
+Aethron ships an MCP server (`forge_mcp.py`) so any MCP-speaking agent — Cursor,
+Antigravity, any AI IDE, or your own — can run migrations natively. **The agent is the
 copy model:** it reads the entries and writes the fills itself, no API keys, and the
 guardrails enforce the physics on every call.
 
@@ -13,15 +13,15 @@ clean.
 
 ```jsonc
 // .mcp.json
-{ "mcpServers": { "template-forge": {
+{ "mcpServers": { "aethron": {
     "command": "python3",
     "args": ["forge_mcp.py"]          // use an absolute path for other clients
 } } }
 ```
 
-Or with the Claude Code CLI:
+Or register it from your MCP client's CLI, e.g.:
 ```bash
-claude mcp add aethron -- python3 /absolute/path/to/forge_mcp.py
+<your-client> mcp add aethron -- python3 /absolute/path/to/forge_mcp.py
 ```
 
 Zero dependencies — it's stdio JSON-RPC 2.0, newline-delimited.

@@ -20,3 +20,7 @@ events.jsonl
 # desktop build output
 build/
 dist/
+
+# local dev context (agent session memory + harness config) — not product code
+CLAUDE.md
+.claude/

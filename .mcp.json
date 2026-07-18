@@ -1,8 +1,10 @@
 {
   "mcpServers": {
-    "template-forge": {
+    "aethron": {
       "command": "python3",
-      "args": ["forge_mcp.py"]
+      "args": [
+        "forge_mcp.py"
+      ]
     }
   }
 }

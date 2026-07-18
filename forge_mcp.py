@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Aethron MCP server — drive template migrations from ANY AI
-agent (Claude Code, Antigravity, Cursor, anything MCP-speaking).
+agent (Cursor, Antigravity, any AI IDE — anything MCP-speaking).
 
 Zero dependencies: stdio JSON-RPC 2.0, newline-delimited.
 
-Register (Claude Code):   claude mcp add forge -- python3 forge_mcp.py
-or via .mcp.json:         {"mcpServers": {"template-forge":
-                           {"command": "python3", "args": ["forge_mcp.py"]}}}
+Register via your MCP client's CLI, or drop this in .mcp.json:
+    {"mcpServers": {"aethron":
+      {"command": "python3", "args": ["forge_mcp.py"]}}}
 
 The agent IS the copy model: read entries with get_content, write them
 with set_content_bulk — every write passes the same guardrails as the
@@ -745,7 +745,7 @@ def main():
             send({"jsonrpc": "2.0", "id": mid, "result": {
                 "protocolVersion": params.get("protocolVersion", "2024-11-05"),
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "template-forge", "version": "1.0"}}})
+                "serverInfo": {"name": "aethron", "version": "1.0"}}})
         elif method == "tools/list":
             send({"jsonrpc": "2.0", "id": mid,
                   "result": {"tools": TOOL_DEFS}})

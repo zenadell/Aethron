@@ -1,6 +1,6 @@
 # The Template Migration Playbook
 
-**Audience: any AI model (DeepSeek, Gemini, Claude, GPT, a 7B local
+**Audience: any AI model (DeepSeek, Gemini, Anthropic, GPT, a 7B local
 model — anything that can edit a JSON file), or a careful human.**
 
 This playbook + `forge.py` migrate a Framer or Webflow template export

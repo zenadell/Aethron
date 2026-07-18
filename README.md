@@ -107,7 +107,7 @@ python3 studio.py            # → http://127.0.0.1:8899
    saved pages at once.
 2. **Prepare project** — one click runs fetch → inventory → build with a progress bar.
 3. **Fill it** — write a few rough words about your brand → **Polish** → **Fill with
-   AI** (DeepSeek, Gemini, OpenAI, Claude, Ollama — or paste fills manually, no key
+   AI** (DeepSeek, Gemini, OpenAI, Anthropic, Ollama — or paste fills manually, no key
    needed).
 4. **Edit mode** — click any text, image, button, or section on the live preview and
    rewrite, restyle, or remove it. The inspector docks beside the site so the whole
@@ -191,8 +191,8 @@ is pure standard library.
 ### 3. MCP server — `forge_mcp.py`
 
 ```jsonc
-// .mcp.json — Claude Code, Antigravity, Cursor, any MCP client
-{ "mcpServers": { "template-forge": {
+// .mcp.json — works with any MCP client (Cursor, Antigravity, AI IDEs)
+{ "mcpServers": { "aethron": {
     "command": "python3", "args": ["forge_mcp.py"] } } }
 ```
 
