@@ -96,19 +96,6 @@ http://127.0.0.1:*/auth/callback
 
 (Add `http://localhost:*/auth/callback` too if you ever run on localhost.)
 
-## 2b. Point the app at it (env, dev only)
-
-Set two environment variables (the packaged desktop build bakes these in):
-
-```bash
-export AETHRON_SUPABASE_URL="https://<ref>.supabase.co"
-export AETHRON_SUPABASE_ANON_KEY="<anon-key>"
-python3 studio.py
-```
-
-Now the studio requires sign-in, sessions are held server-side (the Supabase
-token never reaches the browser), and telemetry flows to your `events` table.
-
 ## 3. Test it locally without any Supabase project
 
 ```bash
