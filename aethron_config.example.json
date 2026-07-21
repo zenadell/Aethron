@@ -1,0 +1,5 @@
+{
+  "supabase_url": "https://YOUR-REF.supabase.co",
+  "supabase_anon_key": "eyJ...your-anon-public-key...",
+  "enforce_billing": false
+}

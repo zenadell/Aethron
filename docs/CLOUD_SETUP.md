@@ -59,6 +59,45 @@ branded consent screen and drops the user straight into the app.
 
 ## 2. Point the app at it
 
+**In the packaged desktop app** (what users download): create
+`aethron_config.json` next to your source before running `build_desktop.sh`
+— it gets baked into the app (never committed; it's gitignored). Copy
+`aethron_config.example.json` and fill in the two values:
+
+```json
+{
+  "supabase_url": "https://<ref>.supabase.co",
+  "supabase_anon_key": "eyJ...anon-public-key...",
+  "enforce_billing": false
+}
+```
+
+**For local dev**, env vars override the file:
+
+```bash
+export AETHRON_SUPABASE_URL="https://<ref>.supabase.co"
+export AETHRON_SUPABASE_ANON_KEY="<anon-key>"
+python3 studio.py
+```
+
+Either way the studio now requires sign-in, sessions are held server-side
+(the Supabase token never reaches the browser), and telemetry flows to
+your `events` table.
+
+### Redirect URL (Google sign-in loopback)
+
+The desktop app serves on a bounded local port (8899-8909). In Supabase
+**Authentication -> URL Configuration -> Redirect URLs**, add a wildcard
+so any of those ports is accepted:
+
+```
+http://127.0.0.1:*/auth/callback
+```
+
+(Add `http://localhost:*/auth/callback` too if you ever run on localhost.)
+
+## 2b. Point the app at it (env, dev only)
+
 Set two environment variables (the packaged desktop build bakes these in):
 
 ```bash

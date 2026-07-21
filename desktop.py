@@ -36,7 +36,12 @@ def data_home() -> Path:
 
 
 def free_port(preferred=8899) -> int:
-    for port in (preferred, 0):
+    # Try a small BOUNDED range first, not a random port: Google/Supabase
+    # OAuth needs the loopback callback (http://127.0.0.1:<port>/auth/
+    # callback) to be in the redirect allow-list, so the port must be
+    # predictable. Register 8899-8909 (or a wildcard) once. Random 0 is
+    # the last resort (login won't work on it, but local editing will).
+    for port in list(range(preferred, preferred + 11)) + [0]:
         try:
             with socket.socket() as s:
                 s.bind(("127.0.0.1", port))

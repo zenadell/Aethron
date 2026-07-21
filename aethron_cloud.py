@@ -21,14 +21,42 @@ on it is dropped.
 """
 import json
 import os
+import sys
 import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
-SUPABASE_URL = os.environ.get("AETHRON_SUPABASE_URL", "").rstrip("/")
-ANON_KEY = os.environ.get("AETHRON_SUPABASE_ANON_KEY", "")
-DEBUG_LOG = os.environ.get("AETHRON_CLOUD_DEBUG", "")  # JSONL path (dry-run)
+
+def _load_config():
+    """Config resolution, env FIRST (dev/override), then a bundled
+    aethron_config.json (how the packaged desktop app ships its keys —
+    users have no env vars). Search: alongside the frozen bundle, the
+    module dir, then AETHRON_HOME. Missing/garbage file = dormant."""
+    cfg = {}
+    here = Path(getattr(sys, "_MEIPASS", "")) if getattr(
+        sys, "frozen", False) else Path(__file__).resolve().parent
+    for base in (here, Path(__file__).resolve().parent,
+                 Path(os.environ.get("AETHRON_HOME", "."))):
+        f = base / "aethron_config.json"
+        if f.is_file():
+            try:
+                cfg = json.loads(f.read_text(encoding="utf-8"))
+                break
+            except (ValueError, OSError):
+                pass
+
+    def pick(env, key):
+        return os.environ.get(env) or cfg.get(key) or ""
+    return (pick("AETHRON_SUPABASE_URL", "supabase_url").rstrip("/"),
+            pick("AETHRON_SUPABASE_ANON_KEY", "supabase_anon_key"),
+            os.environ.get("AETHRON_CLOUD_DEBUG", "") or cfg.get("debug_log", ""),
+            os.environ.get("AETHRON_ENFORCE_BILLING")
+            or cfg.get("enforce_billing"))
+
+
+SUPABASE_URL, ANON_KEY, DEBUG_LOG, _ENFORCE = _load_config()
 
 # REAL  = a live Supabase project (network auth + telemetry).
 # DRY   = AETHRON_CLOUD_DEBUG only: gate is on, auth accepts any creds,
@@ -47,7 +75,7 @@ ENABLED = bool(REAL or DRY)
 # was using it during the beta is locked out on its next login, shown
 # an upgrade prompt. Wiring Stripe later just means flipping a user's
 # profiles.plan to 'pro' on successful payment.
-ENFORCE_BILLING = bool(os.environ.get("AETHRON_ENFORCE_BILLING"))
+ENFORCE_BILLING = bool(_ENFORCE)
 PAID_PLANS = {"pro", "studio"}
 
 

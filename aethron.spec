@@ -1,9 +1,16 @@
 # PyInstaller spec — build with:  bash build_desktop.sh
 # One binary that is both the Studio launcher and (via --forge) the engine.
 # fontTools/brotli are lazy imports inside forge.cmd_logo — declare them.
+import os as _os
+# bake the cloud config (Supabase URL + anon key) into the bundle if the
+# developer created it — never committed (gitignored). Absent = the app
+# ships fully local/offline (no login gate).
+_datas = [("aethron_config.json", ".")] if _os.path.isfile(
+    "aethron_config.json") else []
 a = Analysis(
     ["desktop.py"],
     pathex=["."],
+    datas=_datas,
     hiddenimports=[
         "forge", "studio", "aethron_cloud",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
