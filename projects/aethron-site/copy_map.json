@@ -1,0 +1,4805 @@
+{
+ "_instructions": "Fill 'new' for every string you want changed. Leave 'new' empty to keep the original. RULES: (1) if max_bytes is set, len(new.encode('utf-8')) must be <= max_bytes (em-dash/curly quotes = 3 bytes); (2) never use backticks ` or ${ in 'new'; (3) if a 'new' value contains another entry's 'old' text, set that other entry's scope to 'cms' or rewrite one of them.",
+ "strings": [
+  {
+   "old": "Protected Page - DevelopFlow - Webflow HTML website template",
+   "new": "Protected — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Protect your page from unauthorized access using password authentication, ensuring only approved users can securely view restricted content.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "website",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "summary_large_image",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "developflow",
+   "new": "aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "About",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Features",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Pages",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Integration",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Blog",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Careers",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Pricing",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Template",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Get Started",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "arrow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Protected Page",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Password",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Enter your password",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Incorrect password. Please try again.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Abstract dark background with a diagonal gradient glow of green light fading into black.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Templates",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "More",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Contact",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Utility",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Style Guide",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Licenses",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Changelog",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Protected",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Not Found",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Social media",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Facebook",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Instagram",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "dribbble",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dribbble",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Behance",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Copyright © DevelopFlow | Designed By",
+   "new": "© 2026 Aethron — Powered By Jomiez",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Victorflow",
+   "new": " ",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "| Powered By",
+   "new": " ",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Webflow",
+   "new": "Webflow",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Not Found - DevelopFlow - Webflow HTML website template",
+   "new": "Page Not Found — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "The page you are looking for doesn't exist. Please search for another page or return to the homepage to find what you need.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Page Not Found",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "The page you are looking for doesn't exist. Please try searching for some other page, or return to the website's homepage to find what you're looking for.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Back To Home",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "About - DevelopFlow - Webflow HTML website template",
+   "new": "About — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Learn about the company’s mission, vision, expertise, and the team dedicated to making website creation simple and accessible.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Focused On Growth & Centered On Your Success",
+   "new": "Built So You Truly Own What You Buy",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Welcome aboard! Our focus is on helping your business thrive through innovative solutions and expert guidance.",
+   "new": "Aethron began with a simple frustration: you buy a beautiful template, but making it truly yours means fighting React hydration and byte-locked files. So we built the tool that does it for you.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black and white photo of four young adults with long hair posing indoors in casual clothing with a bookshelf and large window in the background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "18+",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Work History Length",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Global Reach",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Team Members",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Satisfied Clients",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Stable Operation",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Marking the Important Milestones Behind our Product Evolution",
+   "new": "How Aethron Came Together",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "2022",
+   "new": "2024",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Our journey began with a vision to innovate. Through challenges and milestones, we refined our approach, delivering products that truly make a difference for our clients.",
+   "new": "The first migration was done entirely by hand — one Framer template into a fully-owned site. It documented every way an export fights back.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Group of nine people sitting around a conference table with laptops and coffee cups, looking towards a man presenting in front of a large screen displaying a video call with multiple participants.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "2023",
+   "new": "2025",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "From humble beginnings to industry recognition, our journey is shaped by dedication, creativity, and relentless focus on crafting solutions that empower our users globally.",
+   "new": "Those battles became a single engine: three-layer byte-locked replacement, guardrails that make breakage impossible, driven by any AI model.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Diverse professionals sitting in a modern office working on laptops with colorful data displays on large screens in the background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "2024",
+   "new": "2026",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Every step of our journey has been about growth and continuous learning. By embracing innovation and client feedback, we continue to evolve and deliver exceptional results.",
+   "new": "Aethron grew into a full studio — click-to-edit anything, self-healing edits, a design library, and an MCP so any AI agent can drive a migration.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Modern office with employees working at desks and a large digital screen displaying blue data graphics on the wall.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Smiling man with short hair wearing a buttoned-up shirt against a plain background in black and white.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Founder’s Message – Sharing Our Vision",
+   "new": "A Note From the Founder",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Driven by a commitment to innovation and excellence, our founder shares the vision guiding every project and empowering clients to achieve remarkable growth.",
+   "new": "I design and buy templates constantly, and I was tired of never truly owning them. Aethron is the tool I wished existed — so every template you buy becomes fully, permanently yours. — Tim, Founder & CEO of Jomiez",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "What Truly Fuels Our Team",
+   "new": "What Aethron Stands For",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Lock",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Building Trust",
+   "new": "You Own It",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Trust is at the core of our work, guiding every thoughtful decision and interaction with clients.",
+   "new": "No badge, no telemetry, no lock-in. The site is yours to host anywhere, forever.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "User",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Empowering Growth",
+   "new": "Nothing Breaks",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Through innovative strategies, we help teams achieve measurable progress and meaningful growth.",
+   "new": "Guardrails and self-healing mean an edit never silently fails and the design stays pixel-identical.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Abstract green gradient background with soft vertical light streaks and a speckled texture.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Brand Symbol",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Rocket",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Fueling Passion",
+   "new": "Any AI Drives It",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Driven by passion, we create impactful work that truly inspires clients and consistently exceeds expectations.",
+   "new": "Use any model, or just click on the page. The system enforces the physics so you can’t break it.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Candle",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Shining Innovation",
+   "new": "Yours in Minutes",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "By embracing creativity and technology, we craft innovative solutions that stand out in the market.",
+   "new": "Paste a URL, fill your copy, ship. Most migrations finish in under ten minutes.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Meet some Experts Driving your Success",
+   "new": "The Team",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black and white headshot of a man with short beard and styled hair wearing a dark suit jacket and white shirt, looking at the camera.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Kai Nakamura",
+   "new": "Tim",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Innovation Lead",
+   "new": "Founder & CEO, Jomiez",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black and white portrait of a young woman with short hair wearing a dark blazer and hoop earrings against a plain background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Zara Solis",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Brand Architect",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Portrait of a confident man with dark hair and beard wearing a white shirt and black suit jacket against a dark background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Orion Vega",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Creative Strategist",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Why We are Best in the Marketplace",
+   "new": "Why Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Cutting-Edge Tech",
+   "new": "Byte-Locked Engine",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "cloud thunder",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "A forward-thinking approach powered by modern tools, advanced innovation, and smart automation—ensuring every project benefits from high-performance technology that boosts efficiency, accuracy, and long-term growth.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Expert Team",
+   "new": "Any AI, Guarded",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Shield",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Our expert team brings exceptional knowledge, well-refined skills, and innovative thinking to deliver precise, highly-reliable solutions that consistently exceed expectations and elevate every project’s achievement.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Proven results",
+   "new": "Self-Healing",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "A track record of consistently delivering measurable outcomes through strategic execution, precision, and dedication—ensuring every project achieves meaningful impact and surpasses performance goals with confidence.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Customer-first",
+   "new": "Truly Yours",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "A commitment to understanding client needs at every stage, delivering tailored solutions with clarity, transparency, and care—ensuring every experience feels seamless, supportive, and genuinely centered around your success.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Related Ideas to Inspire Growth",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Explore All",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Blog Image",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Web Design",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "18/11/2025",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Boost Your Website’s Performance Today",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Strategy",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Beginner’s Guide to User-Friendly Interfaces",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "UI/UX",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Top Trends in Web Development This Year",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Craft your Website Easily with Accuracy",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Effortlessly create a professional website with precise designs and seamless functionality, ensuring your online presence stands out and engages users.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "User interface of developflow showing a dark-themed web design editor with a header section titled 'Accelerate Your Work' and navigation links for Home, About us, Pricing, and Contact.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Blog - DevelopFlow - Webflow HTML website template",
+   "new": "Blog — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Shares articles on website design, SEO, digital marketing, and online business growth. Educates users while positioning the platform as a trusted resource.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Expert Advice For Every Step You Take",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Navigate your journey with confidence by accessing expert guidance tailored to support your business growth and goals.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Featured",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Reimagine your website’s efficiency by fine-tuning speed, design, and user experience to create a site that converts, engages, and delights visitors consistently.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Latest Blogs",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "All",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Why Mobile Optimization Is Crucial in Modern Era",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Creating Content That Engages and Converts",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "How Analytics Can Shape Your Online Success",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "A Step-by-Step Guide to Website Security",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Careers - DevelopFlow - Webflow HTML website template",
+   "new": "Careers — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Lists open positions across product, design, engineering, and support teams. Attracts professionals interested in building tools that empower online growth.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Shape Your Future By Joining Our Dynamic Team Today",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Be part of our innovative team where your skills are valued, ideas are encouraged, and your career can truly thrive.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Four young professionals collaborating around a laptop in a modern office setting.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Why Join A Creative Crew?",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Crown",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Grow Your Skills",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Develop your expertise by tackling innovative projects that push boundaries and expand your creative abilities every day.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Peace",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Collaborate Freely",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Work closely with passionate team members, share ideas openly, and contribute to projects in a supportive environment.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Candles",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Make an Impact",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Contribute your ideas and creativity to projects that drive real results, influence outcomes, and leave a lasting impression.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Our Approach",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Projects are guided by strategic thinking, innovative design, and collaborative execution to ensure maximum impact, measurable results, and client satisfaction consistently.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "“Leading with purpose, we strive for excellence, innovation, and growth in every project we undertake.”",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black and white portrait of a man with short dark hair and beard, wearing a white shirt and dark blazer, looking thoughtfully at the camera.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Mike Nanyendu",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "CEO",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Smiling young man with glasses and curly hair standing with arms crossed and a smiling young woman with shoulder-length hair looking at a laptop together.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Exciting Careers Await You Here",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Smiling man with curly hair, beard, glasses, and a casual jacket against a plain background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Play",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Join our team and explore exciting careers that challenge, inspire, and help you grow.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "UI/UX Designer",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "USA",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "New York",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$5K - $6K",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Experience",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "5+ Years",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "View More",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Graphic Designer",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "UK",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Remote",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$2K - $3K",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "1+ Years",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "SEO Specialist",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "London",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$1k - $2K",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Fresher",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Full Stack Developer",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$4K - $5K",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "4+ Years",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Content Strategist",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Contact - DevelopFlow - Webflow HTML website template",
+   "new": "Contact — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Provides channels for sales inquiries, support requests, partnerships, and general questions. Makes it easy for users to connect with the team.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Get in Touch With Our Team Today",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Get professional help and answers from our team quickly, ensuring your ideas, projects, and questions are handled efficiently",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Name",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Adam Gilchristh",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Email Address",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "example@youremail.com",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Phone number",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "(123) 456 - 789",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Company",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Message",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Write your message here...",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Thank you! Your submission has been received!",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Oops! Something went wrong while submitting the form.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Check Alternate Ways To Connect",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Phone",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "+1 (555) 126-4965",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Call us anytime to get quick support and expert guidance easily.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Mail",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "info@developflow.com",
+   "new": "hello@aethron.app",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Send us an email anytime to get fast support and helpful guidance.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Location",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "12-ND, San Francisco, CA",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Visit us at our office to discuss projects and get expert support.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Frequently Asked Questions",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "How long does it take to launch a website?",
+   "new": "How long does a migration take?",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Can I update my website content myself?",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Do you offer custom design for my brand?",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "What support is available after my site goes live?",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "star",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Question Answer:",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Depending on the complexity, most websites go live within 2–6 weeks. We ensure timely delivery without compromising quality.",
+   "new": "Minutes. Paste a template URL, fill your copy, and ship — most migrations finish in under ten minutes.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Get Started Now",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black laptop showing website with a black-and-white image of a person wearing a wide-brimmed hat.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Yes! We provide an easy-to-use content management system and training so you can update text, images, and media effortlessly.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black over-ear headphones resting on a closed laptop next to a steaming black coffee mug on a marble surface.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Absolutely. Every website is tailored to your brand identity, goals, and audience, ensuring a unique and engaging online presence.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Close-up of various metallic control knobs and dials on a sleek gray surface, including a large central dial with a black center.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "We offer ongoing maintenance, technical support, and updates to keep your website secure, functional, and up-to-date.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Desktop computer showing an online store page with various products like clothing, bags, and bottles, each with an Add to Cart button.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Features - DevelopFlow - Webflow HTML website template",
+   "new": "Features — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Explains the platform’s capabilities, including drag-and-drop editing, responsive templates, SEO tools, and content management.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Strategies That Transform Ideas Into Results",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Lost in ideas? These strategies channel inspiration into structured steps that deliver real results, fast.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Power your Brand with Sleek Sites",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Create a lasting impression and grow your business with sleek, user-friendly websites reflecting your brand.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black and white side profile of a man wearing a hat with digital interface overlays showing controls for dimension, spacing, and layout, and icons for drawing, adding, document, and settings.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Drag-and-Drop Made Simple",
+   "new": "Click-to-Edit Anything",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Easily build and customize your website using intuitive drag-and-drop tools, no coding skills required.",
+   "new": "Click any text, image, button, or section on the live site and rewrite, restyle, or remove it.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black perfume bottle on a textured dark surface with overlay graphics showing 4,858 users and a progress bar labeled Bostinger Reach.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Analytics That Drive Growth",
+   "new": "Self-Healing Edits",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Monitor key metrics, understand user behavior, and drive meaningful growth with analytics.",
+   "new": "If an edit doesn’t land, Aethron fixes it automatically — no change ever silently fails.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Person wearing a black fuzzy coat holding a black baseball cap in front of their face with an orange cursor icon beneath, next to a loading bar labeled Generating description.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "AI Tools For Smarter Design",
+   "new": "Driven by Any AI",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Leverage AI-powered tools to create smarter, faster, and more intuitive designs that engage users effectively.",
+   "new": "Let any model fill your copy within safe limits, or drive the whole migration through the agent tools.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black pump bottle with blank label placed on gray rocks next to a dark box listing 'Seo title' and 'Focus keywords' with check marks.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Optimized Pages, Better Reach",
+   "new": "Deploy Anywhere",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Enhance visibility and attract more visitors with fully optimized web pages designed for speed, SEO, performance.",
+   "new": "Every build is fully static — ship to Cloudflare, Netlify, Vercel, GitHub Pages, or any host.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Connect your Tools and Work Seamlessly.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Integration Icon",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Grid",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Easily connect and manage multiple apps in one place, ensuring smooth workflows and efficient data sharing.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "View Details",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Abstract gradient background with dark vertical lines fading from bright orange at the top to deep brown at the bottom.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Bridge",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Seamlessly link different platforms and tools to ensure smooth data flow, improved collaboration, and faster results.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Linker",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Transform how you work by linking apps and platforms to share data and collaborate effortlessly across teams",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "DevelopFlow - Webflow HTML website template",
+   "new": "Aethron — Own any template",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Build a modern website with DevelopFlow, a Webflow template created for digital agencies, startups, creative teams, and technology businesses.",
+   "new": "Aethron makes any Framer or Webflow template permanently yours — your copy, your brand, animations intact, driven by any AI.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Build Powerful Websites That Stand Out Online Today",
+   "new": "Make Any Template Truly, Permanently Yours",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Help your brand stand out with websites designed to engage and convert visitors effectively today.",
+   "new": "Rebrand any Framer or Webflow template — your copy, your images, your logo — with the design pixel-identical and driven by any AI.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Act Now",
+   "new": "Download Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dive Deeper",
+   "new": "See how it works",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "User interface of a dark-themed design tool showing a webpage layout with 'Accelerate Your Work' header and sidebar with layers and alignment options.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "upload",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Upload your image",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "DevelopFlow ensures lightning-fast performance",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Abstract dark green background with a soft glowing curved light pattern and vertical streaks.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Serving 100+ Teams in Every Corner of the World",
+   "new": "Real migrations, shipped across Framer and Webflow",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Placeholder Badge",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Shape your Brand with Modern Sites",
+   "new": "Own Every Template You Buy",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Enhance your brand identity with websites that are modern, responsive, and easy to use.",
+   "new": "Your words, your images, your brand — with the original design and motion perfectly intact.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Better Performance",
+   "new": "Pixel-Identical",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Experience faster load times, smoother interactions, and optimized workflows that boost efficiency and satisfaction.",
+   "new": "The design and every animation stay exactly as built — hydration-safe and byte-locked, never broken.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dotted Pattern",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Badge",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Stronger Security",
+   "new": "Fully Yours",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Protect your data and systems with advanced security measures, real-time monitoring, and robust access controls.",
+   "new": "No platform badge, no telemetry, no CDN dependency. Export it and host it anywhere you like.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Candle Stick",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Smooth Integrations",
+   "new": "Any AI Drives It",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Connect your tools effortlessly with seamless integrations, ensuring data flows across all your platforms.",
+   "new": "DeepSeek, Gemini, Claude — or just click on the page. Guardrails make breakage impossible.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Build without the Hassle, Launch with Ease",
+   "new": "Edit Anything, Break Nothing",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Get started with the plan that works",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Pause video",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Play video",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Build your Brand with Smart Templates",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Discover All",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "RetailFlow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "View Project",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "FurnishFlow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Attorneyster",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "AgriFlow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "CopyWriter",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "The/Agenc",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Go Live with your Site in 3 Steps",
+   "new": "Own Your Template in 3 Steps",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dark-themed website interface showing a man in shadow with a welcome message and a button labeled Create website.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Two men with sunglasses and dark coats standing back to back inside a gray abstract circular brushstroke, with a vertical toolbar on the left showing pencil, plus, document, and gear icons.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Black baseball cap resting on dark rocky surface with text boxes reading 'developflow.com' and 'Go live'.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Arrow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Choose a template that fits",
+   "new": "Paste your template URL",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Select a template that perfectly matches your brand’s style and goals. Each design is fully customizable, responsive, and ready to help you create a stunning website fast.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Customize content and visuals",
+   "new": "Make it yours with AI",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Personalize every aspect of your website by editing text, images, and layouts. Tailor the design to reflect your brand’s identity and engage your audience effectively.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Publish your site instantly",
+   "new": "Ship it anywhere",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Go live with your website in just a few clicks. Publish instantly to share your brand, products, or services with the world and start engaging your audience immediately today.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "People Around the World love DevelopFlow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "\"Working with the team was seamless. Their expertise helped us launch our platform faster than expected, and every interaction was professional, insightful, and highly collaborative.\"",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Mitchel Jackson",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Branding Manager",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "\"Exceptional service from start to finish. The team understood our vision, delivered a highly intuitive user experience, and optimized every detail to perfection.\"",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Black and white portrait of a man with short hair and a beard wearing a black turtleneck, against a dark background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Hana Kim",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "UX Designer",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "\"Impressed by their dedication and attention to detail. Each milestone was delivered on time, and the collaboration brought out the best in our creative ideas.\"",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Portrait of a confident woman wearing a blazer with hair pulled back against a gray background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Emma Johan",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Creative Lead",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Simple, Transparent Pricing for",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Basic plan",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$22",
+   "new": "$0",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Access essential tools and features to help you launch your website fast.",
+   "new": "Everything you need to try Aethron and own your first template.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Upgrade Now",
+   "new": "Get Started",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "tick",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Basic Templates",
+   "new": "1 active project",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Basic SEO Tools",
+   "new": "Framer & Webflow",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Simple Editor",
+   "new": "Click-to-edit anything",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Responsive Layouts",
+   "new": "AI copy fill",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Standard Support",
+   "new": "Community support",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Abstract gradient background with a dark base transitioning to a glowing orange-red top edge with subtle vertical lines.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Pro",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$62",
+   "new": "$19",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Unlock advanced tools and features to create professional websites with ease.",
+   "new": "Unlimited migrations for makers who own every template they buy.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Advanced Templates",
+   "new": "Unlimited projects",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Enhanced SEO Tools",
+   "new": "Self-healing edits",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Analytics Dashboard",
+   "new": "Logo generator",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Custom Domains",
+   "new": "Full asset localizer",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Priority Support",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dark gradient background with vertical lines and a glowing orange light effect at the top.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Premium",
+   "new": "Studio",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$192",
+   "new": "$49",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Access all advanced tools and exclusive features to build top-tier websites easily.",
+   "new": "For agencies migrating client sites at scale.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "All Pro Features",
+   "new": "Everything in Pro",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "AI-Powered Tools",
+   "new": "Dev handoff exports",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "E-Commerce Integration",
+   "new": "Backend API generation",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Advanced Security",
+   "new": "Team seats (coming soon)",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dedicated Support",
+   "new": "Dedicated support",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Abstract gradient background with dark shades transitioning to orange and red tones at the top.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Bridge - DevelopFlow - Webflow HTML website template",
+   "new": "Bridge — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "DevelopFlow +",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Integration With",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Integrate Now",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "From Draft to Live in Minutes",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Bring your concepts to life in just minutes. Convert drafts into fully functional, interactive websites, streamline workflows efficiently, and deliver responsive, user-ready designs instantly. Experience faster publishing, seamless performance, and smooth user engagement every time.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Reasons DevelopFlow + Bridge",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Accelerate website development by connecting tools that streamline tasks and boost collaboration. Convert drafts into interactive, responsive sites, optimize workflows, and deliver high-quality results that engage and delight users every single time.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Who Can Use Bridge Integration?",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Developers → Connect apps and streamline workflows seamlessly.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Project Managers → Oversee tasks and tools from one dashboard.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Content Creators → Publish content across platforms efficiently.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Agencies →Deliver client websites quickly with unified tools.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Achieve More Using DevelopFlow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Monitor all tasks in real-time, get instant notifications on updates, and stay on top without refreshing constantly.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Receive live alerts when processes change, ensuring projects move forward efficiently without manual checks.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Get immediate feedback on work progress, approve changes quickly, and maintain smooth project flow effortlessly.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "See all project metrics in one place, track performance, and make informed decisions without switching platforms.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dive In and Use Bridge",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Start leveraging Bridge to streamline your workflows and connect all your essential tools in one place. Dive in and instantly link apps, automate tasks, and enhance collaboration across teams. With Bridge, managing projects becomes faster, more efficient, and hassle-free, allowing you to focus on creativity and delivering high-quality results every single time effortlessly",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Related Tools",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Sphere",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Integrate services with ease, enabling seamless communication and boosting team productivity across platforms.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Grid - DevelopFlow - Webflow HTML website template",
+   "new": "Grid — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Reasons DevelopFlow + Grid",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Who Can Use Grid Integration?",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dive In and Use Grid",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Start leveraging Grid to streamline your workflows and connect all your essential tools in one place. Dive in and instantly link apps, automate tasks, and enhance collaboration across teams. With Grid, managing projects becomes faster, more efficient, and hassle-free, allowing you to focus on creativity and delivering high-quality results every single time effortlessly",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Linker - DevelopFlow - Webflow HTML website template",
+   "new": "Linker — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Reasons DevelopFlow + Linker",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Who Can Use Linker Integration?",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dive In and Use Linker",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Start leveraging Linker to streamline your workflows and connect all your essential tools in one place. Dive in and instantly link apps, automate tasks, and enhance collaboration across teams. With Linker, managing projects becomes faster, more efficient, and hassle-free, allowing you to focus on creativity and delivering high-quality results every single time effortlessly",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Integration - DevelopFlow - Webflow HTML website template",
+   "new": "Integrations — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Details integrations with analytics, email marketing, payment gateways, and CRM tools, showing how the platform fits existing workflows.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Streamline Operations With App Links",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Connect your favorite tools effortlessly and streamline operations. Simplify workflows, boost productivity, and ensure everything works in sync seamlessly.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Orange 3D geometric shapes including three cylinders and a plus sign on a black background.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Merge",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Nalic",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Integrate Systems and Simplify Tasks",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Bring apps together to create unified processes that enhance productivity and reduce manual effort.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Link apps and services effortlessly, creating workflows that boost efficiency and enhance team collaboration.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Pricing - DevelopFlow - Webflow HTML website template",
+   "new": "Pricing — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Provides clear information on subscription plans, features, hosting options, and support to help users choose the right plan for their needs.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Pick a Plan That Helps You Achieve More Today",
+   "new": "Simple Pricing for Sites You Fully Own",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ],
+   "flex": true
+  },
+  {
+   "old": "Boost your success today by picking a plan that combines powerful tools with expert support, guidance, and actionable insights.",
+   "new": "Free while Aethron is in beta. Upgrade when you’re ready to migrate without limits.",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Monthly",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Yearly",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Basic",
+   "new": "Free",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Dark gradient background with vertical lines and glowing orange light at the top edges.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$18",
+   "new": "$0",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$42",
+   "new": "$15",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "$142",
+   "new": "$39",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "See Functions that Enhance your Performance",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Starter plan",
+   "new": "Free",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Pro plan",
+   "new": "Pro",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Business plan",
+   "new": "Studio",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Web Pages",
+   "new": "Projects",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "05",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "20",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Unlimited",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Domain Access",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "not-available",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Storage Space",
+   "new": "Private & local",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "05 GB",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "200 GB",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Analytics",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "AI Tools",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Limited",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Full Access",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Support",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Email",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Priority Email",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "24/7 Chat",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Changelog - DevelopFlow - Webflow HTML website template",
+   "new": "Changelog — Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "All changes and updates made to this template will be logged below, including new features, improvements, bug fixes, and enhancements.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Version 1.0",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Initial Release - DevelopFlow Template Release.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Template - DevelopFlow - Webflow HTML website template",
+   "new": "Aethron — Get the template",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Presents professionally designed website templates for various industries and use cases, helping users find the right fit for their brand.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Design Beautiful Websites with Full Confidence Today",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Transform your vision into reality by building beautiful websites with full confidence using expert-designed templates.",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Set Up Site",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Upload Site",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Portfolio",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Agency",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Interior Design",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Fashion",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Agriculture",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "Template Image",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "html"
+   ]
+  },
+  {
+   "old": "DevelopFlow",
+   "new": "Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "brand-token: fill this to catch EVERY remaining mention (attributes, JS, URLs)"
+   ]
+  },
+  {
+   "old": "Developflow",
+   "new": "Aethron",
+   "max_bytes": null,
+   "scope": "all",
+   "where": [
+    "brand-token: fill this to catch EVERY remaining mention (attributes, JS, URLs)"
+   ]
+  },
+  {
+   "old": "Designed",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "flex": true,
+   "where": [
+    "picked-in-editor"
+   ]
+  },
+  {
+   "old": "PagesAboutFeaturesPricingTemplatesMoreBlogCareersIntegrationContactUtilityStyle GuideLicensesChangelogProtectedNot FoundSocial mediaFacebookInstagramDribbbleBehanceCopyright © Aethron | Designed By Victorflow | Powered By Webflow",
+   "new": "",
+   "max_bytes": null,
+   "scope": "all",
+   "flex": true,
+   "where": [
+    "picked-in-editor"
+   ]
+  }
+ ],
+ "images": [
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895%2F69156b86644c3a52962c6f80_7612019-uhd_4096_2160_25fps_mp4.mp4",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895%2F69156b86644c3a52962c6f80_7612019-uhd_4096_2160_25fps_mp4.mp4,https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895%2F69156b86644c3a52962c6f80_7612019-uhd_4096_2160_25fps_webm.webm",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895%2F69156b86644c3a52962c6f80_7612019-uhd_4096_2160_25fps_poster.0000000.jpg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895%2F69156b86644c3a52962c6f80_7612019-uhd_4096_2160_25fps_poster.0000000.jpg&quot;)",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895%2F69156b86644c3a52962c6f80_7612019-uhd_4096_2160_25fps_webm.webm",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6905e1221377b6395f75ba85_0ee91ef0bfeb645cc058df59fcd1199e_craftflow-logo.svg",
+   "new": "/assets/aethron-logo.svg"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6905e427f607b61b1c7ee61c_banner-bg-img-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6905e427f607b61b1c7ee61c_banner-bg-img-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6905e427f607b61b1c7ee61c_banner-bg-img-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6905e427f607b61b1c7ee61c_banner-bg-img.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69144ef9797f7266b027e1b7_arrow.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691453eec973c61b6aec7356_cta-image.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69145ad016dfd75bd096fc57_fb-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69145b1bd2e61a1589451d78_insta-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69145b2403165199d2d301d6_dribble-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69145b2beb6ec4b3dc2d4e8b_behance-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6914605293d68ff4c548ed95_6c7e7b112e50394ba6dd3d1a273d5d82_banner-dashboard-p-500.avif",
+   "new": "/assets/studio-home.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6914605293d68ff4c548ed95_6c7e7b112e50394ba6dd3d1a273d5d82_banner-dashboard-p-800.avif",
+   "new": "/assets/studio-home.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6914605293d68ff4c548ed95_6c7e7b112e50394ba6dd3d1a273d5d82_banner-dashboard.avif",
+   "new": "/assets/studio-home.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691463451ac91daae7d92824_banner-bg-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691463451ac91daae7d92824_banner-bg-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691463451ac91daae7d92824_banner-bg-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691463451ac91daae7d92824_banner-bg.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6914730ac588d5f745af6fcc_efffb6433790ab238bd077c452c998b2_client-logo-1.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691473188cb5e4675a320f7c_cce04743f447db097ee41a31819bc85d_client-logo-2.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6914731ee3f1f6b2cac5a1a6_35bd0136ff1eeed3cae4a4b82bac97fa_client-logo-3.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6914732697eb5814903abba0_6207b3044cb087381409040c34fb77de_client-logo-4.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6914732d056028f049031f28_0976ebf398d7ab5cf825e8df68d21fc4_client-logo-5.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69147609a68def61ec11e952_brand-icon-1.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691479a1f9696e656028de20_brand-dot-image.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69147b4e088f285768d85216_brand-icon-2.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69147b56eb09a1f318b39840_brand-icon-3.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691567ff8b42097b885b8f7a_features-image-01-p-500.avif",
+   "new": "/assets/library.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691567ff8b42097b885b8f7a_features-image-01-p-800.avif",
+   "new": "/assets/library.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691567ff8b42097b885b8f7a_features-image-01.avif",
+   "new": "/assets/library.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69156997d17c900e0209cc1e_features-image-02-p-500.avif",
+   "new": "/assets/plan-ai.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69156997d17c900e0209cc1e_features-image-02-p-800.avif",
+   "new": "/assets/plan-ai.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69156997d17c900e0209cc1e_features-image-02.avif",
+   "new": "/assets/plan-ai.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691569dc121dc56900a6a129_features-image-03-p-500.avif",
+   "new": "/assets/Screenshot-2026-07-15-at-6.52.46-PM.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691569dc121dc56900a6a129_features-image-03-p-800.avif",
+   "new": "/assets/Screenshot-2026-07-15-at-6.52.46-PM.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691569dc121dc56900a6a129_features-image-03.avif",
+   "new": "/assets/Screenshot-2026-07-15-at-6.52.46-PM.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691569e2cb162e234df2a414_features-image-04-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691569e2cb162e234df2a414_features-image-04-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691569e2cb162e234df2a414_features-image-04.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69156b718599f8f1c60773aa_pause-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69156b718599f8f1c60773ab_play-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6915ce18f6301724901414f8_tick.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69180b7f00b2add05f9b7361_faq-answer-bg.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69180c5e4673eda36dfc9032_faq-answer-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69181270cb604588eb6585cd_6c7e7b112e50394ba6dd3d1a273d5d82_cta-image.avif",
+   "new": "/assets/Screenshot-2026-07-15-at-6.52.46-PM.png"
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918157c3b73a1e8e5caebe2_about-banner.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918269592354dd39343f98f_founder-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918269592354dd39343f98f_founder-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918269592354dd39343f98f_founder-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918269592354dd39343f98f_founder.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918295a94378018ae6b5d51_motive-icon-1.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69182a62c9d34e883b7b041c_motive-bg.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69182af5741e352fafbf3acf_motive-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69183a4b1da2326724ab61f8_team-image-01-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69183a4b1da2326724ab61f8_team-image-01.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69183f0657f7b7b94cd10a03_fb-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69183f89218ec94f34208efe_insta-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918419bb0875283e421cc1b_team-image-02-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6918419bb0875283e421cc1b_team-image-02.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691841a1f3c529f153a62afb_team-image-03-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691841a1f3c529f153a62afb_team-image-03.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691af0867522cf301467a6f4_creative-icon-1.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691b006aaca5350404b9dde5_0b32bd75b4c8ec126a7a72e19996f0c4_not-available.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691b006aaca5350404b9dde6_167e48fe4cf2dca8840b4fb6595c36a1_tick-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c3a252927e62ee4e5b6bd_career-banner.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c3cff4275c251706c877f_crew-icon-1.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c3dbe4956d9e24bf43767_crew-icon-2.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c3dcea8f0bbb5cabd2854_crew-icon-3.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c3e5d971e37ad116ea8f4_approach-image.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c3f68078818410b9d8236_ceo-image.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c4bae65b921cbeb1e1736_career-image.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c4d62beae8b2eea60ba9f_exprience-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c4e93c665de4c40014a0b_b989564382c55e767b2f66a816ec7a27_play-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c5905f441bc5cc32a1ce8_testimonial-img-01.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c5908488e61795526ecca_testimonial-img-02.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691c5a98169ca49e0b4e5e1f_394bc89d0a2635a012ba450de665debd_integration-banner-image.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691d8cb616b9f53bb469daa5_FB.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691d8cce664769b213fe8400_Insta.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691d8cd797ae7dee4fdd7b3e_Dribbble.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691d8cde1590a7670f7e5740_Behance.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691d9196ae481e22e5b98a6b_Phone.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691d9261c25cd797b25694ae_Mail.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691d9268c9890094a884ee12_Location.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da397341f9840b49681fa_7fd78a1ff380c80ff80d0257e9f05393_step-img-01-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da397341f9840b49681fa_7fd78a1ff380c80ff80d0257e9f05393_step-img-01-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da397341f9840b49681fa_7fd78a1ff380c80ff80d0257e9f05393_step-img-01.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da3d73968acba3c741888_step-img-02-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da3d73968acba3c741888_step-img-02-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da3d73968acba3c741888_step-img-02.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da42cb9c2cfe913309873_51b339916e9eca00b405d96ad1f66d94_step-img-03-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da42cb9c2cfe913309873_51b339916e9eca00b405d96ad1f66d94_step-img-03-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da42cb9c2cfe913309873_51b339916e9eca00b405d96ad1f66d94_step-img-03.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691da8f2abcc5a5c1cd52981_step-arrow.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69256fd101a680c7eba79321_7160f3ba2324e5cbec19c30562dc9e36_creative-icon-2.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69256fdb4ba3fb26b16bb18a_creative-icon-3.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69256fe6424632e30dd8433a_creative-icon-4.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/692e833e81d18faba1dd9e77_motive-icon-2.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/692e8343b418d9f6f5006e07_motive-icon-3.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/692e83466bb37e98a1779414_motive-icon-4.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/693133e1d831fb7a825dbd0f_developflow-fav-icon.png",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/693133e80ca490765c02f734_developflow-webclip.png",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69b11247be5faabfd593b1df_f570f7a521efabb21883ac04fadd5550_pricing-bg.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69b11dd51f548af849129d5a_integration-bg.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69bccda9e8e194e3655a6968_growth-img-01-p-500.jpg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69bccda9e8e194e3655a6968_growth-img-01.jpg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69bcce220d307e076098e6c2_growth-img-02-p-500.jpg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69bcce220d307e076098e6c2_growth-img-02.jpg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69bcce3370ee0a96f9115085_growth-img-03-p-500.jpg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69bcce3370ee0a96f9115085_growth-img-03.jpg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69c3df17f8d63852b9d91cc1_faq-answer-bg-02.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69c3df271ecc12d568def5ea_faq-answer-bg-03-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69c3df271ecc12d568def5ea_faq-answer-bg-03.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69c3df37ece5d530698b777d_faq-answer-bg-04-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69c3df37ece5d530698b777d_faq-answer-bg-04.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/69e72838731aa5f23d04e90d_upload-icon.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/6a3a6203836d04c86afab3c6_DevelopFlow%20-%20Website%20Builder%20Webflow%20Template.webp",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/css/developflow-template.webflow.shared.783870139.css",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.0410c25f.116e7d4825481ee5.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.061f37f5.1b03b7f46a6e29ed.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.0edd8717.857c74ca4fcd1489.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.2422b79b.feaa380fd1934eb0.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.3f1f1752.55918029c6c470c6.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.4ac8db32.d412899a79a06f73.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.70829956.15dfef3caca6241d.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.ae120474.bf47c970c6b19324.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.d67b128e.4a568e67569660a9.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.f4a20631.4c8795208b76ec35.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.schunk.36b8fb49256177c8.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.schunk.629bf621194cdba4.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.schunk.803f739309391e49.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/js/webflow.schunk.dac51c455b7e76af.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1a3ea48ae7bc27cbecbc_blog-img-02-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1a3ea48ae7bc27cbecbc_blog-img-02.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1a4a09790536ba18fe9a_blog-img-03-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1a4a09790536ba18fe9a_blog-img-03.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1a61e20a20158c573c7d_blog-img-04.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1a6b8431a575f049edbf_blog-img-05.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1a8e8ad26a41cfd035df_blog-img-06.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c1aa9b7888cf172069379_blog-img-07.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691c61e9b77548064ce29ece_integration-icon-06.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691d87481e1f8ba48bb7ae75_integration-icon-05.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691d875f729b52a1f8fe409b_integration-icon-04.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691d8778a93a0d348d906f41_integration-icon-03.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691d8790e8f03a1592d97163_integration-icon-02.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/691d87a6fff544cba178ab92_integration-icon-01.svg",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/6931455749914f7903c5b054_Boost%20Your%20Website%E2%80%99s%20Performance%20Today-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/6931455749914f7903c5b054_Boost%20Your%20Website%E2%80%99s%20Performance%20Today.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25dc3987585ddcf401909_template-06.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25dc7fc85bb21ccca8b03_template-img-06-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25dc7fc85bb21ccca8b03_template-img-06-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25dc7fc85bb21ccca8b03_template-img-06-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25dc7fc85bb21ccca8b03_template-img-06.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25ee825564139574f96b5_template-05.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25eebfdbe7953d4907836_template-img-05-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25eebfdbe7953d4907836_template-img-05-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25eebfdbe7953d4907836_template-img-05-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25eebfdbe7953d4907836_template-img-05.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25efec6e73a22459dd7d2_template-04.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f016bbfad59eba0ff52_template-img-04-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f016bbfad59eba0ff52_template-img-04-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f016bbfad59eba0ff52_template-img-04-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f016bbfad59eba0ff52_template-img-04.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f633cc8b5749f81bc5e_template-03.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f668570c822de08a9d7_template-img-03-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f668570c822de08a9d7_template-img-03-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f668570c822de08a9d7_template-img-03-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25f668570c822de08a9d7_template-img-03.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25fe0b6fab6d081aaaf54_template-02.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25fe3db6e9a3d21037dc9_template-img-02-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25fe3db6e9a3d21037dc9_template-img-02-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b25fe3db6e9a3d21037dc9_template-img-02.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b260559b95808e806a89f1_template-01.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b2605a20a4dfc08668b92d_template-img-01-p-1080.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b2605a20a4dfc08668b92d_template-img-01-p-500.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b2605a20a4dfc08668b92d_template-img-01-p-800.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/691c0c5b94c90498d008f82b/69b2605a20a4dfc08668b92d_template-img-01.avif",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/gsap/3.15.0/ScrollTrigger.min.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/gsap/3.15.0/SplitText.min.js",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com/gsap/3.15.0/gsap.min.js",
+   "new": ""
+  },
+  {
+   "old": "/assets/r/3448665f46dc.avif",
+   "new": ""
+  },
+  {
+   "old": "/assets/r/9d87f9fca5d3.avif",
+   "new": "/assets/ChatGPT-Image-Jul-15-2026-10_47_23-PM.png"
+  }
+ ],
+ "links": [
+  {
+   "old": "#",
+   "new": ""
+  },
+  {
+   "old": "https://cdn.prod.website-files.com",
+   "new": ""
+  },
+  {
+   "old": "https://fonts.googleapis.com",
+   "new": ""
+  },
+  {
+   "old": "https://fonts.gstatic.com",
+   "new": ""
+  },
+  {
+   "old": "https://www.behance.com",
+   "new": ""
+  },
+  {
+   "old": "https://www.dribbble.com",
+   "new": ""
+  },
+  {
+   "old": "https://www.facebook.com",
+   "new": ""
+  },
+  {
+   "old": "https://www.instagram.com",
+   "new": ""
+  },
+  {
+   "old": "https://www.victorflow.com/",
+   "new": ""
+  },
+  {
+   "old": "https://www.webflow.com/",
+   "new": ""
+  },
+  {
+   "old": "mailto:info@developflow.com",
+   "new": "mailto:tomjerrytom2023@gmail.com"
+  },
+  {
+   "old": "tel:+1(555)126-4965",
+   "new": ""
+  }
+ ],
+ "remove": [
+  {
+   "tag": "div",
+   "id": null,
+   "classes": [
+    "team-card"
+   ],
+   "index": 2,
+   "label": "Orion Vega Creative Strategist",
+   "page": "about.html"
+  },
+  {
+   "tag": "div",
+   "id": null,
+   "classes": [
+    "team-card"
+   ],
+   "index": 1,
+   "label": "Zara Solis Brand Architect",
+   "page": "about.html"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [
+    "nav-dropdown-link",
+    "w-dropdown-link"
+   ],
+   "index": 2,
+   "label": "Careers"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [
+    "footer-link"
+   ],
+   "index": 5,
+   "label": "Careers"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [
+    "footer-link"
+   ],
+   "index": 8,
+   "label": "Style Guide"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [
+    "footer-link"
+   ],
+   "index": 10,
+   "label": "Changelog"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [
+    "footer-link"
+   ],
+   "index": 11,
+   "label": "Protected"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [
+    "footer-link"
+   ],
+   "index": 12,
+   "label": "Not Found"
+  },
+  {
+   "tag": "div",
+   "id": null,
+   "classes": [
+    "counter-area"
+   ],
+   "index": 0,
+   "label": "fake stats",
+   "page": "about.html"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [],
+   "index": 0,
+   "label": "Webflow",
+   "href": "https://www.webflow.com/"
+  },
+  {
+   "tag": "a",
+   "id": null,
+   "classes": [],
+   "index": 0,
+   "label": "Victorflow",
+   "href": "https://www.victorflow.com/"
+  }
+ ],
+ "styles": [
+  {
+   "selector": "body > div:nth-child(12) > section:nth-child(1) > div:nth-child(2) > img:nth-child(1)",
+   "css": {
+    "content": "url(\"https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691453eec973c61b6aec7356_cta-image.avif\")",
+    "background-image": "url(https://cdn.prod.website-files.com/6905d91f07c1b8e6e70e9895/691453eec973c61b6aec7356_cta-image.avif)",
+    "background-size": "cover",
+    "background-position": "center"
+   },
+   "label": "ai: https://cdn.prod.website-files.com/6905d"
+  }
+ ],
+ "retargets": [
+  {
+   "selector": "a.primary-button",
+   "when_href": "/contact",
+   "href": "/assets/downloads/Aethron-mac.zip",
+   "label": "Get Started CTAs -> download"
+  },
+  {
+   "selector": "a.primary-button",
+   "when_href": "/about",
+   "href": "/assets/downloads/Aethron-mac.zip",
+   "label": "hero Download Aethron -> download"
+  }
+ ]
+}

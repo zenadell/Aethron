@@ -27,3 +27,6 @@ CLAUDE.md
 
 # baked cloud keys (per-developer, never committed)
 aethron_config.json
+
+# admin console secrets (service_role, netlify token) — never commit
+aethron_admin_config.json
