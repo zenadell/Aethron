@@ -109,19 +109,38 @@ def _pristine_tampered(root: Path):
                   + [k for k in cur if k not in want])
 
 
-def download(url: str, dest: Path) -> bool:
-    try:
-        req = urllib.request.Request(url, headers=UA)
-        with urllib.request.urlopen(req, timeout=30) as r:
-            dest.write_bytes(r.read())
-        return True
-    except Exception:
-        return False
+def download(url: str, dest: Path, tries: int = 3) -> bool:
+    """Fetch one asset. RETRIES: hosts like Vercel/Cloudflare throttle a
+    burst of parallel requests, and a single dropped connection used to
+    mean the asset was skipped FOREVER — which is how a capture ends up
+    missing its stylesheets and the site renders unstyled. A real 404 is
+    not retried (nothing to wait for)."""
+    import time as _time
+    for attempt in range(tries):
+        try:
+            req = urllib.request.Request(url, headers=UA)
+            with urllib.request.urlopen(req, timeout=30) as r:
+                dest.write_bytes(r.read())
+            return True
+        except urllib.error.HTTPError as e:
+            if e.code in (404, 410):
+                return False                      # genuinely gone
+            if attempt == tries - 1:
+                return False
+        except Exception:
+            if attempt == tries - 1:
+                return False
+        _time.sleep(0.6 * (attempt + 1))          # back off, then retry
+    return False
 
 
-def download_many(urls_dests, label):
+def download_many(urls_dests, label, workers: int = 8):
     ok = fail = 0
-    with cf.ThreadPoolExecutor(8) as ex:
+    urls_dests = list(urls_dests)
+    # be gentler on big batches — throttling is what causes the misses
+    if len(urls_dests) > 60:
+        workers = 4
+    with cf.ThreadPoolExecutor(workers) as ex:
         for success in ex.map(lambda p: download(*p), urls_dests):
             ok += success
             fail += not success
@@ -264,7 +283,27 @@ def cmd_init(args):
     })
     _seal_pristine(root)
     print(f"Created project '{name}' — platform detected: {platform.upper()}")
-    print(f"Next: cd {name} && python3 {Path(__file__).name} fetch")
+
+    # Framer/Webflow have dedicated fetchers. EVERY other stack (Next.js,
+    # Astro, Nuxt, Vite, plain HTML) gets its assets NOW, in the same run
+    # as the scrape — content-hashed assets are immutable but ephemeral,
+    # so capturing later can find them already gone (that is exactly how
+    # a project ends up as unstyled HTML with no way to repair it).
+    if platform not in ("framer", "webflow") and source_url:
+        import os as _os
+        prev = Path.cwd()
+        try:
+            _os.chdir(root)
+            print("Capturing assets (same deployment as the pages)…")
+            cmd_capture([])
+        except Exception as e:                        # never lose the project
+            print(f"NOTE asset capture failed ({e}); "
+                  f"run `forge.py capture` inside the project to retry")
+        finally:
+            _os.chdir(prev)
+        _seal_pristine(root)
+    print(f"Next: cd {name} && python3 {Path(__file__).name} "
+          + ("fetch" if platform == "framer" else "inventory"))
 
 
 # ─────────────────────────── fetch ───────────────────────────────────
@@ -2187,6 +2226,82 @@ REMOTE_ASSET_RE = re.compile(
     r"|fonts\.gstatic\.com)/[^\"'\s<>`\\]+")
 
 
+# ── universal capture / reference audit (any platform) ───────────────
+# Framer and Webflow have bespoke fetchers. Everything else (Next.js,
+# Astro, Nuxt, Vite, plain HTML) used to get only its HTML saved, which
+# renders as an unstyled skeleton. These helpers download whatever the
+# markup actually asks for, and prove afterwards that nothing is missing.
+
+ASSET_EXTS = {
+    "css", "js", "mjs", "cjs", "json", "map",
+    "png", "jpg", "jpeg", "webp", "avif", "gif", "svg", "ico", "bmp",
+    "woff", "woff2", "ttf", "otf", "eot",
+    "mp4", "webm", "mov", "ogg", "mp3", "wav", "pdf", "txt", "xml",
+}
+# runtime dirs that mean "a framework lives here" — refs under these are
+# assets even when the path carries no file extension (/_next/image?…)
+FRAMEWORK_DIRS = ("/_next/", "/_nuxt/", "/_astro/", "/_app/", "/assets/",
+                  "/static/", "/build/", "/dist/")
+# never localise these — they are tracking/analytics, stripped anyway
+TRACKER_HOSTS = ("googletagmanager.com", "google-analytics.com",
+                 "doubleclick.net", "facebook.net", "hotjar.com",
+                 "segment.io", "sentry.io", "intercom.io", "clarity.ms")
+
+
+def _markup_refs(text: str) -> set:
+    """Every asset-ish URL a page/stylesheet references."""
+    out = set()
+    for m in re.finditer(r'(?:src|href|poster|data-src)\s*=\s*"([^"]*)"', text):
+        out.add(m.group(1))
+    for m in re.finditer(r'srcset\s*=\s*"([^"]*)"', text):
+        for part in m.group(1).split(","):
+            u = part.strip().split(" ")[0]
+            if u:
+                out.add(u)
+    for m in re.finditer(r"url\(\s*['\"]?([^'\")]+)", text):
+        out.add(m.group(1))
+    return {r.strip() for r in out if r.strip()}
+
+
+def _asset_like(ref: str) -> bool:
+    """True for things that must resolve to a FILE. Extension-less refs
+    are page routes (SPA links) unless they sit under a framework dir —
+    otherwise every nav link would look like a missing asset."""
+    path = ref.split("#")[0].split("?")[0]
+    tail = path.rsplit("/", 1)[-1]
+    ext = tail.rsplit(".", 1)[-1].lower() if "." in tail else ""
+    return ext in ASSET_EXTS or any(k in ref for k in FRAMEWORK_DIRS)
+
+
+def _ref_audit(site: Path) -> dict:
+    """{missing ref -> set(files that reference it)} across the built
+    site. Local refs only; remote URLs are the caller's choice to keep."""
+    missing = {}
+    for f in site.rglob("*"):
+        if not f.is_file() or f.suffix.lower() not in (".html", ".css"):
+            continue
+        text = html_mod.unescape(
+            f.read_text(encoding="utf-8", errors="ignore"))
+        for ref in _markup_refs(text):
+            if ref.startswith(("http://", "https://", "//", "data:",
+                               "mailto:", "tel:", "javascript:", "#")):
+                continue
+            if not _asset_like(ref):
+                continue
+            path = ref.split("#")[0].split("?")[0]
+            if not path:
+                continue
+            target = (site / path.lstrip("/")) if path.startswith("/") \
+                else (f.parent / path)
+            try:
+                ok = target.exists()
+            except OSError:
+                ok = False
+            if not ok:
+                missing.setdefault(ref, set()).add(str(f.relative_to(site)))
+    return missing
+
+
 def _local_name(url: str) -> str:
     import hashlib
     base = url.split("?")[0].split("#")[0]
@@ -2195,6 +2310,132 @@ def _local_name(url: str) -> str:
     if "." in tail:
         ext = "." + tail.rsplit(".", 1)[-1][:8]
     return hashlib.sha1(base.encode()).hexdigest()[:12] + ext
+
+
+def cmd_capture(_args):
+    """Download EVERY asset the pages reference — any platform.
+
+    Framer/Webflow have dedicated fetchers; this is the universal one.
+    It walks the markup (src/href/srcset/url()), resolves each ref
+    against the original site, follows stylesheets one level deeper,
+    and records the mapping in cfg['localized'] so build rewrites the
+    refs to local copies — the same proven path `localize` uses.
+
+    Framework-aware: Next.js serves images through /_next/image?url=…
+    (an API, not a file), so the real source is decoded from the query
+    and downloaded, while the ORIGINAL ref stays the rewrite key."""
+    root = Path.cwd()
+    cfg = read_cfg(root)
+    src = cfg.get("source_url") or ""
+    origin = ""
+    if src:
+        p = urllib.parse.urlparse(src)
+        origin = f"{p.scheme}://{p.netloc}"
+    if not origin:
+        die("no source_url in forge.json — capture needs the original "
+            "site to download from (re-run init with the live URL)")
+    rdir = root / "pristine" / "remote-assets"
+    rdir.mkdir(parents=True, exist_ok=True)
+    lmap = cfg.get("localized", {})
+
+    def resolve(ref):
+        """(rewrite_key, download_url) or None."""
+        key = html_mod.unescape(ref).strip()
+        if not key or key.startswith(("data:", "mailto:", "tel:",
+                                      "javascript:", "#")):
+            return None
+        if key.startswith("//"):
+            dl = "https:" + key
+        elif key.startswith(("http://", "https://")):
+            dl = key
+        else:
+            dl = urllib.parse.urljoin(origin + "/", key.lstrip("/")
+                                      if key.startswith("/") else key)
+        if any(h in dl for h in TRACKER_HOSTS):
+            return None
+        pr = urllib.parse.urlparse(dl)
+        if pr.path.rstrip("/").endswith("/_next/image"):
+            q = urllib.parse.parse_qs(pr.query).get("url", [""])[0]
+            if q:
+                dl = q if q.startswith("http") else urllib.parse.urljoin(
+                    origin + "/", q.lstrip("/"))
+        return key, dl
+
+    def harvest(text):
+        found = {}
+        for ref in _markup_refs(text):
+            if not _asset_like(ref):
+                continue
+            r = resolve(ref)
+            if r:
+                found[r[0]] = r[1]
+        return found
+
+    wanted = {}
+    for pg in cfg.get("pages", []):
+        f = root / "pristine" / pg
+        if f.exists():
+            wanted.update(harvest(f.read_text(encoding="utf-8",
+                                              errors="ignore")))
+    todo = {k: v for k, v in wanted.items() if k not in lmap}
+    jobs = [(v, rdir / _local_name(v)) for v in dict.fromkeys(todo.values())
+            if not (rdir / _local_name(v)).exists()]
+    if jobs:
+        download_many(jobs, f"assets (round 1, {len(jobs)} urls)")
+    for k, v in todo.items():
+        if (rdir / _local_name(v)).exists():
+            lmap[k] = _local_name(v)
+
+    # round 2 — stylesheets pull in fonts and background images
+    extra = {}
+    for k, fn in list(lmap.items()):
+        if not fn.endswith(".css"):
+            continue
+        css = (rdir / fn).read_text(encoding="utf-8", errors="ignore")
+        base = wanted.get(k, k).rsplit("/", 1)[0] + "/"
+        for ref in _markup_refs(css):
+            if ref.startswith(("data:", "#")):
+                continue
+            dl = ref if ref.startswith("http") else urllib.parse.urljoin(
+                base, ref)
+            if any(h in dl for h in TRACKER_HOSTS):
+                continue
+            if ref not in lmap:
+                extra[ref] = dl.split("#")[0]
+    jobs = [(v, rdir / _local_name(v)) for v in dict.fromkeys(extra.values())
+            if not (rdir / _local_name(v)).exists()]
+    if jobs:
+        download_many(jobs, f"assets (round 2 via css, {len(jobs)} urls)")
+    for k, v in extra.items():
+        if (rdir / _local_name(v)).exists():
+            lmap[k] = _local_name(v)
+
+    cfg["localized"] = lmap
+    write_cfg(root, cfg)
+    got = len(lmap)
+    misses = [k for k in wanted if k not in lmap]
+    print(f"captured {got} asset(s) -> pristine/remote-assets/")
+
+    # STALE-SCRAPE DETECTION. Modern hosts (Next.js/Vercel, Astro, Vite)
+    # serve content-hashed, immutable assets: after a redeploy the old
+    # hashes 404 forever. So an HTML copy captured days later can be
+    # unfixable in place — and silently shipping it is how a user gets a
+    # blank page. Say so plainly instead.
+    critical = [m for m in misses
+                if m.split("?")[0].endswith((".css", ".js", ".mjs"))]
+    if misses and len(misses) >= max(3, len(wanted) // 10) and critical:
+        print(f"\nSTALE SOURCE: {len(misses)} ref(s) are gone from the "
+              f"origin, including {len(critical)} stylesheet/script(s).")
+        print("  The saved pages were scraped from an older deployment; "
+              "that build's hashed assets no longer exist anywhere.")
+        print("  FIX: re-scrape the site now so pages and assets come "
+              "from the SAME deployment:")
+        print(f"       forge.py init {src} --name <name>   (then inventory"
+              f" — existing fills are preserved)")
+    elif misses:
+        print(f"NOTE {len(misses)} ref(s) unavailable (404/blocked): "
+              f"{', '.join(m[:60] for m in misses[:3])}")
+    print("Run build — refs are rewritten to local copies, then verify.")
 
 
 def cmd_localize(_args):
@@ -2805,19 +3046,50 @@ def cmd_verify(_args):
     elif (root / "pristine" / ".forge-manifest.json").exists():
         print("PASS pristine integrity (sealed original untouched)")
 
-    # 2. every locally-referenced chunk exists
-    for page in cfg["pages"]:
-        t = (site / page).read_text(encoding="utf-8", errors="ignore")
-        missing = [n for n in re.findall(r"\./assets/chunks/([^\"'\s)]+\.mjs)", t)
-                   if not (site / "assets" / "chunks" / n).exists()]
-        if missing:
-            print(f"FAIL {page}: missing chunks {missing[:5]}")
-            fails += 1
+    # 2. platform-appropriate integrity checks.
+    # HISTORY: these Framer checks used to run on EVERY platform, so a
+    # Next.js capture with ZERO downloaded assets printed "PASS: all
+    # referenced chunks present" (vacuously true — it has no chunks) and
+    # shipped a blank page as healthy. Checks now only run where they
+    # mean something; the reference audit below covers every platform.
+    if cfg.get("platform") == "framer":
+        for page in cfg["pages"]:
+            t = (site / page).read_text(encoding="utf-8", errors="ignore")
+            missing = [n for n in re.findall(r"\./assets/chunks/([^\"'\s)]+\.mjs)", t)
+                       if not (site / "assets" / "chunks" / n).exists()]
+            if missing:
+                print(f"FAIL {page}: missing chunks {missing[:5]}")
+                fails += 1
+            else:
+                print(f"PASS {page}: all referenced chunks present")
+            remote = re.findall(
+                r"https://(?:events\.framer\.com|framer\.com/edit)[^\"']*", t)
+            print(("FAIL" if remote else "PASS")
+                  + f" {page}: framer telemetry refs: {len(remote)}")
+            fails += bool(remote)
+
+    # 2b. REFERENCE AUDIT (every platform): does each asset the built
+    # pages ask for actually exist on disk? This is the check that would
+    # have caught the blank-page disaster on the very first build.
+    missing_refs = _ref_audit(site)
+    if missing_refs:
+        total = sum(len(v) for v in missing_refs.values())
+        print(f"FAIL {len(missing_refs)} referenced asset(s) missing from "
+              f"site/ ({total} reference(s)) — the page cannot render "
+              f"correctly:")
+        for ref in list(missing_refs)[:8]:
+            print(f"       {ref[:88]}")
+        fw = sorted({k for k in FRAMEWORK_DIRS
+                     for r in missing_refs if k in r})
+        if fw:
+            print(f"     these are {', '.join(fw)} runtime assets — run "
+                  f"`forge.py capture` to download everything the pages "
+                  f"reference, then rebuild")
         else:
-            print(f"PASS {page}: all referenced chunks present")
-        remote = re.findall(r"https://(?:events\.framer\.com|framer\.com/edit)[^\"']*", t)
-        print(("FAIL" if remote else "PASS") + f" {page}: framer telemetry refs: {len(remote)}")
-        fails += bool(remote)
+            print("     run `forge.py capture` (or `localize`) then rebuild")
+        fails += 1
+    else:
+        print("PASS every referenced asset exists in site/")
 
     # 3. local image replacements (logo etc.) actually in the built site
     cm_file = root / "copy_map.json"
@@ -3052,7 +3324,8 @@ def cmd_card(_args):
 
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
-            "localize": cmd_localize, "serve": cmd_serve,
+            "localize": cmd_localize, "capture": cmd_capture,
+            "serve": cmd_serve,
             "verify": cmd_verify, "card": cmd_card, "heal": cmd_heal}
 
 if __name__ == "__main__":
