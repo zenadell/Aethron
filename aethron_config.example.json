@@ -1,5 +1,9 @@
 {
   "supabase_url": "https://YOUR-REF.supabase.co",
   "supabase_anon_key": "eyJ...your-anon-public-key...",
-  "enforce_billing": false
+  "enforce_billing": false,
+
+  "_google": "OPTIONAL — direct Google sign-in so the consent screen reads 'Aethron' (not '<ref>.supabase.co') and works from the native desktop window. Create a Google Cloud OAuth client of type 'Desktop app', register its Client ID in Supabase -> Auth -> Providers -> Google -> Authorized Client IDs, then fill these. The desktop client secret is non-confidential by design (OAuth for native apps + PKCE), so baking it into the app is expected. Omit both to fall back to Supabase's brokered redirect.",
+  "google_client_id": "",
+  "google_client_secret": ""
 }

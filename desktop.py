@@ -17,6 +17,8 @@ Build:  bash build_desktop.sh   (see docs/DESKTOP.md)
 import os
 import socket
 import sys
+import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -77,13 +79,35 @@ def main():
     url = f"http://127.0.0.1:{port}/"
     studio.PROJECTS.mkdir(parents=True, exist_ok=True)
 
-    # bind FIRST, then open the browser — never a "connection refused"
-    # tab, even on a slow cold start
+    # bind FIRST, then present the UI — never a "connection refused"
+    # window, even on a slow cold start
     server = studio.ThreadingHTTPServer(("127.0.0.1", port), studio.Handler)
     print(f"Aethron → {url}")
     print(f"your data: {home}")
-    webbrowser.open(url)
-    server.serve_forever()
+
+    # Prefer a REAL native window (pywebview → a WKWebView on macOS): no
+    # browser chrome, no visible 127.0.0.1, it reads as an app. Google
+    # sign-in still opens the SYSTEM browser (Google blocks OAuth inside
+    # embedded webviews) and loops back via polling — handled in studio.
+    try:
+        import webview                       # pywebview
+    except ImportError:
+        webbrowser.open(url)                 # fallback: system browser
+        return server.serve_forever()
+
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        webview.create_window("Aethron", url, width=1280, height=840,
+                              min_size=(940, 620))
+        webview.start()                      # blocks until the window closes
+    except Exception as e:
+        print(f"(native window unavailable: {e}; using browser)")
+        webbrowser.open(url)
+        try:
+            while True:
+                time.sleep(3600)             # server runs in the daemon thread
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

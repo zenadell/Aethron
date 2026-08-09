@@ -15,6 +15,9 @@ a = Analysis(
         "forge", "studio", "aethron_cloud",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
         "fontTools.pens.transformPen", "brotli",
+        # native window; the pywebview PyInstaller hook pulls the pyobjc
+        # cocoa/WebKit backend, but name the entry points explicitly too.
+        "webview", "webview.platforms.cocoa",
     ],
     excludes=["tkinter", "test", "unittest", "pydoc_data"],
 )

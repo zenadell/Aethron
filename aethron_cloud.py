@@ -53,10 +53,13 @@ def _load_config():
             pick("AETHRON_SUPABASE_ANON_KEY", "supabase_anon_key"),
             os.environ.get("AETHRON_CLOUD_DEBUG", "") or cfg.get("debug_log", ""),
             os.environ.get("AETHRON_ENFORCE_BILLING")
-            or cfg.get("enforce_billing"))
+            or cfg.get("enforce_billing"),
+            pick("AETHRON_GOOGLE_CLIENT_ID", "google_client_id"),
+            pick("AETHRON_GOOGLE_CLIENT_SECRET", "google_client_secret"))
 
 
-SUPABASE_URL, ANON_KEY, DEBUG_LOG, _ENFORCE = _load_config()
+(SUPABASE_URL, ANON_KEY, DEBUG_LOG, _ENFORCE,
+ GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET) = _load_config()
 
 # REAL  = a live Supabase project (network auth + telemetry).
 # DRY   = AETHRON_CLOUD_DEBUG only: gate is on, auth accepts any creds,
@@ -66,6 +69,13 @@ SUPABASE_URL, ANON_KEY, DEBUG_LOG, _ENFORCE = _load_config()
 REAL = bool(SUPABASE_URL and ANON_KEY)
 DRY = bool(DEBUG_LOG and not REAL)
 ENABLED = bool(REAL or DRY)
+
+# DIRECT Google sign-in (our own OAuth client, not Supabase's broker) —
+# so the Google screen reads "Aethron", not "<ref>.supabase.co", AND it
+# works from a native desktop window (Google forbids OAuth in embedded
+# webviews, so we open the system browser and loop back). When these are
+# unset, the studio falls back to Supabase's brokered redirect flow.
+GOOGLE_DIRECT = bool(REAL and GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
 
 # BILLING ENFORCEMENT (the beta -> paid switch).
 # During beta, leave AETHRON_ENFORCE_BILLING unset: every signed-in
@@ -195,6 +205,63 @@ def oauth_url(provider: str, redirect_to: str):
     q = urllib.parse.urlencode({"provider": provider,
                                 "redirect_to": redirect_to})
     return f"{SUPABASE_URL}/auth/v1/authorize?{q}"
+
+
+# ── DIRECT Google flow (branded "Aethron", desktop/native friendly) ──
+# Standard OAuth 2.0 Authorization Code + PKCE against Google, then trade
+# the Google id_token for a Supabase session via the id_token grant. The
+# code exchange is server-side (client_secret never reaches the browser).
+
+def pkce_pair():
+    """(verifier, S256 challenge) for a PKCE exchange."""
+    import base64
+    import hashlib
+    verifier = base64.urlsafe_b64encode(os.urandom(40)).decode().rstrip("=")
+    digest = hashlib.sha256(verifier.encode()).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode().rstrip("=")
+    return verifier, challenge
+
+
+def google_authorize_url(redirect_to: str, state: str, code_challenge: str):
+    import urllib.parse
+    q = urllib.parse.urlencode({
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": redirect_to,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+        "access_type": "online",
+        "prompt": "select_account",
+    })
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + q
+
+
+def google_exchange_code(code: str, redirect_to: str, verifier: str) -> str:
+    """Trade an auth code for a Google id_token (raises on failure)."""
+    import urllib.parse
+    data = urllib.parse.urlencode({
+        "code": code, "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET, "redirect_uri": redirect_to,
+        "grant_type": "authorization_code", "code_verifier": verifier,
+    }).encode()
+    req = urllib.request.Request("https://oauth2.googleapis.com/token",
+                                 data=data, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    with urllib.request.urlopen(req, timeout=15) as r:
+        tok = json.loads(r.read().decode())
+    if not tok.get("id_token"):
+        raise RuntimeError("Google returned no id_token")
+    return tok["id_token"]
+
+
+def session_from_google(id_token: str) -> dict:
+    """Verify a Google id_token with Supabase and return a session dict
+    shaped like login()/signup() (access_token + user). The Google client
+    id must be listed in Supabase → Auth → Providers → Google."""
+    return _post("/auth/v1/token?grant_type=id_token",
+                 {"provider": "google", "id_token": id_token})
 
 
 def user_from_token(access_token: str) -> dict:

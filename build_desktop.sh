@@ -4,7 +4,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-python3 -m pip install --quiet --upgrade pyinstaller fonttools brotli
+# pywebview gives the app a real native window (no browser chrome). On
+# macOS it uses the built-in WebKit via pyobjc; if it's ever missing at
+# runtime the app falls back to opening the system browser.
+python3 -m pip install --quiet --upgrade pyinstaller fonttools brotli pywebview
 
 # clean previous build artifacts (never touches projects/ or library/)
 rm -rf build dist

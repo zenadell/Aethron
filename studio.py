@@ -73,9 +73,32 @@ import aethron_cloud as cloud  # noqa: E402
 # The Supabase access token stays here, never in the browser.
 SESSIONS = {}
 
+# in-flight direct-Google logins: state -> {verifier, cookie|None, error|None}.
+# The OAuth completes in the SYSTEM browser (different cookie jar than a
+# native app window), so the callback stores the minted session cookie
+# here and the app window collects it by polling.
+PENDING = {}
+
 JOBS = {}       # job id -> {"done": bool, "ok": bool|None, "log": str}
 PREVIEWS = {}   # project -> (port, Popen)
 RUN_CMDS = {"fetch", "inventory", "build", "verify", "localize"}
+
+
+def mint_session(auth_result):
+    """auth_result (login/signup/session_from_google) -> (cookie, err).
+    Resolves the user, enforces billing entitlement, and registers a
+    server-side session. err is (message, code) on failure."""
+    user = cloud.user_of(auth_result)
+    if not user.get("id"):
+        return None, ("could not resolve user", 401)
+    user["plan"] = cloud.plan_of(user["token"], user["id"])
+    if not cloud.entitled(user["plan"]):
+        cloud.track("login_blocked", token=user["token"], step="billing")
+        return None, ("Your free beta access has ended — upgrade to Pro "
+                      "to keep using Aethron.", 402)
+    tok = secrets.token_urlsafe(24)
+    SESSIONS[tok] = user
+    return tok, None
 
 
 # ───────────────────────── forge subprocess plumbing ─────────────────
@@ -644,7 +667,8 @@ class Handler(BaseHTTPRequestHandler):
         if not cloud.ENABLED:
             return True
         if u.path in ("/login", "/api/auth/login", "/api/auth/signup",
-                      "/api/auth/google", "/auth/callback",
+                      "/api/auth/google", "/api/auth/google/start",
+                      "/api/auth/google/poll", "/auth/callback",
                       "/api/auth/session"):
             return True
         s = self._session()
@@ -713,6 +737,47 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/auth/me":
                 s = self._session()
                 return self.send_json({"email": s["email"]} if s else {}, 200)
+            if u.path == "/api/auth/google/start":
+                # DIRECT flow: our own Google client → the consent screen
+                # reads "Aethron", and it works from a native app window
+                # (opens the system browser, we loop back and poll).
+                if not cloud.GOOGLE_DIRECT:
+                    return self.send_json(
+                        {"error": "direct google not configured"}, 400)
+                port = self.server.server_address[1]
+                cb = f"http://127.0.0.1:{port}/auth/callback"
+                verifier, challenge = cloud.pkce_pair()
+                state = secrets.token_urlsafe(18)
+                PENDING[state] = {"verifier": verifier, "cb": cb,
+                                  "cookie": None, "error": None,
+                                  "ts": time.time()}
+                url = cloud.google_authorize_url(cb, state, challenge)
+                try:
+                    import webbrowser
+                    webbrowser.open(url)
+                except Exception:
+                    pass
+                return self.send_json({"state": state, "url": url})
+            if u.path == "/api/auth/google/poll":
+                state = q.get("state", [""])[0]
+                p = PENDING.get(state)
+                if not p:
+                    return self.send_json({"status": "unknown"}, 404)
+                if p.get("error"):
+                    PENDING.pop(state, None)
+                    return self.send_json(
+                        {"status": "error", "error": p["error"]}, 200)
+                if p.get("cookie"):
+                    cookie = PENDING.pop(state)["cookie"]
+                    out = json.dumps({"status": "ok"}).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Set-Cookie", f"aethron_sess={cookie}; "
+                                     "Path=/; HttpOnly; SameSite=Lax")
+                    self.send_header("Content-Length", str(len(out)))
+                    self.end_headers()
+                    return self.wfile.write(out)
+                return self.send_json({"status": "pending"})
             if u.path == "/api/auth/google":
                 port = self.server.server_address[1]
                 cb = f"http://127.0.0.1:{port}/auth/callback"
@@ -739,7 +804,24 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             if u.path == "/auth/callback":
-                body = CALLBACK_HTML.encode()
+                code = q.get("code", [""])[0]
+                state = q.get("state", [""])[0]
+                if code and state in PENDING:      # DIRECT-flow callback
+                    p = PENDING[state]
+                    try:
+                        idt = cloud.google_exchange_code(
+                            code, p["cb"], p["verifier"])
+                        cookie, err = mint_session(cloud.session_from_google(idt))
+                        if err:
+                            p["error"] = err[0]
+                        else:
+                            p["cookie"] = cookie
+                            cloud.track("login", source="google")
+                    except Exception as e:
+                        p["error"] = str(e)
+                    body = CALLBACK_DONE_HTML.encode()
+                else:                              # Supabase fragment flow
+                    body = CALLBACK_HTML.encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
@@ -1741,70 +1823,429 @@ height:100vh;display:flex;align-items:center;justify-content:center}</style>
 </script></body></html>
 """
 
+# Shown in the SYSTEM browser after the direct-Google exchange completes;
+# the app window is polling and logs itself in, so this tab is done.
+CALLBACK_DONE_HTML = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Signed in — Aethron</title>
+<style>body{background:#161513;color:#f2f0ea;font:15px/1.6 system-ui,sans-serif;
+height:100vh;display:flex;align-items:center;justify-content:center;text-align:center}
+.b{max-width:340px}.d{width:34px;height:34px;border-radius:10px;background:#d97757;
+color:#fff6f0;font-weight:800;display:grid;place-items:center;margin:0 auto 14px}
+.m{color:#96938a;font-size:13.5px;margin-top:6px}</style>
+</head><body><div class="b"><div class="d">A</div>
+<b>You're signed in.</b><div class="m">Return to the Aethron app — you can close this tab.</div>
+</div></body></html>
+"""
+
 LOGIN_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aethron — sign in</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-:root{--bg:#161513;--panel:#1c1b19;--field:#111110;--line:rgba(255,255,255,.13);
---tx:#f2f0ea;--dim:#96938a;--acc:#d97757}
+:root{--ink:#1a1714;--paper:#f6f2ec;--card:#fffdfb;--line:#e7ded2;
+--dim:#8a8075;--acc:#d97757}
 *{box-sizing:border-box;margin:0}
-body{height:100vh;display:flex;align-items:center;justify-content:center;
-background:var(--bg);color:var(--tx);font:15px/1.5 Inter,system-ui,sans-serif;
--webkit-font-smoothing:antialiased}
-.card{width:360px;max-width:calc(100vw - 32px);background:var(--panel);
-border:1px solid var(--line);border-radius:16px;padding:30px 28px;
-box-shadow:0 24px 64px -16px rgba(0,0,0,.6)}
-.brand{font-weight:800;font-size:20px;letter-spacing:-.02em;margin-bottom:4px}
-.sub{color:var(--dim);font-size:13px;margin-bottom:22px}
-label{display:block;font-size:12.5px;color:var(--dim);margin:12px 0 5px}
-input{width:100%;background:var(--field);color:var(--tx);
-border:1px solid var(--line);border-radius:9px;padding:10px 12px;font:inherit}
-input:focus{outline:none;border-color:var(--acc);
-box-shadow:0 0 0 3px rgba(217,119,87,.2)}
-button{width:100%;margin-top:20px;background:var(--acc);color:#fff7f2;
-border:none;border-radius:9px;padding:11px;font:inherit;font-weight:650;
-cursor:pointer}
-button:hover{filter:brightness(1.07)}
-button:disabled{opacity:.5;cursor:default}
-button.google{background:#fff;color:#1f1f1f;font-weight:600;
-display:flex;align-items:center;justify-content:center;gap:9px;margin-top:12px}
-button.google:hover{filter:none;background:#f2f2f2}
-button.google svg{width:17px;height:17px}
+html,body{height:100%}
+body{font:15px/1.5 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+color:var(--ink)}
+.wrap{display:flex;min-height:100vh}
+/* left brand hero */
+.hero{flex:1.05;position:relative;overflow:hidden;display:flex;flex-direction:column;
+justify-content:space-between;padding:36px 44px;color:#efe8df;
+background:radial-gradient(130% 100% at 15% 5%,#2b221b,#161513 60%,#100e0b)}
+.hero::before{content:"";position:absolute;inset:0;pointer-events:none;
+background:radial-gradient(42% 42% at 88% 92%,rgba(217,119,87,.30),transparent 70%)}
+.hero::after{content:"";position:absolute;inset:0;opacity:.6;pointer-events:none;
+background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),
+linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);
+background-size:46px 46px;
+-webkit-mask-image:radial-gradient(72% 70% at 28% 18%,#000,transparent);
+mask-image:radial-gradient(72% 70% at 28% 18%,#000,transparent)}
+.htop{display:flex;align-items:center;justify-content:space-between;
+position:relative;z-index:1}
+.mark{display:flex;align-items:center;gap:10px;font-weight:800;
+letter-spacing:-.02em;font-size:17px}
+.mark .m{width:27px;height:27px;border-radius:8px;background:var(--acc);
+color:#fff6f0;display:grid;place-items:center;font-weight:800;font-size:14px}
+.back{color:rgba(244,238,231,.7);font-size:13px;text-decoration:none}
+.back:hover{color:#fff}
+.hbtm{position:relative;z-index:1;max-width:430px}
+.hbtm h1{font-size:40px;line-height:1.06;letter-spacing:-.03em;font-weight:800}
+.hbtm p{margin-top:16px;color:rgba(239,232,223,.68);font-size:15px;line-height:1.65}
+.dots{display:flex;gap:7px;margin-top:28px}
+.dots i{width:22px;height:4px;border-radius:3px;background:rgba(255,255,255,.16)}
+.dots i.on{background:var(--acc);width:30px}
+/* right form pane */
+.pane{flex:.95;background:var(--paper);display:flex;align-items:center;
+justify-content:center;padding:44px 28px}
+.form{width:100%;max-width:362px}
+.form h2{font-size:28px;letter-spacing:-.02em;font-weight:800}
+.form .sub{color:var(--dim);font-size:14px;margin:7px 0 24px}
+label{display:block;font-size:12.5px;font-weight:600;color:#5f574d;margin:16px 0 6px}
+.field{position:relative}
+.field input{width:100%;background:var(--card);color:var(--ink);
+border:1px solid var(--line);border-radius:11px;padding:12px 13px;font:inherit}
+.field input::placeholder{color:#bcb2a4}
+.field input:focus{outline:none;border-color:var(--acc);
+box-shadow:0 0 0 3px rgba(217,119,87,.16)}
+.eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;
+border:0;width:34px;height:34px;padding:0;cursor:pointer;color:#a99f92;
+display:grid;place-items:center}
+.eye:hover{color:var(--ink)}.eye svg{width:18px;height:18px}
+.row{display:flex;align-items:center;justify-content:space-between;
+margin-top:14px;font-size:13px}
+.rem{display:flex;align-items:center;gap:8px;color:#5f574d;cursor:pointer;
+user-select:none}
+.rem input{width:15px;height:15px;accent-color:var(--acc)}
+.forgot{color:var(--acc);text-decoration:none;cursor:pointer;font-weight:500}
+.forgot:hover{text-decoration:underline}
+.primary{width:100%;margin-top:22px;background:var(--ink);color:var(--paper);
+border:0;border-radius:12px;padding:13px;font:inherit;font-weight:650;
+cursor:pointer;transition:transform .05s,filter .15s}
+.primary:hover{filter:brightness(1.18)}.primary:active{transform:translateY(1px)}
+.primary:disabled{opacity:.55;cursor:default}
 .divider{display:flex;align-items:center;gap:12px;color:var(--dim);
-font-size:12px;margin:18px 0 2px}
-.divider::before,.divider::after{content:"";flex:1;height:1px;
-background:var(--line)}
-.toggle{margin-top:16px;text-align:center;font-size:13px;color:var(--dim)}
-.toggle a{color:var(--acc);cursor:pointer;text-decoration:none}
-.err{color:#e5695e;font-size:13px;margin-top:14px;min-height:18px}
+font-size:12px;margin:20px 0}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
+.google{width:100%;background:var(--card);color:#1f1f1f;border:1px solid var(--line);
+border-radius:12px;padding:12px;font:inherit;font-weight:600;cursor:pointer;
+display:flex;align-items:center;justify-content:center;gap:10px;transition:background .15s}
+.google:hover{background:#f1ebe1}.google:disabled{opacity:.6;cursor:default}
+.google svg{width:18px;height:18px}
+.toggle{margin-top:22px;text-align:center;font-size:13.5px;color:var(--dim)}
+.toggle a{color:var(--ink);font-weight:700;cursor:pointer;text-decoration:none}
+.toggle a:hover{color:var(--acc)}
+.err{color:#c0483f;font-size:13px;margin-top:14px;min-height:18px;text-align:center}
+/* ── hero carousel (the dots actually drive these now) ───────────── */
+.slides{position:relative;min-height:196px}
+.slide{position:absolute;left:0;right:0;bottom:0;opacity:0;transform:translateY(16px);
+transition:opacity .7s cubic-bezier(.22,1,.36,1),transform .7s cubic-bezier(.22,1,.36,1)}
+.slide.on{opacity:1;transform:none}
+.dots{display:flex;gap:7px;margin-top:28px}
+.dots button{width:22px;height:4px;padding:0;border:0;border-radius:3px;cursor:pointer;
+background:rgba(255,255,255,.16);
+transition:width .45s cubic-bezier(.22,1,.36,1),background .45s}
+.dots button:hover{background:rgba(255,255,255,.32)}
+.dots button.on{background:var(--acc);width:30px}
+.dots button:focus-visible{outline:2px solid var(--acc);outline-offset:3px}
+/* ── hero motion stage: one animated visual per slide ───────────── */
+.stage{position:relative;flex:1;display:grid;place-items:center;z-index:1;
+min-height:0;padding:18px 0}
+.viz{position:absolute;width:min(82%,352px);opacity:0;
+transform:translateY(12px) scale(.975);
+transition:opacity .75s cubic-bezier(.22,1,.36,1),
+transform .75s cubic-bezier(.22,1,.36,1)}
+.viz.on{opacity:1;transform:none}
+.viz svg{width:100%;height:auto;display:block}
+.gl{fill:rgba(255,255,255,.05);stroke:rgba(255,255,255,.10)}
+.ln{fill:rgba(255,255,255,.16)}
+.ac{fill:#d97757}
+.sc{stroke:#d97757;fill:none}
+.fx{transform-box:fill-box}
+/* v1 — rebranding a template in place */
+.v1 .logo{animation:tint 4.6s ease-in-out infinite}
+.v1 .t1{transform-origin:left center;
+animation:tint 4.6s ease-in-out .12s infinite,grow 4.6s ease-in-out .12s infinite}
+.v1 .t2{transform-origin:left center;animation:shrink 4.6s ease-in-out .24s infinite}
+.v1 .sweep{animation:sweep 4.6s ease-in-out infinite}
+@keyframes tint{0%,32%{fill:rgba(255,255,255,.2)}52%,100%{fill:#d97757}}
+@keyframes grow{0%,32%{transform:scaleX(.74)}52%,100%{transform:scaleX(1)}}
+@keyframes shrink{0%,32%{transform:scaleX(1)}52%,100%{transform:scaleX(.72)}}
+@keyframes sweep{0%{transform:translateX(-60px);opacity:0}
+22%{opacity:.55}58%{transform:translateX(320px);opacity:0}100%{opacity:0}}
+/* v2 — click-to-edit: cursor flies in, element locks, panel opens */
+.v2 .cur{animation:cur 5.2s cubic-bezier(.45,0,.25,1) infinite}
+.v2 .ring{opacity:0;animation:ring 5.2s ease infinite}
+.v2 .click{opacity:0;transform-origin:center;animation:clk 5.2s ease infinite}
+.v2 .panel{opacity:0;transform-origin:left center;
+animation:panel 5.2s cubic-bezier(.22,1,.36,1) infinite}
+.v2 .edit{transform-origin:left center;animation:edit 5.2s ease infinite}
+@keyframes cur{0%{transform:translate(232px,148px)}
+26%,60%{transform:translate(104px,86px)}
+30%{transform:translate(101px,83px)}100%{transform:translate(232px,148px)}}
+@keyframes ring{0%,25%{opacity:0}33%,88%{opacity:1}100%{opacity:0}}
+@keyframes clk{0%,26%{opacity:0;transform:scale(.35)}
+31%{opacity:.9;transform:scale(1)}42%,100%{opacity:0;transform:scale(1.7)}}
+@keyframes panel{0%,32%{opacity:0;transform:translateY(7px) scale(.96)}
+42%,86%{opacity:1;transform:none}100%{opacity:0}}
+@keyframes edit{0%,44%{transform:scaleX(1)}56%,100%{transform:scaleX(.6)}}
+/* v3 — any model feeds the guarded pipeline */
+.v3 .flow{stroke-dasharray:3 7;animation:flow 1.5s linear infinite}
+.v3 .f2{animation-delay:-.5s}.v3 .f3{animation-delay:-1s}
+.v3 .halo{transform-origin:center;animation:halo 2.8s ease-in-out infinite}
+.v3 .n1{animation:bob 3.4s ease-in-out infinite}
+.v3 .n2{animation:bob 3.4s ease-in-out -1.1s infinite}
+.v3 .n3{animation:bob 3.4s ease-in-out -2.2s infinite}
+.v3 .cap{animation:cap 4.2s ease-in-out infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@keyframes halo{0%,100%{opacity:.16;transform:scale(1)}
+50%{opacity:.4;transform:scale(1.07)}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes cap{0%,100%{opacity:.55}50%{opacity:1}}
+/* ── intro splash ───────────────────────────────────────────────── */
+.splash{position:fixed;inset:0;z-index:99;display:grid;place-items:center;
+background:#100e0b;overflow:hidden;
+animation:splashOut .6s cubic-bezier(.4,0,.2,1) 1.9s forwards}
+.splash.skip{animation:splashOut .28s ease forwards}
+.aur{position:absolute;border-radius:50%;filter:blur(90px);opacity:.5}
+.a1{width:520px;height:520px;background:#d97757;top:-16%;left:-10%;
+animation:drift 9s ease-in-out infinite alternate}
+.a2{width:440px;height:440px;background:#7d5236;bottom:-18%;right:-8%;
+animation:drift 11s ease-in-out infinite alternate-reverse}
+.vig{position:absolute;inset:0;
+background:radial-gradient(62% 56% at 50% 46%,transparent,rgba(16,14,11,.94))}
+.sp-in{position:relative;text-align:center;padding:0 24px}
+.sp-mark{width:76px;height:76px;display:block;margin:0 auto 22px;
+clip-path:inset(100% 0 0 0);
+animation:markIn .9s cubic-bezier(.22,1,.36,1) .12s forwards}
+.sp-mark .dot{transform-origin:50px 71px;transform:scale(0);
+animation:dotIn .5s cubic-bezier(.34,1.56,.64,1) .66s forwards}
+.sp-word{font-size:16px;font-weight:700;letter-spacing:.42em;text-indent:.42em;
+color:#f4efe8;opacity:0;animation:up .7s cubic-bezier(.22,1,.36,1) .52s forwards}
+.sp-by{margin-top:12px;font-size:12.5px;color:rgba(244,239,232,.45);opacity:0;
+animation:up .7s cubic-bezier(.22,1,.36,1) .8s forwards}
+.sp-by a{color:var(--acc);text-decoration:none;font-weight:600}
+.sp-by a:hover{text-decoration:underline}
+.sp-bar{width:118px;height:2px;margin:26px auto 0;border-radius:2px;
+background:rgba(255,255,255,.1);overflow:hidden;opacity:0;
+animation:up .5s ease .58s forwards}
+.sp-bar i{display:block;height:100%;width:0;border-radius:2px;background:var(--acc);
+animation:fill 1.3s cubic-bezier(.4,0,.2,1) .62s forwards}
+@keyframes markIn{to{clip-path:inset(0 0 0 0)}}
+@keyframes dotIn{to{transform:scale(1)}}
+@keyframes up{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@keyframes fill{to{width:100%}}
+@keyframes drift{to{transform:translate3d(26px,-22px,0) scale(1.12)}}
+@keyframes splashOut{to{opacity:0;visibility:hidden}}
+@media (prefers-reduced-motion:reduce){
+ .splash{animation-delay:.8s}
+ .sp-mark{clip-path:none}.sp-mark .dot{transform:none}
+ .sp-mark,.sp-word,.sp-by,.sp-bar,.a1,.a2{animation:none;opacity:1}
+ .sp-bar i{animation:none;width:100%}
+ .slide{transition:none}
+}
+@media (max-width:860px){.hero{display:none}.pane{flex:1}}
 </style></head><body>
-<div class="card">
-  <div class="brand">Aethron</div>
-  <div class="sub" id="sub">Sign in to your account</div>
-  <button class="google" onclick="location='/api/auth/google'">
-   <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-   Continue with Google</button>
-  <div class="divider">or</div>
-  <label>Email</label><input id="email" type="email" autocomplete="email">
-  <label>Password</label>
-  <input id="pw" type="password" autocomplete="current-password">
-  <button id="go" onclick="submit()">Sign in</button>
-  <div class="err" id="err"></div>
-  <div class="toggle" id="tog">New here?
-   <a onclick="setMode('signup')">Create an account</a></div>
+<div class="splash" id="splash" aria-hidden="true">
+  <div class="aur a1"></div><div class="aur a2"></div><div class="vig"></div>
+  <div class="sp-in">
+    <svg class="sp-mark" viewBox="0 0 100 100" fill="none">
+      <path d="M50 7 L92 93 L66 93 L50 43 L34 93 L8 93 Z" fill="#f4efe8"/>
+      <circle class="dot" cx="50" cy="71" r="8" fill="#f4efe8"/>
+    </svg>
+    <div class="sp-word">AETHRON</div>
+    <div class="sp-bar"><i></i></div>
+    <div class="sp-by">Powered by
+     <a href="https://jomiez.com" target="_blank" rel="noopener"
+        tabindex="-1">Jomiez</a></div>
+  </div>
+</div>
+<div class="wrap">
+  <div class="hero">
+    <div class="htop">
+      <div class="mark"><span class="m">A</span> Aethron</div>
+      <a class="back" href="https://aethron.jomiez.com">&larr; Back to site</a>
+    </div>
+    <div class="stage" id="stage" aria-hidden="true">
+      <!-- 1 · rebrand: the template repaints itself in your colours -->
+      <div class="viz v1 on">
+       <svg viewBox="0 0 320 190">
+        <defs><linearGradient id="sw" x1="0" x2="1">
+         <stop offset="0" stop-color="#d97757" stop-opacity="0"/>
+         <stop offset=".5" stop-color="#d97757" stop-opacity=".4"/>
+         <stop offset="1" stop-color="#d97757" stop-opacity="0"/></linearGradient>
+         <clipPath id="cp"><rect x="8" y="8" width="304" height="174" rx="14"/></clipPath>
+        </defs>
+        <rect class="gl" x="8" y="8" width="304" height="174" rx="14"/>
+        <circle cx="30" cy="28" r="3.4" fill="rgba(255,255,255,.2)"/>
+        <circle cx="42" cy="28" r="3.4" fill="rgba(255,255,255,.12)"/>
+        <circle cx="54" cy="28" r="3.4" fill="rgba(255,255,255,.12)"/>
+        <path d="M8 46 H312" stroke="rgba(255,255,255,.08)"/>
+        <rect class="logo fx" x="28" y="62" width="18" height="18" rx="5"/>
+        <rect class="ln" x="232" y="68" width="26" height="6" rx="3"/>
+        <rect class="ln" x="266" y="68" width="26" height="6" rx="3"/>
+        <rect class="t1 ln fx" x="28" y="98" width="140" height="11" rx="5.5"/>
+        <rect class="t2 ln fx" x="28" y="118" width="150" height="7" rx="3.5"/>
+        <rect class="ln" x="28" y="136" width="96" height="7" rx="3.5" opacity=".6"/>
+        <rect class="gl" x="200" y="92" width="92" height="60" rx="9"/>
+        <path d="M210 142 L232 118 L248 133 L262 122 L282 142 Z"
+              fill="rgba(255,255,255,.14)"/>
+        <circle cx="268" cy="108" r="6" fill="rgba(255,255,255,.18)"/>
+        <g clip-path="url(#cp)">
+         <rect class="sweep" x="-30" y="8" width="52" height="174" fill="url(#sw)"/></g>
+       </svg>
+      </div>
+      <!-- 2 · point and edit: cursor locks an element, inspector opens -->
+      <div class="viz v2">
+       <svg viewBox="0 0 320 190">
+        <rect class="gl" x="8" y="8" width="304" height="174" rx="14"/>
+        <rect class="ln" x="30" y="34" width="112" height="9" rx="4.5" opacity=".7"/>
+        <rect class="gl" x="24" y="60" width="176" height="52" rx="10"/>
+        <rect class="edit ln fx" x="38" y="74" width="124" height="9" rx="4.5"/>
+        <rect class="ln" x="38" y="90" width="84" height="6" rx="3" opacity=".6"/>
+        <rect class="ring sc" x="24" y="60" width="176" height="52" rx="10"
+              stroke-width="1.6"/>
+        <circle class="click sc fx" cx="104" cy="86" r="11" stroke-width="1.6"/>
+        <g class="panel fx">
+         <rect x="212" y="58" width="86" height="66" rx="10"
+               fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.12)"/>
+         <rect class="ac" x="223" y="72" width="34" height="6" rx="3"/>
+         <rect class="ln" x="223" y="85" width="62" height="5" rx="2.5"/>
+         <rect class="ln" x="223" y="95" width="48" height="5" rx="2.5" opacity=".6"/>
+         <rect class="ac" x="223" y="107" width="28" height="9" rx="4.5"/>
+        </g>
+        <rect class="ln" x="24" y="130" width="176" height="7" rx="3.5" opacity=".45"/>
+        <g class="cur"><path d="M0 0 L0 16 L4.4 12.2 L7.4 19 L10.6 17.4 L7.6 10.8 L13 10.6 Z"
+           fill="#fff" stroke="rgba(0,0,0,.35)" stroke-width=".6"/></g>
+       </svg>
+      </div>
+      <!-- 3 · any model feeds it; guardrails hold the physics -->
+      <div class="viz v3">
+       <svg viewBox="0 0 320 190">
+        <g class="sc" stroke-width="1.5" opacity=".9">
+         <path class="flow" d="M62 46 C112 62 122 78 146 92"/>
+         <path class="flow f2" d="M52 140 C106 132 120 110 146 98"/>
+         <path class="flow f3" d="M262 44 C214 62 198 78 178 92"/>
+        </g>
+        <g class="n1"><circle class="gl" cx="54" cy="42" r="15"/>
+         <circle class="ac" cx="54" cy="42" r="4"/></g>
+        <g class="n2"><circle class="gl" cx="44" cy="146" r="15"/>
+         <circle class="ac" cx="44" cy="146" r="4"/></g>
+        <g class="n3"><circle class="gl" cx="270" cy="40" r="15"/>
+         <circle class="ac" cx="270" cy="40" r="4"/></g>
+        <rect class="halo fx" x="134" y="56" width="88" height="80" rx="16"
+              fill="#d97757" opacity=".2"/>
+        <rect class="gl" x="142" y="62" width="72" height="68" rx="12"/>
+        <rect class="ac" x="154" y="78" width="30" height="7" rx="3.5"/>
+        <rect class="ln" x="154" y="92" width="48" height="6" rx="3"/>
+        <rect class="ln" x="154" y="104" width="36" height="6" rx="3" opacity=".6"/>
+        <g class="cap" stroke="#d97757" stroke-width="1.4" fill="none" opacity=".7">
+         <path d="M120 96 A 38 42 0 0 1 132 66"/>
+         <path d="M236 96 A 38 42 0 0 0 224 66"/></g>
+       </svg>
+      </div>
+    </div>
+    <div class="hbtm">
+      <div class="slides">
+        <div class="slide on">
+          <h1>Own any template.</h1>
+          <p>Rebrand the copy, images, and logo &mdash; the design and animations
+           stay pixel-perfect. Ship it anywhere, truly yours.</p>
+        </div>
+        <div class="slide">
+          <h1>Edit by pointing.</h1>
+          <p>Click any headline, image, button, or section on the live page and
+           rewrite, restyle, or remove it &mdash; baked into the shipped code.</p>
+        </div>
+        <div class="slide">
+          <h1>Driven by any AI.</h1>
+          <p>Your model fills the copy; hard guardrails enforce the physics. No
+           badge, no telemetry, no platform lock-in.</p>
+        </div>
+      </div>
+      <div class="dots" id="dots">
+        <button class="on" data-i="0" aria-label="Slide 1"></button>
+        <button data-i="1" aria-label="Slide 2"></button>
+        <button data-i="2" aria-label="Slide 3"></button>
+      </div>
+    </div>
+  </div>
+  <div class="pane">
+   <div class="form">
+    <h2 id="head">Welcome back</h2>
+    <div class="sub" id="sub">Sign in to your account</div>
+    <label>Email</label>
+    <div class="field"><input id="email" type="email" autocomplete="email"
+      placeholder="you@company.com"></div>
+    <label>Password</label>
+    <div class="field">
+      <input id="pw" type="password" autocomplete="current-password" placeholder="&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;">
+      <button type="button" class="eye" onclick="togglePw()" aria-label="Show password">
+       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+    <div class="row">
+      <label class="rem"><input type="checkbox" id="rem"> Remember me</label>
+      <a class="forgot" onclick="forgot()">Forgot password?</a>
+    </div>
+    <button id="go" class="primary" onclick="submit()">Sign in</button>
+    <div class="err" id="err"></div>
+    <div class="divider">Or continue with</div>
+    <button class="google" id="gbtn" onclick="googleSignIn()">
+     <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+     <span id="glabel">Continue with Google</span></button>
+    <div class="toggle" id="tog">Don't have an account?
+     <a onclick="setMode('signup')">Sign up here</a></div>
+   </div>
+  </div>
 </div>
 <script>
 let MODE='login';
 const $=id=>document.getElementById(id);
+// intro splash — CSS drives the timing (so it always clears, even if this
+// script fails); a click/keypress just skips ahead.
+(function(){const s=$('splash');if(!s)return;
+  const skip=()=>{s.classList.add('skip');
+    document.removeEventListener('keydown',skip);s.removeEventListener('click',skip);};
+  s.addEventListener('click',skip);document.addEventListener('keydown',skip);
+  setTimeout(()=>s.remove(),3200);})();
+// hero carousel — the dots drive real slides (auto-advance + click)
+(function(){const sl=[...document.querySelectorAll('.slide')],
+  dt=[...document.querySelectorAll('#dots button')];
+  if(sl.length<2)return;
+  const still=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let i=0,t=null;
+  const vz=[...document.querySelectorAll('.viz')];
+  const go=n=>{i=(n+sl.length)%sl.length;
+    sl.forEach((s,k)=>s.classList.toggle('on',k===i));
+    vz.forEach((v,k)=>v.classList.toggle('on',k===i));
+    dt.forEach((d,k)=>d.classList.toggle('on',k===i));};
+  const play=()=>{if(!still)t=setInterval(()=>go(i+1),5200);};
+  dt.forEach(d=>d.addEventListener('click',()=>{clearInterval(t);
+    go(+d.dataset.i);play();}));
+  document.querySelector('.hero').addEventListener('mouseenter',
+    ()=>clearInterval(t));
+  document.querySelector('.hero').addEventListener('mouseleave',play);
+  play();})();
+async function googleSignIn(){
+  // DIRECT flow: open Google in the system browser, then poll for the
+  // session (works from a native app window). Falls back to Supabase's
+  // brokered redirect if direct isn't configured.
+  const btn=$('gbtn'), lbl=$('glabel');
+  $('err').textContent='';
+  let start;
+  try{ start=await fetch('/api/auth/google/start'); }
+  catch(_){ location='/api/auth/google'; return; }
+  if(start.status===400){ location='/api/auth/google'; return; }  // fallback
+  const {state}=await start.json();
+  btn.disabled=true; lbl.textContent='Continue in your browser…';
+  const t0=Date.now();
+  const timer=setInterval(async()=>{
+    if(Date.now()-t0>150000){ clearInterval(timer); btn.disabled=false;
+      lbl.textContent='Continue with Google'; return; }
+    let r; try{ r=await fetch('/api/auth/google/poll?state='+state); }catch(_){ return; }
+    if(r.status===404){ return; }
+    const j=await r.json();
+    if(j.status==='ok'){ clearInterval(timer); location.href='/'; }
+    else if(j.status==='error'){ clearInterval(timer); btn.disabled=false;
+      lbl.textContent='Continue with Google';
+      $('err').style.color='#e5695e'; $('err').textContent='Google sign-in: '+(j.error||'failed'); }
+  },1500);
+}
 function setMode(m){MODE=m;
-  $('sub').textContent=m==='signup'?'Create your account':'Sign in to your account';
+  $('head').textContent=m==='signup'?'Create your account':'Welcome back';
+  $('sub').textContent=m==='signup'?'Start owning your templates':'Sign in to your account';
   $('go').textContent=m==='signup'?'Create account':'Sign in';
   $('tog').innerHTML=m==='signup'
-    ?'Have an account? <a onclick="setMode(\'login\')">Sign in</a>'
-    :'New here? <a onclick="setMode(\'signup\')">Create an account</a>';
-  $('err').textContent='';}
+    ?'Already have an account? <a onclick="setMode(\'login\')">Sign in</a>'
+    :'Don\'t have an account? <a onclick="setMode(\'signup\')">Sign up here</a>';
+  $('err').style.color='#c0483f';$('err').textContent='';}
+function togglePw(){const p=$('pw');p.type=p.type==='password'?'text':'password';}
+function forgot(){$('err').style.color='#8a8075';
+  $('err').textContent='Password reset is coming soon — for now, use Continue with Google.';}
 async function submit(){
   $('err').textContent='';$('go').disabled=true;
   try{
