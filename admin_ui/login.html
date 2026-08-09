@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aethron Admin</title>
+<style>
+  :root{
+    --bg:#1a1714; --panel:#221e1a; --line:#332d27; --text:#f2ebe3;
+    --muted:#a99e92; --accent:#d97757; --accent-ink:#fff6f0; --danger:#e5637a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;
+    background:radial-gradient(1200px 800px at 70% -10%,#2a231d,var(--bg));
+    color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+  .card{width:min(92vw,380px);background:var(--panel);border:1px solid var(--line);
+    border-radius:18px;padding:34px 30px;box-shadow:0 30px 80px -30px #000}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .dot{width:26px;height:26px;object-fit:contain;display:block}
+  h1{font-size:19px;margin:0;letter-spacing:-.01em}
+  p.sub{color:var(--muted);margin:2px 0 22px;font-size:13.5px}
+  label{display:block;font-size:12.5px;color:var(--muted);margin:14px 0 6px}
+  input{width:100%;padding:11px 13px;border-radius:11px;border:1px solid var(--line);
+    background:#1c1814;color:var(--text);font-size:14.5px;outline:none}
+  input:focus{border-color:var(--accent)}
+  button{width:100%;margin-top:22px;padding:12px;border:0;border-radius:11px;
+    background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:15px;
+    cursor:pointer;transition:filter .15s}
+  button:hover{filter:brightness(1.06)} button:disabled{opacity:.5;cursor:default}
+  .err{color:var(--danger);font-size:13px;margin-top:14px;min-height:18px}
+  .foot{color:var(--muted);font-size:11.5px;margin-top:20px;text-align:center}
+</style>
+</head>
+<body>
+  <form class="card" id="f">
+    <div class="brand"><img class="dot" src="data:image/png;base64,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" alt=""><h1>Aethron Admin</h1></div>
+    <p class="sub">Private control center — authorized accounts only.</p>
+    <label for="email">Email</label>
+    <input id="email" type="email" autocomplete="username" required>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <button id="go" type="submit">Sign in</button>
+    <div class="err" id="err"></div>
+    <div class="foot">Content · Operations · Publishing</div>
+  </form>
+<script>
+  const f=document.getElementById('f'), err=document.getElementById('err'),
+        go=document.getElementById('go');
+  f.addEventListener('submit', async (e)=>{
+    e.preventDefault(); err.textContent=''; go.disabled=true; go.textContent='Signing in…';
+    try{
+      const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({email:email.value.trim(),password:pw.value})});
+      const d=await r.json();
+      if(r.ok){ location.href='/'; return; }
+      err.textContent=d.error||'Sign-in failed';
+    }catch(_){ err.textContent='Network error'; }
+    go.disabled=false; go.textContent='Sign in';
+  });
+</script>
+</body>
+</html>

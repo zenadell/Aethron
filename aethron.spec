@@ -26,6 +26,7 @@ pyz = PYZ(a.pure)
 # EVERY launch (~20s cold start). Onedir starts in ~2s; the .app bundle
 # hides the folder from users entirely. Windows ships the dist folder
 # zipped (users run Aethron.exe inside it).
+_icon = "brand/Aethron.icns" if _os.path.isfile("brand/Aethron.icns") else None
 exe = EXE(
     pyz,
     a.scripts,
@@ -33,6 +34,7 @@ exe = EXE(
     name="Aethron",
     console=False,          # no terminal window on double-click
     upx=False,
+    icon=_icon,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name="Aethron", upx=False)
 # macOS: wrap in a proper .app bundle so Finder/dock treat it right
@@ -41,6 +43,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="Aethron.app",
+        icon=_icon,
         bundle_identifier="app.aethron.studio",
         info_plist={
             "CFBundleDisplayName": "Aethron",

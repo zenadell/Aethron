@@ -96,6 +96,28 @@ def main():
         return server.serve_forever()
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def raise_window():
+        """Bring Aethron to the front — called when Google sign-in
+        completes in the system browser, so the user lands back in the
+        app instead of on a stray browser tab."""
+        try:                                  # native, no shell-out
+            from AppKit import NSApp, NSApplication
+            NSApplication.sharedApplication()
+            NSApp.activateIgnoringOtherApps_(True)
+            return
+        except Exception:
+            pass
+        try:                                  # fallback: ask the OS
+            import subprocess
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "Aethron" to activate'],
+                capture_output=True, timeout=5)
+        except Exception:
+            pass
+
+    studio.FOCUS_APP = raise_window
     try:
         webview.create_window("Aethron", url, width=1280, height=840,
                               min_size=(940, 620))

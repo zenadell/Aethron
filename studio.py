@@ -84,6 +84,21 @@ PREVIEWS = {}   # project -> (port, Popen)
 RUN_CMDS = {"fetch", "inventory", "build", "verify", "localize"}
 
 
+# Set by desktop.py: brings the app window to the front. Google sign-in
+# finishes in the SYSTEM browser, so without this the user is left staring
+# at a browser tab while the app quietly logs in behind it.
+FOCUS_APP = None
+
+
+def focus_app():
+    if not FOCUS_APP:
+        return
+    try:
+        threading.Thread(target=FOCUS_APP, daemon=True).start()
+    except Exception:
+        pass
+
+
 def mint_session(auth_result):
     """auth_result (login/signup/session_from_google) -> (cookie, err).
     Resolves the user, enforces billing entitlement, and registers a
@@ -817,6 +832,7 @@ class Handler(BaseHTTPRequestHandler):
                         else:
                             p["cookie"] = cookie
                             cloud.track("login", source="google")
+                            focus_app()      # pull the app back to the front
                     except Exception as e:
                         p["error"] = str(e)
                     body = CALLBACK_DONE_HTML.encode()
@@ -1797,6 +1813,76 @@ class Handler(BaseHTTPRequestHandler):
 
 # ───────────────────────── the app (single page) ─────────────────────
 
+# The Aethron mark (white on transparent), inlined so every surface —
+# login, splash, app shell — shows the real logo with no extra request
+# and no external file. Regenerate with tools/make_brand.py if it changes.
+MARK_B64 = (
+    "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")
+MARK = "data:image/png;base64," + MARK_B64
+
 CALLBACK_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <title>Signing in…</title>
@@ -1831,10 +1917,10 @@ CALLBACK_DONE_HTML = r"""<!doctype html>
 <title>Signed in — Aethron</title>
 <style>body{background:#161513;color:#f2f0ea;font:15px/1.6 system-ui,sans-serif;
 height:100vh;display:flex;align-items:center;justify-content:center;text-align:center}
-.b{max-width:340px}.d{width:34px;height:34px;border-radius:10px;background:#d97757;
-color:#fff6f0;font-weight:800;display:grid;place-items:center;margin:0 auto 14px}
+.b{max-width:340px}.d{width:38px;height:38px;object-fit:contain;
+display:block;margin:0 auto 14px}
 .m{color:#96938a;font-size:13.5px;margin-top:6px}</style>
-</head><body><div class="b"><div class="d">A</div>
+</head><body><div class="b"><img class="d" src="__MARK__" alt="">
 <b>You're signed in.</b><div class="m">Return to the Aethron app — you can close this tab.</div>
 </div></body></html>
 """
@@ -1868,8 +1954,7 @@ mask-image:radial-gradient(72% 70% at 28% 18%,#000,transparent)}
 position:relative;z-index:1}
 .mark{display:flex;align-items:center;gap:10px;font-weight:800;
 letter-spacing:-.02em;font-size:17px}
-.mark .m{width:27px;height:27px;border-radius:8px;background:var(--acc);
-color:#fff6f0;display:grid;place-items:center;font-weight:800;font-size:14px}
+.mark .m{width:26px;height:26px;object-fit:contain;display:block}
 .back{color:rgba(244,238,231,.7);font-size:13px;text-decoration:none}
 .back:hover{color:#fff}
 .hbtm{position:relative;z-index:1;max-width:430px}
@@ -1998,11 +2083,9 @@ animation:drift 11s ease-in-out infinite alternate-reverse}
 .vig{position:absolute;inset:0;
 background:radial-gradient(62% 56% at 50% 46%,transparent,rgba(16,14,11,.94))}
 .sp-in{position:relative;text-align:center;padding:0 24px}
-.sp-mark{width:76px;height:76px;display:block;margin:0 auto 22px;
+.sp-mark{width:82px;height:82px;object-fit:contain;display:block;margin:0 auto 22px;
 clip-path:inset(100% 0 0 0);
 animation:markIn .9s cubic-bezier(.22,1,.36,1) .12s forwards}
-.sp-mark .dot{transform-origin:50px 71px;transform:scale(0);
-animation:dotIn .5s cubic-bezier(.34,1.56,.64,1) .66s forwards}
 .sp-word{font-size:16px;font-weight:700;letter-spacing:.42em;text-indent:.42em;
 color:#f4efe8;opacity:0;animation:up .7s cubic-bezier(.22,1,.36,1) .52s forwards}
 .sp-by{margin-top:12px;font-size:12.5px;color:rgba(244,239,232,.45);opacity:0;
@@ -2022,7 +2105,7 @@ animation:fill 1.3s cubic-bezier(.4,0,.2,1) .62s forwards}
 @keyframes splashOut{to{opacity:0;visibility:hidden}}
 @media (prefers-reduced-motion:reduce){
  .splash{animation-delay:.8s}
- .sp-mark{clip-path:none}.sp-mark .dot{transform:none}
+ .sp-mark{clip-path:none}
  .sp-mark,.sp-word,.sp-by,.sp-bar,.a1,.a2{animation:none;opacity:1}
  .sp-bar i{animation:none;width:100%}
  .slide{transition:none}
@@ -2032,10 +2115,7 @@ animation:fill 1.3s cubic-bezier(.4,0,.2,1) .62s forwards}
 <div class="splash" id="splash" aria-hidden="true">
   <div class="aur a1"></div><div class="aur a2"></div><div class="vig"></div>
   <div class="sp-in">
-    <svg class="sp-mark" viewBox="0 0 100 100" fill="none">
-      <path d="M50 7 L92 93 L66 93 L50 43 L34 93 L8 93 Z" fill="#f4efe8"/>
-      <circle class="dot" cx="50" cy="71" r="8" fill="#f4efe8"/>
-    </svg>
+    <img class="sp-mark" src="__MARK__" alt="Aethron">
     <div class="sp-word">AETHRON</div>
     <div class="sp-bar"><i></i></div>
     <div class="sp-by">Powered by
@@ -2046,7 +2126,7 @@ animation:fill 1.3s cubic-bezier(.4,0,.2,1) .62s forwards}
 <div class="wrap">
   <div class="hero">
     <div class="htop">
-      <div class="mark"><span class="m">A</span> Aethron</div>
+      <div class="mark"><img class="m" src="__MARK__" alt=""> Aethron</div>
       <a class="back" href="https://aethron.jomiez.com">&larr; Back to site</a>
     </div>
     <div class="stage" id="stage" aria-hidden="true">
@@ -2325,7 +2405,9 @@ aside::before{content:"";position:absolute;inset:0 0 auto 0;height:220px;
 background:radial-gradient(420px 200px at 20% -40px,rgba(217,119,87,.08),transparent 70%);
 pointer-events:none}
 .brand{padding:20px 18px 16px;font-weight:800;font-size:16.5px;
-letter-spacing:-.02em;border-bottom:1px solid var(--line);position:relative}
+letter-spacing:-.02em;border-bottom:1px solid var(--line);position:relative;
+display:flex;align-items:center;gap:8px}
+.brand .bmark{width:20px;height:20px;object-fit:contain;flex:none}
 .brand b{color:var(--tx)}
 .brand span{color:var(--dim);font-weight:500;font-size:13px}
 #plist{flex:1;overflow-y:auto;padding:10px}
@@ -2559,7 +2641,7 @@ display:flex;gap:8px;align-items:center;font-weight:600}
 transition-duration:.01ms !important}}
 </style></head><body>
 <aside>
-  <div class="brand"><span data-ic="anvil" data-ics="17"></span><b>Aethron</b> <span>Studio</span></div>
+  <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
   <div id="plist"></div>
   <button class="libbtn" id="libbtn" onclick="openLibrary()"
    title="every migration you save becomes a design card — palette,
@@ -3693,6 +3775,12 @@ refresh();
 if(!localStorage.forge_tour)setTimeout(()=>startTour(0),700);
 </script></body></html>
 """
+
+# bake the inlined mark into every surface that shows the logo
+LOGIN_HTML = LOGIN_HTML.replace("__MARK__", MARK)
+INDEX_HTML = INDEX_HTML.replace("__MARK__", MARK)
+CALLBACK_DONE_HTML = CALLBACK_DONE_HTML.replace("__MARK__", MARK)
+
 
 # ───────────────────────── main ──────────────────────────────────────
 

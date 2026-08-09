@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aethron Admin</title>
+<style>
+  :root{
+    --bg:#1a1714; --panel:#221e1a; --panel2:#26211c; --line:#332d27; --text:#f2ebe3;
+    --muted:#a99e92; --accent:#d97757; --accent-ink:#fff6f0; --ok:#6bbf87;
+    --warn:#e0a45e; --danger:#e5637a; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+  a{color:var(--accent);text-decoration:none}
+  header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:18px;
+    padding:12px 22px;background:#1e1a16cc;backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:700}
+  .dot{width:24px;height:24px;object-fit:contain;display:block}
+  nav{display:flex;gap:4px;margin-left:8px}
+  nav button{background:none;border:0;color:var(--muted);padding:8px 14px;border-radius:9px;
+    font-size:14px;cursor:pointer;font-weight:500}
+  nav button.active{background:var(--panel2);color:var(--text)}
+  nav button:hover{color:var(--text)}
+  .spacer{flex:1}
+  .who{color:var(--muted);font-size:13px}
+  .btn{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--text);padding:8px 14px;border-radius:10px;
+    font-size:13.5px;cursor:pointer;font-weight:600;transition:filter .15s}
+  .btn:hover{filter:brightness(1.1)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.ghost{background:none}
+  .btn:disabled{opacity:.45;cursor:default}
+  main{max-width:1080px;margin:0 auto;padding:26px 22px 80px}
+  .view{display:none} .view.on{display:block}
+  h2{font-size:18px;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 22px}
+  .grid{display:grid;gap:16px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px}
+  .kpi .n{font-size:30px;font-weight:750;letter-spacing:-.02em}
+  .kpi .l{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .row{display:flex;align-items:center;gap:12px}
+  .pill{font-size:11.5px;padding:3px 9px;border-radius:20px;background:var(--panel2);
+    color:var(--muted);border:1px solid var(--line)}
+  .pill.pro{color:#ffe4d3;border-color:var(--accent);background:#3a2318}
+  .pill.studio{color:#e9d5ff;border-color:#7c5cbf;background:#2a2140}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;padding:8px 10px;
+    border-bottom:1px solid var(--line)}
+  td{padding:10px;border-bottom:1px solid var(--line)}
+  select{background:#1c1814;color:var(--text);border:1px solid var(--line);
+    border-radius:8px;padding:5px 8px;font-size:13px}
+  .teamgrid{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  .tc{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    overflow:hidden}
+  .tc .ph{aspect-ratio:1/1;background:#100d0a;display:grid;place-items:center;position:relative}
+  .tc .ph img{width:100%;height:100%;object-fit:cover}
+  .tc .ph .rep{position:absolute;inset:0;background:#000a;color:#fff;display:none;
+    place-items:center;font-size:13px;font-weight:600;cursor:pointer}
+  .tc .ph:hover .rep{display:grid}
+  .tc .meta{padding:12px 14px}
+  .tc .meta input{width:100%;background:#1c1814;color:var(--text);border:1px solid transparent;
+    border-radius:8px;padding:6px 8px;font-size:14px;margin-bottom:6px}
+  .tc .meta input:hover{border-color:var(--line)} .tc .meta input:focus{border-color:var(--accent);outline:none}
+  .tc .meta .role{font-size:12.5px;color:var(--muted)}
+  .bar{position:fixed;bottom:0;left:0;right:0;background:#1e1a16f0;border-top:1px solid var(--line);
+    padding:12px 22px;display:flex;align-items:center;gap:14px;backdrop-filter:blur(8px)}
+  .bar .msg{color:var(--muted);font-size:13px;flex:1}
+  .muted{color:var(--muted)} .ok{color:var(--ok)} .warn{color:var(--warn)} .danger{color:var(--danger)}
+  .empty{color:var(--muted);text-align:center;padding:40px;border:1px dashed var(--line);border-radius:var(--radius)}
+  .evrow{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .banner{background:#3a2318;border:1px solid var(--accent);color:#ffe4d3;padding:10px 14px;
+    border-radius:10px;font-size:13px;margin-bottom:16px;display:none}
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand"><img class="dot" src="data:image/png;base64,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" alt=""> Aethron Admin</div>
+    <nav>
+      <button data-v="dash" class="active">Dashboard</button>
+      <button data-v="content">Team &amp; Content</button>
+      <button data-v="users">Users</button>
+    </nav>
+    <div class="spacer"></div>
+    <span class="who" id="who"></span>
+    <button class="btn ghost" id="logout">Sign out</button>
+  </header>
+
+  <main>
+    <!-- DASHBOARD -->
+    <section class="view on" id="v-dash">
+      <h2>Dashboard</h2>
+      <p class="sub">Your site and business at a glance.</p>
+      <div id="opsBanner" class="banner"></div>
+      <div class="grid kpis" id="kpis"></div>
+
+      <div class="grid" style="grid-template-columns:1.2fr .8fr;margin-top:16px">
+        <div class="card">
+          <div class="row" style="justify-content:space-between;margin-bottom:12px">
+            <b>Live site</b><span class="pill" id="siteState">—</span>
+          </div>
+          <div class="muted" id="siteInfo" style="font-size:13px">—</div>
+          <div style="margin-top:14px">
+            <button class="btn primary" id="pubDash">Rebuild &amp; publish</button>
+            <a class="btn ghost" id="viewLive" target="_blank" rel="noopener">View live ↗</a>
+          </div>
+        </div>
+        <div class="card">
+          <b>Recent activity</b>
+          <div id="events" style="margin-top:10px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTENT -->
+    <section class="view" id="v-content">
+      <h2>Team &amp; CEO</h2>
+      <p class="sub">Edit names, roles, and photos. Changes go live when you publish.</p>
+      <div class="grid teamgrid" id="team"></div>
+      <div class="card" style="margin-top:18px">
+        <b>Other content</b>
+        <p class="muted" style="font-size:13px;margin:8px 0 0">
+          Hero, pricing, and full click-to-edit for every element live in the
+          Studio editor. This panel focuses on the people section you asked about
+          — more structured sections are being added here next.</p>
+      </div>
+    </section>
+
+    <!-- USERS -->
+    <section class="view" id="v-users">
+      <h2>Users</h2>
+      <p class="sub">Accounts, plans, and access.</p>
+      <div class="card" id="usersCard"><div class="muted">Loading…</div></div>
+    </section>
+  </main>
+
+  <div class="bar">
+    <span class="msg" id="barMsg">Ready.</span>
+    <button class="btn primary" id="pubBar">Rebuild &amp; publish</button>
+  </div>
+
+  <input type="file" id="filepick" accept="image/*" style="display:none">
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+let CFG={}, pendingImg=null;
+
+function bar(msg,cls){ const b=$('#barMsg'); b.textContent=msg; b.className='msg '+(cls||''); }
+
+// nav
+$$('nav button').forEach(b=>b.onclick=()=>{
+  $$('nav button').forEach(x=>x.classList.toggle('active',x===b));
+  $$('.view').forEach(v=>v.classList.remove('on'));
+  $('#v-'+b.dataset.v).classList.add('on');
+  if(b.dataset.v==='users') loadUsers();
+  if(b.dataset.v==='content') loadTeam();
+});
+$('#logout').onclick=async()=>{ await fetch('/api/logout',{method:'POST'}); location.href='/'; };
+
+async function boot(){
+  const me=await (await fetch('/api/me')).json();
+  if(!me.email){ location.href='/'; return; }
+  $('#who').textContent=me.email;
+  CFG=await (await fetch('/api/config')).json();
+  $('#viewLive').href=CFG.live_url;
+  $('#siteInfo').textContent=CFG.live_url+' · '+(CFG.netlify?'Netlify connected':'Netlify not configured');
+  $('#siteState').textContent=CFG.netlify?'publishable':'preview only';
+  $('#siteState').className='pill '+(CFG.netlify?'pro':'');
+  if(!CFG.netlify){ $('#pubBar').disabled=true; $('#pubDash').disabled=true; }
+  loadOps();
+}
+
+async function loadOps(){
+  const d=await (await fetch('/api/ops/overview')).json();
+  if(!d.configured){
+    $('#opsBanner').style.display='block';
+    $('#opsBanner').textContent='Business metrics are hidden — the Supabase service_role key isn’t set on this server. Add it to see users, signups, and telemetry.';
+  }
+  const plans=d.plan_counts||{};
+  const kpis=[
+    ['Total users', d.total_users||0],
+    ['New this week', d.signups_7d||0],
+    ['Pro', (plans.pro||0)+(plans.studio||0)],
+    ['Events (100 recent)', (d.events||[]).length],
+  ];
+  $('#kpis').innerHTML=kpis.map(k=>`<div class="card kpi"><div class="n">${k[1]}</div><div class="l">${k[0]}</div></div>`).join('');
+  const ev=(d.events||[]).slice(0,8).map(e=>{
+    const pl=(e.props||{}).platform||''; const t=(e.created_at||'').slice(5,16).replace('T',' ');
+    return `<div class="evrow"><span>${esc(e.event)} <span class="muted">${esc(pl)}</span></span><span class="muted">${esc(t)}</span></div>`;
+  }).join('');
+  $('#events').innerHTML=ev||'<div class="muted" style="font-size:13px">No events yet.</div>';
+  window.__users=d.users||[];
+}
+
+async function loadTeam(){
+  const t=$('#team'); t.innerHTML='<div class="muted">Loading…</div>';
+  const d=await (await fetch('/api/site/team')).json();
+  const cards=d.cards||[];
+  if(!cards.length){ t.innerHTML='<div class="empty">No team section found on the About page.</div>'; return; }
+  t.innerHTML=cards.map((c,i)=>`
+    <div class="tc" data-i="${i}">
+      <div class="ph" data-act="img">
+        ${c.src?`<img src="${esc(mapSrc(c.src))}" alt="">`:''}
+        <div class="rep">Replace photo</div>
+      </div>
+      <div class="meta">
+        ${c.kind==='team'
+          ? `<input class="nm" value="${esc(c.name)}" data-cur="${esc(c.name)}" placeholder="Name">
+             <input class="rl role" value="${esc(c.role)}" data-cur="${esc(c.role)}" placeholder="Role">`
+          : `<div class="role">Founder / hero portrait</div>`}
+      </div>
+    </div>`).join('');
+  window.__team=cards;
+  t.querySelectorAll('.tc').forEach(el=>{
+    const i=+el.dataset.i, c=cards[i];
+    el.querySelector('[data-act="img"]').onclick=()=>pickImage(c);
+    el.querySelectorAll('input').forEach(inp=>{
+      inp.addEventListener('change',()=>saveText(inp.dataset.cur, inp.value, inp));
+    });
+  });
+}
+// built site is served from Netlify; preview thumbnails from the local project's site dir via live url
+function mapSrc(s){ if(/^https?:/.test(s)) return s; return CFG.live_url.replace(/\/$/,'')+s; }
+
+async function saveText(cur,val,inp){
+  if(val===cur) return;
+  bar('Saving…');
+  const r=await fetch('/api/site/text',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({current:cur,new:val})});
+  const d=await r.json();
+  if(r.ok){ inp.dataset.cur=val; bar('Saved. Publish to push it live.','ok'); }
+  else{ bar(d.error||'Save failed','danger'); inp.value=cur; }
+}
+
+function pickImage(c){ pendingImg=c; $('#filepick').click(); }
+$('#filepick').onchange=async(e)=>{
+  const f=e.target.files[0]; if(!f||!pendingImg) return;
+  bar('Uploading '+f.name+'…');
+  const b64=await toB64(f);
+  const r=await fetch('/api/site/image',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({orig_url:pendingImg.orig_url,filename:f.name,data_b64:b64})});
+  const d=await r.json();
+  if(r.ok) bar('Photo staged. Publish to push it live.','ok'); else bar(d.error||'Upload failed','danger');
+  e.target.value=''; pendingImg=null;
+};
+function toB64(f){ return new Promise(res=>{ const r=new FileReader();
+  r.onload=()=>res(r.result.split(',')[1]); r.readAsDataURL(f); }); }
+
+async function loadUsers(){
+  const c=$('#usersCard');
+  if(!CFG.service_role){ c.innerHTML='<div class="muted">Set the Supabase service_role key on the server to manage users.</div>'; return; }
+  const users=window.__users||[];
+  if(!users.length){ c.innerHTML='<div class="muted">No users yet.</div>'; return; }
+  c.innerHTML=`<table><thead><tr><th>Email</th><th>Joined</th><th>Last seen</th><th>Plan</th></tr></thead><tbody>${
+    users.map(u=>`<tr>
+      <td>${esc(u.email)}</td><td class="muted">${esc(u.created)}</td>
+      <td class="muted">${esc(u.last_sign_in||'—')}</td>
+      <td><select data-uid="${esc(u.id)}">
+        ${['free','pro','studio'].map(p=>`<option value="${p}" ${u.plan===p?'selected':''}>${p}</option>`).join('')}
+      </select></td></tr>`).join('')}</tbody></table>`;
+  c.querySelectorAll('select').forEach(s=>s.onchange=async()=>{
+    bar('Updating plan…');
+    const r=await fetch('/api/ops/plan',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({uid:s.dataset.uid,plan:s.value})});
+    bar(r.ok?'Plan updated.':'Plan update failed', r.ok?'ok':'danger');
+  });
+}
+
+async function doPublish(btn){
+  const btns=[$('#pubBar'),$('#pubDash')]; btns.forEach(b=>b&&(b.disabled=true));
+  bar('Building & publishing… this takes ~30s','warn');
+  try{
+    const r=await fetch('/api/publish',{method:'POST'});
+    const d=await r.json();
+    if(d.ok) bar('Published ✓  '+(d.message||CFG.live_url),'ok');
+    else bar('Publish failed at '+(d.stage||'?')+': '+(d.message||'see server log'),'danger');
+  }catch(_){ bar('Publish request failed','danger'); }
+  btns.forEach(b=>b&&(b.disabled=!CFG.netlify));
+}
+$('#pubBar').onclick=()=>doPublish(); $('#pubDash').onclick=()=>doPublish();
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+boot();
+</script>
+</body>
+</html>
