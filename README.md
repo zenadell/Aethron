@@ -64,6 +64,9 @@ on the page — can fill.
         ┌─────▼─────┐   machine checks: leftovers, budgets, dead refs, hide rules
         │  verify   │
         └─────┬─────┘
+        ┌─────▼─────┐   RUNTIME truth: loads every page in a real browser —
+        │   probe   │   blank pages, failed requests, console errors
+        └─────┬─────┘
         ┌─────▼─────┐   self-heal any edit that didn't land — deterministically
         │   heal    │
         └───────────┘
@@ -177,6 +180,7 @@ python3 forge.py fetch        # localize the runtime (chunks/CMS/icons)
 python3 forge.py inventory    # → copy_map.json (the AI fills this)
 python3 forge.py build        # apply to every layer, guarded
 python3 forge.py verify       # machine checks before you ship
+python3 forge.py probe        # runtime check in a headless browser
 python3 forge.py heal         # self-heal broken fills (deterministic)
 python3 forge.py localize     # optional: full CDN independence
 python3 forge.py logo "Name"  # SVG wordmark in the template's own font
@@ -196,9 +200,10 @@ is pure standard library.
     "command": "python3", "args": ["forge_mcp.py"] } } }
 ```
 
-23 tools: create (from URL or file), fetch, inventory, plan, paged content read,
+26 tools: create (from URL or file), fetch, inventory, plan, paged content read,
 guarded bulk writes, styles, per-slot image replacement, logo generation, localize,
-build, verify, **self-heal**, backend, preview, undo, and the design library.
+build, verify, **runtime probe**, **self-heal**, backend, preview, undo, and the
+design library.
 **The agent is the copy model** — no API keys; the guardrails enforce the physics on
 every call.
 

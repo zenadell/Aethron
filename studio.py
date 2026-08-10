@@ -81,7 +81,8 @@ PENDING = {}
 
 JOBS = {}       # job id -> {"done": bool, "ok": bool|None, "log": str}
 PREVIEWS = {}   # project -> (port, Popen)
-RUN_CMDS = {"fetch", "inventory", "build", "verify", "localize"}
+RUN_CMDS = {"fetch", "inventory", "build", "verify", "probe",
+            "localize"}
 
 
 # Set by desktop.py: brings the app window to the front. Google sign-in
@@ -2772,13 +2773,14 @@ async function createProject(){
 }
 
 const STEPS=[['fetch','1 Fetch'],['inventory','2 Inventory'],
-             ['build','3 Build'],['verify','4 Verify']];
+             ['build','3 Build'],['verify','4 Verify'],
+             ['probe','5 Runtime check']];
 function renderHeader(){
   $('ptitle').textContent=S.view==='library'?'Design library'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
   if(!S.cur){$('steps').innerHTML='';$('tabs').innerHTML='';return;}
   const done={fetch:S.info?.fetched,inventory:S.info?.inventoried,
-              build:S.info?.built,verify:false};
+              build:S.info?.built,verify:false,probe:false};
   const ready=S.info?.built;   // prepped at least once
   const busy=S.running||S.autoRunning;
   $('steps').className='steps'+(busy?' busy':'');
@@ -2873,7 +2875,7 @@ async function _runAll(){
 }
 async function runStep(cmd,extra){
   if(S.running)return;
-  if(S.autoRunning&&!['fetch','inventory','build','verify'].includes(cmd))return;
+  if(S.autoRunning&&!['fetch','inventory','build','verify','probe'].includes(cmd))return;
   try{
     const {job}=await api('/api/run',{project:S.cur,cmd,...(extra||{})});
     return await watchJob(job,cmd);

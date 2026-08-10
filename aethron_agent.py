@@ -305,6 +305,17 @@ def _t_capture(project, args):
     return _forge(project, "capture")[-MAX_TOOL_OUT:]
 
 
+def _t_probe(project, args):
+    """Runtime truth. `verify` reads files; this loads the built pages in
+    a real headless browser and reports what happens."""
+    argv = ["probe"]
+    if args.get("page"):
+        argv.append("--page=" + str(args["page"]))
+    if args.get("all"):
+        argv.append("--all")
+    return _forge(project, *argv)[-MAX_TOOL_OUT:]
+
+
 TOOLS = [
     Tool("status", "Overview of the project: platform, source, page count, "
          "how much of the copy map is filled, forbidden words, and the "
@@ -336,6 +347,18 @@ TOOLS = [
     Tool("verify", "Machine checks on the built site. THIS decides whether "
          "the work is done — not your own judgement.",
          {"type": "object", "properties": {}}, _t_verify),
+    Tool("probe", "Load the built pages in a real headless browser and "
+         "report what actually happens: blank or hydration-wiped pages, "
+         "every request the browser made that failed, console errors. "
+         "verify reads files — this runs the code. Use it after verify "
+         "is clean, and whenever the owner says the site 'looks broken' "
+         "but the files check out.",
+         {"type": "object", "properties": {
+             "page": {"type": "string",
+                      "description": "one page, e.g. index.html"},
+             "all": {"type": "boolean",
+                     "description": "probe every page (default: 6)"}}},
+         _t_probe),
     Tool("heal", "Deterministically repair edits that landed nowhere "
          "(whitespace/casing/typo/image-variant mismatches).",
          {"type": "object", "properties": {}}, _t_heal),
@@ -349,8 +372,10 @@ broken along the way.
 
 HARD RULES
 - You have no filesystem and no shell. The tools are your only actions.
-- You may never claim the job is done. `verify` decides. Keep working
-  until it is CLEAN, or until you can explain precisely what blocks you.
+- You may never claim the job is done. `verify` and `probe` decide.
+  Keep working until both are clean, or until you can explain precisely
+  what blocks you. If `probe` reports SKIPPED, say so — an unrun check
+  is not a passed check.
 - Never invent facts about the owner's brand. If the plan does not say
   something, keep the original text rather than making it up.
 - New text must never contain a backtick or ${ , and must respect
@@ -361,7 +386,27 @@ METHOD
 1. status  2. fix breakage first (missing assets -> capture -> build)
 3. fill copy honestly from the owner's plan  4. build  5. verify
 6. if verify still fails, heal, then address what remains.
+7. probe — the browser is the last word. Failed runtime requests mean
+   assets the CODE asks for (not the markup) are missing: capture,
+   rebuild, probe again.
 Prefer few, well-chosen edits over many speculative ones."""
+
+
+def _final_check(project: Path) -> dict:
+    """The verdict is never the agent's. Files must check out AND the
+    pages must actually run — with an unrunnable runtime check reported
+    as unproven, never as success."""
+    v = BY_NAME["verify"].run(project, {})
+    p = BY_NAME["probe"].run(project, {})
+    static_ok = "CLEAN" in v
+    runtime_skipped = "SKIPPED" in p
+    runtime_ok = "CLEAN at runtime" in p
+    return {"ok": static_ok and (runtime_ok or runtime_skipped),
+            "verify": v, "probe": p,
+            "runtime_verified": runtime_ok,
+            "warning": ("runtime UNVERIFIED — no browser available to the "
+                        "agent; the site may render blank")
+                       if static_ok and runtime_skipped else ""}
 
 
 class Agent:
@@ -393,12 +438,12 @@ class Agent:
                 self.on_event("thought", {"text": reply["text"][:500]})
                 transcript.append({"round": rnd, "say": reply["text"][:800]})
             if not reply["calls"]:
-                # no action proposed — settle it with the verifier
-                v = BY_NAME["verify"].run(project, {})
-                clean = "CLEAN" in v
-                return {"ok": clean, "rounds": rnd, "verify": v,
-                        "transcript": transcript,
-                        "note": "agent stopped acting; verdict from verify"}
+                # no action proposed — settle it with the checks
+                res = _final_check(project)
+                res.update(rounds=rnd, transcript=transcript,
+                           note="agent stopped acting; verdict from the "
+                                "deterministic checks")
+                return res
             msgs.append(reply.get("raw") or
                         {"role": "assistant", "content": reply["text"]})
             for call in reply["calls"]:
@@ -416,13 +461,17 @@ class Agent:
                             {"role": "user", "content": [
                                 {"type": "tool_result",
                                  "tool_use_id": call["id"], "content": out}]})
-                if call["name"] == "verify" and "CLEAN" in out:
-                    return {"ok": True, "rounds": rnd, "verify": out,
-                            "transcript": transcript}
-        v = BY_NAME["verify"].run(project, {})
-        return {"ok": "CLEAN" in v, "rounds": self.max_rounds, "verify": v,
-                "transcript": transcript,
-                "note": "round limit reached — remaining problems above"}
+                # Files being clean is NOT the finish line — the browser
+                # is. Only stop early when both checks agree.
+                if call["name"] in ("verify", "probe") and "CLEAN" in out:
+                    res = _final_check(project)
+                    if res["ok"]:
+                        res.update(rounds=rnd, transcript=transcript)
+                        return res
+        res = _final_check(project)
+        res.update(rounds=self.max_rounds, transcript=transcript,
+                   note="round limit reached — remaining problems above")
+        return res
 
 
 def main(argv):
@@ -451,9 +500,13 @@ def main(argv):
             print(f"    {data['out'][:200].splitlines()[0] if data['out'] else ''}")
 
     res = Agent(model, on_event=ev).run(project, goal)
-    print("\n" + ("DONE — verify CLEAN" if res.get("ok")
+    print("\n" + ("DONE — files clean and the pages run" if res.get("ok")
                   else "NOT CLEAN — honest report:"))
     print(res.get("verify") or res.get("error", ""))
+    if res.get("probe"):
+        print(res["probe"])
+    if res.get("warning"):
+        print("WARNING:", res["warning"])
     return 0 if res.get("ok") else 2
 
 

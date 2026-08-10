@@ -17,6 +17,12 @@ Commands (run inside a project dir, except init):
                         site server + AGENT_GUIDE.md for AI IDEs
   forge.py serve [port] dev server with Framer protocols (default 8777)
   forge.py verify       machine checks: leftovers, budgets, dead refs
+  forge.py probe        RUNTIME check: loads every page in a headless
+                        browser and reports what actually happens —
+                        blank/hydration-wiped pages, failed requests,
+                        console errors. Says SKIPPED (never PASS) when
+                        no browser is installed. [--all --offline
+                        --page=x.html --budget=ms]
   forge.py localize     download every CDN asset under brand-free names
   forge.py card         design fingerprint (palette/fonts/motion) ->
                         design_card.json — feeds the studio's library
@@ -2867,6 +2873,17 @@ or this platform's code. The system tells you exactly what happened:
    API / set_content) — adjust "old" to the printed closest candidate
    or shorten "new" — and rebuild. Never work around the pipeline.
 
+## WHEN THE SITE "LOOKS BROKEN" BUT THE CHECKS PASS
+`verify` reads files. It cannot see a page that ships every byte and
+still renders blank, or an asset the JAVASCRIPT asks for that was never
+downloaded (the markup never mentions it, so no file scan looks for it).
+Run `python3 forge.py probe` (MCP: the probe tool): it loads each built
+page in a headless browser and reports the post-JS text, every request
+that failed with its status, and console errors. Failed requests ->
+`forge.py capture` then rebuild. If it says SKIPPED, no browser was
+found — that means UNVERIFIED, not fine; say so rather than declaring
+the site healthy.
+
 ## Where YOUR code goes
 - backend/app.py -> "EXTEND HERE" section: add endpoints freely
   (forms, auth, dashboards, webhooks). The static/API serving above it
@@ -2880,6 +2897,13 @@ or this platform's code. The system tells you exactly what happened:
     python3 backend/app.py [port]   run site + content API (dev)
     python3 forge.py build          regenerate site/ from copy_map
     python3 forge.py verify         machine checks before shipping
+    python3 forge.py probe          RUNTIME check — loads the built
+                                    pages in a headless browser and
+                                    reports blank/hydration-wiped pages,
+                                    requests that failed, console errors.
+                                    verify reads files; this runs them.
+                                    Says SKIPPED (never PASS) with no
+                                    browser installed.
     python3 site/serve.py           serve the static site only
 
 Production note: app.py binds 127.0.0.1 and has NO auth — put it
@@ -2921,19 +2945,29 @@ def cmd_backend(_args):
 
 # ─────────────────────────── serve ───────────────────────────────────
 
-def cmd_serve(args):
-    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+def _site_handler(site: Path, platform: str, on_request=None, quiet=False):
+    """The request handler behind BOTH `serve` and `probe` — one
+    implementation of the serving protocols, so the probe measures the
+    same server the owner previews with.
+
+    on_request(path, status) turns the server into a network recorder:
+    every asset the browser actually asks for, with the status it got.
+    That is ground truth about runtime behaviour — no CDP, no deps."""
+    from http.server import SimpleHTTPRequestHandler
     import urllib.parse
-    root = Path.cwd()
-    platform = read_cfg(root).get("platform", "static")
-    port = int(args[0]) if args else 8777
-    site = root / "site"
-    if not site.exists():
-        die("no site/ — run build first")
 
     class H(SimpleHTTPRequestHandler):
         def __init__(self, *a, **kw):
             super().__init__(*a, directory=str(site), **kw)
+
+        def log_message(self, fmt, *a):
+            if not quiet:
+                super().log_message(fmt, *a)
+
+        def send_response(self, code, message=None):
+            if on_request is not None:
+                on_request(self.path, int(code))
+            super().send_response(code, message)
 
         def end_headers(self):
             # dev server: never let the browser cache a stale build
@@ -2994,8 +3028,347 @@ def cmd_serve(args):
                         return self.wfile.write(body)
             return super().do_GET()
 
+    return H
+
+
+def cmd_serve(args):
+    from http.server import ThreadingHTTPServer
+    root = Path.cwd()
+    platform = read_cfg(root).get("platform", "static")
+    port = int(args[0]) if args else 8777
+    site = root / "site"
+    if not site.exists():
+        die("no site/ — run build first")
+    H = _site_handler(site, platform)
     print(f"Serving site/ at http://localhost:{port}/  (Ctrl-C to stop)")
     ThreadingHTTPServer(("", port), H).serve_forever()
+
+
+# ─────────────────────────── probe ───────────────────────────────────
+# L1 perception, runtime half. `verify` reads FILES; a browser runs
+# CODE — and between the two sits every failure a file scan cannot see:
+# a page that ships every asset and still renders blank, a chunk that
+# throws on load, a hydration pass that wipes the body, an image whose
+# src is built by JS and never appears in the markup.
+#
+# NO DEPENDENCIES, THREE SIGNALS: we serve site/ ourselves (the very
+# handler `serve` uses), point a headless Chromium at each page, and
+# read (1) the post-JS DOM via --dump-dom, (2) the console via
+# --enable-logging=stderr, (3) OUR OWN request log — every URL the
+# browser asked for and the status we answered with. Signal 3 is the
+# one no screenshot gives you and no CDP client is needed for.
+#
+# THE HONESTY RULE: with no browser installed this reports SKIPPED,
+# never PASS. A check that could not run must never look like a check
+# that passed — that is precisely how a blank Next.js site once shipped
+# as "healthy".
+
+BROWSER_ENV = "AETHRON_BROWSER"
+BROWSER_CANDIDATES = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+)
+BROWSER_ON_PATH = ("google-chrome", "google-chrome-stable", "chromium",
+                   "chromium-browser", "chrome", "msedge", "brave-browser")
+
+# WHAT COUNTS AS A FAILURE. Only errors that mean something did not
+# LOAD or could not EXECUTE — those break the site no matter which
+# template you started from. Everything else (React #418/#422 hydration
+# recovery, Framer variant assertions, deprecation chatter) is reported
+# as a NOTE: the invariant says those are pre-existing export artifacts,
+# and a probe that fails a page which visibly renders 5,000 characters
+# teaches the agent to distrust it.
+CONSOLE_FATAL = (
+    "chunkloaderror", "failed to load resource", "syntaxerror",
+    "unexpected token", "unexpected end of input", "is not defined",
+    "is not a function", "cannot read properties", "net::err_",
+    "refused to execute", "refused to apply", "mime type",
+    "content security policy", "failed to fetch",
+    "error loading dynamically imported module",
+    "importing a module script failed", "failed to resolve module",
+)
+# Pure chatter — not even worth a note.
+CONSOLE_IGNORE = (
+    "download the react devtools", "[fast refresh]",
+    "was preloaded using link preload but not used",
+    "autofocus processing was blocked", "third-party cookie",
+    "favicon.ico",
+)
+
+
+def _find_browser() -> str:
+    """A Chromium-family binary, or "" — never a guess."""
+    import os
+    env = os.environ.get(BROWSER_ENV, "").strip()
+    if env.lower() in ("none", "off", "0"):
+        return ""            # explicit opt-out (and how tests force SKIPPED)
+    if env:
+        if Path(env).exists():
+            return env
+        print(f"NOTE {BROWSER_ENV}={env} does not exist — looking for a "
+              f"browser in the usual places")
+    for p in BROWSER_CANDIDATES:
+        if Path(p).exists():
+            return p
+    for name in BROWSER_ON_PATH:
+        found = shutil.which(name)
+        if found:
+            return found
+    return ""
+
+
+def _visible_text(html: str) -> str:
+    """What a reader would actually see — no script/style/svg payloads."""
+    t = re.sub(r"(?is)<(script|style|noscript|template|svg)\b.*?</\1\s*>",
+               " ", html)
+    t = re.sub(r"(?s)<!--.*?-->", " ", t)
+    t = re.sub(r"(?s)<[^>]+>", " ", t)
+    return re.sub(r"\s+", " ", html_mod.unescape(t)).strip()
+
+
+def _console_messages(log: str) -> list:
+    """[(message, source_url)] from Chrome's stderr, de-duplicated."""
+    out, seen = [], set()
+    for ln in log.splitlines():
+        if ":CONSOLE" not in ln:
+            continue
+        m = re.search(r"CONSOLE[^\]]*\]\s*(.*)", ln)
+        body = (m.group(1) if m else ln).strip()
+        src = ""
+        sm = re.search(r",\s*source:\s*(\S+)", body)
+        if sm:
+            src = sm.group(1)
+            body = body[:sm.start()]
+        body = body.strip().strip('"').strip()
+        if body and body not in seen:
+            seen.add(body)
+            out.append((body, src))
+    return out
+
+
+def _render_page(browser: str, url: str, budget_ms=8000, timeout=60,
+                 offline=False) -> dict:
+    """Load one page in headless Chromium. -> {dom, console, error}.
+
+    Chromium does not always exit after --dump-dom, so we read stdout
+    until the document is complete and then kill it — waiting for the
+    process would cost the full timeout on every page."""
+    import os as _os
+    import subprocess
+    import tempfile
+    import threading
+    tmp = tempfile.mkdtemp(prefix="forge-probe-")
+    errlog = Path(tmp) / "chrome.log"
+    cmd = [browser, "--headless=new", "--disable-gpu", "--no-first-run",
+           "--no-default-browser-check", "--disable-extensions",
+           "--disable-background-networking", "--mute-audio",
+           "--window-size=1440,2400", "--hide-scrollbars",
+           f"--user-data-dir={tmp}/profile",
+           f"--virtual-time-budget={budget_ms}",
+           "--enable-logging=stderr", "--log-level=0"]
+    if offline:
+        cmd.append("--host-resolver-rules=MAP * ~NOTFOUND, "
+                   "EXCLUDE 127.0.0.1")
+    cmd += ["--dump-dom", url]
+    chunks, done = [], threading.Event()
+    try:
+        with open(errlog, "wb") as ef:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=ef)
+
+            def pump():
+                try:
+                    while True:
+                        b = _os.read(proc.stdout.fileno(), 65536)
+                        if not b:
+                            return
+                        chunks.append(b)
+                        if b"</html>" in b:
+                            return
+                finally:
+                    done.set()
+
+            threading.Thread(target=pump, daemon=True).start()
+            finished = done.wait(timeout)
+            proc.kill()
+            proc.wait(timeout=10)
+        dom = b"".join(chunks).decode("utf-8", "ignore")
+        log = errlog.read_text(encoding="utf-8", errors="ignore")
+        return {"dom": dom, "console": _console_messages(log),
+                "error": "" if finished or dom else
+                         f"browser did not render within {timeout}s"}
+    except Exception as e:                                # pragma: no cover
+        return {"dom": "", "console": [], "error": f"{type(e).__name__}: {e}"}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def cmd_probe(args):
+    from http.server import ThreadingHTTPServer
+    import threading
+    root = Path.cwd()
+    cfg = read_cfg(root)
+    site = root / "site"
+    if not site.exists():
+        die("no site/ — run build first")
+    flags = [a for a in args if a.startswith("--")]
+    every = "--all" in flags
+    offline = "--offline" in flags
+    budget = next((int(a.split("=", 1)[1]) for a in flags
+                   if a.startswith("--budget=")), 8000)
+    want = next((a.split("=", 1)[1] for a in flags
+                 if a.startswith("--page=")), "")
+
+    pages = sorted(cfg.get("pages", []), key=lambda p: p != "index.html")
+    pages = [p for p in pages if (site / p).exists()]
+    if want:
+        pages = [p for p in pages if p == want or p == want + ".html"]
+        if not pages:
+            die(f"no such page in site/: {want}")
+    skipped = 0
+    if not every and len(pages) > 6:
+        skipped = len(pages) - 6
+        pages = pages[:6]
+    if not pages:
+        die("no built pages to probe")
+
+    requests, lock = [], threading.Lock()
+
+    def record(path, status):
+        with lock:
+            requests.append((path, status))
+
+    H = _site_handler(site, cfg.get("platform", "static"),
+                      on_request=record, quiet=True)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    browser = _find_browser()
+    print(f"probing {len(pages)} page(s) on http://127.0.0.1:{port}"
+          + (f"  (+{skipped} more — use --all)" if skipped else ""))
+    if browser:
+        print(f"browser: {browser}")
+    else:
+        print(f"browser: NONE FOUND — set {BROWSER_ENV}=/path/to/chrome")
+
+    results, fails, notes = [], 0, 0
+    try:
+        for page in pages:
+            with lock:
+                requests.clear()
+            ssr = _visible_text((site / page).read_text(encoding="utf-8",
+                                                        errors="ignore"))
+            r = {"page": page, "ssr_text": len(ssr)}
+            print(f"\n── {page}")
+            if not browser:
+                r["runtime"] = "skipped"
+                results.append(r)
+                continue
+            got = _render_page(browser, f"http://127.0.0.1:{port}/{page}",
+                               budget_ms=budget, offline=offline)
+            with lock:
+                reqs = list(requests)
+            dom_text = _visible_text(got["dom"])
+            bad = {}
+            for path, status in reqs:
+                if status >= 400:
+                    bad.setdefault(path.split("#")[0], status)
+            hard, soft = [], []
+            for msg, src in got["console"]:
+                low = msg.lower()
+                remote = bool(src) and "127.0.0.1" not in src
+                if any(k in low for k in CONSOLE_IGNORE):
+                    continue
+                if not any(k in low for k in CONSOLE_FATAL):
+                    soft.append(msg)
+                elif remote:
+                    # a third-party script we do not ship failing is the
+                    # owner's call, not a migration defect
+                    soft.append(f"{msg} [remote: {src[:60]}]")
+                else:
+                    hard.append(msg)
+            asked = list(dict.fromkeys(p for p, _ in reqs))
+            r.update(rendered_text=len(dom_text), requests=len(reqs),
+                     failed_requests=bad, requested=asked[:200],
+                     images=len(re.findall(r"<img\b", got["dom"])),
+                     console_errors=hard[:20], console_notes=soft[:10],
+                     runtime="ok" if got["dom"] else "failed",
+                     error=got["error"])
+
+            if got["error"] or not got["dom"]:
+                print(f"FAIL could not render: {got['error'] or 'empty DOM'}")
+                fails += 1
+                results.append(r)
+                continue
+
+            # 1. does it render at all?
+            if len(dom_text) < 120:
+                print(f"FAIL renders BLANK ({len(dom_text)} chars of text "
+                      f"after JS) — the page ships but shows nothing")
+                fails += 1
+            elif ssr and len(ssr) >= 400 and len(dom_text) < 0.4 * len(ssr):
+                print(f"FAIL content DISAPPEARS after JS: {len(ssr)} chars "
+                      f"in the HTML -> {len(dom_text)} rendered "
+                      f"(hydration is wiping the page)")
+                fails += 1
+            else:
+                print(f"PASS renders {len(dom_text)} chars of text, "
+                      f"{r['images']} image(s)")
+
+            # 2. what did the browser actually fail to fetch?
+            if bad:
+                print(f"FAIL {len(bad)} request(s) failed at runtime "
+                      f"(of {len(reqs)}):")
+                for path, status in list(bad.items())[:8]:
+                    print(f"       {status}  {path[:96]}")
+                print("     -> `forge.py capture` downloads everything the "
+                      "pages reference, then rebuild")
+                fails += 1
+            else:
+                print(f"PASS all {len(reqs)} runtime request(s) served")
+
+            # 3. did the code throw?
+            if hard:
+                print(f"FAIL {len(hard)} console error(s) — code or assets "
+                      f"failed to load:")
+                for m in hard[:5]:
+                    print(f"       {m[:110]}")
+                fails += 1
+            else:
+                print("PASS nothing failed to load or execute")
+            if soft:
+                print(f"NOTE {len(soft)} other console message(s) — usually "
+                      f"pre-existing export artifacts; compare with the "
+                      f"untouched original before chasing them:")
+                for m in soft[:3]:
+                    print(f"       {m[:100]}")
+                notes += 1
+            results.append(r)
+    finally:
+        srv.shutdown()
+
+    report = {"pages": results, "browser": browser or None,
+              "probed": len(pages), "not_probed": skipped,
+              "fails": fails, "offline": offline}
+    (site / ".forge-probe.json").write_text(
+        json.dumps(report, indent=1), encoding="utf-8")
+
+    if not browser:
+        print("\nVERDICT: SKIPPED — no Chromium-family browser found, so "
+              "the site is UNVERIFIED at runtime (not proven good).\n"
+              f"  Install Chrome, or set {BROWSER_ENV} to a Chromium "
+              "binary, and run `forge.py probe` again.")
+        sys.exit(0)
+    print("\nVERDICT:", f"{fails} runtime problem(s) — the built site does "
+          f"not behave correctly" if fails else
+          "CLEAN at runtime — pages render, every request served, no "
+          "console errors")
+    sys.exit(1 if fails else 0)
 
 
 # ─────────────────────────── verify ──────────────────────────────────
@@ -3174,7 +3547,10 @@ def cmd_verify(_args):
                   "the element in edit mode)")
             fails += 1
 
-    print("\nVERDICT:", "CLEAN — open it in a browser and run the human checklist"
+    # These are FILE checks. They cannot see a page that ships every
+    # byte and still renders blank — `probe` runs the code.
+    print("\nVERDICT:", "CLEAN on disk — now run `forge.py probe` to see "
+          "what the browser actually does with it"
           if not fails else f"{fails} problem(s) — fix and rebuild")
     sys.exit(1 if fails else 0)
 
@@ -3325,7 +3701,7 @@ def cmd_card(_args):
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "capture": cmd_capture,
-            "serve": cmd_serve,
+            "serve": cmd_serve, "probe": cmd_probe,
             "verify": cmd_verify, "card": cmd_card, "heal": cmd_heal}
 
 if __name__ == "__main__":

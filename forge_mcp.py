@@ -154,6 +154,16 @@ def t_pipeline(cmd):
     return h
 
 
+def t_probe(a):
+    argv = ["probe"]
+    if a.get("page"):
+        argv.append("--page=" + str(a["page"]))
+    if a.get("all"):
+        argv.append("--all")
+    ok, log = run_forge(str(a["project"]), *argv)
+    return ("OK" if ok else "PROBLEMS") + "\n" + log
+
+
 def t_get_plan(a):
     f = pdir(str(a["project"])) / "project_plan.md"
     return f.read_text(encoding="utf-8") if f.exists() else "(no plan yet)"
@@ -613,6 +623,18 @@ TOOLS = [
      "telemetry refs, CMS size locks, local images. Run before shipping; "
      "FAILED output tells you exactly what to fix.",
      S(P, ["project"]), t_pipeline("verify")),
+    ("probe", "RUNTIME check — the one thing file scans cannot do: "
+     "loads every built page in a headless browser and reports what "
+     "actually happens. Catches pages that ship every asset and still "
+     "render blank, content wiped by hydration, requests the CODE makes "
+     "that 404 (not just the ones in the markup), and console errors. "
+     "Run it after verify, and always when the owner says the site "
+     "looks broken but the checks pass. If no browser is installed it "
+     "reports SKIPPED — that means UNVERIFIED, not fine.",
+     S({**P, "page": {"type": "string", "description": "one page, e.g. "
+        "index.html (default: home + 5 more)"},
+        "all": {"type": "boolean", "description": "probe every page"}},
+       ["project"]), t_probe),
     ("generate_backend", "Generate backend/app.py (content API + site "
      "server; copy_map is the database) + AGENT_GUIDE.md for handoff.",
      S(P, ["project"]), t_pipeline("backend")),
