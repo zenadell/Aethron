@@ -136,7 +136,7 @@ def evidence_text(ev: dict, heal_log: str = "") -> str:
 
 
 def heal(project, rounds=2, use_agent=True, on_event=None, cfg=None,
-         home=None) -> dict:
+         home=None, live=False) -> dict:
     """-> {ok, stage, attempts, evidence, log, actions}"""
     project = Path(project).resolve()
     if not (project / "forge.json").exists():
@@ -169,8 +169,18 @@ def heal(project, rounds=2, use_agent=True, on_event=None, cfg=None,
         return {"ok": False, "stage": "deterministic", "attempts": 0,
                 "evidence": ev, "log": "\n".join(log), "actions": []}
 
-    # 2. the agent gets the evidence and the guarded tools
+    # 2. the agent gets the evidence and the guarded tools.
+    # Spending the owner's balance is never a side effect: a live run
+    # has to be asked for, and it runs under the bridge's spend caps.
     import aethron_code as code
+    if cfg is None:
+        import aethron_brain as brain
+        try:
+            brain.require_live(live, f"AI healing {project.name}")
+        except SystemExit as e:
+            note("error", str(e))
+            return {"ok": False, "stage": "needs-live", "evidence": ev,
+                    "log": "\n".join(log), "actions": [], "error": str(e)}
     try:
         import aethron_agent
         aethron_agent._snapshot(project, "before-agent-heal")
@@ -250,7 +260,8 @@ def main(argv):
         prefix = {"tool": "   ", "say": "   ", "error": "!! "}.get(kind, "── ")
         print(prefix + data["text"])
 
-    res = heal(project, rounds=rounds, use_agent=use_agent, on_event=show)
+    res = heal(project, rounds=rounds, use_agent=use_agent, on_event=show,
+               live="--live" in argv)
     print()
     if res.get("ok"):
         print(f"HEALED ({res['stage']}) — verify and probe are clean")

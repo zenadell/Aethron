@@ -457,6 +457,22 @@ class CodeSession:
                 self._emit({"type": "log", "text": line[:500]})
 
     def _pump_stdout(self):
+        """Always ends with an `exit` event. If this thread dies quietly
+        (a decode error, a closed pipe) nothing else ever arrives and a
+        caller waiting on the queue hangs for its FULL timeout — an hour
+        of silence that looks exactly like a slow model."""
+        try:
+            self._read_stdout()
+        except Exception as e:
+            self._emit({"type": "log", "text": f"stream error: {e}"})
+        finally:
+            try:
+                code = self.proc.wait(timeout=10)
+            except Exception:
+                code = -1
+            self._emit({"type": "exit", "code": code})
+
+    def _read_stdout(self):
         for line in self.proc.stdout:
             line = line.strip()
             if not line:
@@ -468,8 +484,6 @@ class CodeSession:
                 continue
             for ev in self._normalize(d):
                 self._emit(ev)
-        code = self.proc.wait()
-        self._emit({"type": "exit", "code": code})
 
     def _normalize(self, d) -> list:
         """CLI wire format -> Aethron events. One place to absorb any
@@ -575,10 +589,16 @@ def mock_provider(port=0, script=None):
     list of turns, each a list of content blocks: {"text": ...} or
     {"tool": name, "input": {...}}."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    turns = list(script or [[{"text": "ok"}]])
+    # `script` is either a list of turns or a callable that reads the
+    # request and answers it (the honest kind of mock: it responds to
+    # what was actually asked, so it cannot drift out of step).
+    dynamic = script if callable(script) else None
+    turns = [] if dynamic else list(script or [[{"text": "ok"}]])
     state = {"n": 0}
 
     def pick(body: dict):
+        if dynamic is not None:
+            return dynamic(body) or [{"text": "ok"}]
         """Which scripted turn answers THIS request?
 
         Content-driven, not a counter: the CLI also makes auxiliary

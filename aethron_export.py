@@ -74,7 +74,7 @@ def scaffold(kind: str, dest: Path, name: str):
             "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx",
                         ".next/types/**/*.ts"],
             "exclude": ["node_modules"]}, indent=2))
-        _write(dest / "app/layout.tsx",
+        _seed(dest / "app/layout.tsx",
                "import type { Metadata } from 'next';\n"
                "import './globals.css';\n\n"
                "export const metadata: Metadata = { title: '"
@@ -83,10 +83,10 @@ def scaffold(kind: str, dest: Path, name: str):
                "{ children }: { children: React.ReactNode }) {\n"
                "  return (<html lang=\"en\"><body>{children}</body></html>);\n"
                "}\n")
-        _write(dest / "app/globals.css",
+        _seed(dest / "app/globals.css",
                "*,*::before,*::after{box-sizing:border-box}\n"
                "body{margin:0}\n")
-        _write(dest / "app/page.tsx",
+        _seed(dest / "app/page.tsx",
                "export default function Home() {\n"
                "  return <main>replace me with the ported home page</main>;\n"
                "}\n")
@@ -103,7 +103,7 @@ def scaffold(kind: str, dest: Path, name: str):
                "export default defineConfig({ build: { format: 'file' } });\n")
         _write(dest / "tsconfig.json",
                json.dumps({"extends": "astro/tsconfigs/strict"}, indent=2))
-        _write(dest / "src/pages/index.astro",
+        _seed(dest / "src/pages/index.astro",
                "---\n---\n<html lang=\"en\"><head><meta charset=\"utf-8\" />"
                "<title>" + name + "</title></head>\n"
                "<body><main>replace me with the ported home page</main>"
@@ -131,29 +131,38 @@ def scaffold(kind: str, dest: Path, name: str):
                             "strict": True, "noEmit": True,
                             "isolatedModules": True},
         "include": ["src"]}, indent=2))
-    _write(dest / "index.html",
+    _seed(dest / "index.html",
            "<!doctype html><html lang=\"en\"><head><meta charset=\"UTF-8\" />"
            "<meta name=\"viewport\" content=\"width=device-width,"
            "initial-scale=1\" /><title>" + name + "</title></head>"
            "<body><div id=\"root\"></div>"
            "<script type=\"module\" src=\"/src/main.tsx\"></script>"
            "</body></html>\n")
-    _write(dest / "src/main.tsx",
+    _seed(dest / "src/main.tsx",
            "import { StrictMode } from 'react';\n"
            "import { createRoot } from 'react-dom/client';\n"
            "import App from './App';\n"
            "createRoot(document.getElementById('root')!).render("
            "<StrictMode><App /></StrictMode>);\n")
-    _write(dest / "src/App.tsx",
+    _seed(dest / "src/App.tsx",
            "export default function App() {\n"
            "  return <main>replace me with the ported home page</main>;\n"
            "}\n")
     return {"out": "dist", "build": ["run", "build"]}
 
 
-def _write(p: Path, text: str):
+def _write(p: Path, text: str, overwrite=True):
     p.parent.mkdir(parents=True, exist_ok=True)
+    if p.exists() and not overwrite:
+        return
     p.write_text(text, encoding="utf-8")
+
+
+def _seed(p: Path, text: str):
+    """Scaffold a starting file — but NEVER over an existing one. Re-running
+    the exporter used to overwrite the page the agent had already written,
+    silently throwing away a round's work."""
+    _write(p, text, overwrite=False)
 
 
 # ─────────────────── the source of truth for the port ────────────────
@@ -334,7 +343,95 @@ STRUCTURE = {"next": "app/ (App Router: app/page.tsx and components/)",
              "vite": "src/ (App.tsx and src/components/)"}
 
 
+
+# ─────────────────── bounded work, not one giant turn ────────────────
+# The first live run asked for a whole page in one turn: the model spent
+# seventeen minutes re-reading and grepping a 669KB DOM and produced one
+# file. Batching fixes both halves of that — each turn has a small,
+# checkable target, and Aethron (not the model) assembles the page, so
+# no turn has to hold the whole thing in its head.
+
+def split_outline(outline: str, per_batch=8) -> list:
+    """Cut the page outline into batches at heading boundaries."""
+    lines = outline.splitlines()
+    starts = [i for i, l in enumerate(lines) if l.startswith("#")] or [0]
+    groups, cur = [], []
+    for n, i in enumerate(starts):
+        end = starts[n + 1] if n + 1 < len(starts) else len(lines)
+        cur.append("\n".join(lines[i:end]))
+        if len(cur) >= per_batch:
+            groups.append("\n".join(cur))
+            cur = []
+    if cur:
+        groups.append("\n".join(cur))
+    head = "\n".join(lines[:starts[0]])
+    if head.strip() and groups:
+        groups[0] = head + "\n" + groups[0]
+    return groups
+
+
+SECTION_PROMPT = """Write ONE file: `{path}`
+
+It renders this slice of the page, in this order, with this exact copy:
+
+{slice}
+
+RULES
+- {lang}
+- the copy above is the real text: use it verbatim, never summarise or
+  invent
+- images: use the src exactly as given
+- self-contained styling (inline style objects or a co-located CSS
+  module); the design should resemble a modern marketing site — real
+  spacing, hierarchy and colour, not a bare list
+- export {export_line}
+- write the file and stop. Do not read other files, do not run anything,
+  do not explain.
+"""
+
+LANGS = {"next": "TypeScript React (a client-free server component)",
+         "vite": "TypeScript React",
+         "astro": "an Astro component (.astro)"}
+EXPORTS = {"next": "it as the default export",
+           "vite": "it as the default export",
+           "astro": "nothing — .astro files need no export statement"}
+
+
+def assemble(kind: str, dest: Path, count: int, title: str):
+    """Aethron writes the page that imports the sections, in order. The
+    model never has to hold the whole page — and cannot break the
+    assembly by editing one section."""
+    names = [f"Section{n:02d}" for n in range(1, count + 1)]
+    if kind == "astro":
+        imports = "\n".join(
+            f"import {n} from '../components/{n}.astro';" for n in names)
+        body = "\n".join(f"  <{n} />" for n in names)
+        _write(dest / "src/pages/index.astro",
+               f"---\n{imports}\n---\n<html lang=\"en\"><head>"
+               f"<meta charset=\"utf-8\" />"
+               f"<title>{title}</title></head>\n<body>\n{body}\n"
+               f"</body></html>\n")
+        return
+    imports = "\n".join(
+        f"import {n} from '../components/{n}';" for n in names)
+    body = "\n".join(f"      <{n} />" for n in names)
+    target = "app/page.tsx" if kind == "next" else "src/App.tsx"
+    if kind == "vite":
+        imports = imports.replace("../components/", "./components/")
+    _write(dest / target,
+           f"{imports}\n\nexport default function Page() {{\n"
+           f"  return (\n    <main>\n{body}\n    </main>\n  );\n}}\n")
+
 # ─────────────────────────── the loop ────────────────────────────────
+
+def _stopped() -> bool:
+    """Has the spend guard cut this run off?"""
+    try:
+        import aethron_brain as brain
+        return bool(brain.spend().get("stopped"))
+    except Exception:
+        return False
+
 
 def npm(args, cwd, timeout=1200):
     r = subprocess.run(["npm", *args], cwd=cwd, capture_output=True,
@@ -356,8 +453,11 @@ def referee(project: Path, out_dir: Path, page="index.html"):
 
 
 def export(project, framework="next", rounds=3, pages=None, on_event=None,
-           cfg=None, home=None, install=True):
+           cfg=None, home=None, install=True, live=False):
     project = Path(project).resolve()
+    if cfg is None:                       # a test harness passes its own
+        import aethron_brain as brain
+        brain.require_live(live, f"porting {project.name} to {framework}")
     if framework not in FRAMEWORKS:
         raise SystemExit(f"--framework must be one of {FRAMEWORKS}")
     if not (project / "site").is_dir():
@@ -384,50 +484,124 @@ def export(project, framework="next", rounds=3, pages=None, on_event=None,
             return {"ok": False, "stage": "install", "log": log}
 
     import aethron_code as code
-    prompt = PORT_PROMPT.format(
-        framework=framework, public=public, structure=STRUCTURE[framework],
-        pages="\n".join(f"- {s['page']}: outline {s['outline']} "
-                        f"({s['outline_chars']} chars) · full DOM {s['file']} "
-                        f"· {len(s['headings'])} headings, "
-                        f"{s['chars']} chars of text"
-                        for s in src))
-    feedback = ""
-    history = []
-    for rnd in range(1, rounds + 1):
-        say("stage", f"agent round {rnd}/{rounds}")
+    outline_file = dest / src[0]["outline"]
+    batches = split_outline(outline_file.read_text(encoding="utf-8"))
+    ext = ".astro" if framework == "astro" else ".tsx"
+    say("stage", f"{len(batches)} section batch(es) to write")
+
+    # ── 1. one bounded turn per batch. The agent may ONLY write: no
+    #      reading, no grepping, no shell — that is what turned a
+    #      seventeen-minute turn into a one-minute one.
+    history, written = [], 0
+    for i, slice_text in enumerate(batches, 1):
+        name = f"Section{i:02d}"
+        rel = (f"src/components/{name}{ext}" if framework != "next"
+               else f"components/{name}{ext}")
+        say("stage", f"section {i}/{len(batches)} -> {rel}")
         t0 = time.time()
-        session_cfg = {"disallowed_tools": ["Bash"],
-                       "aethron_tools": False,
-                       "permission_mode": "acceptEdits",
-                       **(cfg or {})}
-        res = code.run_once(dest, prompt + feedback, cfg=session_cfg,
-                            home=home, timeout=3600,
-                            on_event=lambda e: _stream(e, say))
-        history.append({"round": rnd, "tools": res.get("tools", []),
+        res = code.run_once(dest, SECTION_PROMPT.format(
+            path=rel, slice=slice_text[:6000], lang=LANGS[framework],
+            export_line=EXPORTS[framework]),
+            cfg={"allowed_tools": ["Write"], "disallowed_tools": ["Bash"],
+                 "aethron_tools": False, "permission_mode": "acceptEdits",
+                 **(cfg or {})},
+            home=home, timeout=900,
+            on_event=lambda e: _stream(e, say))
+        ok_file = (dest / rel).exists()
+        written += bool(ok_file)
+        history.append({"section": i, "file": rel, "written": ok_file,
                         "cost": res.get("cost_usd", 0),
                         "seconds": round(time.time() - t0)})
-        say("stage", "building the port…")
+        say("section", f"{name}: {'written' if ok_file else 'MISSING'} "
+                       f"({round(time.time() - t0)}s, "
+                       f"${res.get('cost_usd', 0):.3f})")
+        if _stopped():
+            say("error", "spend guard stopped the run")
+            break
+
+    if not written:
+        return {"ok": False, "stage": "no-sections", "dir": str(dest),
+                "history": history,
+                "verdict": "the agent wrote no section files"}
+
+    # ── 2. Aethron assembles the page. The model never holds it whole.
+    assemble(framework, dest, written, cfgj.get("name", "site"))
+    say("stage", f"assembled {written} section(s) into the page")
+
+    # ── 3. build, with at most one repair turn — a port that cannot
+    #      compile after one fix is a report, not another spend.
+    for attempt in (1, 2):
         ok, log = npm(meta["build"], dest)
-        if not ok:
-            say("error", f"build failed (round {rnd})")
-            feedback = ("\n\nYOUR LAST ATTEMPT DID NOT BUILD. Fix these "
-                        "errors:\n" + log[-3000:])
-            continue
-        out_dir = dest / meta["out"]
-        say("stage", f"grading against the original ({out_dir.name}/)…")
-        passed, verdict = referee(project, out_dir, pages[0])
-        say("referee", verdict)
-        if passed:
-            say("done", f"PORT ACCEPTED after round {rnd}")
-            return {"ok": True, "stage": f"round-{rnd}", "verdict": verdict,
-                    "dir": str(dest), "out": str(out_dir),
-                    "history": history}
-        feedback = ("\n\nYOUR LAST ATTEMPT BUILT BUT DID NOT MATCH THE "
-                    "ORIGINAL:\n" + verdict + "\nFix exactly that: add the "
-                    "missing content, keep the wording identical.")
+        if ok:
+            break
+        say("error", f"build failed (attempt {attempt})")
+        if attempt == 2 or _stopped():
+            return {"ok": False, "stage": "build-failed", "dir": str(dest),
+                    "history": history, "verdict": log[-1200:]}
+        code.run_once(dest, "The build failed. Fix ONLY the files named in "
+                            "these errors, then stop:\n\n" + log[-3000:],
+                      cfg={"disallowed_tools": ["Bash"],
+                           "aethron_tools": False,
+                           "permission_mode": "acceptEdits", **(cfg or {})},
+                      home=home, timeout=900,
+                      on_event=lambda e: _stream(e, say))
+
+    out_dir = dest / meta["out"]
+    say("stage", f"grading against the original ({out_dir.name}/)…")
+    passed, verdict = referee(project, out_dir, pages[0])
+    say("referee", verdict)
+    if passed:
+        say("done", "PORT ACCEPTED")
+        return {"ok": True, "stage": "graded", "verdict": verdict,
+                "dir": str(dest), "out": str(out_dir), "history": history}
+
+    # ── 4. one gap-filling turn against the referee's own complaint
+    if rounds > 1 and not _stopped():
+        say("stage", "one repair round against the referee's findings")
+        code.run_once(dest, "Your port builds but does not match the "
+                            "original:\n\n" + verdict +
+                            "\n\nThe missing content is in "
+                            f"`{src[0]['outline']}`. Add it to the existing "
+                            "section components (or add one more section "
+                            "file and it will be picked up). Write files "
+                            "only, then stop.",
+                      cfg={"disallowed_tools": ["Bash"],
+                           "aethron_tools": False,
+                           "permission_mode": "acceptEdits", **(cfg or {})},
+                      home=home, timeout=900,
+                      on_event=lambda e: _stream(e, say))
+        extra = sorted((dest / ("components" if framework == "next"
+                                else "src/components")).glob(f"Section*{ext}"))
+        if len(extra) > written:
+            assemble(framework, dest, len(extra), cfgj.get("name", "site"))
+            written = len(extra)
+        ok, log = npm(meta["build"], dest)
+        if ok:
+            passed, verdict = referee(project, out_dir, pages[0])
+            say("referee", verdict)
+            if passed:
+                say("done", "PORT ACCEPTED after the repair round")
+                return {"ok": True, "stage": "repaired", "verdict": verdict,
+                        "dir": str(dest), "out": str(out_dir),
+                        "history": history}
+
     say("stuck", "the port does not match the original yet — not accepted")
     return {"ok": False, "stage": "not-accepted", "verdict": feedback[-1500:],
             "dir": str(dest), "history": history}
+
+
+def _spend_line():
+    try:
+        import aethron_brain as brain
+        u = brain.spend()
+        if u.get("requests"):
+            return (f"spent this run: {u['requests']} requests, "
+                    f"{u['input'] + u['output']:,} tokens, "
+                    f"~${u['usd']:.2f}" + (f" — STOPPED: {u['stopped']}"
+                                           if u.get("stopped") else ""))
+    except Exception:
+        pass
+    return ""
 
 
 def _stream(e, say):
@@ -454,8 +628,12 @@ def main(argv):
     if "--pages" in argv:
         pages = argv[argv.index("--pages") + 1].split(",")
     res = export(project, fw, rounds, pages,
-                 install="--no-install" not in argv)
+                 install="--no-install" not in argv,
+                 live="--live" in argv)
     print()
+    line = _spend_line()
+    if line:
+        print(line)
     print("ACCEPTED:" if res.get("ok") else "NOT ACCEPTED:",
           res.get("verdict", res.get("stage")))
     if res.get("history"):

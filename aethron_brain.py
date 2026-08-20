@@ -70,7 +70,12 @@ PROVIDERS = {
 }
 
 DEFAULT = {"provider": "deepseek", "api_key": "", "model": "",
-           "base_url": "", "wire": ""}
+           "base_url": "", "wire": "",
+           # Spend guards. An agent that loops is an agent that spends,
+           # so these are ON by default and deliberately low: a single
+           # run that needs more should say so out loud.
+           "budget_requests": 200, "budget_tokens": 2_000_000,
+           "budget_usd": 2.0}
 
 
 # ────────────────────────── settings ─────────────────────────────────
@@ -200,6 +205,11 @@ def anthropic_endpoint(cfg: dict = None) -> dict:
         if _BRIDGE["sig"] != sig:
             if _BRIDGE["srv"]:
                 _BRIDGE["srv"].shutdown()
+            cfg_all = {**load(), **(cfg or {})}
+            aethron_bridge.set_limits(
+                requests=cfg_all.get("budget_requests"),
+                tokens=cfg_all.get("budget_tokens"))
+            aethron_bridge.reset_usage()
             srv, url = aethron_bridge.start(
                 aethron_bridge.BridgeConfig(r["base"], r["key"], r["model"]))
             _BRIDGE.update(srv=srv, url=url, sig=sig)
@@ -207,6 +217,38 @@ def anthropic_endpoint(cfg: dict = None) -> dict:
             "model": r["model"],
             "why": f"{r['label']} via Aethron's translator "
                    f"(one key for design and code)"}
+
+
+def spend() -> dict:
+    """What this process has spent through the bridge so far."""
+    try:
+        import aethron_bridge
+        return aethron_bridge.usage_report()
+    except Exception:
+        return {}
+
+
+def is_paid() -> bool:
+    """True when the configured provider charges money. Local models and
+    an unconfigured setup are free — everything else is the owner's
+    balance."""
+    r = resolve()
+    return bool(r["ready"] and r["key"] and not r["local"])
+
+
+def require_live(live: bool, what="this run"):
+    """Refuse to spend the owner's balance unless asked to, by name."""
+    if not is_paid() or live:
+        return
+    r = resolve()
+    raise SystemExit(
+        f"REFUSED: {what} would spend real money ({r['label']} · "
+        f"{r['model']}).\n"
+        f"  Aethron does not touch a paid key unless you ask for it: "
+        f"re-run with --live.\n"
+        f"  Caps for a live run: {load().get('budget_requests')} requests / "
+        f"{load().get('budget_tokens'):,} tokens (change them in the AI "
+        f"settings).")
 
 
 def shutdown_bridge():

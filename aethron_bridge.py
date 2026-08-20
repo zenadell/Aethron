@@ -65,6 +65,91 @@ def _recall(msg: dict):
     return None
 
 
+
+# ─────────────────────── THE SPEND GUARD ─────────────────────────────
+# Every request to every provider passes through this file, so this is
+# the one place that can make runaway spend impossible. It exists
+# because it did not: an agent loop plus CLI retries burned real money
+# in an afternoon while a hung run looked like it was "still working".
+#
+# Three independent stops, all cheap:
+#   1. a request cap      — agents loop; loops are requests
+#   2. a token cap        — one huge context can cost more than many
+#                           small ones
+#   3. a repeat detector  — the same request three times in a row is a
+#                           stuck agent, not progress
+# Exceeding any of them returns a plain Anthropic error, which the CLI
+# surfaces and the session ends. Nothing silently keeps spending.
+
+# USD per 1M tokens (input, output). Estimates for reporting only —
+# the caps that actually stop things are requests and tokens.
+PRICES = {
+    "deepseek-v4-pro": (0.55, 2.19), "deepseek-v4-flash": (0.07, 0.28),
+    "deepseek-chat": (0.27, 1.10), "deepseek-reasoner": (0.55, 2.19),
+    "gemini-2.5-flash": (0.30, 2.50), "gemini-2.5-pro": (1.25, 10.0),
+    "gpt-5": (1.25, 10.0), "gpt-5-mini": (0.25, 2.0),
+}
+
+LIMITS = {"requests": 200, "tokens": 2_000_000, "repeats": 3}
+USED = {"requests": 0, "input": 0, "output": 0, "usd": 0.0,
+        "last_hash": "", "repeats": 0, "stopped": ""}
+
+
+def set_limits(requests=None, tokens=None, repeats=None):
+    for k, v in (("requests", requests), ("tokens", tokens),
+                 ("repeats", repeats)):
+        if v:
+            LIMITS[k] = int(v)
+
+
+def reset_usage():
+    USED.update(requests=0, input=0, output=0, usd=0.0, last_hash="",
+                repeats=0, stopped="")
+
+
+def usage_report() -> dict:
+    return {**USED, "limits": dict(LIMITS)}
+
+
+def _account(model: str, inp: int, out: int):
+    USED["input"] += inp
+    USED["output"] += out
+    price = PRICES.get((model or "").split("/")[-1])
+    if price:
+        USED["usd"] += (inp * price[0] + out * price[1]) / 1_000_000
+
+
+def _budget_check(body: dict) -> str:
+    """-> "" when it may proceed, else the reason it must not."""
+    if USED["stopped"]:
+        return USED["stopped"]
+    if USED["requests"] >= LIMITS["requests"]:
+        USED["stopped"] = (f"Aethron spend guard: {USED['requests']} requests "
+                           f"is the limit for this run "
+                           f"(~${USED['usd']:.2f} spent, "
+                           f"{USED['input'] + USED['output']:,} tokens). "
+                           f"Raise it deliberately if this run is worth it.")
+        return USED["stopped"]
+    total = USED["input"] + USED["output"]
+    if total >= LIMITS["tokens"]:
+        USED["stopped"] = (f"Aethron spend guard: {total:,} tokens is the "
+                           f"limit for this run (~${USED['usd']:.2f}).")
+        return USED["stopped"]
+    # a stuck agent sends the same thing over and over
+    tail = json.dumps((body.get("messages") or [])[-2:], sort_keys=True)[-4000:]
+    h = str(hash(tail))
+    if h == USED["last_hash"]:
+        USED["repeats"] += 1
+        if USED["repeats"] >= LIMITS["repeats"]:
+            USED["stopped"] = (f"Aethron spend guard: the same request "
+                               f"{USED['repeats']} times in a row — the agent "
+                               f"is looping, not working. Stopped.")
+            return USED["stopped"]
+    else:
+        USED["last_hash"], USED["repeats"] = h, 0
+    USED["requests"] += 1
+    return ""
+
 # ─────────────────── Anthropic  ->  OpenAI  (request) ────────────────
 
 def _text_of(content) -> str:
@@ -278,6 +363,8 @@ def from_openai_message(data: dict, model: str) -> dict:
         content.append({"type": "tool_use", "id": tc.get("id", ""),
                         "name": fn.get("name", ""), "input": args})
     u = data.get("usage") or {}
+    _account(model or data.get("model", ""), u.get("prompt_tokens", 0),
+             u.get("completion_tokens", 0))
     return {"id": data.get("id", "msg_bridge"), "type": "message",
             "role": "assistant", "model": model or data.get("model", ""),
             "content": content or [{"type": "text", "text": ""}],
@@ -340,7 +427,8 @@ def _handler(cfg: BridgeConfig, log=None):
         def do_GET(self):
             if self.route.startswith("/health"):
                 return self._say(200, {"ok": True, "upstream": cfg.base_url,
-                                       "model": cfg.model})
+                                       "model": cfg.model,
+                                       "usage": usage_report()})
             self._error(404, "not found")
 
         def do_POST(self):
@@ -356,6 +444,9 @@ def _handler(cfg: BridgeConfig, log=None):
                 body = json.loads(raw or b"{}")
             except ValueError:
                 return self._error(400, "bad JSON")
+            stop = _budget_check(body)
+            if stop:
+                return self._error(429, stop)
             req = to_openai(body, cfg.model)
             if log:
                 log({"event": "request", "model": req["model"],
@@ -425,6 +516,8 @@ def _handler(cfg: BridgeConfig, log=None):
                         u = d["usage"]
                         usage = {"input_tokens": u.get("prompt_tokens", 0),
                                  "output_tokens": u.get("completion_tokens", 0)}
+                        _account(cfg.model, usage["input_tokens"],
+                                 usage["output_tokens"])
                     for ch in d.get("choices") or []:
                         delta = ch.get("delta") or {}
                         if delta.get("reasoning_content"):
@@ -651,6 +744,55 @@ def selftest() -> int:
     bad_srv.shutdown()
     srv.shutdown()
     up.shutdown()
+
+    # 5. THE SPEND GUARD — the part that protects a real API key
+    up2, up2_url = _mock_openai([[{"text": "hello"}]])
+    srv2, url2 = start(BridgeConfig(up2_url, "k", "deepseek-v4-pro"))
+    reset_usage()
+    set_limits(requests=3, tokens=10_000_000, repeats=99)
+
+    def ask(n):
+        b = json.dumps({"model": "x", "max_tokens": 20,
+                        "messages": [{"role": "user",
+                                      "content": f"request {n}"}]}).encode()
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                url2 + "/v1/messages", b,
+                {"Content-Type": "application/json"}), timeout=30).read()
+            return 200, ""
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())["error"]["message"]
+
+    codes = [ask(i)[0] for i in range(3)]
+    ck("requests under the cap go through", codes == [200, 200, 200], str(codes))
+    code, msg = ask(99)
+    ck("the request cap stops the run", code == 429 and "spend guard" in msg,
+       f"{code} {msg[:80]}")
+    ck("and it says what was spent", "$" in msg and "tokens" in msg, msg[:90])
+    ck("usage is accounted", usage_report()["input"] > 0
+       and usage_report()["usd"] >= 0)
+
+    reset_usage()
+    set_limits(requests=999, tokens=10_000_000, repeats=3)
+    same = json.dumps({"model": "x", "max_tokens": 20,
+                       "messages": [{"role": "user", "content": "identical"}]}
+                      ).encode()
+
+    def ask_same():
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                url2 + "/v1/messages", same,
+                {"Content-Type": "application/json"}), timeout=30).read()
+            return 200, ""
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())["error"]["message"]
+
+    seen = [ask_same()[0] for _ in range(5)]
+    ck("a looping agent is cut off", 429 in seen, str(seen))
+    reset_usage()
+    set_limits(requests=200, tokens=2_000_000, repeats=3)
+    srv2.shutdown()
+    up2.shutdown()
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
