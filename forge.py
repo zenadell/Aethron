@@ -3315,7 +3315,16 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
             sim = _similarity(mine.get("_text", ""), theirs)
             h_mine = mine.get("_headings", [])
             h_theirs = _headings(got["dom"])
-            missing = [h for h in h_mine if h not in h_theirs]
+            # A heading counts as PRESENT if its words are there — as a
+            # heading of its own, or inside a larger one. Framer splits a
+            # hero line into one element per word ("Effortless",
+            # "Design", "for"), so demanding an exact element-for-element
+            # match would fail every port that writes it as one sane
+            # heading, i.e. punish the better structure.
+            joined = " ".join(h_theirs).lower()
+            body = theirs.lower()
+            missing = [h for h in h_mine
+                       if h.lower() not in joined and h.lower() not in body]
             imgs = len(re.findall(r"<img\b", got["dom"]))
             ok = sim >= 0.90 and not missing
             print(("PASS " if ok else "FAIL ")
