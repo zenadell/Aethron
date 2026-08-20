@@ -203,6 +203,27 @@ def start_job(argv, cwd) -> str:
     return jid
 
 
+def start_fn_job(fn, header="") -> str:
+    """Same job contract as start_job, for work that runs in-process and
+    streams its own events (the agentic healer)."""
+    jid = f"{time.time():.6f}"
+    JOBS[jid] = {"done": False, "ok": None, "log": header}
+
+    def append(text):
+        JOBS[jid]["log"] += text.rstrip() + "\n"
+
+    def run():
+        try:
+            ok = fn(append)
+            JOBS[jid].update(done=True, ok=bool(ok))
+        except Exception as e:
+            append(f"studio error: {e}")
+            JOBS[jid].update(done=True, ok=False)
+
+    threading.Thread(target=run, daemon=True).start()
+    return jid
+
+
 def snapshot(d: Path):
     """Before every mutation: snapshot the owner-editable state so any
     mistake is one Undo away. Keeps the last 30."""
@@ -1597,6 +1618,29 @@ class Handler(BaseHTTPRequestHandler):
                 # nearest-source adoption — never a model, never a guess
                 d = self.project_dir({"name": [body.get("project", "")]})
                 snapshot(d)
+                if body.get("agent"):
+                    # AGENTIC heal: the ladder first (free, certain), and
+                    # only what it cannot fix goes to the model — which
+                    # still may not declare success; verify + probe do.
+                    import aethron_healer
+                    rounds = int(body.get("rounds") or 2)
+
+                    def job(append):
+                        res = aethron_healer.heal(
+                            d, rounds=rounds, home=HOME,
+                            on_event=lambda k, ev: append(
+                                {"tool": "   ", "say": "   ",
+                                 "error": "!! "}.get(k, "── ") + ev["text"]))
+                        if not res.get("ok"):
+                            append("\nWHAT IS STILL BROKEN:")
+                            append(aethron_healer.evidence_text(
+                                res.get("evidence") or {})[:2000])
+                            append("\n(Undo reverts everything the agent "
+                                   "did.)")
+                        return res.get("ok")
+
+                    return self.send_json({"job": start_fn_job(
+                        job, "$ agentic self-heal\n")})
                 cmd = forge_argv("heal")
                 idx0 = None
                 if body.get("old"):
@@ -3223,6 +3267,19 @@ async function checkZeroEffect(){
   }catch(e){S.zeroFx=[]}
   renderHeader();
 }
+async function agentHeal(){
+  S.tab='logs';renderTab();
+  try{
+    const {job}=await api('/api/heal',{project:S.cur,agent:true});
+    const ok=await watchJob(job,'heal');
+    await refresh(true);
+    alert(ok===false
+      ? 'The AI healer could not clear the checks. The Logs tab lists '
+        +'exactly what is still broken — nothing was hidden, and Undo '
+        +'reverts everything it did.'
+      : 'Healed — verify and probe are clean.');
+  }catch(e){alert(e.message)}
+}
 async function showZeroFx(){
   if(!confirm('These filled entries did NOT take effect in the last '
    +'build (replaced nothing, or the chunks still spell the old text '
@@ -3234,6 +3291,13 @@ async function showZeroFx(){
    +'(Undo covers it.)'))return;
   try{
     const h=await api('/api/heal',{project:S.cur});
+    if(h.stuck>0&&confirm(`${h.stuck} problem(s) the deterministic fixer `
+      +`cannot express.\n\nHand them to the AI healer? It reads the `
+      +`machine evidence and repairs through the same guarded tools — `
+      +`it cannot touch site/ or pristine/, and verify + probe (not the `
+      +`model) decide whether it worked. Undo covers everything.`)){
+      return agentHeal();
+    }
     if(h.healed>0)await runStep('build');
     alert(`self-heal: ${h.healed} fixed, ${h.stuck} need you\n\n`
       +(h.log||'').split('\n').filter(l=>/^(HEALED|STUCK)/.test(l))

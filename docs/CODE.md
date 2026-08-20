@@ -140,6 +140,49 @@ It doubles as the reference for what "Anthropic-compatible" has to
 mean: if a gateway speaks this, Aethron can drive Claude Code against
 it.
 
+## Self-healing that thinks (`aethron_healer.py`)
+
+`forge.py heal` is a ladder of KNOWN fixes — whitespace flexibility,
+source casing, nearest-source adoption, image srcset variants,
+destructive hide rules. It is free, certain and never guesses, but it
+can only repair failures somebody anticipated. When it runs out, it
+says STUCK.
+
+The healer takes it from there:
+
+```
+1. deterministic heal          cheap, certain, no tokens   ← always first
+2. build → verify → probe      what is ACTUALLY still broken
+3. agent round(s)              reads the machine evidence, uses the
+                               guarded tools, tries what the ladder
+                               cannot express
+4. build → verify → probe      ← the agent does not get to say it worked
+5. honest STUCK report         with everything that was tried
+```
+
+The evidence handed to the model is not a vibe: `verify` FAIL lines,
+`probe` runtime failures, the build report's dead entries and
+`__at_risk__` list (edits the browser will revert), plus what the
+deterministic pass already tried.
+
+What the agent cannot do, **enforced rather than requested**:
+
+- writes to `site/` and `pristine/` are DENIED by the runtime (a
+  `permissions.deny` rule on the session, verified in the battery — the
+  agent tries the hand edit, the file is untouched)
+- content changes go through the `mcp__aethron__*` tools, so byte
+  budgets and forbidden characters still hold
+- a snapshot is taken before the agent starts: one Undo reverts
+  everything it did
+- success is decided by verify + probe, never by the model
+
+```bash
+python3 aethron_healer.py <project> [--rounds 2] [--no-agent]
+```
+
+In the studio the dead-edits chip offers the deterministic pass first
+and only escalates when it is stuck; the run streams into the Logs tab.
+
 ## Event contract
 
 | event         | fields                                   |

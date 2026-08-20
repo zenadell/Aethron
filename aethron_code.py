@@ -313,8 +313,16 @@ class CodeSession:
             model = self.cfg.get("model") or prov.get("model") or ""
             if model:
                 argv += ["--model", model]
-        if self.cfg.get("allowed_tools"):
-            argv += ["--allowedTools", *self.cfg["allowed_tools"]]
+        allowed = list(self.cfg.get("allowed_tools") or [])
+        if self.cfg.get("aethron_tools") and FORGE_MCP.exists():
+            # Injecting our MCP server is not the same as ALLOWING it:
+            # without this every mcp__aethron__* call comes back
+            # "requested permissions … but you haven't granted it yet",
+            # and the agent silently gets nothing done. Our own tools
+            # are guarded by construction, so they are pre-approved.
+            allowed.append("mcp__aethron")
+        if allowed:
+            argv += ["--allowedTools", *allowed]
         if self.cfg.get("disallowed_tools"):
             argv += ["--disallowedTools", *self.cfg["disallowed_tools"]]
         if self.cfg.get("max_budget_usd"):
@@ -326,6 +334,17 @@ class CodeSession:
             extra = PROJECT_RULES          # a template project: teach it
         if extra:
             argv += ["--append-system-prompt", extra]
+        settings = self.cfg.get("settings")
+        if settings is None and (self.workspace / "forge.json").exists():
+            # ENFORCEMENT, not just instruction: PROJECT_RULES tells the
+            # agent to leave generated output alone; this stops it. A
+            # model that "helpfully" edits site/ or pristine/ produces a
+            # change that hydration reverts and a seal that fails.
+            settings = json.dumps({"permissions": {"deny": [
+                f"{tool}(./{d}/**)" for d in ("site", "pristine")
+                for tool in ("Write", "Edit", "NotebookEdit")]}})
+        if settings:
+            argv += ["--settings", settings]
         mcp = self._mcp_config()
         if mcp:
             argv += ["--mcp-config", mcp]
@@ -551,8 +570,9 @@ def run_once(workspace, prompt, cfg=None, home=None, timeout=900,
 
 def mock_provider(port=0, script=None):
     """A minimal Anthropic-compatible /v1/messages endpoint. Returns
-    (server, port); serve in a thread. `script` is a list of turns, each
-    a list of content blocks: {"text": ...} or
+    (server, url) — the same shape as aethron_bridge._mock_openai, so
+    the two can never be confused. Serve it in a thread. `script` is a
+    list of turns, each a list of content blocks: {"text": ...} or
     {"tool": name, "input": {...}}."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     turns = list(script or [[{"text": "ok"}]])
@@ -568,14 +588,15 @@ def mock_provider(port=0, script=None):
         wrong turn."""
         if not body.get("tools"):
             return [{"text": "ok"}]          # auxiliary call, not the loop
-        seen = 0
-        for m in body.get("messages", []):
-            content = m.get("content")
-            if isinstance(content, list):
-                for c in content:
-                    if isinstance(c, dict) and c.get("type") == "tool_result":
-                        seen += 1
-        return turns[min(seen, len(turns) - 1)]
+        # advance by COMPLETED TURNS, not by tool results: a denied tool
+        # call may come back without a tool_result block, and counting
+        # only those makes the script replay the same turn forever.
+        results = sum(1 for m in body.get("messages", [])
+                      for c in (m.get("content") or [])
+                      if isinstance(c, dict) and c.get("type") == "tool_result")
+        assistant = sum(1 for m in body.get("messages", [])
+                        if m.get("role") == "assistant")
+        return turns[min(max(results, assistant), len(turns) - 1)]
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -645,7 +666,7 @@ def mock_provider(port=0, script=None):
             self._sse(chunks)
 
     srv = ThreadingHTTPServer(("127.0.0.1", port), H)
-    return srv, srv.server_address[1]
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}"
 
 
 def selftest() -> int:
@@ -659,7 +680,7 @@ def selftest() -> int:
         return 0
     ws = Path(tempfile.mkdtemp(prefix="aethron-code-selftest-"))
     (ws / "hello.txt").write_text("before\n", encoding="utf-8")
-    srv, port = mock_provider(script=[
+    srv, url = mock_provider(script=[
         # Claude Code refuses to overwrite a file it has not read — the
         # script follows the real tool contract, not a convenient one.
         [{"text": "Reading the file first."},
@@ -670,8 +691,8 @@ def selftest() -> int:
         [{"text": "Done — hello.txt now says after."}],
     ])
     th.Thread(target=srv.serve_forever, daemon=True).start()
-    print(f"mock provider on http://127.0.0.1:{port}  workspace {ws}")
-    cfg = {"provider": "custom", "base_url": f"http://127.0.0.1:{port}",
+    print(f"mock provider on {url}  workspace {ws}")
+    cfg = {"provider": "custom", "base_url": url,
            "token": "mock", "permission_mode": "bypassPermissions",
            "aethron_tools": False, "isolate": True, "model": "mock-1"}
     res = run_once(ws, "change hello.txt to say after", cfg=cfg, timeout=120)
@@ -696,14 +717,14 @@ def selftest() -> int:
     # SCENARIO 2 — the fusion: the coding agent drives Aethron's OWN
     # guarded pipeline through our MCP server, and sees nothing else.
     ws2 = Path(tempfile.mkdtemp(prefix="aethron-code-mcp-"))
-    srv2, port2 = mock_provider(script=[
+    srv2, url2 = mock_provider(script=[
         [{"text": "Listing Aethron projects."},
          {"tool": "mcp__aethron__list_projects", "input": {}}],
         [{"text": "Listed them."}],
     ])
     th.Thread(target=srv2.serve_forever, daemon=True).start()
     res2 = run_once(ws2, "list the aethron projects", cfg={
-        "provider": "custom", "base_url": f"http://127.0.0.1:{port2}",
+        "provider": "custom", "base_url": url2,
         "token": "mock", "permission_mode": "bypassPermissions",
         "aethron_tools": True, "isolate": True, "model": "mock-1"},
         home=ROOT, timeout=240)

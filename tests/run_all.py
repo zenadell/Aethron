@@ -21,7 +21,7 @@ SUITES = [
     ("syntax", [PY, "-m", "py_compile", "forge.py", "studio.py",
                 "forge_mcp.py", "aethron_agent.py", "aethron_code.py",
                 "aethron_brain.py", "aethron_bridge.py", "aethron_cloud.py",
-                "desktop.py"], False),
+                "aethron_healer.py", "desktop.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("bridge (Anthropic <-> OpenAI translation)",
@@ -30,6 +30,8 @@ SUITES = [
      [PY, "aethron_code.py", "--selftest"], True),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
+    ("healer battery (deterministic -> agent -> checks decide)",
+     [PY, "tests/healer_battery.py"], True),
 ]
 
 

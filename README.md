@@ -186,6 +186,9 @@ python3 forge.py build        # apply to every layer, guarded
 python3 forge.py verify       # machine checks before you ship
 python3 forge.py probe        # runtime check in a headless browser
 python3 forge.py heal         # self-heal broken fills (deterministic)
+python3 aethron_healer.py .   # AI self-heal: the ladder first, then an
+                              # agent on the machine evidence — and the
+                              # checks, not the model, decide
 python3 forge.py localize     # optional: full CDN independence
 python3 forge.py logo "Name"  # SVG wordmark in the template's own font
 python3 forge.py backend      # content API + AGENT_GUIDE.md

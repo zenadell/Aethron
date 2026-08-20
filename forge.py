@@ -48,6 +48,7 @@ import re
 import shutil
 import struct
 import sys
+import time
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
@@ -167,10 +168,29 @@ def _scrape_site(url: str, tmp: Path):
     'scraping' is just fetching the home page, discovering same-host
     routes from its nav links, and fetching each one. The rest of the
     pipeline (fetch/inventory/build) does the heavy lifting as usual."""
-    def get(u):
-        req = urllib.request.Request(u, headers=UA)
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return r.read().decode("utf-8", "ignore")
+    def get(u, tries=3):
+        """Framer's CDN closes big SSR responses early often enough that
+        a single read is not reliable — one IncompleteRead used to abort
+        the whole migration before it started. Retry, and accept a
+        partial body only when it is a complete document."""
+        import http.client
+        last = None
+        for attempt in range(tries):
+            try:
+                req = urllib.request.Request(u, headers=UA)
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    return r.read().decode("utf-8", "ignore")
+            except http.client.IncompleteRead as e:
+                last = e
+                body = e.partial.decode("utf-8", "ignore")
+                if "</html>" in body.lower():
+                    print(f"  note: {u} sent a short body but the document "
+                          f"is complete — using it")
+                    return body
+            except Exception as e:
+                last = e
+            time.sleep(1.5 * (attempt + 1))
+        raise last or RuntimeError(f"could not fetch {u}")
 
     p = urllib.parse.urlparse(url)
     base = f"{p.scheme}://{p.netloc}"
@@ -3129,12 +3149,25 @@ def _find_browser() -> str:
     return ""
 
 
+# Block-level tags create a visual break; inline tags do NOT. Framer
+# splits headings into one <span> PER CHARACTER, so replacing every tag
+# with a space turns "Effortless" into "E f f o r t l e s s" — which
+# makes the original unmatchable by any faithful port. Separator choice
+# is therefore part of the measurement, not a detail.
+BLOCK_TAGS = ("html|head|body|div|p|section|article|header|footer|main|nav|"
+              "aside|ul|ol|li|dl|dt|dd|table|thead|tbody|tr|td|th|form|"
+              "fieldset|figure|figcaption|blockquote|pre|hr|br|h[1-6]|"
+              "video|iframe|canvas|address|details|summary|option")
+
+
 def _visible_text(html: str) -> str:
-    """What a reader would actually see — no script/style/svg payloads."""
+    """What a reader would actually see — no script/style/svg payloads,
+    and inline markup joined the way a browser joins it."""
     t = re.sub(r"(?is)<(script|style|noscript|template|svg)\b.*?</\1\s*>",
                " ", html)
     t = re.sub(r"(?s)<!--.*?-->", " ", t)
-    t = re.sub(r"(?s)<[^>]+>", " ", t)
+    t = re.sub(rf"(?is)</?(?:{BLOCK_TAGS})\b[^>]*>", " ", t)   # break
+    t = re.sub(r"(?s)<[^>]+>", "", t)                          # inline: join
     return re.sub(r"\s+", " ", html_mod.unescape(t)).strip()
 
 
@@ -3225,10 +3258,11 @@ def _fingerprint(page_result: dict, dom: str = "") -> dict:
 
 
 def _headings(dom: str) -> list:
+    """h1-h3 text, normalised the same way (split-character headings
+    must read as words, or no port could ever match them)."""
     out = []
     for m in re.finditer(r"(?is)<h([1-3])\b[^>]*>(.*?)</h\1\s*>", dom):
-        t = re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ",
-                                       html_mod.unescape(m.group(2)))).strip()
+        t = _visible_text(m.group(2))
         if t:
             out.append(t[:120])
     return out[:40]

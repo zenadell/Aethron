@@ -22,12 +22,18 @@ import shutil
 import subprocess
 import sys
 import time
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FORGE = ROOT / "forge.py"
-PROJECTS = ROOT / "projects"
-LIBRARY = ROOT / "library"   # design cards: fingerprints, never files
+# Where the USER's data lives. The desktop app (and any agent session it
+# starts) sets AETHRON_HOME because the bundle itself is read-only — so
+# the MCP server must follow it, or an agent inside the app sees an
+# empty project list while the studio shows a dozen.
+HOME = Path(os.environ.get("AETHRON_HOME", ROOT))
+PROJECTS = HOME / "projects"
+LIBRARY = HOME / "library"   # design cards: fingerprints, never files
 PREVIEWS = {}
 
 sys.path.insert(0, str(ROOT))
@@ -92,7 +98,7 @@ def guard_write(entry: dict, new: str):
 # ───────────────────────── tool handlers ─────────────────────────────
 
 def t_list_projects(a):
-    PROJECTS.mkdir(exist_ok=True)
+    PROJECTS.mkdir(parents=True, exist_ok=True)
     out = []
     for d in sorted(PROJECTS.iterdir()):
         if not (d / "forge.json").exists():
@@ -114,7 +120,7 @@ def t_list_projects(a):
 
 def t_create_project(a):
     name = re.sub(r"[^\w-]+", "-", str(a["name"]).strip().lower()).strip("-")
-    PROJECTS.mkdir(exist_ok=True)
+    PROJECTS.mkdir(parents=True, exist_ok=True)
     url = str(a.get("url") or "").strip()
     if url:
         if not url.startswith(("http://", "https://")):
@@ -505,7 +511,7 @@ def t_save_to_library(a):
     card = json.loads((d / "design_card.json").read_text(encoding="utf-8"))
     card["project"] = d.name
     card["saved"] = time.strftime("%Y-%m-%d")
-    LIBRARY.mkdir(exist_ok=True)
+    LIBRARY.mkdir(parents=True, exist_ok=True)
     (LIBRARY / f"{d.name}.json").write_text(
         json.dumps(card, indent=1, ensure_ascii=False), encoding="utf-8")
     return f"saved design card '{d.name}' — {log}"
