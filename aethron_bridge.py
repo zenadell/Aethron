@@ -35,6 +35,35 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_MAX_TOKENS = 8192
 
+# REASONING MODELS (DeepSeek v4-pro, and others that follow it) return a
+# `reasoning_content` field and then REQUIRE it back on the next request:
+# "The `reasoning_content` in the thinking mode must be passed back to
+# the API." The Anthropic wire has no such field, and the CLI therefore
+# cannot echo it — so the bridge remembers it. Keyed by the tool-call id
+# the same assistant turn produced (unique, and it survives the round
+# trip through the CLI untouched); falls back to a hash of the text.
+_REASONING = {}
+_REASONING_MAX = 200
+
+
+def _remember(key: str, text: str):
+    if not key or not text:
+        return
+    if len(_REASONING) > _REASONING_MAX:
+        for k in list(_REASONING)[:_REASONING_MAX // 2]:
+            _REASONING.pop(k, None)
+    _REASONING[key] = text
+
+
+def _recall(msg: dict):
+    for tc in msg.get("tool_calls") or []:
+        if tc.get("id") in _REASONING:
+            return _REASONING[tc["id"]]
+    body = msg.get("content")
+    if isinstance(body, str):
+        return _REASONING.get("txt:" + str(hash(body.strip()))[:24])
+    return None
+
 
 # ─────────────────── Anthropic  ->  OpenAI  (request) ────────────────
 
@@ -91,9 +120,13 @@ def to_openai(body: dict, model: str = "") -> dict:
         # tool results are their own OpenAI messages and must come first
         msgs.extend(tool_results)
         if role == "assistant" and tool_calls:
-            msgs.append({"role": "assistant",
-                         "content": "\n".join(text_parts) or None,
-                         "tool_calls": tool_calls})
+            m = {"role": "assistant",
+                 "content": "\n".join(text_parts) or None,
+                 "tool_calls": tool_calls}
+            reasoning = _recall(m)
+            if reasoning:
+                m["reasoning_content"] = reasoning
+            msgs.append(m)
         elif text_parts or not tool_results:
             msgs.append({"role": role, "content": "\n".join(text_parts)})
 
@@ -230,6 +263,9 @@ def from_openai_message(data: dict, model: str) -> dict:
     """Non-streaming OpenAI response -> Anthropic message object."""
     choice = (data.get("choices") or [{}])[0]
     msg = choice.get("message") or {}
+    if msg.get("reasoning_content"):
+        for tc in msg.get("tool_calls") or []:
+            _remember(tc.get("id", ""), msg["reasoning_content"])
     content = []
     if msg.get("content"):
         content.append({"type": "text", "text": msg["content"]})
@@ -372,6 +408,7 @@ def _handler(cfg: BridgeConfig, log=None):
             out = AnthropicStream(cfg.model or req.get("model", ""), emit)
             stop, usage = None, {}
             names = {}
+            reasoning, call_ids, text_seen = [], [], []
             try:
                 for line in up:
                     line = line.decode("utf-8", "replace").strip()
@@ -390,10 +427,15 @@ def _handler(cfg: BridgeConfig, log=None):
                                  "output_tokens": u.get("completion_tokens", 0)}
                     for ch in d.get("choices") or []:
                         delta = ch.get("delta") or {}
+                        if delta.get("reasoning_content"):
+                            reasoning.append(delta["reasoning_content"])
                         if delta.get("content"):
+                            text_seen.append(delta["content"])
                             out.text(delta["content"])
                         for tc in delta.get("tool_calls") or []:
                             slot = tc.get("index", 0)
+                            if tc.get("id"):
+                                call_ids.append(tc["id"])
                             fn = tc.get("function") or {}
                             if fn.get("name"):
                                 names[slot] = fn["name"]
@@ -406,6 +448,13 @@ def _handler(cfg: BridgeConfig, log=None):
             except Exception as e:                       # upstream died
                 out.text(f"\n[bridge: upstream stream failed: {e}]")
             finally:
+                blob = "".join(reasoning)
+                if blob:
+                    for cid in call_ids:
+                        _remember(cid, blob)
+                    if not call_ids:
+                        _remember("txt:" + str(hash("".join(text_seen)
+                                                   .strip()))[:24], blob)
                 try:
                     out.finish(stop, usage)
                 except Exception:
