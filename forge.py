@@ -23,6 +23,13 @@ Commands (run inside a project dir, except init):
                         console errors. Says SKIPPED (never PASS) when
                         no browser is installed. [--all --offline
                         --page=x.html --budget=ms]
+                        --baseline           record what the pages
+                                             render today
+                        --against=<dir|url>  does that other build/port
+                                             render the same? (the
+                                             acceptance test for moving
+                                             this site to another
+                                             framework)
   forge.py localize     download every CDN asset under brand-free names
   forge.py card         design fingerprint (palette/fonts/motion) ->
                         design_card.json — feeds the studio's library
@@ -3207,6 +3214,91 @@ def _render_page(browser: str, url: str, budget_ms=8000, timeout=60,
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _fingerprint(page_result: dict, dom: str = "") -> dict:
+    """What a page IS, to a reader — not how it was built. Text, the
+    heading outline and how many images rendered. This is what a port to
+    another framework has to preserve; markup and class names are not."""
+    return {"text": page_result.get("_text", "")[:20000],
+            "words": len((page_result.get("_text", "")).split()),
+            "headings": page_result.get("_headings", []),
+            "images": page_result.get("images", 0)}
+
+
+def _headings(dom: str) -> list:
+    out = []
+    for m in re.finditer(r"(?is)<h([1-3])\b[^>]*>(.*?)</h\1\s*>", dom):
+        t = re.sub(r"\s+", " ", re.sub(r"(?s)<[^>]+>", " ",
+                                       html_mod.unescape(m.group(2)))).strip()
+        if t:
+            out.append(t[:120])
+    return out[:40]
+
+
+def _similarity(a: str, b: str) -> float:
+    import difflib
+    return difflib.SequenceMatcher(None, a.split(), b.split()).ratio()
+
+
+def _compare_against(root: Path, target: str, results: list, budget: int):
+    """Compare what the browser renders here with what it renders at
+    `target` (a URL, or a directory served the same way). Returns the
+    number of pages that differ enough to matter.
+
+    The acceptance test for `port this site to Next/Astro/anything`:
+    the port passes when the reader cannot tell."""
+    from http.server import ThreadingHTTPServer
+    import threading
+    browser = _find_browser()
+    base = {p["page"]: p for p in results if p.get("runtime") == "ok"}
+    if not base:
+        print("\nnothing to compare (no page rendered here)")
+        return 1
+    srv = None
+    if re.match(r"https?://", target):
+        origin = target.rstrip("/")
+    else:
+        d = Path(target).expanduser().resolve()
+        if not d.is_dir():
+            die(f"--against: no such directory or URL: {target}")
+        H = _site_handler(d, "static", quiet=True)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        origin = f"http://127.0.0.1:{srv.server_address[1]}"
+    print(f"\n── comparing against {origin}")
+    bad = 0
+    try:
+        for page, mine in base.items():
+            # a port usually serves clean routes: index.html -> /
+            route = "" if page == "index.html" else page[:-5] \
+                if page.endswith(".html") else page
+            got = _render_page(browser, f"{origin}/{route}",
+                               budget_ms=budget)
+            if not got["dom"]:
+                print(f"FAIL {page}: nothing rendered at {origin}/{route}")
+                bad += 1
+                continue
+            theirs = _visible_text(got["dom"])
+            sim = _similarity(mine.get("_text", ""), theirs)
+            h_mine = mine.get("_headings", [])
+            h_theirs = _headings(got["dom"])
+            missing = [h for h in h_mine if h not in h_theirs]
+            imgs = len(re.findall(r"<img\b", got["dom"]))
+            ok = sim >= 0.90 and not missing
+            print(("PASS " if ok else "FAIL ")
+                  + f"{page or '/'}: text {int(sim * 100)}% identical, "
+                    f"headings {len(h_theirs)}/{len(h_mine)}, "
+                    f"images {imgs}/{mine.get('images', 0)}")
+            if missing:
+                print(f"       missing heading(s): {missing[:3]}")
+            if not ok:
+                bad += 1
+    finally:
+        if srv:
+            srv.shutdown()
+    print(f"     {len(base) - bad}/{len(base)} page(s) render the same")
+    return bad
+
+
 def cmd_probe(args):
     from http.server import ThreadingHTTPServer
     import threading
@@ -3293,6 +3385,10 @@ def cmd_probe(args):
                 else:
                     hard.append(msg)
             asked = list(dict.fromkeys(p for p, _ in reqs))
+            # kept out of the report (underscore keys are stripped), but
+            # this is what a baseline/comparison is made of
+            r["_text"] = dom_text
+            r["_headings"] = _headings(got["dom"])
             r.update(rendered_text=len(dom_text), requests=len(reqs),
                      failed_requests=bad, requested=asked[:200],
                      images=len(re.findall(r"<img\b", got["dom"])),
@@ -3352,11 +3448,34 @@ def cmd_probe(args):
     finally:
         srv.shutdown()
 
-    report = {"pages": results, "browser": browser or None,
+    report = {"pages": [{k: v for k, v in p.items()
+                         if not k.startswith("_")} for p in results],
+              "browser": browser or None,
               "probed": len(pages), "not_probed": skipped,
               "fails": fails, "offline": offline}
     (site / ".forge-probe.json").write_text(
         json.dumps(report, indent=1), encoding="utf-8")
+
+    # ── baseline / comparison ────────────────────────────────────────
+    # THE REFEREE for any port of this site to another framework: what
+    # the browser renders must still be the same. Fingerprints are taken
+    # from the RENDERED page, so they are framework-agnostic by
+    # construction — a Next.js or Astro rebuild is judged on output,
+    # never on how it got there.
+    if browser and "--baseline" in flags:
+        base = {p["page"]: _fingerprint(p) for p in results
+                if p.get("runtime") == "ok"}
+        (root / ".forge-baseline.json").write_text(
+            json.dumps({"pages": base}, indent=1), encoding="utf-8")
+        print(f"\nbaseline saved for {len(base)} page(s) -> "
+              f".forge-baseline.json")
+    against = next((a.split("=", 1)[1] for a in flags
+                    if a.startswith("--against=")), "")
+    if against:
+        if not browser:
+            print("\nVERDICT: SKIPPED — comparison needs a browser")
+            sys.exit(0)
+        fails += _compare_against(root, against, results, budget)
 
     if not browser:
         print("\nVERDICT: SKIPPED — no Chromium-family browser found, so "

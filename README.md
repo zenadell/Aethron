@@ -279,3 +279,17 @@ battery**, every one green.
 [MIT](LICENSE) © 2026 zenadell. Open source; use it, fork it, ship with it.
 
 <div align="center"><sub>Built for people who buy beautiful templates and want to truly own them.</sub></div>
+
+---
+
+## Testing
+
+```bash
+python3 tests/run_all.py          # everything: ~4 min
+python3 tests/run_all.py --quick  # skip the browser/CLI suites
+```
+
+No API key, no login, no network. Model-facing paths run against
+in-process mock providers; runtime paths drive a real headless browser
+when one is installed, and report **SKIPPED** rather than PASS when it
+isn't.
