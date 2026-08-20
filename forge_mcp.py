@@ -31,7 +31,11 @@ FORGE = ROOT / "forge.py"
 # starts) sets AETHRON_HOME because the bundle itself is read-only — so
 # the MCP server must follow it, or an agent inside the app sees an
 # empty project list while the studio shows a dozen.
-HOME = Path(os.environ.get("AETHRON_HOME", ROOT))
+# .resolve() matters: macOS hands out /var/folders/... which resolves to
+# /private/var/folders/..., and a user's home can be a symlink too. The
+# path guard below compares a RESOLVED project dir against this root, so
+# an unresolved root rejects every project with "unknown project".
+HOME = Path(os.environ.get("AETHRON_HOME", ROOT)).resolve()
 PROJECTS = HOME / "projects"
 LIBRARY = HOME / "library"   # design cards: fingerprints, never files
 PREVIEWS = {}

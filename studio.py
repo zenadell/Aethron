@@ -53,7 +53,10 @@ FORGE = ROOT / "forge.py"
 #   data dir (the bundle is read-only); set by desktop.py, defaults to
 #   the repo dir for normal dev use.
 FROZEN = bool(getattr(sys, "frozen", False))
-HOME = Path(os.environ.get("AETHRON_HOME", ROOT))
+# resolved for the same reason forge_mcp resolves it: the project-dir
+# guard compares resolved paths, and a symlinked home (macOS /var ->
+# /private/var) would make every project look like it is outside.
+HOME = Path(os.environ.get("AETHRON_HOME", ROOT)).resolve()
 PROJECTS = HOME / "projects"
 LIBRARY = HOME / "library"   # design cards: fingerprints, never files
 WORKSPACES = HOME / "workspaces"   # code workspaces (not migrations)

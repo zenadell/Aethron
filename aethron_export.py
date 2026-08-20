@@ -586,8 +586,8 @@ def export(project, framework="next", rounds=3, pages=None, on_event=None,
                         "history": history}
 
     say("stuck", "the port does not match the original yet — not accepted")
-    return {"ok": False, "stage": "not-accepted", "verdict": feedback[-1500:],
-            "dir": str(dest), "history": history}
+    return {"ok": False, "stage": "not-accepted", "verdict": verdict,
+            "dir": str(dest), "out": str(out_dir), "history": history}
 
 
 def _spend_line():

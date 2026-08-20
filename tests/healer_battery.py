@@ -84,22 +84,32 @@ def main():
           "HandGrid" in healer.evidence_text(res["evidence"]))
 
     print("\n── with the agent (mock model, real CLI, real tools)")
-    srv, url = code.mock_provider(script=[
-        # 1. it tries the forbidden thing first: a hand edit of the
-        #    generated page. The runtime must refuse.
-        [{"text": "I'll fix the built page directly."},
-         {"tool": "Write", "input": {"file_path": str(proj / "site/index.html"),
-                                     "content": "<h1>hand edited</h1>"}}],
-        # 2. then it does it properly, through the guarded tools
-        [{"text": "Going through the content pipeline instead."},
-         {"tool": "mcp__aethron__set_content",
-          "input": {"project": "broken", "section": "strings",
-                    "old": "HandGrid", "new": "Acme", "build": False}}],
-        [{"tool": "mcp__aethron__set_content",
-          "input": {"project": "broken", "section": "strings",
-                    "old": "handgrid", "new": "acme", "build": True}}],
-        [{"text": "Rebuilt with the brand replaced."}],
-    ])
+    def model(body):
+        """A competent model, scripted by what it can SEE — not by a turn
+        counter. (A counter drifts: a denied tool may come back without a
+        tool_result, and the script then replays the same turn forever.)"""
+        results = sum(1 for m in body.get("messages", [])
+                      for c in (m.get("content") or [])
+                      if isinstance(c, dict) and c.get("type") == "tool_result")
+        if results == 0:
+            # first instinct: edit the built page. It must be refused.
+            return [{"text": "I'll fix the built page directly."},
+                    {"tool": "Write",
+                     "input": {"file_path": str(proj / "site/index.html"),
+                               "content": "<h1>hand edited</h1>"}}]
+        if results == 1:
+            # then do it properly, through the guarded pipeline
+            return [{"text": "Going through the content pipeline instead."},
+                    {"tool": "mcp__aethron__set_content_bulk",
+                     "input": {"project": "broken", "build": True,
+                               "entries": [
+                                   {"section": "strings", "old": "HandGrid",
+                                    "new": "Acme"},
+                                   {"section": "strings", "old": "handgrid",
+                                    "new": "acme"}]}}]
+        return [{"text": "Rebuilt with the brand replaced."}]
+
+    srv, url = code.mock_provider(script=model)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     site_before = (proj / "site/index.html").read_bytes()
     events = []
