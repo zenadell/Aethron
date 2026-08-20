@@ -1,0 +1,116 @@
+# Aethron Code — the coding layer
+
+Aethron is not only a template migrator. It is a workspace where an
+agent writes code, you edit it, and deterministic checks decide whether
+it worked. This document is the contract.
+
+## The shape
+
+```
+  provider preset ─┐
+                   ├─> ClaudeCodeRuntime   the `claude` CLI, stream-json
+  workspace ───────┤
+                   └─> InternalRuntime     our own loop (aethron_agent)
+                              │
+                     normalized events
+                              │
+                   studio IDE · API · desktop app
+```
+
+`aethron_code.py` owns this. Nothing about the UI, the API or the
+guardrails knows which runtime is behind the events.
+
+## Why we drive the CLI instead of forking it
+
+A coding agent is a process that reads and writes files in a workspace
+and streams what it does. Claude Code already speaks a machine protocol
+(`--input-format stream-json --output-format stream-json`), so Aethron
+drives it as a subprocess and keeps what actually matters: the
+workspace, the tools, the guardrails and the UI. Nothing is vendored,
+patched or redistributed — swap the process, keep the platform.
+
+## Free / any provider (the FCC integration)
+
+Claude Code's provider is an environment variable:
+
+| preset      | what it does                                              |
+|-------------|-----------------------------------------------------------|
+| `anthropic` | the CLI's own login (your Claude subscription or API key) |
+| `fcc`       | `ANTHROPIC_BASE_URL=http://127.0.0.1:8082`, token `freecc` — a local [Free Claude Code](https://github.com/Alishahryar1/free-claude-code) proxy fronting 48+ providers |
+| `custom`    | any Anthropic-compatible endpoint (a gateway, a self-host, Aethron's own later) |
+
+That is exactly what `fcc-claude` does. So "free Claude Code inside
+Aethron" is a preset, not a dependency: start `fcc-server`, pick the
+preset, and the same IDE runs on whatever the proxy is fronting.
+
+Set it in the studio's Code view, or in `aethron_config.json`:
+
+```json
+{ "code": { "provider": "fcc", "model": "", "permission_mode": "acceptEdits" } }
+```
+
+Environment overrides (`AETHRON_CODE_PROVIDER`, `_BASE_URL`, `_TOKEN`,
+`_MODEL`, `_RUNTIME`) win over the file.
+
+## What keeps the physics
+
+A general coding agent's instinct is to edit the file it can see. In a
+template project that is the one thing that must never happen — `site/`
+is generated and `pristine/` is sealed, and a hand edit either reverts
+on hydration or fails the seal. So:
+
+1. **The IDE refuses the write.** `site/` and `pristine/` are read-only
+   in the file API and marked with a lock in the tree.
+2. **The agent is told, in its system prompt** (`PROJECT_RULES`), the
+   moment its workspace contains a `forge.json`.
+3. **Aethron's own MCP tools are injected** (`--mcp-config` +
+   `--strict-mcp-config`), so content changes go through the guarded
+   pipeline — byte budgets, forbidden characters, snapshots, undo — and
+   the user's personal MCP servers stay out of the product's contract.
+
+The rule is unchanged from every other layer: **the agent proposes,
+deterministic checks dispose.** `verify` reads the files, `probe` runs
+the pages, and neither is the agent's to declare.
+
+## Using it
+
+```bash
+python3 aethron_code.py --status                  # what this machine can run
+python3 aethron_code.py ~/path/to/workspace "add a contact form"
+python3 aethron_code.py --selftest                # proves the pipe, no key
+```
+
+In the studio: sidebar → **Code**. Pick a workspace (any Aethron
+project, or a fresh one under `workspaces/`), choose a provider, start
+a session. File tree on the left, editor in the middle, agent on the
+right. Every file the agent touches shows up in the tree.
+
+## The selftest (why it can be trusted without an API key)
+
+`--selftest` starts a **mock Anthropic-compatible endpoint** in-process
+and points the CLI at it. It proves, offline and for free:
+
+- Aethron spawns the CLI and routes it to an endpoint of our choosing
+  (no Anthropic login involved — the FCC path, exactly)
+- text and tool calls stream back as normalized events
+- a tool call really changes a file in the workspace
+- Aethron's MCP tools are injected and callable, and only ours are
+
+It doubles as the reference for what "Anthropic-compatible" has to
+mean: if a gateway speaks this, Aethron can drive Claude Code against
+it.
+
+## Event contract
+
+| event         | fields                                   |
+|---------------|------------------------------------------|
+| `ready`       | `session_id`, `model`, `tools`, `mcp`, `cwd` |
+| `text`        | `text`                                   |
+| `thinking`    | `text`                                   |
+| `tool`        | `id`, `name`, `input`                    |
+| `tool_result` | `id`, `ok`, `text`                       |
+| `done`        | `error`, `text`, `cost_usd`, `turns`     |
+| `log`, `exit` | `text` / `code`                          |
+
+Anything added later — a different CLI, an embedded runtime, a hosted
+agent — normalizes into these, and the IDE does not change.

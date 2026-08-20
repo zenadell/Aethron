@@ -73,7 +73,9 @@ on the page — can fill.
 ```
 
 The whole pipeline is exposed three ways: a **CLI**, a **visual Studio**, and an
-**MCP server** so any AI agent drives it natively. `pristine/` is never touched;
+**MCP server** so any AI agent drives it natively. Beyond migration, the Studio
+carries a **coding workspace** (file tree, editor, agent) — see
+[docs/CODE.md](docs/CODE.md). `pristine/` is never touched;
 `site/` is never hand-edited; **every change flows through `copy_map.json` and a
 rebuild** — so hydration equality is guaranteed by construction, not by care.
 

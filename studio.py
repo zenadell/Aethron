@@ -56,6 +56,66 @@ FROZEN = bool(getattr(sys, "frozen", False))
 HOME = Path(os.environ.get("AETHRON_HOME", ROOT))
 PROJECTS = HOME / "projects"
 LIBRARY = HOME / "library"   # design cards: fingerprints, never files
+WORKSPACES = HOME / "workspaces"   # code workspaces (not migrations)
+
+# The coding layer is optional at import time: a broken/absent
+# aethron_code must never take the studio down — the IDE just reports
+# why it is unavailable.
+try:
+    import aethron_code as codelayer
+except Exception as _e:                                # pragma: no cover
+    codelayer = None
+    CODE_IMPORT_ERROR = str(_e)
+else:
+    CODE_IMPORT_ERROR = ""
+CODE_SESSIONS = {}    # workspace path -> CodeSession
+SKIP_DIRS = {".git", "node_modules", ".history", "__pycache__", ".venv",
+             "dist", "build", ".next", ".DS_Store"}
+
+
+def fs_tree(root: Path, cap=4000) -> list:
+    """Flat, sorted file list — the IDE builds the tree client-side.
+    Heavy generated dirs are skipped so a Next.js workspace doesn't
+    ship 30k node_modules entries to the browser."""
+    out = []
+    for p in sorted(root.rglob("*")):
+        rel = p.relative_to(root)
+        if any(part in SKIP_DIRS for part in rel.parts):
+            continue
+        if p.is_dir():
+            continue
+        try:
+            size = p.stat().st_size
+        except OSError:
+            continue
+        out.append({"path": str(rel), "size": size,
+                    "locked": is_locked(root, p)})
+        if len(out) >= cap:
+            break
+    return out
+
+
+def safe_path(root: Path, rel: str) -> Path:
+    f = (root / (rel or "")).resolve()
+    if not f.is_relative_to(root.resolve()) or not f.is_file():
+        raise FileNotFoundError("no such file in this workspace")
+    return f
+
+
+def is_locked(root: Path, f: Path) -> bool:
+    """site/ and pristine/ in a template project are read-only by law."""
+    if not (root / "forge.json").exists():
+        return False
+    try:
+        first = f.resolve().relative_to(root.resolve()).parts[0]
+    except Exception:
+        return False
+    return first in LOCKED_DIRS
+
+# Files the IDE refuses to write, per the forge invariants: generated
+# output and the sealed original. Editing them looks like it works and
+# then silently reverts on hydration (or fails the pristine seal).
+LOCKED_DIRS = ("site", "pristine")
 
 
 def forge_argv(*args):
@@ -210,6 +270,11 @@ def _kill_previews():
     for _, p in PREVIEWS.values():
         if p.poll() is None:
             p.terminate()
+    for s in list(CODE_SESSIONS.values()):
+        try:
+            s.close()
+        except Exception:
+            pass
 
 
 # ───────────────────────── AI copy-fill ──────────────────────────────
@@ -734,6 +799,21 @@ class Handler(BaseHTTPRequestHandler):
             raise FileNotFoundError("unknown project")
         return d
 
+    # ---- the code workspace (IDE + coding agent) --------------------
+    def ws_dir(self, src) -> Path:
+        """A workspace is an Aethron project or a folder under
+        workspaces/ — never an arbitrary path off the user's disk."""
+        get = (lambda k: (src.get(k, [""])[0] if isinstance(src.get(k), list)
+                          else src.get(k, "")) or "")
+        project, ws = get("project"), get("workspace")
+        if project:
+            return self.project_dir({"project": [project]})
+        WORKSPACES.mkdir(parents=True, exist_ok=True)
+        d = (WORKSPACES / ws).resolve()
+        if not ws or not d.is_relative_to(WORKSPACES) or not d.is_dir():
+            raise FileNotFoundError("unknown workspace")
+        return d
+
     # ------------------------------------------------------------ GET
     def do_GET(self):
         if not self._authed():
@@ -885,6 +965,50 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/job":
                 self.send_json(JOBS.get(q.get("id", [""])[0])
                                or {"error": "no such job"})
+            # ---- code layer (IDE + coding agent) --------------------
+            elif u.path == "/api/code/status":
+                if not codelayer:
+                    return self.send_json({"available": False,
+                                           "why": CODE_IMPORT_ERROR})
+                st = codelayer.status(HOME)
+                st["available"] = True
+                st["workspaces"] = sorted(
+                    p.name for p in WORKSPACES.iterdir() if p.is_dir()) \
+                    if WORKSPACES.is_dir() else []
+                key = q.get("key", [""])[0]
+                s = CODE_SESSIONS.get(key)
+                st["session"] = {"running": bool(s and s.alive),
+                                 "busy": bool(s and s.busy),
+                                 "cost_usd": s.cost_usd if s else 0}
+                self.send_json(st)
+            elif u.path == "/api/code/events":
+                s = CODE_SESSIONS.get(q.get("key", [""])[0])
+                if not s:
+                    return self.send_json({"events": [], "n": 0,
+                                           "running": False})
+                since = int(q.get("since", ["0"])[0] or 0)
+                evs, n = s.drain(since)
+                self.send_json({"events": evs, "n": n,
+                                "running": s.alive, "busy": s.busy,
+                                "cost_usd": s.cost_usd})
+            elif u.path == "/api/fs/tree":
+                d = self.ws_dir(q)
+                self.send_json({"root": d.name, "files": fs_tree(d)})
+            elif u.path == "/api/fs/read":
+                d = self.ws_dir(q)
+                rel = q.get("path", [""])[0]
+                f = safe_path(d, rel)
+                if f.stat().st_size > 1_500_000:
+                    return self.send_json({"path": rel, "too_big": True,
+                                           "size": f.stat().st_size})
+                raw = f.read_bytes()
+                if b"\0" in raw[:4000]:
+                    return self.send_json({"path": rel, "binary": True,
+                                           "size": len(raw)})
+                self.send_json({"path": rel,
+                                "text": raw.decode("utf-8", "replace"),
+                                "locked": is_locked(d, f),
+                                "size": len(raw)})
             elif u.path == "/api/ai/prompt":
                 d = self.project_dir(q)
                 plan = (d / "project_plan.md").read_text(encoding="utf-8") \
@@ -1085,6 +1209,81 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail("command not allowed")
                 self._track("run_step", step=cmd)
                 self.send_json({"job": start_job(argv, d)})
+            # ---- code layer -----------------------------------------
+            elif u.path == "/api/code/start":
+                if not codelayer:
+                    return self.fail("the coding layer is unavailable: "
+                                     + CODE_IMPORT_ERROR)
+                d = self.ws_dir(body)
+                key = str(d)
+                old = CODE_SESSIONS.pop(key, None)
+                if old:
+                    old.close()
+                try:
+                    s = codelayer.CodeSession(
+                        d, cfg=body.get("cfg") or {}, home=HOME).start()
+                except Exception as e:
+                    return self.fail(str(e))
+                CODE_SESSIONS[key] = s
+                self._track("code_session", runtime=s.cfg.get("runtime", ""),
+                            provider=s.cfg.get("provider", ""))
+                self.send_json({"key": key, "id": s.id,
+                                "workspace": d.name})
+            elif u.path == "/api/code/send":
+                s = CODE_SESSIONS.get(body.get("key", ""))
+                if not s or not s.alive:
+                    return self.fail("no running session — start one first")
+                text = (body.get("text") or "").strip()
+                if not text:
+                    return self.fail("empty message")
+                try:
+                    s.send(text)
+                except Exception as e:
+                    return self.fail(str(e))
+                self.send_json({"ok": True})
+            elif u.path == "/api/code/stop":
+                s = CODE_SESSIONS.pop(body.get("key", ""), None)
+                if s:
+                    s.interrupt()
+                self.send_json({"ok": True})
+            elif u.path == "/api/code/config":
+                # persisted where every face reads it (CLI, studio, app)
+                f = ROOT / "aethron_config.json"
+                try:
+                    cur = json.loads(f.read_text(encoding="utf-8"))
+                except Exception:
+                    cur = {}
+                cur["code"] = {**(cur.get("code") or {}),
+                               **(body.get("code") or {})}
+                f.write_text(json.dumps(cur, indent=1), encoding="utf-8")
+                self.send_json({"ok": True, "code": cur["code"]})
+            elif u.path == "/api/workspaces":
+                name = re.sub(r"[^A-Za-z0-9 _-]", "",
+                              body.get("name", "")).strip()
+                if not name:
+                    return self.fail("name required")
+                d = WORKSPACES / name
+                if d.exists():
+                    return self.fail("a workspace with that name exists")
+                d.mkdir(parents=True)
+                (d / "README.md").write_text(
+                    f"# {name}\n\nBuilt with Aethron.\n", encoding="utf-8")
+                self.send_json({"ok": True, "workspace": name})
+            elif u.path == "/api/fs/write":
+                d = self.ws_dir(body)
+                rel = body.get("path", "")
+                f = (d / rel).resolve()
+                if not f.is_relative_to(d.resolve()) or not rel:
+                    return self.fail("path outside the workspace")
+                if is_locked(d, f):
+                    return self.fail(
+                        f"{rel} is generated/sealed output — Aethron never "
+                        "hand-edits site/ or pristine/ (hydration reverts "
+                        "it and the seal fails). Change it in the Strings/"
+                        "Images tab or copy_map.json, then rebuild.")
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text(body.get("text", ""), encoding="utf-8")
+                self.send_json({"ok": True, "size": f.stat().st_size})
             elif u.path == "/api/library/save":
                 d = self.project_dir({"name": [body.get("project", "")]})
                 r = subprocess.run(forge_argv("card"),
@@ -2637,6 +2836,62 @@ to{opacity:1;transform:none}}
 to{opacity:1;transform:none}}
 #editpanel h3{font-size:13.5px;color:var(--acc2);margin-bottom:8px;
 display:flex;gap:8px;align-items:center;font-weight:600}
+/* ── code view: tree | editor | agent ─────────────────────── */
+.codebar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;
+ padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+.codebar .sep{width:1px;height:20px;background:var(--line)}
+.codebar select,.codebar input{background:var(--bg);color:var(--tx);
+ border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;
+ max-width:210px;flex:0 1 auto;min-width:0}
+.codebar input{max-width:150px}
+.codestat{font-size:11px;color:var(--dim);margin-left:auto}
+.ide{display:grid;grid-template-columns:250px 1fr 380px;
+ height:520px;min-height:360px;overflow:hidden}  /* height set by fitIde() */
+/* grid children default to min-height:auto and happily grow past the
+   container — which pushed the chat input below an unscrollable fold */
+.ide>*{min-height:0;min-width:0;overflow:hidden}
+.idetree{overflow:auto;border-right:1px solid var(--line);padding:8px;
+ font-size:12px;background:var(--panel)}
+.treehead{font-weight:600;padding:4px 6px;color:var(--dim);
+ text-transform:uppercase;letter-spacing:.06em;font-size:10px}
+.tfile{display:flex;gap:6px;align-items:center;padding:3px 6px;border-radius:6px;
+ cursor:pointer;color:var(--dim);white-space:nowrap;overflow:hidden}
+.tfile span{overflow:hidden;text-overflow:ellipsis}
+.tfile:hover{background:var(--panel2);color:var(--tx)}
+.tfile.sel{background:var(--acc);color:#fff}
+.ideedit{display:flex;flex-direction:column;min-width:0}
+.idehead{display:flex;gap:10px;align-items:center;padding:8px 12px;
+ border-bottom:1px solid var(--line);font-size:12px;color:var(--dim)}
+.idehead button{margin-left:auto}
+.lockchip{background:var(--panel2);border-radius:5px;padding:1px 6px;font-size:10px}
+#ideta{flex:1;width:100%;border:0;outline:0;resize:none;padding:12px 14px;
+ background:var(--bg);color:var(--tx);font:12px/1.55 ui-monospace,SFMono-Regular,
+ Menlo,monospace;tab-size:2}
+.idechat{display:flex;flex-direction:column;border-left:1px solid var(--line);
+ background:var(--panel);min-width:0}
+.chatlog{flex:1;overflow:auto;padding:10px;display:flex;flex-direction:column;gap:6px}
+.chatin{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}
+.chatin textarea{flex:1;background:var(--bg);color:var(--tx);border:1px solid var(--line);
+ border-radius:8px;padding:8px;font-size:12px;resize:none}
+.msg{font-size:12px;line-height:1.5;padding:7px 9px;border-radius:9px;
+ white-space:pre-wrap;word-break:break-word}
+.msg.you{background:var(--acc);color:#fff;align-self:flex-end;max-width:90%}
+.msg.bot{background:var(--panel2)}
+.msg.think{color:var(--dim);font-style:italic}
+.msg.tool{background:var(--bg);border:1px solid var(--line);font-size:11px}
+.msg.tool code{color:var(--dim)}
+.msg.res{background:var(--bg);border-left:2px solid var(--line);color:var(--dim);
+ font-size:11px;max-height:120px;overflow:auto}
+.msg.res.bad{border-left-color:var(--err);color:var(--err)}
+.msg.sys{color:var(--dim);font-size:11px;text-align:center}
+@media (max-width:1100px){.ide{grid-template-columns:1fr;height:auto !important;
+  overflow:visible}
+ .ide>*{overflow:visible}
+ .idetree{max-height:200px;overflow:auto;border-right:0;
+  border-bottom:1px solid var(--line)}
+ #ideta{min-height:260px}
+ .idechat{min-height:340px;border-left:0;border-top:1px solid var(--line)}
+ .chatlog{max-height:260px}}
 @media (prefers-reduced-motion:reduce){
 *,*::before,*::after{animation-duration:.01ms !important;
 transition-duration:.01ms !important}}
@@ -2644,6 +2899,10 @@ transition-duration:.01ms !important}}
 <aside>
   <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
   <div id="plist"></div>
+  <button class="libbtn" id="codebtn" onclick="openCode()"
+   title="the coding workspace: file tree, editor and an agent that
+works inside your project — powered by the Claude Code CLI or any
+Anthropic-compatible endpoint you point it at."><span data-ic="terminal"></span>Code</button>
   <button class="libbtn" id="libbtn" onclick="openLibrary()"
    title="every migration you save becomes a design card — palette,
 fonts, motion, structure. Describe a new project and the AI ranks
@@ -2679,6 +2938,10 @@ your saved designs by fit."><span data-ic="library"></span>Design library</butto
 <script>
 const $=id=>document.getElementById(id);
 const ICONS={
+terminal:'<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
+file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/>',
+send:'<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+lock:'<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
 anvil:'<path d="M7 10H6a4 4 0 0 1-4-4 1 1 0 0 1 1-1h4"/><path d="M7 5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1 7 7 0 0 1-7 7H8a1 1 0 0 1-1-1z"/><path d="M9 12v5"/><path d="M15 12v5"/><path d="M5 20a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3 1 1 0 0 1-1 1H6a1 1 0 0 1-1-1"/>',
 zap:'<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
 hammer:'<path d="m15 12-8.373 8.373a1 1 0 1 1-3-3L12 9"/><path d="m18 15 4-4"/><path d="m21.5 11.5-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5"/>',
@@ -3035,9 +3298,199 @@ async function delLibrary(id){
   catch(e){alert(e.message)}
 }
 
+// ---------- code: the IDE + the coding agent ----------
+// The agent is a PROCESS behind a stable event contract (see
+// aethron_code.py). This UI never talks to a model — it talks to
+// Aethron, which drives whichever runtime the user configured.
+const CODE={key:'',since:0,events:[],tree:[],file:'',dirty:false,
+            poll:0,status:null,ws:{project:'',workspace:''}};
+
+async function openCode(){
+  S.view='code';S.tab='';
+  document.querySelectorAll('.libbtn').forEach(b=>b.classList.remove('sel'));
+  const b=$('codebtn');if(b)b.classList.add('sel');
+  if(S.cur)CODE.ws={project:S.cur,workspace:''};
+  renderHeader();renderTab();
+}
+const wsq=()=>CODE.ws.project?'project='+encodeURIComponent(CODE.ws.project)
+                             :'workspace='+encodeURIComponent(CODE.ws.workspace);
+const wsBody=o=>Object.assign({},CODE.ws,o||{});
+const wsName=()=>CODE.ws.project||CODE.ws.workspace||'';
+
+async function renderCode(c){
+  if(!CODE.status)c.innerHTML='<div class="empty">opening the workspace…</div>';
+  CODE.status=await api('/api/code/status?key='+encodeURIComponent(CODE.key));
+  if(!CODE.status.available){
+    c.innerHTML=`<div class="pane"><h3>Coding layer unavailable</h3>
+      <div class="hint">${esc(CODE.status.why||'aethron_code.py failed to load')}</div></div>`;
+    return;
+  }
+  const st=CODE.status,rt=st.runtimes['claude-code'],cfg=st.config;
+  const wsOpts=[...S.projects.map(p=>`<option value="p:${esc(p.name)}"
+      ${CODE.ws.project===p.name?'selected':''}>${esc(p.name)} · project</option>`),
+    ...(st.workspaces||[]).map(w=>`<option value="w:${esc(w)}"
+      ${CODE.ws.workspace===w?'selected':''}>${esc(w)} · workspace</option>`)].join('');
+  c.innerHTML=`
+  <div class="codebar">
+    <select id="cws" onchange="pickWs(this.value)">
+      <option value="">— choose a workspace —</option>${wsOpts}</select>
+    <button onclick="newWorkspace()">${I('plus')}New workspace</button>
+    <span class="sep"></span>
+    <select id="cprov" onchange="saveCodeCfg()">
+      ${Object.entries(st.providers).map(([k,v])=>
+        `<option value="${esc(k)}" ${cfg.provider===k?'selected':''}>${esc(v)}</option>`).join('')}
+    </select>
+    <input id="cbase" placeholder="base URL (blank = preset)" value="${esc(cfg.base_url||'')}"
+      onchange="saveCodeCfg()" style="width:190px">
+    <input id="ctok" placeholder="token" value="${esc(cfg.token||'')}"
+      onchange="saveCodeCfg()" style="width:90px">
+    <input id="cmodel" placeholder="model (optional)" value="${esc(cfg.model||'')}"
+      onchange="saveCodeCfg()" style="width:130px">
+    <span class="sep"></span>
+    ${CODE.key?`<button class="danger" onclick="stopCode()">Stop session</button>`
+              :`<button class="primary" onclick="startCode()">${I('play')}Start session</button>`}
+    <span class="codestat">${rt.available
+      ? esc(rt.version)+' · '+esc(st.provider.why||st.provider.label)
+      : '<b>'+esc(rt.why)+'</b>'}</span>
+  </div>
+  <div class="ide">
+    <div class="idetree" id="idetree"></div>
+    <div class="ideedit">
+      <div class="idehead"><span id="idefile">no file open</span>
+        <button id="idesave" onclick="saveFile()" disabled>Save</button></div>
+      <textarea id="ideta" spellcheck="false" oninput="CODE.dirty=true;$('idesave').disabled=false"
+        placeholder="pick a file from the tree"></textarea>
+    </div>
+    <div class="idechat">
+      <div class="chatlog" id="chatlog"></div>
+      <div class="chatin">
+        <textarea id="chatta" rows="3" placeholder="${CODE.key
+          ?'ask the agent to build, fix or explain something…'
+          :'start a session first'}"
+          onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))sendCode()"></textarea>
+        <button class="primary" onclick="sendCode()">${I('send')}Send</button>
+      </div>
+    </div>
+  </div>`;
+  if(wsName())loadTree();
+  renderChat();fitIde();
+  if(CODE.key&&!CODE.poll)CODE.poll=setInterval(pollCode,900);
+}
+// The IDE must end exactly at the bottom of the window: guessing the
+// chrome height once put the chat input 33px below an unscrollable
+// fold — invisible, and the whole feature looked broken.
+function fitIde(){
+  const e=document.querySelector('.ide');if(!e)return;
+  if(innerWidth<1100){e.style.height='';return;}   // stacked: page scrolls
+  e.style.height='0px';   // measure the top with the pane collapsed
+  e.style.height=Math.max(300,innerHeight-e.getBoundingClientRect().top-14)+'px';
+}
+addEventListener('resize',fitIde);
+function pickWs(v){
+  CODE.ws=v.startsWith('p:')?{project:v.slice(2),workspace:''}
+        :v.startsWith('w:')?{project:'',workspace:v.slice(2)}:{project:'',workspace:''};
+  CODE.file='';CODE.key='';CODE.events=[];CODE.since=0;renderTab();
+}
+async function newWorkspace(){
+  const name=prompt('name for the new coding workspace');
+  if(!name)return;
+  try{const r=await api('/api/workspaces',{name});
+    CODE.ws={project:'',workspace:r.workspace};renderTab();}
+  catch(e){alert(e.message)}
+}
+async function saveCodeCfg(){
+  const code={provider:$('cprov').value,base_url:$('cbase').value.trim(),
+    token:$('ctok').value.trim(),model:$('cmodel').value.trim()};
+  try{await api('/api/code/config',{code});}catch(e){alert(e.message)}
+}
+async function loadTree(){
+  try{
+    const r=await api('/api/fs/tree?'+wsq());
+    CODE.tree=r.files;
+    $('idetree').innerHTML=`<div class="treehead">${esc(r.root)}</div>`
+      +r.files.map(f=>`<div class="tfile${CODE.file===f.path?' sel':''}"
+        onclick="openFile('${esc(f.path).replace(/'/g,"\\\\'")}')"
+        title="${esc(f.path)}${f.locked?' — generated/sealed, read-only':''}">
+        ${f.locked?I('lock',12):I('file',12)}<span>${esc(f.path)}</span></div>`).join('');
+  }catch(e){$('idetree').innerHTML=`<div class="hint">${esc(e.message)}</div>`}
+}
+async function openFile(path){
+  try{
+    const r=await api('/api/fs/read?'+wsq()+'&path='+encodeURIComponent(path));
+    CODE.file=path;CODE.dirty=false;
+    $('idefile').innerHTML=esc(path)+(r.locked
+      ?' <span class="lockchip">read-only — generated output</span>':'');
+    const ta=$('ideta');
+    ta.value=r.binary?'(binary file)':r.too_big?'(file too large to edit here)':r.text;
+    ta.readOnly=!!(r.locked||r.binary||r.too_big);
+    $('idesave').disabled=true;
+    loadTree();
+  }catch(e){alert(e.message)}
+}
+async function saveFile(){
+  try{
+    await api('/api/fs/write',wsBody({path:CODE.file,text:$('ideta').value}));
+    CODE.dirty=false;$('idesave').disabled=true;
+  }catch(e){alert(e.message)}
+}
+async function startCode(){
+  if(!wsName())return alert('choose a workspace first');
+  try{
+    const r=await api('/api/code/start',wsBody({}));
+    CODE.key=r.key;CODE.events=[];CODE.since=0;
+    renderTab();
+  }catch(e){alert(e.message)}
+}
+async function stopCode(){
+  try{await api('/api/code/stop',{key:CODE.key})}catch(e){}
+  clearInterval(CODE.poll);CODE.poll=0;CODE.key='';renderTab();
+}
+async function sendCode(){
+  const ta=$('chatta'),text=ta.value.trim();
+  if(!text)return;
+  if(!CODE.key)return alert('start a session first');
+  ta.value='';
+  CODE.events.push({type:'you',text});renderChat();
+  try{await api('/api/code/send',{key:CODE.key,text});}
+  catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
+}
+async function pollCode(){
+  if(!CODE.key)return;
+  try{
+    const r=await api('/api/code/events?key='+encodeURIComponent(CODE.key)
+                      +'&since='+CODE.since);
+    if(r.events&&r.events.length){
+      CODE.events.push(...r.events);CODE.since=r.n;renderChat();
+      if(r.events.some(e=>['tool_result','done'].includes(e.type)))loadTree();
+    }
+    if(!r.running&&CODE.key){clearInterval(CODE.poll);CODE.poll=0;}
+  }catch(e){}
+}
+function renderChat(){
+  const box=$('chatlog');if(!box)return;
+  box.innerHTML=CODE.events.map(e=>{
+    if(e.type==='you')return `<div class="msg you">${esc(e.text)}</div>`;
+    if(e.type==='text')return `<div class="msg bot">${esc(e.text)}</div>`;
+    if(e.type==='thinking')return `<div class="msg think">${esc(e.text)}</div>`;
+    if(e.type==='tool')return `<div class="msg tool">${I('terminal',12)}
+      <b>${esc(e.name)}</b> <code>${esc(JSON.stringify(e.input||{}).slice(0,160))}</code></div>`;
+    if(e.type==='tool_result')return `<div class="msg res${e.ok?'':' bad'}">${
+      esc((e.text||'').slice(0,300))}</div>`;
+    if(e.type==='ready')return `<div class="msg sys">session ready · ${esc(e.model||'')}
+      · ${(e.tools||[]).length} tools · mcp: ${esc((e.mcp||[]).join(', ')||'none')}</div>`;
+    if(e.type==='done')return `<div class="msg sys">${e.error?'ERROR: '+esc(e.text)
+      :'turn complete'}${e.cost_usd?' · $'+Number(e.cost_usd).toFixed(4):''}</div>`;
+    if(e.type==='exit')return `<div class="msg sys">session ended (${e.code})</div>`;
+    if(e.type==='error')return `<div class="msg res bad">${esc(e.text||'')}</div>`;
+    return '';
+  }).join('');
+  box.scrollTop=1e9;
+}
+
 let RT=0; // render token: async renderers must not overwrite a newer tab
 function renderTab(){
   const c=$('content');
+  if(S.view==='code')return renderCode(c);
   if(S.view==='library')return renderLibrary(c);
   if(!S.cur){return}
   const t=++RT;
