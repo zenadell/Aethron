@@ -59,6 +59,28 @@ PROVIDERS = {
 class Model:
     """A chat endpoint that can call tools, whoever provides it."""
 
+    @classmethod
+    def from_settings(cls):
+        """ONE KEY FOR EVERYTHING: build from Aethron's saved AI settings
+        (aethron_brain) so the migration agent, the copy fill and the
+        coding agent all run on the same provider."""
+        import aethron_brain as brain
+        r = brain.resolve()
+        if not r["ready"]:
+            raise ValueError(r["why"])
+        m = cls.__new__(cls)
+        # both wires here take a versioned base (…/v1/messages,
+        # …/v1/chat/completions); the settings store the human URL
+        base = r["base"].rstrip("/")
+        if "/v1" not in base and not base.endswith("/openai"):
+            base += "/v1"
+        m.base = base
+        m.wire = "anthropic" if r["wire"] == "anthropic" else "openai"
+        m.model = r["model"]
+        m.key = r["key"]
+        m.provider = r["provider"]
+        return m
+
     def __init__(self, provider="deepseek", model="", api_key="", base=""):
         if provider not in PROVIDERS and not base:
             raise ValueError(f"unknown provider {provider!r}; "
@@ -484,10 +506,14 @@ def main(argv):
     goal = " ".join(argv[2:]) or ("Complete this migration: fix anything "
                                   "broken, fill the copy from the owner's "
                                   "plan, and get verify CLEAN.")
-    model = Model(os.environ.get("AETHRON_PROVIDER", "deepseek"),
-                  os.environ.get("AETHRON_MODEL", ""))
+    try:
+        model = Model.from_settings()      # the one configured key
+    except Exception:
+        model = Model(os.environ.get("AETHRON_PROVIDER", "deepseek"),
+                      os.environ.get("AETHRON_MODEL", ""))
     if not model.key:
-        print("no API key — set AETHRON_MODEL_KEY")
+        print("no model configured — set one in the studio's AI settings "
+              "(or AETHRON_AI_KEY / AETHRON_MODEL_KEY)")
         return 1
 
     def ev(kind, data):

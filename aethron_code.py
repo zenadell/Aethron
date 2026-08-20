@@ -59,6 +59,12 @@ FORGE_MCP = ROOT / "forge_mcp.py"
 # Anthropic. `token` is a DEFAULT, always overridable by config/env —
 # never a secret we ship.
 PROVIDERS = {
+    # DEFAULT: whatever single key the owner set in Aethron's settings —
+    # DeepSeek, Gemini, OpenAI, Groq, Ollama, Anthropic. Non-Anthropic
+    # wires are translated by aethron_bridge on the way through, so one
+    # key really does power both the design side and the code side.
+    "auto": {"label": "Aethron AI settings (one key for everything)",
+             "base_url": "", "token": "", "needs_login": False},
     # the user's own Claude subscription or API key (claude /login)
     "anthropic": {"label": "Anthropic (your Claude account)",
                   "base_url": "", "token": "", "needs_login": True},
@@ -74,7 +80,7 @@ PROVIDERS = {
 
 DEFAULT_CFG = {
     "runtime": "claude-code",      # or "internal"
-    "provider": "anthropic",
+    "provider": "auto",            # follow Aethron's one AI setting
     "base_url": "",                # overrides the preset
     "token": "",
     "model": "",                   # "" = the runtime's default
@@ -140,6 +146,25 @@ def load_config(home: Path = None) -> dict:
 
 def resolve_provider(cfg: dict) -> dict:
     """-> {base_url, token, label, ready, why}"""
+    if cfg.get("provider", "auto") == "auto":
+        # ONE KEY FOR EVERYTHING: ask the brain for an Anthropic-speaking
+        # endpoint. It hands back the provider directly when it already
+        # speaks that wire, and starts the translator when it doesn't.
+        try:
+            import aethron_brain as brain
+            e = brain.anthropic_endpoint()
+            if e["mode"] == "unconfigured":
+                return {"base_url": "", "token": "", "ready": False,
+                        "label": "Aethron AI settings", "hint": "",
+                        "why": e["why"] + " in the AI settings"}
+            return {"base_url": e["base_url"], "token": e["token"],
+                    "label": "Aethron AI settings", "ready": True,
+                    "why": e["why"], "hint": "",
+                    "mode": e["mode"], "model": e["model"]}
+        except Exception as ex:                        # pragma: no cover
+            return {"base_url": "", "token": "", "ready": False,
+                    "label": "Aethron AI settings", "hint": "",
+                    "why": f"AI settings unavailable: {ex}"}
     preset = PROVIDERS.get(cfg.get("provider", "anthropic"),
                            PROVIDERS["anthropic"])
     base = cfg.get("base_url") or preset["base_url"]
@@ -153,6 +178,10 @@ def resolve_provider(cfg: dict) -> dict:
         why = f"routed to {base}"
     return {"base_url": base, "token": token, "label": preset["label"],
             "ready": ready, "why": why,
+            # an explicit endpoint may itself be a translator (someone
+            # else's, or ours started by hand) — say so and the model
+            # name stays the endpoint's business
+            "mode": cfg.get("mode", "direct"),
             "hint": preset.get("hint", "")}
 
 
@@ -274,8 +303,16 @@ class CodeSession:
                 "--verbose",
                 "--session-id", self.id,
                 "--permission-mode", self.cfg["permission_mode"]]
-        if self.cfg.get("model"):
-            argv += ["--model", self.cfg["model"]]
+        prov = resolve_provider(self.cfg)
+        # MODEL OWNERSHIP: when the bridge is in the path it rewrites the
+        # model on every request, so the CLI must NOT be given a foreign
+        # model id — it validates the name and refuses to start
+        # ("deepseek-v4-pro … may not exist"). Anywhere else the name
+        # belongs to the endpoint we are talking to.
+        if prov.get("mode") != "bridge":
+            model = self.cfg.get("model") or prov.get("model") or ""
+            if model:
+                argv += ["--model", model]
         if self.cfg.get("allowed_tools"):
             argv += ["--allowedTools", *self.cfg["allowed_tools"]]
         if self.cfg.get("disallowed_tools"):
@@ -422,8 +459,16 @@ class CodeSession:
         out = []
         if t == "system" and d.get("subtype") == "init":
             self.session_id = d.get("session_id", "")
+            model = d.get("model", "")
+            prov = resolve_provider(self.cfg)
+            if prov.get("mode") == "bridge":
+                # the CLI reports its own default name; the request is
+                # actually answered by the configured provider, and the
+                # UI must say what is really running
+                model = f"{prov.get('model') or 'configured model'} " \
+                        f"(via Aethron bridge)"
             out.append({"type": "ready", "session_id": self.session_id,
-                        "model": d.get("model", ""),
+                        "model": model,
                         "tools": d.get("tools", []),
                         "mcp": [m.get("name") for m in
                                 d.get("mcp_servers", [])],
@@ -678,6 +723,43 @@ def selftest() -> int:
     for name, ok in checks[5:]:
         print(("  ok   " if ok else "  FAIL ") + name)
     shutil.rmtree(ws2, ignore_errors=True)
+
+    # SCENARIO 3 — ONE KEY FOR EVERYTHING: an OpenAI-wire provider
+    # (DeepSeek/Gemini/OpenAI/Ollama shaped) drives the CODING agent,
+    # translated by Aethron's own bridge. No Anthropic account anywhere
+    # in this path.
+    import aethron_bridge
+    ws3 = Path(tempfile.mkdtemp(prefix="aethron-code-bridge-"))
+    up, up_url = aethron_bridge._mock_openai([
+        [{"text": "Creating the file."},
+         {"tool": "Write", "input": {"file_path": str(ws3 / "made.txt"),
+                                     "content": "by a non-anthropic model\n"}}],
+        [{"text": "Done."}]])
+    bsrv, burl = aethron_bridge.start(
+        aethron_bridge.BridgeConfig(up_url, "sk-fake-deepseek-key",
+                                    "deepseek-v4-pro"))
+    res3 = run_once(ws3, "create made.txt", cfg={
+        "provider": "custom", "base_url": burl, "token": "aethron",
+        "mode": "bridge",   # the bridge owns the model name upstream
+        "permission_mode": "bypassPermissions",
+        "aethron_tools": False, "isolate": True}, timeout=180)
+    bsrv.shutdown()
+    up.shutdown()
+    made = (ws3 / "made.txt")
+    checks += [
+        ("OpenAI-wire provider drives the coding agent (via the bridge)",
+         "Write" in res3["tools"]),
+        ("its tool call really wrote the file",
+         made.exists() and "non-anthropic" in made.read_text()),
+        ("no Anthropic account involved anywhere in that path",
+         "Not logged in" not in (res3["error"] or "")),
+    ]
+    for name, ok in checks[9:]:
+        print(("  ok   " if ok else "  FAIL ") + name)
+    if not all(ok for _, ok in checks[9:]):
+        print("  error:", res3["error"])
+        print("  events:", json.dumps(res3["events"], indent=1)[:1500])
+    shutil.rmtree(ws3, ignore_errors=True)
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")

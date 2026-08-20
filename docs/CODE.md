@@ -29,7 +29,47 @@ drives it as a subprocess and keeps what actually matters: the
 workspace, the tools, the guardrails and the UI. Nothing is vendored,
 patched or redistributed — swap the process, keep the platform.
 
-## Free / any provider (the FCC integration)
+## One key for everything
+
+The rule: **whatever API key you set in Aethron's AI settings powers
+everything** — copy fill, plan polish, design matching, self-heal, the
+migration agent and the coding agent. Not one key for the design side
+and another for code.
+
+`aethron_brain.py` holds that single setting (`aethron_config.json` →
+`"ai"`) and the provider registry: DeepSeek, Anthropic, Gemini, OpenAI,
+OpenRouter, Groq, Ollama (local, free), the FCC proxy, the Claude Code
+login, or a custom endpoint.
+
+The catch, and how it is solved: the Claude Code CLI speaks **only** the
+Anthropic Messages API, while most providers speak OpenAI's. So Aethron
+ships its own translator, `aethron_bridge.py` — ~500 stdlib lines,
+no external proxy:
+
+```
+claude CLI ──Anthropic /v1/messages──> BRIDGE ──OpenAI /chat/completions──> DeepSeek
+            <────── Anthropic SSE ───────┘                                  Gemini · OpenAI · Groq · Ollama
+```
+
+It translates system prompts, multi-block messages, tool definitions,
+tool calls and tool results in both directions, streaming (SSE) and
+not. `python3 aethron_bridge.py --selftest` proves the translation and
+the failure paths without a key.
+
+Which route a session takes is automatic and visible in the UI:
+
+| your provider | route |
+|---------------|-------|
+| Anthropic / FCC / custom Anthropic endpoint | `direct` |
+| Claude Code login | `cli-login` |
+| DeepSeek, Gemini, OpenAI, Groq, Ollama, OpenRouter | `bridge` (translated) |
+
+One detail worth knowing: in `bridge` mode Aethron does **not** pass
+`--model` to the CLI — the bridge rewrites the model on every request.
+Handing the CLI a foreign model id makes it refuse to start with "the
+model may not exist", which sends you debugging in the wrong place.
+
+## Provider presets for the coding runtime
 
 Claude Code's provider is an environment variable:
 

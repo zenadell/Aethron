@@ -62,6 +62,10 @@ WORKSPACES = HOME / "workspaces"   # code workspaces (not migrations)
 # aethron_code must never take the studio down — the IDE just reports
 # why it is unavailable.
 try:
+    import aethron_brain as brain
+except Exception:                                      # pragma: no cover
+    brain = None
+try:
     import aethron_code as codelayer
 except Exception as _e:                                # pragma: no cover
     codelayer = None
@@ -384,6 +388,19 @@ def make_batches(cm: dict, size=40):
 
 
 def call_model(st: dict, prompt: str) -> str:
+    """ONE KEY FOR EVERYTHING: whatever provider is configured in the AI
+    settings answers here too. Anything the caller passes explicitly
+    still wins, so an ad-hoc run can use a different model."""
+    if brain is not None:
+        override = {k: v for k, v in (st or {}).items()
+                    if k in ("provider", "api_key", "model", "base_url") and v}
+        try:
+            return brain.text_call(prompt, override or None)
+        except ValueError:
+            raise
+        except Exception:
+            if not (st or {}).get("api_key"):
+                raise
     if st["provider"] == "anthropic":
         url = (st.get("base_url") or "https://api.anthropic.com").rstrip("/") \
             + "/v1/messages"
@@ -780,6 +797,21 @@ class Handler(BaseHTTPRequestHandler):
             self.fail("login required", 401)
         return False
 
+    def ai_settings(self, body):
+        """Per-call overrides on top of the saved settings. Raises with
+        the brain's own reason when nothing usable is configured."""
+        st = {k: body.get(k, "") for k in
+              ("provider", "base_url", "api_key", "model")}
+        if brain:
+            r = brain.resolve({k: v for k, v in st.items() if v} or None)
+            if not r["ready"]:
+                raise ValueError(r["why"] + " — open the Plan & AI tab "
+                                 "(or the Code view) and save your key")
+            return st
+        if not st["model"]:
+            raise ValueError("set a model + API key in the Plan & AI tab")
+        return st
+
     def send_json(self, obj, code=200):
         body = json.dumps(obj).encode()
         self.send_response(code)
@@ -965,6 +997,12 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/job":
                 self.send_json(JOBS.get(q.get("id", [""])[0])
                                or {"error": "no such job"})
+            elif u.path == "/api/ai/settings":
+                if not brain:
+                    return self.send_json({"available": False})
+                st = brain.status()
+                st["available"] = True
+                self.send_json(st)
             # ---- code layer (IDE + coding agent) --------------------
             elif u.path == "/api/code/status":
                 if not codelayer:
@@ -1209,6 +1247,13 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail("command not allowed")
                 self._track("run_step", step=cmd)
                 self.send_json({"job": start_job(argv, d)})
+            elif u.path == "/api/ai/settings":
+                if not brain:
+                    return self.fail("AI settings unavailable")
+                saved = brain.save(body.get("ai") or {})
+                brain.shutdown_bridge()   # next session picks up the change
+                self.send_json({"ok": True, "ai": {**saved, "api_key":
+                                ("set" if saved.get("api_key") else "")}})
             # ---- code layer -----------------------------------------
             elif u.path == "/api/code/start":
                 if not codelayer:
@@ -1354,11 +1399,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not plan:
                     return self.fail("describe the project first — even "
                                      "a few rough words work")
-                st = {k: body.get(k, "") for k in
-                      ("provider", "base_url", "api_key", "model")}
-                if not st["model"]:
-                    return self.fail("set a model + API key in any "
-                                     "project's Plan & AI tab first")
+                st = self.ai_settings(body)
                 cards = []
                 for f in sorted(LIBRARY.glob("*.json")) \
                         if LIBRARY.is_dir() else []:
@@ -1462,10 +1503,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not raw:
                     return self.fail("write a few rough words first — "
                                      "brand name at minimum")
-                st = {k: body.get(k, "") for k in
-                      ("provider", "base_url", "api_key", "model")}
-                if not st["model"]:
-                    return self.fail("set a model in the AI panel first")
+                st = self.ai_settings(body)
                 out = call_model(st, PLAN_POLISH_PROMPT + raw)
                 out = re.sub(r"^```\w*\n?|```$", "", out.strip(), flags=re.M)
                 (d / "project_plan.md").write_text(out, encoding="utf-8")
@@ -1475,10 +1513,7 @@ class Handler(BaseHTTPRequestHandler):
                 # context in, guarded text/css changes out
                 d = self.project_dir({"name": [body.get("project", "")]})
                 snapshot(d)
-                st = {k: body.get(k, "") for k in
-                      ("provider", "base_url", "api_key", "model")}
-                if not st["model"]:
-                    return self.fail("set a model + API key in Plan & AI first")
+                st = self.ai_settings(body)
                 ctx = body.get("context") or {}
                 instruction = (body.get("instruction") or "").strip()
                 if not instruction:
@@ -1548,10 +1583,7 @@ class Handler(BaseHTTPRequestHandler):
                 name = body.get("project", "")
                 d = self.project_dir({"name": [name]})
                 snapshot(d)
-                st = {k: body.get(k, "") for k in
-                      ("provider", "base_url", "api_key", "model")}
-                if not st["model"]:
-                    return self.fail("set a model name")
+                st = self.ai_settings(body)
                 self.send_json({"job": start_ai_job(name, st)})
             elif u.path == "/api/ai/merge":
                 d = self.project_dir({"name": [body.get("project", "")]})
@@ -1908,6 +1940,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.fail("not found", 404)
         except FileNotFoundError as e:
             self.fail(e, 404)
+        except ValueError as e:
+            self.fail(e, 400)      # e.g. AI settings not configured yet
         except Exception as e:
             self.fail(e, 500)
 
@@ -3303,7 +3337,7 @@ async function delLibrary(id){
 // aethron_code.py). This UI never talks to a model — it talks to
 // Aethron, which drives whichever runtime the user configured.
 const CODE={key:'',since:0,events:[],tree:[],file:'',dirty:false,
-            poll:0,status:null,ws:{project:'',workspace:''}};
+            poll:0,status:null,showai:false,ws:{project:'',workspace:''}};
 
 async function openCode(){
   S.view='code';S.tab='';
@@ -3326,6 +3360,7 @@ async function renderCode(c){
     return;
   }
   const st=CODE.status,rt=st.runtimes['claude-code'],cfg=st.config;
+  const prov=st.provider||{};
   const wsOpts=[...S.projects.map(p=>`<option value="p:${esc(p.name)}"
       ${CODE.ws.project===p.name?'selected':''}>${esc(p.name)} · project</option>`),
     ...(st.workspaces||[]).map(w=>`<option value="w:${esc(w)}"
@@ -3336,23 +3371,18 @@ async function renderCode(c){
       <option value="">— choose a workspace —</option>${wsOpts}</select>
     <button onclick="newWorkspace()">${I('plus')}New workspace</button>
     <span class="sep"></span>
-    <select id="cprov" onchange="saveCodeCfg()">
-      ${Object.entries(st.providers).map(([k,v])=>
-        `<option value="${esc(k)}" ${cfg.provider===k?'selected':''}>${esc(v)}</option>`).join('')}
-    </select>
-    <input id="cbase" placeholder="base URL (blank = preset)" value="${esc(cfg.base_url||'')}"
-      onchange="saveCodeCfg()" style="width:190px">
-    <input id="ctok" placeholder="token" value="${esc(cfg.token||'')}"
-      onchange="saveCodeCfg()" style="width:90px">
-    <input id="cmodel" placeholder="model (optional)" value="${esc(cfg.model||'')}"
-      onchange="saveCodeCfg()" style="width:130px">
-    <span class="sep"></span>
     ${CODE.key?`<button class="danger" onclick="stopCode()">Stop session</button>`
-              :`<button class="primary" onclick="startCode()">${I('play')}Start session</button>`}
+              :`<button class="primary" ${prov.ready?'':'disabled'}
+                 onclick="startCode()">${I('play')}Start session</button>`}
+    <button onclick="CODE.showai=!CODE.showai;renderTab()">${I('sparkles')}AI settings</button>
     <span class="codestat">${rt.available
-      ? esc(rt.version)+' · '+esc(st.provider.why||st.provider.label)
+      ? esc(rt.version)+' · '+esc(prov.why||prov.label||'')
       : '<b>'+esc(rt.why)+'</b>'}</span>
   </div>
+  ${CODE.showai||!prov.ready?`<div class="card" style="margin:12px 14px 0">
+    <h3>AI — one key for everything</h3>${aiSettingsHtml()}
+    ${prov.ready?'':`<div class="hint" style="color:var(--err)">${esc(prov.why||'')}</div>`}
+    </div>`:''}
   <div class="ide">
     <div class="idetree" id="idetree"></div>
     <div class="ideedit">
@@ -3373,7 +3403,7 @@ async function renderCode(c){
     </div>
   </div>`;
   if(wsName())loadTree();
-  renderChat();fitIde();
+  bindAiSettings();renderChat();fitIde();
   if(CODE.key&&!CODE.poll)CODE.poll=setInterval(pollCode,900);
 }
 // The IDE must end exactly at the bottom of the window: guessing the
@@ -3398,9 +3428,7 @@ async function newWorkspace(){
     CODE.ws={project:'',workspace:r.workspace};renderTab();}
   catch(e){alert(e.message)}
 }
-async function saveCodeCfg(){
-  const code={provider:$('cprov').value,base_url:$('cbase').value.trim(),
-    token:$('ctok').value.trim(),model:$('cmodel').value.trim()};
+async function saveCodeCfg(code){
   try{await api('/api/code/config',{code});}catch(e){alert(e.message)}
 }
 async function loadTree(){
@@ -3504,12 +3532,30 @@ function renderTab(){
 }
 
 // ---------- Plan & AI ----------
-const PRESETS={anthropic:{base:'https://api.anthropic.com',model:'claude-sonnet-5'},
-  deepseek:{base:'https://api.deepseek.com',model:'deepseek-v4-pro'},
-  gemini:{base:'https://generativelanguage.googleapis.com/v1beta/openai',model:'gemini-2.5-flash'},
-  openai:{base:'https://api.openai.com/v1',model:'gpt-5'},
-  ollama:{base:'http://localhost:11434/v1',model:'llama3.2'}};
-function aiCfg(){try{return JSON.parse(localStorage.forge_ai||'{}')}catch(e){return{}}}
+// ONE KEY FOR EVERYTHING. The provider registry and the saved
+// settings live on the SERVER (aethron_brain), so the same choice
+// powers copy fill, plan polish, design matching, self-heal and the
+// coding agent. The browser only renders it.
+let AI={settings:{},providers:{},resolved:{}};
+async function loadAi(){
+  try{
+    const r=await api('/api/ai/settings');
+    if(r.available){AI={settings:r.settings,providers:r.providers,resolved:r.resolved};}
+    // one-time migration from the old browser-only settings
+    if(!AI.settings.api_key&&localStorage.forge_ai){
+      try{const old=JSON.parse(localStorage.forge_ai);
+        if(old.api_key){await saveAi(old);localStorage.removeItem('forge_ai');}
+      }catch(e){}
+    }
+  }catch(e){}
+  return AI;
+}
+async function saveAi(st){
+  const r=await api('/api/ai/settings',{ai:st});
+  AI.settings={...AI.settings,...st};
+  return r;
+}
+function aiCfg(){return {}}   // server-side settings; no client override
 async function renderPlan(c,t){
   const [{plan},cfg]=await Promise.all([api('/api/plan?project='+S.cur),
                                         api('/api/config?project='+S.cur)]);
@@ -3541,15 +3587,8 @@ async function renderPlan(c,t){
    ("jomiez, ai agency, chill tone, insta @jomiez") and hit Polish —
    the AI rewrites it into the full plan for you to review.</div></div>
 
-  <div class="card"><h3>Fill the copy map with AI — any model</h3>
-  <div class="row">
-   <div><label>Provider</label><select id="aiprov">
-     ${Object.keys(PRESETS).map(p=>`<option ${a.provider===p?'selected':''}>${p}</option>`).join('')}
-   </select></div>
-   <div><label>Base URL</label><input id="aibase" value="${esc(a.base_url||PRESETS[a.provider||'anthropic'].base)}"></div>
-   <div><label>Model</label><input id="aimodel" value="${esc(a.model||PRESETS[a.provider||'anthropic'].model)}"></div>
-   <div><label>API key</label><input id="aikey" type="password" value="${esc(a.api_key||'')}"></div>
-  </div>
+  <div class="card"><h3>AI — one key for everything</h3>
+  ${aiSettingsHtml()}
   <div class="toolbar">
    <button class="primary" onclick="aiFill()">${I('sparkles')}Fill copy map with AI</button>
    <span class="hint">batched · byte budgets & forbidden chars enforced
@@ -3562,17 +3601,62 @@ async function renderPlan(c,t){
    <button onclick="mergePaste()">Merge pasted answer</button>
    <span class="hint" id="mergeres"></span></div>
   </details></div>`;
-  $('aiprov').onchange=e=>{const p=PRESETS[e.target.value];
-    $('aibase').value=p.base;$('aimodel').value=p.model;};
+  bindAiSettings();
+}
+
+// The single AI settings block, rendered wherever it is needed (Plan
+// tab, Code view). Editing it here changes the model behind copy fill,
+// plan polish, design matching, self-heal AND the coding agent.
+function aiSettingsHtml(compact){
+  const a=AI.settings||{},P=AI.providers||{};
+  const cur=a.provider||'deepseek',p=P[cur]||{};
+  return `<div class="row">
+   <div><label>Provider</label><select id="aiprov">
+     ${Object.entries(P).map(([k,v])=>`<option value="${esc(k)}"
+       ${cur===k?'selected':''}>${esc(v.label)}</option>`).join('')}
+   </select></div>
+   <div><label>Model</label><input id="aimodel"
+     value="${esc(a.model||p.model||'')}" placeholder="${esc(p.model||'model name')}"></div>
+   <div><label>API key</label><input id="aikey" type="password"
+     value="" placeholder="${a.api_key?'•••••• (saved)':esc(p.keys||'')}"></div>
+   <div><label>Base URL (optional)</label><input id="aibase"
+     value="${esc(a.base_url||'')}" placeholder="${esc(p.base||'')}"></div>
+  </div>
+  <div class="toolbar"><button onclick="saveAiFromForm()">Save AI settings</button>
+   <span class="hint" id="aisaved">${AI.resolved&&AI.resolved.ready
+     ?'ready · '+esc(AI.resolved.label)+' · '+esc(AI.resolved.model||'')
+     :esc((AI.resolved&&AI.resolved.why)||'')}</span></div>
+  ${compact?'':`<div class="hint">this one setting powers copy fill, plan
+   polish, design matching, self-heal and the coding agent. Providers
+   that don't speak Anthropic's API are translated automatically, so a
+   DeepSeek or Gemini key drives the code side too.</div>`}`;
+}
+function bindAiSettings(){
+  const sel=$('aiprov');if(!sel)return;
+  sel.onchange=e=>{const p=(AI.providers||{})[e.target.value]||{};
+    $('aimodel').value=p.model||'';
+    $('aimodel').placeholder=p.model||'model name';
+    $('aikey').placeholder=p.keys||'';
+    $('aibase').value='';$('aibase').placeholder=p.base||'';};
+}
+async function saveAiFromForm(){
+  const st={provider:$('aiprov').value,model:$('aimodel').value.trim(),
+            base_url:$('aibase').value.trim()};
+  const k=$('aikey').value.trim();
+  if(k)st.api_key=k;              // blank leaves the stored key alone
+  try{
+    await saveAi(st);await loadAi();
+    if($('aisaved'))$('aisaved').textContent=AI.resolved.ready
+      ?'saved ✓ · '+AI.resolved.label+' · '+(AI.resolved.model||'')
+      :AI.resolved.why;
+    if(S.view==='code')renderTab();
+  }catch(e){if($('aisaved'))$('aisaved').textContent=e.message}
 }
 async function polishPlan(){
-  const st={provider:$('aiprov').value,base_url:$('aibase').value,
-            model:$('aimodel').value,api_key:$('aikey').value};
-  localStorage.forge_ai=JSON.stringify(st);
   $('plansaved').textContent='polishing…';
   try{
     const r=await api('/api/ai/plan',{project:S.cur,
-      plan:$('plantxt').value,...st});
+      plan:$('plantxt').value});
     $('plantxt').value=r.plan;
     $('plansaved').textContent='polished ✓ — review, tweak, then Save';
   }catch(e){$('plansaved').textContent=e.message}
@@ -3588,10 +3672,7 @@ async function savePlan(){
 }
 async function aiFill(){
   await savePlan();
-  const st={provider:$('aiprov').value,base_url:$('aibase').value,
-            model:$('aimodel').value,api_key:$('aikey').value};
-  localStorage.forge_ai=JSON.stringify(st);
-  try{const {job}=await api('/api/ai/fill',{project:S.cur,...st});
+  try{const {job}=await api('/api/ai/fill',{project:S.cur});
     const ok=await watchJob(job,'ai');
     if(ok!==false){                    // apply the fills to the site now
       setProgress(66,'Applying your content to the site…');
@@ -4227,6 +4308,7 @@ function endTour(){
 }
 
 refresh();
+loadAi();          // the one AI setting, before anything asks for it
 if(!localStorage.forge_tour)setTimeout(()=>startTour(0),700);
 </script></body></html>
 """
