@@ -179,11 +179,140 @@ def route_of(page: str) -> str:
         page.endswith(".html") else page
 
 
+
+# ─────────────── organising the output like a project ────────────────
+# A 600KB body blob is not something a developer can work with. The
+# original is already authored in sections — Framer names them
+# (data-framer-name), Webflow gives them classes — so we cut on those
+# boundaries and emit one component per section. Concatenating the
+# sections reproduces the body byte-for-byte, which is what keeps this
+# faithful: the split is structural, never a rewrite.
+
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "param", "source", "track", "wbr"}
+TAG = re.compile(r"(?is)<(/?)([a-z][a-z0-9-]*)\b([^>]*?)(/?)>")
+
+
+def top_level_spans(html: str) -> list:
+    """[(start, end, attrs)] for each direct child ELEMENT, in order."""
+    out, depth, begin, battrs = [], 0, None, ""
+    for m in TAG.finditer(html):
+        closing, tag, attrs, selfclose = m.groups()
+        tag = tag.lower()
+        if tag in VOID or selfclose:
+            if depth == 0:
+                out.append((m.start(), m.end(), attrs))
+            continue
+        if not closing:
+            if depth == 0:
+                begin, battrs = m.start(), attrs
+            depth += 1
+        else:
+            depth -= 1
+            if depth == 0 and begin is not None:
+                out.append((begin, m.end(), battrs))
+                begin = None
+            if depth < 0:
+                return []
+    return out if depth == 0 else []
+
+
+def section_name(attrs: str, index: int, used: set) -> str:
+    """A human name for the file, from what the designer actually
+    called the section."""
+    for pat in (r'data-framer-name="([^"]+)"', r'\bid="([^"]+)"',
+                r'aria-label="([^"]+)"'):
+        m = re.search(pat, attrs, re.I)
+        if m:
+            raw = m.group(1)
+            break
+    else:
+        m = re.search(r'class="([^"]*)"', attrs, re.I)
+        raw = ""
+        for c in (m.group(1).split() if m else []):
+            if not re.match(r"(?i)^(framer-[a-z0-9]+|w-|css-)", c):
+                raw = c
+                break
+    words = re.findall(r"[A-Za-z0-9]+", raw or "")
+    name = "".join(w[:1].upper() + w[1:] for w in words)[:40]
+    if not name or name[0].isdigit():
+        name = "Section" + name
+    base, n = name, 2
+    while name in used:
+        name, n = f"{base}{n}", n + 1
+    used.add(name)
+    return name
+
+
+def split_sections(body: str, min_parts=3, max_depth=4):
+    """-> (prefix, [(name, html)], suffix)
+
+    INVARIANT, asserted by the caller: prefix + ''.join(html) + suffix
+    reproduces `body` byte-for-byte. Anything between elements (text,
+    whitespace, comments) is carried on the following part, so nothing
+    can be silently dropped — an earlier version split only on element
+    spans and lost the gaps between them."""
+    prefix, suffix, inner = "", "", body
+    for _ in range(max_depth):
+        spans = top_level_spans(inner)
+        if not spans:
+            break
+        # Follow the CONTENT, not the element count. A page is usually
+        # one <main> holding 95% of the bytes beside a couple of tiny
+        # siblings; splitting at that level yields "Main: 402KB", which
+        # is no split at all.
+        sizes = [(b - a) for a, b, _ in spans]
+        biggest = max(range(len(spans)), key=lambda i: sizes[i])
+        dominant = sizes[biggest] > 0.6 * len(inner)
+        if not dominant and len(spans) >= min_parts:
+            break
+        if not dominant:
+            break
+        a, b, _ = spans[biggest]
+        open_m = TAG.match(inner, a)
+        close_m = list(TAG.finditer(inner[:b]))[-1]
+        child = inner[open_m.end():close_m.start()]
+        if len(top_level_spans(child)) < 2:
+            break                      # nothing gained by going deeper
+        prefix += inner[:open_m.end()]
+        suffix = inner[close_m.start():] + suffix
+        inner = child
+    spans = top_level_spans(inner)
+    if len(spans) < 2:
+        return prefix, [("Page", inner)], suffix
+    used, parts, cursor = set(), [], 0
+    for i, (a, b, attrs) in enumerate(spans, 1):
+        html = inner[cursor:b]          # gap + element, nothing lost
+        cursor = b
+        parts.append((section_name(attrs, i, used), html))
+    if cursor < len(inner):             # trailing text belongs somewhere
+        parts[-1] = (parts[-1][0], parts[-1][1] + inner[cursor:])
+    return prefix, parts, suffix
+
+
+def extract_styles(head: str):
+    """Inline <style> out of the head into a real stylesheet the user
+    can open and edit. Order is preserved, and a <link> takes its place
+    at the position of the first block, so cascade order is unchanged."""
+    blocks = re.findall(r"(?is)<style\b[^>]*>(.*?)</style\s*>", head)
+    if not blocks:
+        return head, ""
+    css = "\n\n".join(b.strip() for b in blocks if b.strip())
+    first = re.search(r"(?is)<style\b[^>]*>.*?</style\s*>", head)
+    head = head[:first.start()] + \
+        '<link rel="stylesheet" href="/styles/site.css">' + \
+        head[first.end():]
+    head = re.sub(r"(?is)<style\b[^>]*>.*?</style\s*>", "", head)
+    return head, css
+
+
 # ─────────────────────────── emitters ────────────────────────────────
 
 def emit_astro(dest: Path, pages: dict, name: str):
-    """Astro is a superset of HTML, and `set:html` writes markup out
-    verbatim — so the built page is byte-for-byte what we carried in."""
+    """Astro is a superset of HTML and `set:html` writes markup out
+    verbatim, so the built page is what we carried in — but split into
+    one component per authored section, which is what makes it a
+    project someone can actually work in."""
     _w(dest / "package.json", json.dumps({
         "name": name, "private": True, "version": "0.1.0", "type": "module",
         "scripts": {"dev": "astro dev", "build": "astro build",
@@ -191,31 +320,71 @@ def emit_astro(dest: Path, pages: dict, name: str):
         "dependencies": {"astro": "5.14.1"}}, indent=2))
     _w(dest / "astro.config.mjs",
        "import { defineConfig } from 'astro/config';\n"
-       "// `file` format keeps /about.html style output, matching the\n"
-       "// original site's URLs exactly.\n"
+       "// `file` format keeps /about.html style URLs, matching the\n"
+       "// original site exactly.\n"
        "export default defineConfig({ build: { format: 'file' },\n"
        "  devToolbar: { enabled: false } });\n")
     _w(dest / "tsconfig.json",
        json.dumps({"extends": "astro/tsconfigs/strict"}, indent=2))
+
+    css_all = []
     for page, doc in pages.items():
         r = route_of(page)
-        _w(dest / f"src/html/{r}.head.html", doc["head"])
-        # the entrance runtime has to be REFERENCED, not merely shipped:
-        # writing it to public/ and forgetting the tag left 181 recovered
-        # entrances sitting inert in the build
-        _w(dest / f"src/html/{r}.body.html", doc["body"] + MOTION_TAG)
+        head, css = extract_styles(doc["head"])
+        if css:
+            css_all.append(f"/* ---- {page} ---- */\n{css}")
+        prefix, parts, suffix = split_sections(doc["body"])
+        assert prefix + "".join(h for _, h in parts) + suffix == doc["body"], \
+            f"{page}: section split is not byte-exact"
+
+        _w(dest / f"src/html/{r}.head.html", head)
+        imports, uses = [], []
+        for i, (sec, html) in enumerate(parts, 1):
+            comp = f"{i:02d}-{sec}"
+            _w(dest / f"src/components/{r}/{comp}.html", html)
+            _w(dest / f"src/components/{r}/{comp}.astro",
+               f"---\n// {sec} — carried verbatim from the original build.\n"
+               f"import html from './{comp}.html?raw';\n---\n"
+               f"<Fragment set:html={{html}} />\n")
+            imports.append(f"import {sec} from "
+                           f"'../components/{r}/{comp}.astro';")
+            uses.append(f"    <{sec} />")
+        nl = chr(10)
         _w(dest / f"src/pages/{r}.astro", f"""---
-// Carried verbatim from the original build. `?raw` hands Vite the exact
-// bytes, so nothing is re-escaped or re-formatted on the way through.
+// {page} — {len(parts)} section(s), each its own component.
 import head from '../html/{r}.head.html?raw';
-import body from '../html/{r}.body.html?raw';
+{nl.join(imports)}
 ---
 <html lang="{doc['lang']}">
   <head set:html={{head}} />
-  <body{(' ' + doc['battrs']) if doc['battrs'] else ''} set:html={{body}} />
+  <body{(' ' + doc['battrs']) if doc['battrs'] else ''}>
+{prefix}
+{nl.join(uses)}
+{suffix}
+    <script src="/aethron-motion.js" defer is:inline></script>
+  </body>
 </html>
 """)
+    if css_all:
+        _w(dest / "public/styles/site.css", (nl := chr(10)) and
+           (nl * 2).join(css_all))
     _w(dest / "public/aethron-motion.js", MOTION_JS)
+    _w(dest / "README.md", f"""# {name}
+
+Converted from the original template by Aethron. Nothing from the
+source platform ships here: no runtime, no CDN, no tracking.
+
+    src/pages/          one file per page
+    src/components/     one component per authored section
+    public/styles/      the site's CSS, extracted and editable
+    public/assets/      images, fonts and video — all local
+    public/aethron-motion.js
+                        ~20 lines that replay the entrance animations
+                        recovered from the original. Delete it and the
+                        content simply stays visible.
+
+    npm install && npm run build
+""")
 
 
 def emit_next(dest: Path, pages: dict, name: str):

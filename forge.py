@@ -3268,9 +3268,21 @@ def _headings(dom: str) -> list:
     return out[:40]
 
 
+# A live clock renders a different value every second, so comparing two
+# renders of the SAME page can never reach 100%. Normalise anything that
+# is time-of-day before diffing — otherwise a perfect port is reported
+# as 99% forever, and a real 1% loss hides in the same noise.
+LIVE_VALUE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp]\.?[Mm]\.?)?\b")
+
+
+def _normalise_live(text: str) -> str:
+    return LIVE_VALUE.sub("<time>", text)
+
+
 def _similarity(a: str, b: str) -> float:
     import difflib
-    return difflib.SequenceMatcher(None, a.split(), b.split()).ratio()
+    return difflib.SequenceMatcher(None, _normalise_live(a).split(),
+                                   _normalise_live(b).split()).ratio()
 
 
 def _compare_against(root: Path, target: str, results: list, budget: int):
@@ -3339,8 +3351,10 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
             # to reproduce a moment in time — no faithful port can.
             checkable = [h for h in h_mine if re.search(r"[A-Za-z]", h)]
             animated = len(h_mine) - len(checkable)
+            joined_n, body_n = _normalise_live(joined), _normalise_live(body)
             missing = [h for h in checkable
-                       if h.lower() not in joined and h.lower() not in body]
+                       if _normalise_live(h.lower()) not in joined_n
+                       and _normalise_live(h.lower()) not in body_n]
             imgs = len(re.findall(r"<img\b", got["dom"]))
             ok = sim >= 0.90 and not missing
             print(("PASS " if ok else "FAIL ")
