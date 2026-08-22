@@ -3285,6 +3285,28 @@ def _similarity(a: str, b: str) -> float:
                                    _normalise_live(b).split()).ratio()
 
 
+# Hosts that mean "this page still belongs to the platform it came
+# from". A port can render perfectly and be 100% identical while every
+# image streams from the vendor's CDN — it looks owned and is not. That
+# is invisible to a content score, so it is checked separately.
+PLATFORM_HOSTS = re.compile(
+    r"(?i)https?://[^\"']*(?:framerusercontent\.com|framer\.com|"
+    r"framer\.website|website-files\.com|webflow\.com|webflow\.io|"
+    r"d3e54v103j8qbb\.cloudfront\.net)[^\"']*")
+
+
+def _platform_refs(dom: str) -> dict:
+    """{host: count} of everything still pointing at the source platform."""
+    out = {}
+    for u in PLATFORM_HOSTS.findall(dom):
+        try:
+            host = u.split("/")[2]
+        except IndexError:
+            continue
+        out[host] = out.get(host, 0) + 1
+    return out
+
+
 def _compare_against(root: Path, target: str, results: list, budget: int):
     """Compare what the browser renders here with what it renders at
     `target` (a URL, or a directory served the same way). Returns the
@@ -3356,7 +3378,8 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
                        if _normalise_live(h.lower()) not in joined_n
                        and _normalise_live(h.lower()) not in body_n]
             imgs = len(re.findall(r"<img\b", got["dom"]))
-            ok = sim >= 0.90 and not missing
+            leaks = _platform_refs(got["dom"])
+            ok = sim >= 0.90 and not missing and not leaks
             print(("PASS " if ok else "FAIL ")
                   + f"{page or '/'}: text {int(sim * 100)}% identical, "
                     f"headings {len(h_theirs)}/{len(h_mine)}, "
@@ -3365,6 +3388,15 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
                      if animated else ""))
             if missing:
                 print(f"       missing heading(s): {missing[:3]}")
+            if leaks:
+                total = sum(leaks.values())
+                print(f"       NOT OWNED: {total} reference(s) still point "
+                      f"at the source platform —")
+                for host, n in sorted(leaks.items(), key=lambda x: -x[1])[:3]:
+                    print(f"         {n:>4}x {host}")
+                print(f"       the port renders only because that CDN is "
+                      f"reachable. Run `forge.py localize`, rebuild, and "
+                      f"convert again.")
             if not ok:
                 bad += 1
     finally:

@@ -147,7 +147,41 @@ def recover_entrances(dom: str) -> tuple:
 # the shop it was bought from.
 PLATFORM_LINKS = re.compile(
     r"(?i)https?://(?:www\.)?(?:framer\.com|framer\.website|webflow\.com|"
-    r"buy\.polar\.sh|[a-z0-9-]+\.lemonsqueezy\.com|gumroad\.com)[^\"\']*")
+    r"webflow\.io|buy\.polar\.sh|[a-z0-9-]+\.lemonsqueezy\.com|"
+    r"gumroad\.com)[^\"\']*")
+
+# Hints that phone home. A preconnect is harmless to render and still
+# tells the browser to open a socket to the vendor.
+#
+# Attribute ORDER is not guaranteed: this tag ships as
+# `<link href="…" rel="preconnect">`, so a pattern expecting rel first
+# silently matched nothing and left the last leak in place.
+HINT_HOSTS = ("website-files", "framerusercontent", "framer.com",
+              "cloudfront.net", "webflow")
+
+
+def strip_hints(dom: str) -> tuple:
+    n = 0
+
+    def drop(m):
+        nonlocal n
+        tag = m.group(0)
+        if re.search(r'(?i)rel="(?:preconnect|dns-prefetch)"', tag) and \
+                any(h in tag.lower() for h in HINT_HOSTS):
+            n += 1
+            return ""
+        return tag
+
+    return re.sub(r"(?is)<link\b[^>]*>", drop, dom), n
+
+# THE BADGE. Editor mode can only hide it with CSS because the platform
+# runtime re-creates the element. A converted port has no runtime, so it
+# can simply be deleted — element, images, CDN requests and all.
+BADGES = (
+    r'(?is)<a\b[^>]*class="[^"]*w-webflow-badge[^"]*".*?</a\s*>',
+    r'(?is)<div\b[^>]*id="__framer-badge-container".*?</div\s*>',
+    r'(?is)<a\b[^>]*href="[^"]*framer\.com/r/badge[^"]*".*?</a\s*>',
+)
 
 
 def strip_platform(dom: str) -> tuple:
@@ -158,9 +192,15 @@ def strip_platform(dom: str) -> tuple:
         r'(?is)<link[^>]*rel="(?:modulepreload|prefetch)"[^>]*>', dom))
     dom = re.sub(r'(?is)<link[^>]*rel="(?:modulepreload|prefetch)"[^>]*>',
                  "", dom)
+    dom, n_hint = strip_hints(dom)
+    n_badge = 0
+    for pat in BADGES:
+        found = re.findall(pat, dom)
+        n_badge += len(found)
+        dom = re.sub(pat, "", dom)
     n_link = len(set(PLATFORM_LINKS.findall(dom)))
     dom = PLATFORM_LINKS.sub("#", dom)
-    return dom, n_pre, n_link
+    return dom, n_pre + n_hint, n_link + n_badge
 
 
 def split_document(dom: str) -> tuple:
@@ -570,14 +610,31 @@ def convert(project, framework="astro", pages=None, on_event=None,
 
     say("stage", f"emitting {framework}")
     EMITTERS[framework](dest, docs, cfg.get("name", "site"))
-    # chunks/ and cms/ are the ORIGINAL RUNTIME's files. The content
-    # they used to render is already baked into the carried HTML, so
-    # copying them ships 5.5MB of dead weight from a platform this port
-    # no longer depends on.
-    shutil.copytree(site / "assets", dest / "public/assets",
-                    ignore=shutil.ignore_patterns("chunks", "cms", "*.mjs",
-                                                  "*.framercms"))
-    n_assets = sum(1 for _ in (dest / "public/assets").rglob("*") if _.is_file())
+    # Copy EVERY asset directory the build ships, not just assets/.
+    # A Webflow project keeps its localized files in remote-assets/, so
+    # hardcoding "assets" copied 5 files out of 160 and the port quietly
+    # fell back to the vendor's CDN for the rest.
+    #
+    # chunks/ and cms/ are the original RUNTIME's files: the content they
+    # rendered is already baked into the carried HTML, so shipping them
+    # is dead weight from a platform this port no longer depends on.
+    SKIP_DIRS = {"chunks", "cms"}
+    SKIP_FILES = {"serve.py", "README.txt", "DEPLOY.md", "_redirects",
+                  "vercel.json", ".forge-probe.json", ".forge-report.json"}
+    n_assets = 0
+    for child in sorted(site.iterdir()):
+        if child.name in SKIP_DIRS or child.name in SKIP_FILES:
+            continue
+        if child.is_dir():
+            shutil.copytree(child, dest / "public" / child.name,
+                            ignore=shutil.ignore_patterns(
+                                *SKIP_DIRS, "*.mjs", "*.framercms"))
+            n_assets += sum(1 for _ in (dest / "public" / child.name)
+                            .rglob("*") if _.is_file())
+        elif child.suffix.lower() not in (".html", ".py", ".md", ".txt",
+                                          ".json"):
+            shutil.copy2(child, dest / "public" / child.name)
+            n_assets += 1
     say("stage", f"{n_assets} local asset(s) copied — no CDN, no platform")
 
     result = {"ok": True, "dir": str(dest), "pages": list(docs),
@@ -609,9 +666,18 @@ def convert(project, framework="astro", pages=None, on_event=None,
                        cwd=project, capture_output=True, text=True,
                        timeout=1800)
     verdict = [l for l in (g.stdout + g.stderr).splitlines()
-               if l.startswith(("PASS ", "FAIL ", "       missing"))]
+               if l.startswith(("PASS ", "FAIL ", "       missing",
+                                "       NOT OWNED", "         ",
+                                "       the port"))]
     say("referee", "\n".join(verdict) or (g.stdout + g.stderr)[-800:])
-    return {**result, "ok": g.returncode == 0, "stage": "graded",
+    # Judge the PORT on the comparison, not on the probe's exit code:
+    # that code also folds in the ORIGINAL template's own runtime health,
+    # so a template that ships two console errors would condemn a
+    # perfect port for a defect it faithfully inherited.
+    graded = [l for l in verdict if l.startswith(("PASS ", "FAIL "))
+              and "identical" in l]
+    ok = bool(graded) and all(l.startswith("PASS ") for l in graded)
+    return {**result, "ok": ok, "stage": "graded",
             "out": str(out), "verdict": "\n".join(verdict)}
 
 
