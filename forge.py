@@ -3303,10 +3303,20 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
     try:
         for page, mine in base.items():
             # a port usually serves clean routes: index.html -> /
+            # A port may serve clean routes (/about) or files
+            # (/about.html) depending on the framework's output mode.
+            # Asking for the wrong one grades a 404 as "0% identical",
+            # which looks exactly like a broken port.
             route = "" if page == "index.html" else page[:-5] \
                 if page.endswith(".html") else page
             got = _render_page(browser, f"{origin}/{route}",
                                budget_ms=budget)
+            if len(_visible_text(got.get("dom") or "")) < 200 and route:
+                alt = _render_page(browser, f"{origin}/{page}",
+                                   budget_ms=budget)
+                if len(_visible_text(alt.get("dom") or "")) > \
+                        len(_visible_text(got.get("dom") or "")):
+                    got, route = alt, page
             if not got["dom"]:
                 print(f"FAIL {page}: nothing rendered at {origin}/{route}")
                 bad += 1
@@ -3323,14 +3333,22 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
             # heading, i.e. punish the better structure.
             joined = " ".join(h_theirs).lower()
             body = theirs.lower()
-            missing = [h for h in h_mine
+            # Headings with no letters ("1 +", "18 %") are Framer's stat
+            # counters: they animate up from zero, so the baseline caught
+            # one FRAME of an animation. Requiring it verbatim asks a port
+            # to reproduce a moment in time — no faithful port can.
+            checkable = [h for h in h_mine if re.search(r"[A-Za-z]", h)]
+            animated = len(h_mine) - len(checkable)
+            missing = [h for h in checkable
                        if h.lower() not in joined and h.lower() not in body]
             imgs = len(re.findall(r"<img\b", got["dom"]))
             ok = sim >= 0.90 and not missing
             print(("PASS " if ok else "FAIL ")
                   + f"{page or '/'}: text {int(sim * 100)}% identical, "
                     f"headings {len(h_theirs)}/{len(h_mine)}, "
-                    f"images {imgs}/{mine.get('images', 0)}")
+                    f"images {imgs}/{mine.get('images', 0)}"
+                  + (f" ({animated} animated counter(s) not required)"
+                     if animated else ""))
             if missing:
                 print(f"       missing heading(s): {missing[:3]}")
             if not ok:
