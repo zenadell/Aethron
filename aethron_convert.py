@@ -29,12 +29,14 @@ and nothing is a black box.
 
     python3 aethron_convert.py <project> --framework astro|next|vite
 """
+import html as html_mod
 import json
 import re
 import shutil
 import subprocess
 import sys
 import threading
+from html.parser import HTMLParser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -184,6 +186,49 @@ BADGES = (
 )
 
 
+def cut_element(dom: str, start: int) -> str:
+    """Remove the element beginning at `start`, honouring nesting.
+
+    A non-greedy regex cannot do this: `<div id="badge"><div/></div>`
+    matches to the FIRST </div> and leaves a stray closing tag, which
+    unbalances the document. Nothing about the CONTENT changes, so every
+    text and image metric still reads 100% — while the section splitter
+    silently collapses to a single blob."""
+    m = TAG.match(dom, start)
+    if not m:
+        return dom
+    if m.group(2).lower() in VOID or m.group(4):
+        return dom[:start] + dom[m.end():]
+    depth = 0
+    for t in TAG.finditer(dom, start):
+        closing, tag, _, selfclose = t.groups()
+        if tag.lower() in VOID or selfclose:
+            continue
+        depth += -1 if closing else 1
+        if depth == 0:
+            return dom[:start] + dom[t.end():]
+    return dom
+
+
+def strip_badges(dom: str) -> tuple:
+    """Delete platform badges outright — element, images and the CDN
+    requests they fire. Only a port can do this: with the runtime gone,
+    nothing re-creates them."""
+    n = 0
+    for opener in (r'(?is)<a\b[^>]*class="[^"]*w-webflow-badge[^"]*"[^>]*>',
+                   r'(?is)<div\b[^>]*id="__framer-badge-container"[^>]*>',
+                   r'(?is)<a\b[^>]*href="[^"]*framer\.com/r/badge[^"]*"[^>]*>'):
+        while True:
+            m = re.search(opener, dom)
+            if not m:
+                break
+            after = cut_element(dom, m.start())
+            if after == dom:
+                break
+            dom, n = after, n + 1
+    return dom, n
+
+
 def strip_platform(dom: str) -> tuple:
     """Dead-end every link back to the platform, and drop the preloads
     for a runtime that no longer exists. 30 modulepreload tags were
@@ -193,11 +238,7 @@ def strip_platform(dom: str) -> tuple:
     dom = re.sub(r'(?is)<link[^>]*rel="(?:modulepreload|prefetch)"[^>]*>',
                  "", dom)
     dom, n_hint = strip_hints(dom)
-    n_badge = 0
-    for pat in BADGES:
-        found = re.findall(pat, dom)
-        n_badge += len(found)
-        dom = re.sub(pat, "", dom)
+    dom, n_badge = strip_badges(dom)
     n_link = len(set(PLATFORM_LINKS.findall(dom)))
     dom = PLATFORM_LINKS.sub("#", dom)
     return dom, n_pre + n_hint, n_link + n_badge
@@ -293,10 +334,13 @@ def split_sections(body: str, min_parts=3, max_depth=4):
     can be silently dropped — an earlier version split only on element
     spans and lost the gaps between them."""
     prefix, suffix, inner = "", "", body
+    best = None                 # deepest level that actually splits well
     for _ in range(max_depth):
         spans = top_level_spans(inner)
         if not spans:
             break
+        if len(spans) >= min_parts:
+            best = (prefix, inner, suffix)
         # Follow the CONTENT, not the element count. A page is usually
         # one <main> holding 95% of the bytes beside a couple of tiny
         # siblings; splitting at that level yields "Main: 402KB", which
@@ -314,10 +358,17 @@ def split_sections(body: str, min_parts=3, max_depth=4):
         child = inner[open_m.end():close_m.start()]
         if len(top_level_spans(child)) < 2:
             break                      # nothing gained by going deeper
+        # descending is a gamble: the level below may be a single chain.
+        # `best` holds the last good one so a bad descent cannot cost us
+        # the split entirely (removing the badge once collapsed a
+        # 13-section page to one).
         prefix += inner[:open_m.end()]
         suffix = inner[close_m.start():] + suffix
         inner = child
     spans = top_level_spans(inner)
+    if len(spans) < 2 and best:
+        prefix, inner, suffix = best
+        spans = top_level_spans(inner)
     if len(spans) < 2:
         return prefix, [("Page", inner)], suffix
     used, parts, cursor = set(), [], 0
@@ -344,6 +395,206 @@ def extract_styles(head: str):
         head[first.end():]
     head = re.sub(r"(?is)<style\b[^>]*>.*?</style\s*>", "", head)
     return head, css
+
+
+
+# ─────────────── HTML -> real JSX, mechanically ──────────────────────
+# React cannot inject markup without a host element, so the obvious
+# route (dangerouslySetInnerHTML per section) silently adds a <div> the
+# original never had — which breaks `.parent > .child` selectors and
+# flex/grid layouts while every text metric still reads 100%. So the
+# markup is transformed into actual JSX instead: same tree, same
+# attributes, no extra nodes.
+#
+# The mapping is the documented one (class -> className, for -> htmlFor,
+# hyphenated -> camelCase except data-/aria-, style string -> object).
+
+JSX_ATTR = {"class": "className", "for": "htmlFor", "srcset": "srcSet",
+            "tabindex": "tabIndex", "readonly": "readOnly",
+            "maxlength": "maxLength", "cellpadding": "cellPadding",
+            "cellspacing": "cellSpacing", "colspan": "colSpan",
+            "rowspan": "rowSpan", "contenteditable": "contentEditable",
+            "crossorigin": "crossOrigin", "datetime": "dateTime",
+            "enctype": "encType", "formaction": "formAction",
+            "frameborder": "frameBorder", "hreflang": "hrefLang",
+            "inputmode": "inputMode", "keyparams": "keyParams",
+            "marginwidth": "marginWidth", "marginheight": "marginHeight",
+            "novalidate": "noValidate", "playsinline": "playsInline",
+            "referrerpolicy": "referrerPolicy", "spellcheck": "spellCheck",
+            "usemap": "useMap", "autoplay": "autoPlay",
+            "autocomplete": "autoComplete", "autofocus": "autoFocus",
+            "accept-charset": "acceptCharset", "http-equiv": "httpEquiv"}
+# SVG ELEMENT names are camelCase in JSX too, and the parser lowercases
+# them exactly as it does attributes: <feFlood> arrives as <feflood>,
+# which React rejects outright.
+SVG_TAGS = {t.lower(): t for t in (
+    "feFlood", "feBlend", "feColorMatrix", "feComponentTransfer",
+    "feComposite", "feConvolveMatrix", "feDiffuseLighting",
+    "feDisplacementMap", "feDistantLight", "feDropShadow", "feFuncA",
+    "feFuncB", "feFuncG", "feFuncR", "feGaussianBlur", "feImage",
+    "feMerge", "feMergeNode", "feMorphology", "feOffset", "fePointLight",
+    "feSpecularLighting", "feSpotLight", "feTile", "feTurbulence",
+    "linearGradient", "radialGradient", "clipPath", "textPath",
+    "foreignObject", "animateMotion", "animateTransform", "glyphRef",
+    "altGlyph", "altGlyphDef", "altGlyphItem")}
+
+
+def _jsx_tag(tag: str) -> str:
+    return SVG_TAGS.get(tag.lower(), tag)
+
+
+SVG_CAMEL = {a.lower(): a for a in (
+    "viewBox", "preserveAspectRatio", "baseProfile", "patternUnits",
+    "patternContentUnits", "patternTransform", "gradientUnits",
+    "gradientTransform", "spreadMethod", "markerWidth", "markerHeight",
+    "markerUnits", "refX", "refY", "textLength", "lengthAdjust",
+    "startOffset", "pathLength", "clipPathUnits", "maskUnits",
+    "maskContentUnits", "primitiveUnits", "filterUnits", "stdDeviation",
+    "tableValues", "xChannelSelector", "yChannelSelector", "numOctaves",
+    "baseFrequency", "stitchTiles", "diffuseConstant", "specularConstant",
+    "specularExponent", "surfaceScale", "kernelMatrix", "kernelUnitLength",
+    "limitingConeAngle", "pointsAtX", "pointsAtY", "pointsAtZ",
+    "attributeName", "attributeType", "repeatCount", "repeatDur",
+    "keyTimes", "keySplines", "calcMode", "requiredExtensions",
+    "systemLanguage", "edgeMode", "targetX", "targetY", "order")}
+
+# React types these as numbers; HTML writes every attribute as text.
+NUMERIC_ATTR = {"tabindex", "colspan", "rowspan", "span", "start", "size",
+                "maxlength", "minlength", "cols", "rows", "high", "low",
+                "optimum", "marginwidth", "marginheight"}
+
+BOOLEAN_ATTR = {"checked", "disabled", "selected", "readonly", "multiple",
+                "controls", "autoplay", "loop", "muted", "playsinline",
+                "required", "novalidate", "open", "hidden", "async",
+                "defer", "reversed", "itemscope", "default", "inert"}
+
+
+def _camel(name: str) -> str:
+    parts = name.split("-")
+    return parts[0] + "".join(w[:1].upper() + w[1:] for w in parts[1:])
+
+
+def _jsx_attr_name(name: str) -> str:
+    low = name.lower()
+    if low in JSX_ATTR:
+        return JSX_ATTR[low]
+    if low in SVG_CAMEL:
+        return SVG_CAMEL[low]
+    if low.startswith(("data-", "aria-")):
+        return low                      # these stay hyphenated in JSX
+    if ":" in low:                      # xlink:href -> xlinkHref
+        a, b = low.split(":", 1)
+        return a + b[:1].upper() + b[1:]
+    if "-" in low:
+        return _camel(low)
+    return low
+
+
+def _style_object(css: str) -> str:
+    out = []
+    for decl in css.split(";"):
+        if ":" not in decl:
+            continue
+        prop, _, val = decl.partition(":")
+        prop, val = prop.strip(), val.strip()
+        if not prop or not val:
+            continue
+        key = prop if prop.startswith("--") else _camel(prop.lower())
+        if not prop.startswith("--"):
+            key = re.sub(r"^Webkit|^Moz|^Ms", lambda m: m.group(0), key)
+        quoted = json.dumps(val)
+        out.append(f"{json.dumps(key)}: {quoted}")
+    return "{" + ", ".join(out) + "}"
+
+
+def _jsx_text(text: str) -> str:
+    """Braces are JSX syntax; < and > would open tags."""
+    if not text.strip():
+        return text if "\n" not in text else " "
+    # ONE pass: replacing { then } re-escapes the braces the first
+    # replacement just introduced ({a} -> {\'{\'{\'}\'}a...).
+    safe = re.sub(r"[{}<>]", lambda m: {
+        "{": "{'{'}", "}": "{'}'}", "<": "&lt;", ">": "&gt;"}[m.group(0)],
+        text)
+    return safe
+
+
+class _JsxWriter(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.out = []
+        self.stack = []
+
+    def handle_starttag(self, tag, attrs):
+        self.out.append(self._open(tag, attrs, self_close=tag in VOID))
+        if tag not in VOID:
+            self.stack.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        self.out.append(self._open(tag, attrs, self_close=True))
+
+    def handle_endtag(self, tag):
+        if self.stack and self.stack[-1] == tag:
+            self.stack.pop()
+            self.out.append(f"</{_jsx_tag(tag)}>")
+        elif tag in self.stack:            # implicitly closed children
+            while self.stack and self.stack[-1] != tag:
+                self.out.append(f"</{_jsx_tag(self.stack.pop())}>")
+            if self.stack:
+                self.stack.pop()
+                self.out.append(f"</{_jsx_tag(tag)}>")
+
+    def handle_data(self, data):
+        self.out.append(_jsx_text(data))
+
+    def handle_entityref(self, name):
+        self.out.append(f"&{name};")
+
+    def handle_charref(self, name):
+        self.out.append(f"&#{name};")
+
+    def handle_comment(self, data):
+        pass                               # comments carry nothing visual
+
+    def _open(self, tag, attrs, self_close):
+        bits = []
+        for k, v in attrs:
+            name = _jsx_attr_name(k)
+            if k.lower() in BOOLEAN_ATTR:
+                # HTML spells these `loop`, `loop=""` or `loop="loop"`;
+                # React types them as booleans, so a string fails to
+                # compile. Only the literal "false" means false.
+                falsey = (v or "").strip().lower() == "false"
+                bits.append(f"{name}={{{'false' if falsey else 'true'}}}")
+                continue
+            if v is None:
+                bits.append(f'{name}=""')
+                continue
+            if k.lower() in NUMERIC_ATTR and \
+                    re.fullmatch(r"-?\d+(?:\.\d+)?", (v or "").strip()):
+                bits.append(f"{name}={{{v.strip()}}}")
+                continue
+            if name == "style":
+                # `as AeStyle` — Framer's design IS custom properties
+                # (--framer-*, --token-*), and React's CSSProperties
+                # type has no room for them, so strict TS rejects every
+                # styled element without the cast.
+                bits.append(f"style={{{_style_object(v)} as AeStyle}}")
+            else:
+                bits.append(f"{name}={{{json.dumps(html_mod.unescape(v))}}}")
+        attr_s = (" " + " ".join(bits)) if bits else ""
+        return f"<{_jsx_tag(tag)}{attr_s}{' />' if self_close else '>'}"
+
+    def close_all(self):
+        while self.stack:
+            self.out.append(f"</{_jsx_tag(self.stack.pop())}>")
+        return "".join(self.out)
+
+
+def to_jsx(html: str) -> str:
+    w = _JsxWriter()
+    w.feed(html)
+    return w.close_all()
 
 
 # ─────────────────────────── emitters ────────────────────────────────
@@ -428,6 +679,12 @@ source platform ships here: no runtime, no CDN, no tracking.
 
 
 def emit_next(dest: Path, pages: dict, name: str):
+    """Next.js App Router, TypeScript, real JSX — no wrapper elements.
+
+    Sections become components by cutting the body at their boundaries
+    and leaving a placeholder element in the shell; the shell is then
+    converted as one tree, so the DOM the browser builds is exactly the
+    original's. That is what makes it safe to call pixel-perfect."""
     _w(dest / "package.json", json.dumps({
         "name": name, "private": True, "version": "0.1.0",
         "scripts": {"dev": "next dev", "build": "next build",
@@ -456,52 +713,109 @@ def emit_next(dest: Path, pages: dict, name: str):
         "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx",
                     ".next/types/**/*.ts"],
         "exclude": ["node_modules"]}, indent=2))
-    first = next(iter(pages.values()))
-    _w(dest / "app/layout.tsx", """import Head from './head-tags';
 
+    css_all = []
+    first = next(iter(pages.values()))
+    for page, doc in pages.items():
+        r = route_of(page)
+        head, css = extract_styles(doc["head"])
+        if css:
+            css_all.append(f"/* ---- {page} ---- */\n{css}")
+        prefix, parts, suffix = split_sections(doc["body"])
+        assert prefix + "".join(h for _, h in parts) + suffix == doc["body"], \
+            f"{page}: section split is not byte-exact"
+
+        # placeholder elements survive the JSX conversion, so the shell
+        # can be converted as ONE tree and the slots swapped for
+        # components afterwards
+        slots = "".join(f"<ae-slot-{i}></ae-slot-{i}>"
+                        for i in range(1, len(parts) + 1))
+        shell = to_jsx(prefix + slots + suffix)
+        imports = []
+        for i, (sec, html) in enumerate(parts, 1):
+            comp = f"{i:02d}-{sec}"
+            _w(dest / f"app/components/{r}/{comp}.tsx",
+               f"// {sec} — carried from the original build, as JSX.\n"
+               f"export default function {sec}() {{\n  return (<>\n"
+               f"{to_jsx(html)}\n  </>);\n}}\n")
+            imports.append(f"import {sec} from "
+                           f"'../components/{r}/{comp}';"
+                           if r != "index" else
+                           f"import {sec} from './components/{r}/{comp}';")
+            shell = shell.replace(f"<ae-slot-{i}></ae-slot-{i}>",
+                                  f"<{sec} />")
+        nl = chr(10)
+        page_dir = "app" if r == "index" else f"app/{r}"
+        _w(dest / f"{page_dir}/page.tsx", f"""// {page} — {len(parts)} section(s), each its own component.
+{nl.join(imports)}
+
+export default function Page() {{
+  return (<>
+{shell}
+  </>);
+}}
+""")
+
+    head_jsx = to_jsx(extract_styles(first["head"])[0])
+    _w(dest / "app/layout.tsx", f"""import './globals.css';
+
+// The original document head, carried as real elements. React hoists
+// link/meta/title from anywhere in the tree, so they land in <head>.
 export default function RootLayout(
-  { children }: { children: React.ReactNode }) {
+  {{ children }}: {{ children: React.ReactNode }}) {{
   return (
-    <html lang="%s">
-      <head><Head /></head>
+    <html lang="{first['lang']}">
+      <head>
+{head_jsx}
+      </head>
       <body>
-        {children}
+        {{children}}
         <script src="/aethron-motion.js" defer />
       </body>
     </html>
   );
-}
-""" % first["lang"])
-    # <head> content is carried as real React elements: React refuses
-    # dangerouslySetInnerHTML on <head>, and hoisting <style>/<link>
-    # keeps Next's own head management working.
-    _w(dest / "app/head-tags.tsx",
-       "// Styles and links carried from the original document head.\n"
-       "import raw from './head-data';\n\n"
-       "export default function Head() {\n"
-       "  return <>{raw.map((t, i) => t.style\n"
-       "    ? <style key={i} dangerouslySetInnerHTML={{ __html: t.style }} />\n"
-       "    : <link key={i} {...t.attrs} />)}</>;\n"
-       "}\n")
-    for page, doc in pages.items():
-        r = route_of(page)
-        _w(dest / (f"app/page.tsx" if r == "index" else f"app/{r}/page.tsx"),
-           f"""import html from './body';
-
-// Carried verbatim from the original build — the markup is not
-// re-generated, so what renders is what the template always rendered.
-export default function Page() {{
-  return <div dangerouslySetInnerHTML={{{{ __html: html }}}} />;
 }}
 """)
-        body_dir = dest / ("app" if r == "index" else f"app/{r}")
-        _w(body_dir / "body.ts",
-           "const html = " + json.dumps(doc["body"])
-           + ";\nexport default html;\n")
-    _w(dest / "app/head-data.ts",
-       "const tags: any[] = " + json.dumps(_head_tags(first["head"]))
-       + ";\nexport default tags;\n")
+    _w(dest / "app/globals.css", (chr(10) * 2).join(css_all) or "/* none */")
+    # a global alias: no file needs to import it
+    # TWO files on purpose: a .d.ts with a top-level import/export is a
+    # MODULE, and its declarations stop being global. The `import()`
+    # TYPE syntax below does not trigger that; a bare `import 'react'`
+    # does — which is what made AeStyle vanish.
+    _w(dest / "app/aethron.d.ts",
+       "// CSS custom properties (--framer-*, --token-*) ARE this design.\n"
+       "// React sets them fine at runtime; its CSSProperties type has\n"
+       "// no slot for them. Global on purpose — no file should have to\n"
+       "// import it.\n"
+       "declare type AeStyle = import('react').CSSProperties &\n"
+       "  Record<string, string | number>;\n")
+    _w(dest / "app/react-attrs.d.ts",
+       "// The markup carries the original's authoring attributes\n"
+       "// (parentsize, _constraints, rotation, shadows...). Nothing in\n"
+       "// the CSS selects on them, so they could be dropped — but\n"
+       "// dropping anything from a port that promises to be identical\n"
+       "// is the wrong instinct. The DOM is kept; the types widen.\n"
+       "import 'react';\n\n"
+       "declare module 'react' {\n"
+       "  interface HTMLAttributes<T> { [attr: string]: unknown }\n"
+       "  interface SVGAttributes<T> { [attr: string]: unknown }\n"
+       "}\n")
     _w(dest / "public/aethron-motion.js", MOTION_JS)
+    _w(dest / "README.md", f"""# {name}
+
+Converted from the original template by Aethron — real JSX, no wrapper
+elements, nothing from the source platform.
+
+    app/page.tsx           the home page
+    app/components/        one component per authored section
+    app/globals.css        the site's CSS, extracted and editable
+    public/assets/         images, fonts and video — all local
+    public/aethron-motion.js
+                           ~20 lines that replay the entrance animations
+                           recovered from the original
+
+    npm install && npm run build
+""")
 
 
 def _head_tags(head: str) -> list:

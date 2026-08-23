@@ -3272,11 +3272,32 @@ def _headings(dom: str) -> list:
 # renders of the SAME page can never reach 100%. Normalise anything that
 # is time-of-day before diffing — otherwise a perfect port is reported
 # as 99% forever, and a real 1% loss hides in the same noise.
+# "1 M", "18 %", "1 +", "24" — a stat counter caught mid count-up. No
+# port can reproduce a specific frame of an animation, so these are not
+# required verbatim.
+COUNTER_HEADING = re.compile(r"(?i)\s*[\d.,]+\s*(?:[%+]|[mkb]|bn|m\+|k\+)?\s*")
+
 LIVE_VALUE = re.compile(r"\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:[AaPp]\.?[Mm]\.?)?\b")
 
 
+# Text that belongs to the platform's own badge. A port DELETES that
+# badge — that is the product's whole promise — so counting its absence
+# as missing content penalises the port for succeeding.
+PLATFORM_PROMO = re.compile(
+    r"(?i)(?:create a free website with framer[^.]*\.?|"
+    r"made in webflow|powered by webflow|"
+    r"the website builder loved by startups[^.]*\.?)")
+
+# My own extractor inserts a space between block elements, and Framer
+# renders a counter's number and its unit as separate blocks ("1" "M").
+# A port that writes them inline shows the SAME thing to a reader.
+COUNTER_UNIT = re.compile(r"(?i)(\d)\s+([%+]|[mkb]\b)")
+
+
 def _normalise_live(text: str) -> str:
-    return LIVE_VALUE.sub("<time>", text)
+    text = LIVE_VALUE.sub("<time>", text)
+    text = PLATFORM_PROMO.sub("", text)
+    return COUNTER_UNIT.sub(r"\1\2", text)
 
 
 def _similarity(a: str, b: str) -> float:
@@ -3371,7 +3392,7 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
             # counters: they animate up from zero, so the baseline caught
             # one FRAME of an animation. Requiring it verbatim asks a port
             # to reproduce a moment in time — no faithful port can.
-            checkable = [h for h in h_mine if re.search(r"[A-Za-z]", h)]
+            checkable = [h for h in h_mine if not COUNTER_HEADING.fullmatch(h)]
             animated = len(h_mine) - len(checkable)
             joined_n, body_n = _normalise_live(joined), _normalise_live(body)
             missing = [h for h in checkable
