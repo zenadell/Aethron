@@ -182,6 +182,154 @@ def capture(site: Path, page="index.html", platform="static", step=0.6,
     return json.loads(m.group(1))
 
 
+
+# ─────────────── recording the curve, not the config ─────────────────
+# THE GENERAL MECHANISM. Reading each component's props means learning
+# Framer's internals one component at a time — Text Effect, Ticker,
+# counters — and still missing whatever ships next year. Recording what
+# the page ACTUALLY does covers all of them with one mechanism:
+#
+#   element -> [(t, {opacity, transform, filter}), ...]
+#
+# The stagger of a per-character heading does not need to be extracted:
+# if every character is recorded separately, the stagger IS the data.
+# A counter is text keyframes. A ticker is a long transform trace. None
+# of them need a name.
+#
+# rAF does not fire reliably under headless virtual time; setTimeout
+# does. That cost two failed capture attempts before it was pinned.
+
+TIMELINE_JS = r"""
+(function () {
+  var SAMPLES = %(samples)d, EVERY = %(every)d, STEP = %(step).2f;
+  var out = { entries: {}, meta: {} };
+
+  // Paths, not references. Framer's runtime REPLACES DOM nodes as it
+  // re-renders, so a held reference detaches and getComputedStyle
+  // returns empty — which shows up as an element that "animates" from a
+  // value to nothing. A first run reported 1040 of 3848 elements
+  // animated; almost all of it was that artefact.
+  function pathOf(el) {
+    var parts = [], n = el, d = 0;
+    while (n && n.parentElement && d++ < 14) {
+      parts.unshift([].indexOf.call(n.parentElement.children, n));
+      n = n.parentElement;
+    }
+    return parts.join('.');
+  }
+  function resolve(path) {
+    // pathOf stops at <html> (no parentElement), so parts[0] is already
+    // an index INTO documentElement. Starting at 1 skipped a level and
+    // every lookup resolved to the wrong node — 1040 false positives
+    // became 0 true ones.
+    if (!path) return null;
+    var n = document.documentElement, parts = path.split('.');
+    for (var i = 0; i < parts.length; i++) {
+      if (!n) return null;
+      n = n.children[+parts[i]];
+    }
+    return n || null;
+  }
+  function read(el) {
+    if (!el || !el.isConnected) return null;
+    var s = getComputedStyle(el), o = {};
+    if (s.opacity !== '' && s.opacity !== '1') o.opacity = s.opacity;
+    if (s.transform && s.transform !== 'none') o.transform = s.transform;
+    if (s.filter && s.filter !== 'none') o.filter = s.filter;
+    if (!el.children.length) {
+      var t = (el.textContent || '').trim();
+      if (t && t.length <= 24) o.text = t;
+    }
+    return o;
+  }
+  function same(a, b) {
+    if (!a || !b) return true;          // a detached read proves nothing
+    for (var k in a) if (a[k] !== b[k]) return false;
+    for (var j in b) if (a[j] !== b[j]) return false;
+    return true;
+  }
+
+  var stops = [], H = document.body.scrollHeight;
+  for (var y = 0; y <= H; y += Math.round(innerHeight * STEP)) stops.push(y);
+  var si = 0;
+
+  function atStop() {
+    if (si >= stops.length) return finish();
+    var y = stops[si++];
+    scrollTo(0, y);
+    setTimeout(function () {
+      // candidates: anything currently displaced, faded or blurred —
+      // i.e. anything that could be mid-animation. Bounded so the
+      // sampling stays affordable.
+      var cands = [];
+      var all = document.querySelectorAll('*');
+      for (var i = 0; i < all.length && cands.length < 500; i++) {
+        var v = read(all[i]);
+        if (v && (v.opacity !== undefined || v.transform || v.filter))
+          cands.push(pathOf(all[i]));
+      }
+      var frames = [], n = 0, t0 = performance.now();
+      (function tick() {
+        var row = {};
+        for (var c = 0; c < cands.length; c++)
+          row[cands[c]] = read(resolve(cands[c]));
+        frames.push([Math.round(performance.now() - t0), row]);
+        if (++n < SAMPLES) setTimeout(tick, EVERY);
+        else { collect(y, cands, frames); atStop(); }
+      })();
+    }, 120);
+  }
+
+  function collect(y, cands, frames) {
+    for (var c = 0; c < cands.length; c++) {
+      var p = cands[c], track = [], moved = false;
+      for (var f = 0; f < frames.length; f++) {
+        var v = frames[f][1][p];
+        if (!v) continue;               // skip detached samples entirely
+        if (track.length && !same(v, track[track.length - 1][1])) moved = true;
+        track.push([frames[f][0], v]);
+      }
+      if (moved && track.length > 2 && !out.entries[p])
+        out.entries[p] = { y: y, frames: track };
+    }
+  }
+
+  function finish() {
+    out.meta.stops = stops.length;
+    out.meta.height = H;
+    var tag = document.createElement('script');
+    tag.type = 'application/json';
+    tag.id = '__ae_timeline';
+    tag.textContent = JSON.stringify(out);
+    document.body.appendChild(tag);
+  }
+  atStop();
+})();
+"""
+
+
+def capture_timeline(site: Path, page="index.html", platform="static",
+                     samples=26, every=55, step=0.75, budget_ms=180000):
+    """Record every element's animation as real keyframes."""
+    browser = forge._find_browser()
+    if not browser:
+        raise SystemExit("timeline capture needs a headless browser")
+    js = TIMELINE_JS % {"samples": samples, "every": every, "step": step}
+    handler = _injecting_handler(Path(site), platform, js)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        got = forge._render_page(
+            browser, f"http://127.0.0.1:{srv.server_address[1]}/{page}",
+            budget_ms=budget_ms, timeout=max(120, budget_ms // 1000 + 60))
+    finally:
+        srv.shutdown()
+    m = re.search(r'(?is)<script[^>]*id="__ae_timeline"[^>]*>(.*?)</script\s*>',
+                  got.get("dom") or "")
+    if not m:
+        return {"entries": {}, "meta": {"error": "no timeline reported"}}
+    return json.loads(m.group(1))
+
 def summarise(cap: dict) -> dict:
     """What moves, and in which way — by observation, not by name."""
     time_driven, scroll_driven = {}, {}
