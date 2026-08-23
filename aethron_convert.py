@@ -55,24 +55,81 @@ MOTION_JS = """// Aethron entrance animations — recovered from the original
 (function () {
   var els = document.querySelectorAll('[data-ae]');
   if (!els.length) return;
-  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduce) return;
-  els.forEach(function (el) { el.setAttribute('style',
-    (el.getAttribute('style') || '') + ';' + el.dataset.ae); });
-  var io = new IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      if (!e.isIntersecting) return;
-      var el = e.target;
-      el.style.transition = el.dataset.aeDur || 'opacity .6s ease, transform .6s cubic-bezier(.44,0,.56,1)';
-      el.style.opacity = '';
-      el.style.transform = '';
-      io.unobserve(el);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var EASE = 'opacity .6s ease, transform .6s cubic-bezier(.44,0,.56,1),'
+           + ' filter .6s ease';
+
+  function release(el, instant) {
+    el.style.transition = instant ? 'none' : (el.dataset.aeDur || EASE);
+    el.style.opacity = '';
+    el.style.transform = '';
+    el.style.filter = '';           // the unblur half of the entrance
+  }
+
+  els.forEach(function (el) {
+    el.setAttribute('style',
+      (el.getAttribute('style') || '') + ';' + el.dataset.ae);
+  });
+
+  // THE FRAME THAT MATTERS: setting the start state and clearing it in
+  // the same tick means the browser never paints the start, so there is
+  // nothing to transition FROM and the element simply appears. Two
+  // frames of daylight is the difference between "no animations at all"
+  // and the real thing.
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (!e.isIntersecting) return;
+          release(e.target);
+          e.target.dataset.aeDone = '1';
+          io.unobserve(e.target);
+        });
+      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.01 });
+      els.forEach(function (el) { io.observe(el); });
+
+      // SAFETY NET 1 — a zero-area box never triggers an observer, so
+      // those wrappers would stay hidden forever. They cannot animate
+      // meaningfully anyway.
+      setTimeout(function () {
+        els.forEach(function (el) {
+          var r = el.getBoundingClientRect();
+          if (!r.width || !r.height) { release(el, true); io.unobserve(el); }
+        });
+      }, 900);
+
+      // SAFETY NET 2 — an element clipped by an overflow:hidden
+      // ancestor (a carousel slide, a marquee item) never intersects
+      // the viewport either, and 16 VISIBLE elements stayed invisible
+      // through a full scroll of a real page. getBoundingClientRect
+      // still reports where they are, so once the reader has scrolled
+      // past that point, let them through. The observer stays the fast
+      // path; this is the guarantee.
+      var sweeping = false;
+      function sweep() {
+        sweeping = false;
+        var pending = 0;
+        els.forEach(function (el) {
+          if (!el.dataset.ae || el.dataset.aeDone) return;
+          var r = el.getBoundingClientRect();
+          if (r.top < innerHeight * 0.92) {
+            release(el);
+            el.dataset.aeDone = '1';
+            io.unobserve(el);
+          } else { pending++; }
+        });
+        if (!pending) removeEventListener('scroll', onScroll);
+      }
+      function onScroll() {
+        if (sweeping) return;
+        sweeping = true;
+        requestAnimationFrame(sweep);
+      }
+      addEventListener('scroll', onScroll, { passive: true });
     });
-  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.01 });
-  els.forEach(function (el) { io.observe(el); });
+  });
 })();
 """
-
 # An animation's PARKED START, never the design.
 #
 # THE RULE THAT MATTERS: a transform alone is NOT an entrance. Framer
@@ -100,9 +157,19 @@ def is_hidden(style: str) -> bool:
         return bool(m) and float(m.group(1)) <= HIDDEN_MAX
     except ValueError:
         return False
+# `filter: blur()` is the THIRD leg of a Framer entrance — a word fades
+# in, slides up AND unblurs. Recovering only opacity and transform left
+# 94 per-word spans at full opacity and still blurred, which is exactly
+# what the owner saw in the hero heading.
+#
+# The lookbehind matters more than it looks: `backdrop-filter: blur()`
+# CONTAINS the substring "filter: blur(" and is frosted glass on the
+# sticky header — 18 elements of pure design. Stripping it would be the
+# translate(-50%) mistake all over again.
 START_STATE = re.compile(
-    r"(?i)(?:^|;)\s*(opacity\s*:\s*0(?:\.\d+)?|"
-    r"transform\s*:\s*[^;]*(?:translate|scale|rotate|perspective)[^;]*)\s*(?=;|$)")
+    r"(?i)(?:^|;)\s*((?<![-\w])opacity\s*:\s*0(?:\.\d+)?|"
+    r"(?<![-\w])transform\s*:\s*[^;]*(?:translate|scale|rotate|perspective)[^;]*|"
+    r"(?<![-\w])filter\s*:\s*[^;]*blur\([^;]*)\s*(?=;|$)")
 
 
 def strip_scripts(dom: str) -> tuple:
@@ -199,6 +266,16 @@ def cut_element(dom: str, start: int) -> str:
         return dom
     if m.group(2).lower() in VOID or m.group(4):
         return dom[:start] + dom[m.end():]
+    name = m.group(2).lower()
+    if name == "a":
+        # Anchors cannot nest — the spec forbids it and no generator
+        # emits it — so the first </a> IS the close. Depth-counting an
+        # anchor over a regex tag stream walked straight past it and
+        # swallowed the carousel that followed: 20,144 bytes and 18
+        # images deleted to remove a promo whose entire text was
+        # "NEW TEMPLATES".
+        close = re.search(r"(?is)</a\s*>", dom[start:])
+        return dom[:start] + dom[start + close.end():] if close else dom
     depth = 0
     for t in TAG.finditer(dom, start):
         closing, tag, _, selfclose = t.groups()
@@ -239,7 +316,27 @@ def strip_platform(dom: str) -> tuple:
                  "", dom)
     dom, n_hint = strip_hints(dom)
     dom, n_badge = strip_badges(dom)
-    n_link = len(set(PLATFORM_LINKS.findall(dom)))
+    # DELETE anchors that point at the platform/marketplace, before the
+    # href is rewritten — neutralising the link to "#" left the promo
+    # card ("NEW TEMPLATES") sitting on the page looking native.
+    n_promo = 0
+    while True:
+        # ONLY the badge/marketplace promo. Matching any framer.com
+        # link deleted 18 portfolio cards and their images with it —
+        # a plain link back to the platform should be defused (href ->
+        # "#"), never taken out along with the content around it.
+        m = re.search(r'(?is)<a\b[^>]*href="[^"]*'
+                      r'(?:framer\.com/r/badge|tab=marketplace|'
+                      r'framer\.com/marketplace|buy\.polar\.sh|'
+                      r'lemonsqueezy\.com|gumroad\.com)'
+                      r'[^"]*"[^>]*>', dom)
+        if not m:
+            break
+        after = cut_element(dom, m.start())
+        if after == dom:
+            break
+        dom, n_promo = after, n_promo + 1
+    n_link = len(set(PLATFORM_LINKS.findall(dom))) + n_promo
     dom = PLATFORM_LINKS.sub("#", dom)
     return dom, n_pre + n_hint, n_link + n_badge
 
@@ -757,9 +854,7 @@ export default function Page() {{
 """)
 
     head_jsx = to_jsx(extract_styles(first["head"])[0])
-    _w(dest / "app/layout.tsx", f"""import './globals.css';
-
-// The original document head, carried as real elements. React hoists
+    _w(dest / "app/layout.tsx", f"""// The original document head, carried as real elements. React hoists
 // link/meta/title from anywhere in the tree, so they land in <head>.
 export default function RootLayout(
   {{ children }}: {{ children: React.ReactNode }}) {{
@@ -776,7 +871,12 @@ export default function RootLayout(
   );
 }}
 """)
-    _w(dest / "app/globals.css", (chr(10) * 2).join(css_all) or "/* none */")
+    # The original stylesheet ships VERBATIM from public/. Routing it
+    # through Next's CSS pipeline rewrites vendor CSS and can simply
+    # reject it — a Webflow sheet failed with `Unexpected "&" found`.
+    # extract_styles already left a <link> to this path in the head.
+    _w(dest / "public/styles/site.css",
+       (chr(10) * 2).join(css_all) or "/* none */")
     # a global alias: no file needs to import it
     # TWO files on purpose: a .d.ts with a top-level import/export is a
     # MODULE, and its declarations stop being global. The `import()`
