@@ -47,87 +47,227 @@ FRAMEWORKS = ("astro", "next", "vite")
 # rewrite — the point of the whole exercise.
 MOTION_TAG = '\n<script src="/aethron-motion.js" defer></script>\n'
 
-MOTION_JS = """// Aethron entrance animations — recovered from the original
-// template's own start states. Each [data-ae] element carries the style
-// it began at; we hold it there, then release it when it scrolls into
-// view. With JavaScript disabled the content is simply visible, which
-// is strictly better than the original behaved.
-(function () {
-  var els = document.querySelectorAll('[data-ae]');
-  if (!els.length) return;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  var EASE = 'opacity .6s ease, transform .6s cubic-bezier(.44,0,.56,1),'
-           + ' filter .6s ease';
 
-  function release(el, instant) {
-    el.style.transition = instant ? 'none' : (el.dataset.aeDur || EASE);
-    el.style.opacity = '';
-    el.style.transform = '';
-    el.style.filter = '';           // the unblur half of the entrance
+def anim_tag(doc) -> str:
+    """The original's own animation definitions, carried into the port."""
+    spec = doc.get("spec") or {}
+    if not spec.get("anims"):
+        return MOTION_TAG
+    return ('\n<script type="application/json" id="__ae_anim">'
+            + json.dumps(spec) + "</script>\n" + MOTION_TAG)
+
+MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation spec.
+//
+// The entrance definitions ship with the page (Framer writes them into
+// __framer__appearAnimationsContent, keyed by data-framer-appear-id),
+// so nothing here is guessed: exact delay, exact duration, exact
+// easing curve, exact spring physics, chosen per breakpoint.
+//
+// Seven of ten transitions on a real template are SPRINGS. A spring is
+// not an easing curve — it is a damped harmonic oscillator — so it is
+// integrated properly below. Approximating it with `ease` is the
+// difference between identical and merely similar.
+(function () {
+  var specTag = document.getElementById('__ae_anim');
+  var SPEC = specTag ? JSON.parse(specTag.textContent) : { anims: {}, breakpoints: [] };
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ---- which breakpoint variant applies right now -------------------
+  var active = {};
+  (SPEC.breakpoints || []).forEach(function (b) {
+    if (b.mediaQuery && matchMedia(b.mediaQuery).matches) active[b.hash] = 1;
+  });
+  function variantFor(id) {
+    var v = SPEC.anims[id];
+    if (!v) return null;
+    for (var hash in v) if (hash !== 'default' && active[hash]) return v[hash];
+    return v['default'] || null;
   }
 
-  els.forEach(function (el) {
-    el.setAttribute('style',
-      (el.getAttribute('style') || '') + ';' + el.dataset.ae);
+  // ---- the curves ---------------------------------------------------
+  function bezier(p1x, p1y, p2x, p2y) {          // cubic-bezier(t)
+    function A(a, b) { return 1 - 3 * b + 3 * a; }
+    function B(a, b) { return 3 * b - 6 * a; }
+    function C(a) { return 3 * a; }
+    function calc(t, a, b) { return ((A(a, b) * t + B(a, b)) * t + C(a)) * t; }
+    function slope(t, a, b) { return 3 * A(a, b) * t * t + 2 * B(a, b) * t + C(a); }
+    return function (x) {
+      if (p1x === p1y && p2x === p2y) return x;   // linear
+      var t = x;
+      for (var i = 0; i < 8; i++) {
+        var sl = slope(t, p1x, p2x);
+        if (!sl) break;
+        t -= (calc(t, p1x, p2x) - x) / sl;
+      }
+      return calc(t, p1y, p2y);
+    };
+  }
+
+  function spring(stiffness, damping, mass) {
+    // Damped harmonic oscillator, solved analytically. Returns
+    // progress 0..1 for a time in SECONDS, plus the point at which it
+    // has settled — a spring has no duration of its own.
+    var k = stiffness || 100, c = damping || 10, m = mass || 1;
+    var w0 = Math.sqrt(k / m), z = c / (2 * Math.sqrt(k * m));
+    var f;
+    if (z < 1) {                                   // underdamped: overshoots
+      var wd = w0 * Math.sqrt(1 - z * z);
+      f = function (t) {
+        return 1 - Math.exp(-z * w0 * t) *
+          (Math.cos(wd * t) + (z * w0 / wd) * Math.sin(wd * t));
+      };
+    } else if (z === 1) {                          // critically damped
+      f = function (t) { return 1 - Math.exp(-w0 * t) * (1 + w0 * t); };
+    } else {                                       // overdamped
+      var r1 = -w0 * (z - Math.sqrt(z * z - 1));
+      var r2 = -w0 * (z + Math.sqrt(z * z - 1));
+      f = function (t) {
+        return 1 - (r1 * Math.exp(r2 * t) - r2 * Math.exp(r1 * t)) / (r1 - r2);
+      };
+    }
+    var settle = 0.05;
+    for (var t = 0.05; t < 12; t += 0.05) {
+      if (Math.abs(1 - f(t)) < 0.001) { settle = t; break; }
+      settle = t;
+    }
+    return { at: f, duration: settle };
+  }
+
+  // ---- turning spec numbers into styles ------------------------------
+  var TRANSFORMS = ['x', 'y', 'scale', 'rotate', 'rotateX', 'rotateY',
+                    'skewX', 'skewY'];
+  function transformOf(v) {
+    var out = '';
+    if (v.x || v.y) out += 'translate(' + (v.x || 0) + 'px,' + (v.y || 0) + 'px) ';
+    if (v.rotate) out += 'rotate(' + v.rotate + 'deg) ';
+    if (v.rotateX) out += 'rotateX(' + v.rotateX + 'deg) ';
+    if (v.rotateY) out += 'rotateY(' + v.rotateY + 'deg) ';
+    if (v.skewX) out += 'skewX(' + v.skewX + 'deg) ';
+    if (v.skewY) out += 'skewY(' + v.skewY + 'deg) ';
+    if (v.scale !== undefined && v.scale !== 1) out += 'scale(' + v.scale + ') ';
+    return out.trim();
+  }
+  function apply(el, from, to, p) {
+    var v = {}, i;
+    for (i = 0; i < TRANSFORMS.length; i++) {
+      var key = TRANSFORMS[i];
+      var a = from[key], b = to[key];
+      if (a === undefined && b === undefined) continue;
+      a = a === undefined ? (key === 'scale' ? 1 : 0) : a;
+      b = b === undefined ? (key === 'scale' ? 1 : 0) : b;
+      v[key] = a + (b - a) * p;
+    }
+    var t = transformOf(v);
+    el.style.transform = t || '';
+    if (from.opacity !== undefined || to.opacity !== undefined) {
+      var oa = from.opacity === undefined ? 1 : from.opacity;
+      var ob = to.opacity === undefined ? 1 : to.opacity;
+      el.style.opacity = oa + (ob - oa) * p;
+    }
+  }
+
+  function play(el, variant) {
+    var from = variant.initial || {}, to = variant.animate || {};
+    var tr = to.transition || {};
+    var curve, dur;
+    if (tr.type === 'spring') {
+      var sp = spring(tr.stiffness, tr.damping, tr.mass);
+      curve = sp.at; dur = sp.duration;
+    } else {
+      var e = tr.ease || [0.44, 0, 0.56, 1];
+      var b = bezier(e[0], e[1], e[2], e[3]);
+      dur = tr.duration === undefined ? 0.4 : tr.duration;
+      curve = function (t) { return b(dur ? Math.min(1, t / dur) : 1); };
+    }
+    var delay = (tr.delay || 0) * 1000;
+    apply(el, from, to, 0);
+    setTimeout(function () {
+      var t0 = performance.now();
+      (function frame(now) {
+        var t = (now - t0) / 1000;
+        var p = Math.min(1, curve(t));
+        apply(el, from, to, tr.type === 'spring' ? curve(t) : p);
+        if (t < dur) requestAnimationFrame(frame);
+        else { apply(el, from, to, 1); el.style.transform = ''; el.style.opacity = ''; }
+      })(performance.now());
+    }, delay);
+  }
+
+  // ---- wire it up ----------------------------------------------------
+  var byId = [].slice.call(document.querySelectorAll('[data-framer-appear-id]'));
+  var generic = [].slice.call(document.querySelectorAll('[data-ae]'));
+
+  if (reduce) { return; }
+
+  // exact-spec elements
+  var pending = [];
+  byId.forEach(function (el) {
+    var v = variantFor(el.getAttribute('data-framer-appear-id'));
+    if (!v) return;
+    apply(el, v.initial || {}, v.animate || {}, 0);
+    pending.push({ el: el, v: v });
   });
 
-  // THE FRAME THAT MATTERS: setting the start state and clearing it in
-  // the same tick means the browser never paints the start, so there is
-  // nothing to transition FROM and the element simply appears. Two
-  // frames of daylight is the difference between "no animations at all"
-  // and the real thing.
-  requestAnimationFrame(function () {
-    requestAnimationFrame(function () {
-      var io = new IntersectionObserver(function (entries) {
-        entries.forEach(function (e) {
-          if (!e.isIntersecting) return;
-          release(e.target);
-          e.target.dataset.aeDone = '1';
-          io.unobserve(e.target);
-        });
-      }, { rootMargin: '0px 0px -8% 0px', threshold: 0.01 });
-      els.forEach(function (el) { io.observe(el); });
-
-      // SAFETY NET 1 — a zero-area box never triggers an observer, so
-      // those wrappers would stay hidden forever. They cannot animate
-      // meaningfully anyway.
-      setTimeout(function () {
-        els.forEach(function (el) {
-          var r = el.getBoundingClientRect();
-          if (!r.width || !r.height) { release(el, true); io.unobserve(el); }
-        });
-      }, 900);
-
-      // SAFETY NET 2 — an element clipped by an overflow:hidden
-      // ancestor (a carousel slide, a marquee item) never intersects
-      // the viewport either, and 16 VISIBLE elements stayed invisible
-      // through a full scroll of a real page. getBoundingClientRect
-      // still reports where they are, so once the reader has scrolled
-      // past that point, let them through. The observer stays the fast
-      // path; this is the guarantee.
-      var sweeping = false;
-      function sweep() {
-        sweeping = false;
-        var pending = 0;
-        els.forEach(function (el) {
-          if (!el.dataset.ae || el.dataset.aeDone) return;
-          var r = el.getBoundingClientRect();
-          if (r.top < innerHeight * 0.92) {
-            release(el);
-            el.dataset.aeDone = '1';
-            io.unobserve(el);
-          } else { pending++; }
-        });
-        if (!pending) removeEventListener('scroll', onScroll);
-      }
-      function onScroll() {
-        if (sweeping) return;
-        sweeping = true;
-        requestAnimationFrame(sweep);
-      }
-      addEventListener('scroll', onScroll, { passive: true });
-    });
+  // everything else keeps the recovered start state (blur, etc.)
+  generic.forEach(function (el) {
+    if (el.hasAttribute('data-framer-appear-id')) return;
+    el.setAttribute('style', (el.getAttribute('style') || '') + ';' + el.dataset.ae);
   });
+
+  function releaseGeneric(el) {
+    el.style.transition = 'opacity .6s ease, transform .6s cubic-bezier(.44,0,.56,1), filter .6s ease';
+    el.style.opacity = ''; el.style.transform = ''; el.style.filter = '';
+    el.dataset.aeDone = '1';
+  }
+
+  requestAnimationFrame(function () { requestAnimationFrame(function () {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        var hit = null;
+        for (var i = 0; i < pending.length; i++)
+          if (pending[i].el === e.target) { hit = pending[i]; break; }
+        if (hit) { play(hit.el, hit.v); hit.el.dataset.aeDone = '1'; }
+        else releaseGeneric(e.target);
+        io.unobserve(e.target);
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.01 });
+    pending.forEach(function (x) { io.observe(x.el); });
+    generic.forEach(function (el) { if (!el.dataset.aeDone) io.observe(el); });
+
+    // zero-area boxes never trigger an observer
+    setTimeout(function () {
+      generic.concat(pending.map(function (x) { return x.el; })).forEach(function (el) {
+        var r = el.getBoundingClientRect();
+        if ((!r.width || !r.height) && !el.dataset.aeDone) {
+          el.style.opacity = ''; el.style.transform = ''; el.style.filter = '';
+          el.dataset.aeDone = '1'; io.unobserve(el);
+        }
+      });
+    }, 900);
+
+    // clipped elements never intersect either — sweep by position
+    var busy = false;
+    function sweep() {
+      busy = false;
+      var left = 0;
+      pending.forEach(function (x) {
+        if (x.el.dataset.aeDone) return;
+        if (x.el.getBoundingClientRect().top < innerHeight * 0.92) {
+          play(x.el, x.v); x.el.dataset.aeDone = '1'; io.unobserve(x.el);
+        } else left++;
+      });
+      generic.forEach(function (el) {
+        if (el.dataset.aeDone) return;
+        if (el.getBoundingClientRect().top < innerHeight * 0.92) {
+          releaseGeneric(el); io.unobserve(el);
+        } else left++;
+      });
+      if (!left) removeEventListener('scroll', onScroll);
+    }
+    function onScroll() { if (!busy) { busy = true; requestAnimationFrame(sweep); } }
+    addEventListener('scroll', onScroll, { passive: true });
+  }); });
 })();
 """
 # An animation's PARKED START, never the design.
@@ -356,6 +496,47 @@ def route_of(page: str) -> str:
     return "index" if page == "index.html" else page[:-5] if \
         page.endswith(".html") else page
 
+
+
+
+# ─────────────── the animation spec, read from the source ────────────
+# THE CORRECTION THAT MATTERED: motion was being inferred from outside —
+# sampling the rendered page and guessing a curve. But the page SHIPS
+# its own animation definitions, and Aethron owns them:
+#
+#   <script type="framer/appear" id="__framer__appearAnimationsContent">
+#   {"1n7k6km": {"default": {
+#      "initial": {"opacity":0.001,"y":0,...},
+#      "animate": {"opacity":1,...,
+#                  "transition":{"type":"spring","stiffness":200,
+#                                "damping":60,"mass":1,"delay":0.6}}}}}
+#
+# Keyed by data-framer-appear-id — the same attribute the elements
+# carry. So the entrance is not estimated at all: exact delay, exact
+# duration, exact easing, exact spring physics, per breakpoint.
+#
+# Measured on one real template: SEVEN of ten transitions are springs,
+# with delays from 0.2s to 1.6s. Replaying that as one hardcoded
+# "0.6s ease" is precisely the replica-not-identical the owner refused.
+
+def extract_appear_spec(html: str) -> dict:
+    """-> {"anims": {...}, "breakpoints": [...]} straight from the page."""
+    out = {"anims": {}, "breakpoints": []}
+    m = re.search(r'(?is)<script[^>]*id="__framer__appearAnimationsContent"'
+                  r'[^>]*>(.*?)</script\s*>', html)
+    if m:
+        try:
+            out["anims"] = json.loads(m.group(1))
+        except ValueError:
+            pass
+    b = re.search(r'(?is)<script[^>]*id="__framer__breakpoints"[^>]*>'
+                  r'(.*?)</script\s*>', html)
+    if b:
+        try:
+            out["breakpoints"] = json.loads(b.group(1))
+        except ValueError:
+            pass
+    return out
 
 
 # ─────────────── organising the output like a project ────────────────
@@ -741,6 +922,7 @@ def emit_astro(dest: Path, pages: dict, name: str):
         _w(dest / f"src/pages/{r}.astro", f"""---
 // {page} — {len(parts)} section(s), each its own component.
 import head from '../html/{r}.head.html?raw';
+const anim = {json.dumps(anim_tag(doc))};
 {nl.join(imports)}
 ---
 <html lang="{doc['lang']}">
@@ -749,7 +931,7 @@ import head from '../html/{r}.head.html?raw';
 {prefix}
 {nl.join(uses)}
 {suffix}
-    <script src="/aethron-motion.js" defer is:inline></script>
+    <Fragment set:html={{anim}} />
   </body>
 </html>
 """)
@@ -854,6 +1036,8 @@ export default function Page() {{
 """)
 
     head_jsx = to_jsx(extract_styles(first["head"])[0])
+    spec_json = json.dumps(json.dumps(first.get("spec") or
+                                      {"anims": {}, "breakpoints": []}))
     _w(dest / "app/layout.tsx", f"""// The original document head, carried as real elements. React hoists
 // link/meta/title from anywhere in the tree, so they land in <head>.
 export default function RootLayout(
@@ -865,6 +1049,8 @@ export default function RootLayout(
       </head>
       <body>
         {{children}}
+        <script type="application/json" id="__ae_anim"
+          dangerouslySetInnerHTML={{{{ __html: {spec_json} }}}} />
         <script src="/aethron-motion.js" defer />
       </body>
     </html>
@@ -1011,8 +1197,17 @@ def convert(project, framework="astro", pages=None, on_event=None,
             dom, n_ae = recover_entrances(dom)
             total_ae += n_ae
             head, body, battrs, lang = split_document(dom)
+            # The animation spec must come from the SOURCE page: by the
+            # time the emitters see the DOM every script is stripped,
+            # including the one carrying the definitions.
+            spec = extract_appear_spec(
+                (site / page).read_text(encoding="utf-8", errors="ignore"))
             docs[page] = {"head": head, "body": body, "battrs": battrs,
-                          "lang": lang}
+                          "lang": lang, "spec": spec}
+            if spec["anims"]:
+                say("page", f"  {len(spec['anims'])} animation(s) read from "
+                            f"the page's own spec "
+                            f"({len(spec['breakpoints'])} breakpoints)")
             say("page", f"{page}: {n_scripts} script(s) + {n_pre} preload(s) "
                         f"dropped, {n_link} platform link(s) cut, "
                         f"{n_ae} entrance(s) recovered, "
