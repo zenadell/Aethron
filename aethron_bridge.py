@@ -491,10 +491,20 @@ def _handler(cfg: BridgeConfig, log=None):
             self.send_header("Connection", "close")
             self.end_headers()
 
+            gone = []
+
             def emit(name, data):
-                self.wfile.write(f"event: {name}\ndata: "
-                                 f"{json.dumps(data)}\n\n".encode())
-                self.wfile.flush()
+                """A disconnected client is routine — the CLI hangs up when
+                it aborts a turn. Writing on regardless dumps a stack per
+                event and kills the handler thread mid-accounting."""
+                if gone:
+                    return
+                try:
+                    self.wfile.write(f"event: {name}\ndata: "
+                                     f"{json.dumps(data)}\n\n".encode())
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    gone.append(True)
 
             out = AnthropicStream(cfg.model or req.get("model", ""), emit)
             stop, usage = None, {}

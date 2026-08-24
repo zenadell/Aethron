@@ -231,11 +231,17 @@ class _Outline:
     def render(self, dom: str) -> str:
         self.parser.feed(dom)
         self.parser.flush()
-        lines, seen = [], set()
+        # NO DEDUP. Repeated text is real content: nav appears in the
+        # header AND the footer, marquees repeat their items, cards
+        # repeat their labels. Dropping repeats handed the agent 624 of
+        # the page's 955 words and capped the port at 65% before it
+        # started — the model then scored 61%, i.e. it rendered almost
+        # exactly what it was given. Only collapse immediate duplicates,
+        # which are a parser artifact rather than content.
+        lines = []
         for l in self.parser.out:
-            if l in seen and not l.startswith("#"):
-                continue          # nav/footer repeats add nothing
-            seen.add(l)
+            if lines and l == lines[-1] and not l.startswith("!["):
+                continue
             lines.append(l)
         return "\n".join(lines)
 
@@ -558,14 +564,21 @@ def export(project, framework="next", rounds=3, pages=None, on_event=None,
     # ── 4. one gap-filling turn against the referee's own complaint
     if rounds > 1 and not _stopped():
         say("stage", "one repair round against the referee's findings")
-        code.run_once(dest, "Your port builds but does not match the "
-                            "original:\n\n" + verdict +
-                            "\n\nThe missing content is in "
-                            f"`{src[0]['outline']}`. Add it to the existing "
-                            "section components (or add one more section "
-                            "file and it will be picked up). Write files "
-                            "only, then stop.",
-                      cfg={"disallowed_tools": ["Bash"],
+        # Inline the source rather than pointing at it: given a path and
+        # a Grep tool, the last repair round went looking through
+        # Aethron's OWN source for the grader instead of adding content.
+        full = (dest / src[0]["outline"]).read_text(encoding="utf-8")
+        code.run_once(dest, "Your port builds but does not render the same "
+                            "page as the original:\n\n" + verdict +
+                            "\n\nHere is the complete content the page "
+                            "must show, in order. Compare it against the "
+                            "section files you wrote and add every line "
+                            "that is missing:\n\n" + full[:12000] +
+                            "\n\nEdit the existing section components. "
+                            "Write files only, then stop.",
+                      cfg={"allowed_tools": ["Write", "Edit", "Read"],
+                           "disallowed_tools": ["Bash", "Grep", "Glob",
+                                                "WebFetch", "WebSearch"],
                            "aethron_tools": False,
                            "permission_mode": "acceptEdits", **(cfg or {})},
                       home=home, timeout=900,

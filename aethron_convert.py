@@ -49,12 +49,32 @@ MOTION_TAG = '\n<script src="/aethron-motion.js" defer></script>\n'
 
 
 def anim_tag(doc) -> str:
-    """The original's own animation definitions, carried into the port."""
+    """The original's own animation definitions AND the recording of what
+    it actually does, carried into the port."""
+    out = ""
+    # the engine's own data tags first, verbatim, under their real ids
+    for tag in (doc.get("engine_data") or []):
+        out += "\n" + tag
     spec = doc.get("spec") or {}
-    if not spec.get("anims"):
-        return MOTION_TAG
-    return ('\n<script type="application/json" id="__ae_anim">'
-            + json.dumps(spec) + "</script>\n" + MOTION_TAG)
+    if spec.get("anims") and not doc.get("engine_data"):
+        out += ('\n<script type="application/json" id="__ae_anim">'
+                + json.dumps(spec) + "</script>")
+    # The original engine runs FIRST — it owns every element carrying a
+    # data-framer-appear-id. Our runtime then handles only what it does
+    # not: recovered blur states and anything without a spec.
+    if doc.get("keep_runtime"):
+        return ""          # the original's code is already in the body
+    for src in (doc.get("engine") or []):
+        out += "\n<script>" + src + "</script>"
+    tl = doc.get("timeline") or {}
+    # NOT mutually exclusive with the engine: the engine owns elements
+    # carrying data-framer-appear-id, the recording owns everything else,
+    # and the runtime already skips the overlap. Gating one on the other
+    # silently dropped the recording on every build.
+    if tl.get("entries"):
+        out += ('\n<script type="application/json" id="__ae_timeline">'
+                + json.dumps(tl) + "</script>")
+    return out + MOTION_TAG
 
 MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation spec.
 //
@@ -68,6 +88,11 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
 // integrated properly below. Approximating it with `ease` is the
 // difference between identical and merely similar.
 (function () {
+  // If the original engine came across, it owns every element carrying
+  // a data-framer-appear-id — identical by construction. Ours then
+  // handles only the remainder: recovered blur/transform states that
+  // belong to no spec.
+  var ENGINE = (typeof animator !== 'undefined');
   var specTag = document.getElementById('__ae_anim');
   var SPEC = specTag ? JSON.parse(specTag.textContent) : { anims: {}, breakpoints: [] };
   var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -199,9 +224,43 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
 
   if (reduce) { return; }
 
+  // ---- recorded traces: replay what the original ACTUALLY did -------
+  // Each entry is one element's own measured keyframes. A per-character
+  // heading therefore staggers itself: every character carries its own
+  // timing, so nothing has to know what a "stagger" is.
+  var tlTag = document.getElementById('__ae_timeline');
+  var TL = tlTag ? JSON.parse(tlTag.textContent) : { entries: {} };
+
+  function applyFrame(el, s) {
+    el.style.opacity = (s.opacity === undefined) ? '' : s.opacity;
+    el.style.transform = s.transform || '';
+    el.style.filter = s.filter || '';
+  }
+  function playTrace(el, frames) {
+    var t0 = performance.now(), i = 0;
+    (function step() {
+      var now = performance.now() - t0;
+      while (i < frames.length && frames[i][0] <= now) {
+        applyFrame(el, frames[i][1]); i++;
+      }
+      if (i < frames.length) requestAnimationFrame(step);
+      else { el.style.opacity = ''; el.style.transform = ''; el.style.filter = ''; }
+    })();
+  }
+
+  var traced = [];
+  Object.keys(TL.entries || {}).forEach(function (id) {
+    var el = document.querySelector('[data-ae-id="' + id + '"]');
+    if (!el) return;
+    var frames = TL.entries[id].frames || [];
+    if (frames.length < 2) return;
+    applyFrame(el, frames[0][1]);              // park at the recorded start
+    traced.push({ el: el, frames: frames });
+  });
+
   // exact-spec elements
   var pending = [];
-  byId.forEach(function (el) {
+  (ENGINE ? [] : byId).forEach(function (el) {
     var v = variantFor(el.getAttribute('data-framer-appear-id'));
     if (!v) return;
     apply(el, v.initial || {}, v.animate || {}, 0);
@@ -210,7 +269,8 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
 
   // everything else keeps the recovered start state (blur, etc.)
   generic.forEach(function (el) {
-    if (el.hasAttribute('data-framer-appear-id')) return;
+    if (ENGINE && el.hasAttribute('data-framer-appear-id')) return;
+    if (!ENGINE && el.hasAttribute('data-framer-appear-id')) return;
     el.setAttribute('style', (el.getAttribute('style') || '') + ';' + el.dataset.ae);
   });
 
@@ -224,16 +284,41 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (!e.isIntersecting) return;
-        var hit = null;
-        for (var i = 0; i < pending.length; i++)
+        var hit = null, tr = null, i;
+        for (i = 0; i < pending.length; i++)
           if (pending[i].el === e.target) { hit = pending[i]; break; }
+        for (i = 0; i < traced.length; i++)
+          if (traced[i].el === e.target) { tr = traced[i]; break; }
         if (hit) { play(hit.el, hit.v); hit.el.dataset.aeDone = '1'; }
+        else if (tr) { playTrace(tr.el, tr.frames); tr.el.dataset.aeDone = '1'; }
         else releaseGeneric(e.target);
         io.unobserve(e.target);
       });
     }, { rootMargin: '0px 0px -8% 0px', threshold: 0.01 });
     pending.forEach(function (x) { io.observe(x.el); });
+    traced.forEach(function (x) { if (!x.el.dataset.aeDone) io.observe(x.el); });
     generic.forEach(function (el) { if (!el.dataset.aeDone) io.observe(el); });
+
+    // THE CONTENT GUARANTEE. Motion is second; content is first.
+    // Whatever parks an element — our runtime, a recording, or the
+    // carried engine parking it and never firing — nothing may stay
+    // invisible. A missing animation is a defect; missing content is a
+    // broken site, and 33 elements sat at opacity 0.001 before this.
+    setTimeout(function () {
+      var all = document.querySelectorAll(
+        '[data-ae-id],[data-ae],[data-framer-appear-id]');
+      [].forEach.call(all, function (el) {
+        var cs = getComputedStyle(el);
+        var blur = /blur\(([\d.]+)px\)/.exec(cs.filter || '');
+        if (parseFloat(cs.opacity) >= 0.05 &&
+            !(blur && parseFloat(blur[1]) > 0.5)) return;
+        el.style.transition = 'opacity .4s ease, filter .4s ease';
+        el.style.opacity = '';
+        el.style.filter = '';
+        el.style.transform = '';
+        el.dataset.aeDone = '1';
+      });
+    }, 2600);
 
     // zero-area boxes never trigger an observer
     setTimeout(function () {
@@ -255,6 +340,12 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
         if (x.el.dataset.aeDone) return;
         if (x.el.getBoundingClientRect().top < innerHeight * 0.92) {
           play(x.el, x.v); x.el.dataset.aeDone = '1'; io.unobserve(x.el);
+        } else left++;
+      });
+      traced.forEach(function (x) {
+        if (x.el.dataset.aeDone) return;
+        if (x.el.getBoundingClientRect().top < innerHeight * 0.92) {
+          playTrace(x.el, x.frames); x.el.dataset.aeDone = '1'; io.unobserve(x.el);
         } else left++;
       });
       generic.forEach(function (el) {
@@ -331,7 +422,12 @@ def recover_entrances(dom: str) -> tuple:
         tag, style = m.group(0), m.group(1)
         # only a hidden element is mid-entrance; everything else keeps
         # its inline style exactly as the template wrote it
-        if not is_hidden(style) and "data-framer-appear-id" not in tag:
+        if "data-framer-appear-id" in tag:
+            # The carried engine owns this element and writes its own
+            # start state from the spec. Touching it makes two systems
+            # fight over the same style attribute.
+            return tag
+        if not is_hidden(style):
             return tag
         starts = [s.strip() for s in START_STATE.findall(style)]
         if not starts:
@@ -446,14 +542,16 @@ def strip_badges(dom: str) -> tuple:
     return dom, n
 
 
-def strip_platform(dom: str) -> tuple:
+def strip_platform(dom: str, keep_preloads=False) -> tuple:
     """Dead-end every link back to the platform, and drop the preloads
     for a runtime that no longer exists. 30 modulepreload tags were
     making the browser fetch 5.5MB of chunks that nothing runs."""
-    n_pre = len(re.findall(
-        r'(?is)<link[^>]*rel="(?:modulepreload|prefetch)"[^>]*>', dom))
-    dom = re.sub(r'(?is)<link[^>]*rel="(?:modulepreload|prefetch)"[^>]*>',
-                 "", dom)
+    n_pre = 0
+    if not keep_preloads:
+        n_pre = len(re.findall(
+            r'(?is)<link[^>]*rel="(?:modulepreload|prefetch)"[^>]*>', dom))
+        dom = re.sub(r'(?is)<link[^>]*rel="(?:modulepreload|prefetch)"[^>]*>',
+                     "", dom)
     dom, n_hint = strip_hints(dom)
     dom, n_badge = strip_badges(dom)
     # DELETE anchors that point at the platform/marketplace, before the
@@ -536,6 +634,58 @@ def extract_appear_spec(html: str) -> dict:
             out["breakpoints"] = json.loads(b.group(1))
         except ValueError:
             pass
+    return out
+
+
+
+# ─────────── carry the original's animation engine, verbatim ─────────
+# THE CORRECTION: recreating motion was the wrong instinct twice over —
+# first a hand-rolled spring integrator, then replayed keyframes. The
+# page already ships its animation engine as ~11KB of SELF-CONTAINED
+# inline script (it imports nothing from the chunks), reading the same
+# __framer__appearAnimationsContent we carry and driving the same
+# data-framer-appear-id the DOM already has.
+#
+# Carrying it makes the animation identical BY CONSTRUCTION — same
+# engine, same maths — instead of an imitation that merely looks close.
+#
+# This is not the 5.5MB chunk runtime that draws the whole page as a
+# black box. The structure and CSS stay real framework source the owner
+# can edit; only the animation utility comes across, self-hosted, with
+# nothing phoning home.
+
+ENGINE_MARKERS = ("startOptimizedAppearAnimation", "animateAppearEffects",
+                  "data-framer-appear-id")
+
+
+def extract_engine_data(html: str) -> list:
+    """The engine's DATA tags, carried with their ORIGINAL id and type.
+
+    The engine looks the spec up by Framer's own id
+    (__framer__appearAnimationsContent). Renaming it to something of
+    ours meant the engine loaded, found no spec, and animated nothing —
+    the elements just sat there. Carrying it as-is is the whole point of
+    using the original rather than reimplementing it."""
+    return [m.group(0) for m in
+            re.finditer(r'(?is)<script[^>]*type="framer/appear"[^>]*>'
+                        r'.*?</script\s*>', html)]
+
+
+def extract_motion_engine(html: str) -> list:
+    """The inline scripts that implement the original's animations, in
+    document order. Only self-contained ones — anything importing from
+    the chunks would drag the app runtime with it."""
+    out = []
+    for m in re.finditer(r'(?is)<script(?![^>]*\bsrc=)([^>]*)>(.*?)</script\s*>',
+                         html):
+        attrs, body = m.group(1), m.group(2)
+        if "application/json" in attrs or "framer/appear" in attrs:
+            continue                      # that is the DATA, carried already
+        if not any(k in body for k in ENGINE_MARKERS):
+            continue
+        if re.search(r'\bimport\s+[\w{*]|from\s+["\']\./assets', body):
+            continue                      # not self-contained: skip it
+        out.append(body)
     return out
 
 
@@ -1038,6 +1188,7 @@ export default function Page() {{
     head_jsx = to_jsx(extract_styles(first["head"])[0])
     spec_json = json.dumps(json.dumps(first.get("spec") or
                                       {"anims": {}, "breakpoints": []}))
+    tl_json = json.dumps(json.dumps(first.get("timeline") or {"entries": {}}))
     _w(dest / "app/layout.tsx", f"""// The original document head, carried as real elements. React hoists
 // link/meta/title from anywhere in the tree, so they land in <head>.
 export default function RootLayout(
@@ -1051,6 +1202,8 @@ export default function RootLayout(
         {{children}}
         <script type="application/json" id="__ae_anim"
           dangerouslySetInnerHTML={{{{ __html: {spec_json} }}}} />
+        <script type="application/json" id="__ae_timeline"
+          dangerouslySetInnerHTML={{{{ __html: {tl_json} }}}} />
         <script src="/aethron-motion.js" defer />
       </body>
     </html>
@@ -1150,7 +1303,24 @@ def _w(p: Path, text: str):
 # ─────────────────────────── the pipeline ────────────────────────────
 
 def convert(project, framework="astro", pages=None, on_event=None,
-            install=True, build=True):
+            install=True, build=True, keep_runtime=True):
+    """keep_runtime=True is IDENTICAL BY CONSTRUCTION.
+
+    Every other approach reproduces the motion: a hand-rolled spring
+    integrator, replayed keyframes, or reading each component's config
+    out of minified chunks and driving the real library. All of them are
+    only as accurate as the reading, and a component missed is a
+    deviation.
+
+    Carrying the original's own code cannot deviate, because it IS the
+    original. What that costs is hand-editable page-render source; what
+    it keeps is the framework project around it — the build, the routes,
+    the assets, the content, the CSS — and the animation exactly as the
+    designer made it.
+
+    Nothing is given up on ownership: the runtime is localized to the
+    user's own server, no CDN, no telemetry, badges deleted. The
+    platform could vanish and the site still runs."""
     project = Path(project).resolve()
     if framework not in FRAMEWORKS:
         raise SystemExit(f"--framework must be one of {FRAMEWORKS}")
@@ -1178,7 +1348,12 @@ def convert(project, framework="astro", pages=None, on_event=None,
                 continue
             shutil.rmtree(child) if child.is_dir() else child.unlink()
 
-    H = forge._site_handler(site, cfg.get("platform", "static"), quiet=True)
+    import aethron_motion as motion
+    tl_js = motion.TIMELINE_JS % {"samples": 26, "every": 55, "step": 0.75}
+    # One pass: the injected recorder walks the page, stamps data-ae-id on
+    # every element it sees move, and leaves the keyframes in the DOM. The
+    # capture and the conversion therefore see the SAME page state.
+    H = motion._injecting_handler(site, cfg.get("platform", "static"), tl_js)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     port = srv.server_address[1]
@@ -1188,26 +1363,48 @@ def convert(project, framework="astro", pages=None, on_event=None,
             say("stage", f"reading {page} as the browser renders it…")
             got = forge._render_page(browser,
                                      f"http://127.0.0.1:{port}/{page}",
-                                     budget_ms=9000)
+                                     budget_ms=90000, timeout=180)
             if not got["dom"]:
                 say("error", f"{page} did not render — skipped")
                 continue
-            dom, n_scripts = strip_scripts(got["dom"])
-            dom, n_pre, n_link = strip_platform(dom)
-            dom, n_ae = recover_entrances(dom)
+            timeline = {"entries": {}}
+            tlm = re.search(r'(?is)<script[^>]*id="__ae_timeline"[^>]*>'
+                            r'(.*?)</script\s*>', got["dom"])
+            if tlm:
+                try:
+                    timeline = json.loads(tlm.group(1))
+                except ValueError:
+                    pass
+            if keep_runtime:
+                # the platform's own code stays: it draws AND animates
+                # the page exactly as it always did
+                dom = got["dom"]
+                n_scripts = 0
+                dom, n_pre, n_link = strip_platform(dom, keep_preloads=True)
+                n_ae = 0
+            else:
+                dom, n_scripts = strip_scripts(got["dom"])
+                dom, n_pre, n_link = strip_platform(dom)
+                dom, n_ae = recover_entrances(dom)
             total_ae += n_ae
             head, body, battrs, lang = split_document(dom)
             # The animation spec must come from the SOURCE page: by the
             # time the emitters see the DOM every script is stripped,
             # including the one carrying the definitions.
-            spec = extract_appear_spec(
-                (site / page).read_text(encoding="utf-8", errors="ignore"))
+            source_html = (site / page).read_text(encoding="utf-8",
+                                                   errors="ignore")
+            spec = extract_appear_spec(source_html)
+            engine = extract_motion_engine(source_html)
+            engine_data = extract_engine_data(source_html)
             docs[page] = {"head": head, "body": body, "battrs": battrs,
-                          "lang": lang, "spec": spec}
+                          "lang": lang, "spec": spec, "timeline": timeline,
+                          "engine": engine, "engine_data": engine_data,
+                          "keep_runtime": keep_runtime}
             if spec["anims"]:
-                say("page", f"  {len(spec['anims'])} animation(s) read from "
-                            f"the page's own spec "
-                            f"({len(spec['breakpoints'])} breakpoints)")
+                say("page", f"  {len(spec['anims'])} animation(s) from the "
+                            f"page's own spec; engine carried verbatim "
+                            f"({sum(len(e) for e in engine)} bytes, "
+                            f"{len(engine)} script(s))")
             say("page", f"{page}: {n_scripts} script(s) + {n_pre} preload(s) "
                         f"dropped, {n_link} platform link(s) cut, "
                         f"{n_ae} entrance(s) recovered, "
@@ -1227,7 +1424,7 @@ def convert(project, framework="astro", pages=None, on_event=None,
     # chunks/ and cms/ are the original RUNTIME's files: the content they
     # rendered is already baked into the carried HTML, so shipping them
     # is dead weight from a platform this port no longer depends on.
-    SKIP_DIRS = {"chunks", "cms"}
+    SKIP_DIRS = set() if keep_runtime else {"chunks", "cms"}
     SKIP_FILES = {"serve.py", "README.txt", "DEPLOY.md", "_redirects",
                   "vercel.json", ".forge-probe.json", ".forge-report.json"}
     n_assets = 0
@@ -1235,9 +1432,11 @@ def convert(project, framework="astro", pages=None, on_event=None,
         if child.name in SKIP_DIRS or child.name in SKIP_FILES:
             continue
         if child.is_dir():
+            ignore = (None if keep_runtime else
+                      shutil.ignore_patterns(*SKIP_DIRS, "*.mjs",
+                                             "*.framercms"))
             shutil.copytree(child, dest / "public" / child.name,
-                            ignore=shutil.ignore_patterns(
-                                *SKIP_DIRS, "*.mjs", "*.framercms"))
+                            ignore=ignore)
             n_assets += sum(1 for _ in (dest / "public" / child.name)
                             .rglob("*") if _.is_file())
         elif child.suffix.lower() not in (".html", ".py", ".md", ".txt",
@@ -1301,7 +1500,8 @@ def main(argv):
     if "--pages" in argv:
         pages = argv[argv.index("--pages") + 1].split(",")
     res = convert(Path(argv[0]).expanduser(), fw, pages,
-                  build="--no-build" not in argv)
+                  build="--no-build" not in argv,
+                  keep_runtime="--rebuild-motion" not in argv)
     print()
     print(("PIXEL-PERFECT PORT READY: " if res.get("ok")
            else "NOT ACCEPTED: ") + res.get("dir", ""))

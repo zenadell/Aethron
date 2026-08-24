@@ -249,6 +249,7 @@ TIMELINE_JS = r"""
     return true;
   }
 
+  var stamped = 0;
   var stops = [], H = document.body.scrollHeight;
   for (var y = 0; y <= H; y += Math.round(innerHeight * STEP)) stops.push(y);
   var si = 0;
@@ -289,8 +290,17 @@ TIMELINE_JS = r"""
         if (track.length && !same(v, track[track.length - 1][1])) moved = true;
         track.push([frames[f][0], v]);
       }
-      if (moved && track.length > 2 && !out.entries[p])
-        out.entries[p] = { y: y, frames: track };
+      if (moved && track.length > 2 && !out.entries[p]) {
+        // Stamp a STABLE id. Paths shift the moment conversion strips
+        // scripts or deletes a badge, so the port must be keyed by
+        // something that travels with the element, not by position.
+        var el = resolve(p);
+        if (el) {
+          var id = el.getAttribute('data-ae-id');
+          if (!id) { id = 'a' + (++stamped); el.setAttribute('data-ae-id', id); }
+          out.entries[id] = { y: y, frames: track };
+        }
+      }
     }
   }
 
