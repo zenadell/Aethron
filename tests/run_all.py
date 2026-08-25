@@ -30,9 +30,18 @@ SUITES = [
      [PY, "aethron_code.py", "--selftest"], True),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
+    ("motion battery (does the PORT actually move)",
+     [PY, "tests/motion_battery.py"], True),
     ("healer battery (deterministic -> agent -> checks decide)",
      [PY, "tests/healer_battery.py"], True),
 ]
+
+# A suite that hangs is worse than one that fails: it reports nothing at
+# all, and the run above it looked green for half an hour before anyone
+# noticed. The healer battery did exactly that — blocked inside heal()
+# with a 30 minute inner timeout, so `tail -25` printed an empty string
+# and exit 0 read as success. Time out here and call it a failure.
+LIMIT = 900
 
 
 def main():
@@ -43,12 +52,20 @@ def main():
             rows.append((name, "skipped", 0))
             continue
         t = time.time()
-        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+        try:
+            r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
+                               timeout=LIMIT)
+            out = r.stdout + r.stderr
+            ok = r.returncode == 0
+        except subprocess.TimeoutExpired as e:
+            out = ((e.stdout or b"").decode("utf-8", "replace")
+                   if isinstance(e.stdout, bytes) else (e.stdout or ""))
+            out += f"\nTIMED OUT after {LIMIT}s — no verdict, not a pass"
+            ok = False
         dt = time.time() - t
-        tail = (r.stdout + r.stderr).strip().splitlines()
+        tail = out.strip().splitlines()
         summary = next((l for l in reversed(tail) if "green" in l
                         or "ok" in l.lower() or "FAIL" in l), "")
-        ok = r.returncode == 0
         failed += not ok
         rows.append((name, ("PASS  " + summary.strip())[:78] if ok
                      else ("FAIL  " + "\n".join(tail[-12:]))[:1200], dt))

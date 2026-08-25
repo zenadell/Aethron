@@ -74,7 +74,41 @@ def anim_tag(doc) -> str:
     if tl.get("entries"):
         out += ('\n<script type="application/json" id="__ae_timeline">'
                 + json.dumps(tl) + "</script>")
+    # The measured animations. These outrank both of the above: they are
+    # the browser's own animation objects, read back with the exact
+    # keyframes and timing the original was given.
+    ent = compress_entrance(doc.get("entrance") or {})
+    if ent.get("anims"):
+        out += ('\n<script type="application/json" id="__ae_entrance">'
+                + json.dumps(ent, separators=(",", ":")) + "</script>")
     return out + MOTION_TAG
+
+
+def compress_entrance(ent: dict) -> dict:
+    """Deduplicate the recording before it ships.
+
+    A flattened spring easing is a sampled curve — `linear(0 0%, 0.024
+    2.56%, …)` runs about 5KB — and a staggered entrance repeats that
+    identical curve once per character. Written out naively the
+    recording was 1.34MB on one page, 74% of the whole document, to say
+    six different things 238 times. Shapes go in a table; each animation
+    keeps only what actually distinguishes it: its element and its
+    delay. 1342KB -> 35KB, with nothing rounded or dropped."""
+    anims = ent.get("anims") or []
+    if not anims:
+        return {"shapes": [], "anims": []}
+    shapes, index, out = [], {}, []
+    for a in anims:
+        shape = {k: a[k] for k in ("frames", "duration", "easing",
+                                   "iterations", "direction")
+                 if a.get(k) is not None}
+        key = json.dumps(shape, sort_keys=True)
+        if key not in index:
+            index[key] = len(shapes)
+            shapes.append(shape)
+        out.append({"i": a["id"], "s": index[key], "d": a.get("delay") or 0,
+                    **({"a": 1} if a.get("appear") else {})})
+    return {"shapes": shapes, "anims": out, "meta": ent.get("meta") or {}}
 
 MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation spec.
 //
@@ -248,10 +282,97 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     })();
   }
 
+  // ---- recorded animations: the browser's OWN objects ---------------
+  // Not a reconstruction and not an approximation. getAnimations() hands
+  // back the exact keyframes and timing the original was given, and
+  // el.animate() hands them straight back to the browser — so a spring
+  // the platform had already flattened into a linear() easing replays as
+  // that same easing, and nothing here has to know what a spring is.
+  //
+  // These are only visible if you look EARLY. One measurement of the
+  // hero page saw 1 animation at t=0, 19 at t=60ms and 7 by t=140ms:
+  // entrances finish and are collected, which is why the port used to
+  // ship those characters settled and inert.
+  var recTag = document.getElementById('__ae_entrance');
+  var REC = recTag ? JSON.parse(recTag.textContent) : { anims: [] };
+  var recorded = {}, recPending = [];
+
+  function timingOf(a) {
+    return {
+      duration: a.duration || 0, delay: a.delay || 0,
+      easing: a.easing || 'linear',
+      // backwards, never forwards: during the delay the element holds
+      // the recorded start pose, and when the animation ends it releases
+      // to the settled style the page already carries.
+      fill: 'backwards',
+      iterations: a.iterations === 'infinite' ? Infinity : (a.iterations || 1),
+      direction: a.direction || 'normal'
+    };
+  }
+  function parkRecorded(entry) {
+    // Remember exactly what the page carried, because releasing must
+    // RESTORE it rather than clear it. transform is the trap: an
+    // element centred with translate(-50%,-50%) that also animates
+    // would be shoved out of place by a blanket reset, and the layout
+    // moves while every content check still reads 100%.
+    entry.was = { opacity: entry.el.style.opacity,
+                  transform: entry.el.style.transform,
+                  filter: entry.el.style.filter };
+    entry.list.forEach(function (a) {
+      var f = a.frames[0] || {};
+      if (f.opacity !== undefined) entry.el.style.opacity = f.opacity;
+      if (f.transform !== undefined) entry.el.style.transform = f.transform;
+      if (f.filter !== undefined) entry.el.style.filter = f.filter;
+    });
+  }
+  function restoreRecorded(entry) {
+    var w = entry.was || { opacity: '', transform: '', filter: '' };
+    entry.el.style.opacity = w.opacity;
+    entry.el.style.transform = w.transform;
+    entry.el.style.filter = w.filter;
+  }
+  function playRecorded(entry) {
+    // Put the carried values back first, or the animation would finish
+    // and revert straight into the parked pose it just came out of.
+    restoreRecorded(entry);
+    entry.list.forEach(function (a) {
+      try { entry.el.animate(a.frames, timingOf(a)); } catch (e) { }
+    });
+    entry.el.dataset.aeDone = '1';
+  }
+
+  // The recording ships as a shape table plus one row per element; a
+  // staggered entrance is six curves, not two hundred copies of six.
+  function expand(r) {
+    var s = (REC.shapes || [])[r.s] || {};
+    return { id: r.i, delay: r.d || 0, appear: !!r.a, frames: s.frames || [],
+             duration: s.duration || 0, easing: s.easing,
+             iterations: s.iterations, direction: s.direction };
+  }
+  (REC.anims || []).map(expand).forEach(function (a) {
+    var el = document.querySelector('[data-ae-id="' + a.id + '"]');
+    if (!el || !a.frames.length) return;
+    // When the original engine came across it owns its own elements;
+    // two systems animating one element fight over the same style.
+    if (ENGINE && a.appear) return;
+    if (a.iterations === 'infinite') {
+      // marquees do not wait for anything and never end
+      try { el.animate(a.frames, timingOf(a)); } catch (e) { }
+      el.dataset.aeDone = '1';
+      return;
+    }
+    (recorded[a.id] = recorded[a.id] || { el: el, list: [] }).list.push(a);
+  });
+  Object.keys(recorded).forEach(function (id) {
+    parkRecorded(recorded[id]);
+    recPending.push(recorded[id]);
+  });
+
   var traced = [];
   Object.keys(TL.entries || {}).forEach(function (id) {
     var el = document.querySelector('[data-ae-id="' + id + '"]');
     if (!el) return;
+    if (recorded[id]) return;      // a measured animation beats a sampled one
     var frames = TL.entries[id].frames || [];
     if (frames.length < 2) return;
     applyFrame(el, frames[0][1]);              // park at the recorded start
@@ -268,6 +389,10 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
   });
 
   // everything else keeps the recovered start state (blur, etc.)
+  generic = generic.filter(function (el) {
+    // an element whose real animation was recorded is driven by that
+    return !recorded[el.getAttribute('data-ae-id')];
+  });
   generic.forEach(function (el) {
     if (ENGINE && el.hasAttribute('data-framer-appear-id')) return;
     if (!ENGINE && el.hasAttribute('data-framer-appear-id')) return;
@@ -280,21 +405,47 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     el.dataset.aeDone = '1';
   }
 
-  requestAnimationFrame(function () { requestAnimationFrame(function () {
+  // Wiring must not depend on requestAnimationFrame alone. Measured
+  // three times in a row, two runs played the full staggered entrance
+  // and the third played nothing — the double rAF simply never fired,
+  // leaving every parked element invisible. A throttled frame callback
+  // is normal in a background tab or on a low-power device, so the
+  // timer is not a test crutch: without it the content guarantee is the
+  // only thing standing between a user and a blank hero.
+  var wired = false;
+  function wire() {
+    if (wired) return;
+    wired = true;
     var io = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (!e.isIntersecting) return;
-        var hit = null, tr = null, i;
+        var hit = null, tr = null, rec = null, i;
+        rec = recorded[e.target.getAttribute('data-ae-id')] || null;
         for (i = 0; i < pending.length; i++)
           if (pending[i].el === e.target) { hit = pending[i]; break; }
         for (i = 0; i < traced.length; i++)
           if (traced[i].el === e.target) { tr = traced[i]; break; }
-        if (hit) { play(hit.el, hit.v); hit.el.dataset.aeDone = '1'; }
+        // measured first: it is the original's own animation object
+        if (rec) playRecorded(rec);
+        else if (hit) { play(hit.el, hit.v); hit.el.dataset.aeDone = '1'; }
         else if (tr) { playTrace(tr.el, tr.frames); tr.el.dataset.aeDone = '1'; }
         else releaseGeneric(e.target);
         io.unobserve(e.target);
       });
     }, { rootMargin: '0px 0px -8% 0px', threshold: 0.01 });
+    // Anything already on screen plays NOW. The original does not wait
+    // for an observer to notice its own hero, and the observer is the
+    // part that proved unreliable: the same page measured twice gave a
+    // full staggered entrance once and nothing at all the next time,
+    // purely on whether the callback had fired yet. Only what is still
+    // below the fold has any reason to wait.
+    recPending = recPending.filter(function (x) {
+      if (x.el.dataset.aeDone) return false;
+      var r = x.el.getBoundingClientRect();
+      if (r.top < innerHeight && r.bottom > -1) { playRecorded(x); return false; }
+      return true;
+    });
+    recPending.forEach(function (x) { if (!x.el.dataset.aeDone) io.observe(x.el); });
     pending.forEach(function (x) { io.observe(x.el); });
     traced.forEach(function (x) { if (!x.el.dataset.aeDone) io.observe(x.el); });
     generic.forEach(function (el) { if (!el.dataset.aeDone) io.observe(el); });
@@ -304,21 +455,47 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     // carried engine parking it and never firing — nothing may stay
     // invisible. A missing animation is a defect; missing content is a
     // broken site, and 33 elements sat at opacity 0.001 before this.
-    setTimeout(function () {
+    // Only rescue what is ON SCREEN and still hidden. An element parked
+    // below the fold is not broken, it is waiting its turn — and a
+    // blanket sweep at 2.6s used to force every one of them visible,
+    // which quietly destroyed every below-the-fold entrance in the
+    // name of protecting content. In view and invisible is a defect;
+    // out of view and invisible is the animation working.
+    function guarantee() {
       var all = document.querySelectorAll(
         '[data-ae-id],[data-ae],[data-framer-appear-id]');
       [].forEach.call(all, function (el) {
+        if (el.dataset.aeDone === 'released') return;
+        // Mid-flight is not stuck. An element two thirds through a
+        // staggered entrance is legitimately near zero opacity, and
+        // clearing it here would destroy the animation this function
+        // exists to protect.
+        try { if ((el.getAnimations() || []).length) return; } catch (e) { }
+        var r = el.getBoundingClientRect();
+        var onScreen = r.top < innerHeight && r.bottom > 0;
+        if (!onScreen && (r.width || r.height)) return;
         var cs = getComputedStyle(el);
         var blur = /blur\(([\d.]+)px\)/.exec(cs.filter || '');
         if (parseFloat(cs.opacity) >= 0.05 &&
             !(blur && parseFloat(blur[1]) > 0.5)) return;
         el.style.transition = 'opacity .4s ease, filter .4s ease';
-        el.style.opacity = '';
-        el.style.filter = '';
-        el.style.transform = '';
-        el.dataset.aeDone = '1';
+        var known = recorded[el.getAttribute('data-ae-id')];
+        if (known) {
+          restoreRecorded(known);       // put back what the page carried
+        } else {
+          el.style.opacity = '';
+          el.style.filter = '';
+          el.style.transform = '';
+        }
+        el.dataset.aeDone = 'released';
       });
-    }, 2600);
+    }
+    // a few passes, then whenever the reader moves
+    [2600, 4200, 6000].forEach(function (ms) { setTimeout(guarantee, ms); });
+    addEventListener('scroll', function () {
+      clearTimeout(window.__aeGuard);
+      window.__aeGuard = setTimeout(guarantee, 700);
+    }, { passive: true });
 
     // zero-area boxes never trigger an observer
     setTimeout(function () {
@@ -336,6 +513,12 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     function sweep() {
       busy = false;
       var left = 0;
+      recPending.forEach(function (x) {
+        if (x.el.dataset.aeDone) return;
+        if (x.el.getBoundingClientRect().top < innerHeight * 0.92) {
+          playRecorded(x); io.unobserve(x.el);
+        } else left++;
+      });
       pending.forEach(function (x) {
         if (x.el.dataset.aeDone) return;
         if (x.el.getBoundingClientRect().top < innerHeight * 0.92) {
@@ -358,7 +541,9 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     }
     function onScroll() { if (!busy) { busy = true; requestAnimationFrame(sweep); } }
     addEventListener('scroll', onScroll, { passive: true });
-  }); });
+  }
+  requestAnimationFrame(function () { requestAnimationFrame(wire); });
+  setTimeout(wire, 150);
 })();
 """
 # An animation's PARKED START, never the design.
@@ -1438,7 +1623,14 @@ def convert(project, framework="astro", pages=None, on_event=None,
             shutil.rmtree(child) if child.is_dir() else child.unlink()
 
     import aethron_motion as motion
-    tl_js = motion.TIMELINE_JS % {"samples": 26, "every": 55, "step": 0.75}
+    # The entrance recorder runs FIRST and from the very first frame:
+    # these animations are short-lived, and by the time the timeline
+    # sampler has scrolled anywhere they have finished and been
+    # collected. Both stamp data-ae-id and both reuse an existing one,
+    # so they agree on element identity.
+    tl_js = (motion.ENTRANCE_JS % {"watch": 4200}
+             + motion.TIMELINE_JS % {"samples": 26, "every": 55,
+                                     "step": 0.75})
     # One pass: the injected recorder walks the page, stamps data-ae-id on
     # every element it sees move, and leaves the keyframes in the DOM. The
     # capture and the conversion therefore see the SAME page state.
@@ -1485,10 +1677,18 @@ def convert(project, framework="astro", pages=None, on_event=None,
             spec = extract_appear_spec(source_html)
             engine = extract_motion_engine(source_html)
             engine_data = extract_engine_data(source_html)
+            entrance = motion.entrance_spec(got["dom"])
             docs[page] = {"head": head, "body": body, "battrs": battrs,
                           "lang": lang, "spec": spec, "timeline": timeline,
+                          "entrance": entrance,
                           "engine": engine, "engine_data": engine_data,
                           "keep_runtime": keep_runtime}
+            if entrance.get("anims"):
+                uncovered = sum(1 for a in entrance["anims"]
+                                if not a.get("appear"))
+                say("page", f"  {len(entrance['anims'])} animation(s) "
+                            f"measured from the live runtime, {uncovered} of "
+                            f"them outside the appear engine's reach")
             if spec["anims"]:
                 say("page", f"  {len(spec['anims'])} animation(s) from the "
                             f"page's own spec; engine carried verbatim "

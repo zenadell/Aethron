@@ -318,6 +318,108 @@ TIMELINE_JS = r"""
 """
 
 
+ENTRANCE_JS = r"""
+(function () {
+  // Framer's entrance animations are Web Animations, so the browser can
+  // be asked what they are instead of being watched and guessed at. The
+  // catch is that they are SHORT: a single getAnimations() call a second
+  // after load returns 5 marquees and nothing else, because every
+  // entrance has already finished and been collected. One measurement
+  // of this page saw 1 animation at t=0, 19 at t=60ms, and 7 by t=140ms.
+  // So accumulate — poll from the first frame and keep everything ever
+  // seen, rather than sampling an instant and calling it an inventory.
+  var seen = {}, out = { anims: [], meta: {} }, stamped = 0;
+
+  function idOf(el) {
+    var id = el.getAttribute('data-ae-id');
+    if (!id) { id = 'e' + (++stamped); el.setAttribute('data-ae-id', id); }
+    return id;
+  }
+  function num(v) { return typeof v === 'number' ? Math.round(v * 100) / 100
+                                                 : v; }
+  function collect() {
+    var list;
+    try { list = document.getAnimations(); } catch (e) { return; }
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i], eff = a.effect;
+      if (!eff || !eff.target || !eff.target.getAttribute) continue;
+      var t, kf;
+      try { t = eff.getComputedTiming(); kf = eff.getKeyframes(); }
+      catch (e) { continue; }
+      if (!kf || kf.length < 2) continue;
+      var id = idOf(eff.target);
+      // One element can carry several animations (opacity and transform
+      // arrive as separate ones). Key on what the animation IS, so the
+      // same one polled twice is not recorded twice.
+      var props = Object.keys(kf[0]).concat(Object.keys(kf[kf.length - 1]))
+        .filter(function (k) {
+          return k !== 'offset' && k !== 'computedOffset' &&
+                 k !== 'easing' && k !== 'composite';
+        }).sort().join(',');
+      var key = id + '|' + props + '|' + Math.round(t.duration || 0) +
+                '|' + Math.round(t.delay || 0);
+      if (seen[key]) continue;
+      seen[key] = 1;
+      var frames = [];
+      for (var j = 0; j < kf.length; j++) {
+        var f = {}, src = kf[j];
+        for (var k in src) {
+          if (k === 'composite' || k === 'computedOffset') continue;
+          if (src[k] === null || src[k] === undefined) continue;
+          f[k] = src[k];
+        }
+        if (f.offset === undefined || f.offset === null)
+          f.offset = src.computedOffset;
+        frames.push(f);
+      }
+      out.anims.push({
+        id: id, props: props, duration: num(t.duration),
+        delay: num(t.delay), easing: t.easing,
+        iterations: t.iterations === Infinity ? 'infinite' : t.iterations,
+        direction: t.direction, fill: t.fill, frames: frames,
+        appear: eff.target.hasAttribute('data-framer-appear-id')
+      });
+    }
+  }
+
+  var t0 = Date.now(), frames = 0;
+  function tick() {
+    collect();
+    frames++;
+    if (Date.now() - t0 < %(watch)d) requestAnimationFrame(tick);
+  }
+  tick();
+  // rAF alone is not trustworthy under a virtual-time budget, so back it
+  // with timers; both paths call the same idempotent collector.
+  var every = setInterval(collect, 16);
+  setTimeout(function () {
+    clearInterval(every);
+    collect();
+    out.meta.watched_ms = Date.now() - t0;
+    out.meta.frames = frames;
+    out.meta.total = out.anims.length;
+    var tag = document.createElement('script');
+    tag.type = 'application/json';
+    tag.id = '__ae_entrance';
+    tag.textContent = JSON.stringify(out);
+    document.body.appendChild(tag);
+  }, %(watch)d + 120);
+})();
+"""
+
+
+def entrance_spec(dom: str) -> dict:
+    """Pull the recorder's findings back out of the dumped DOM."""
+    m = re.search(r'(?is)<script[^>]*id="__ae_entrance"[^>]*>(.*?)</script\s*>',
+                  dom or "")
+    if not m:
+        return {"anims": [], "meta": {}}
+    try:
+        return json.loads(m.group(1))
+    except ValueError:
+        return {"anims": [], "meta": {}}
+
+
 def capture_timeline(site: Path, page="index.html", platform="static",
                      samples=26, every=55, step=0.75, budget_ms=180000):
     """Record every element's animation as real keyframes."""
