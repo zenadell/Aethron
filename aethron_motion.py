@@ -408,6 +408,559 @@ ENTRANCE_JS = r"""
 """
 
 
+SCROLL_JS = r"""
+(function () {
+  // The third mechanism. getAnimations() sees Web Animations; the
+  // timeline sampler sees things that move on their own clock. Neither
+  // sees an effect that framer-motion drives on requestAnimationFrame
+  // from the scroll position — useScroll/useTransform writes inline
+  // style directly, so there is no animation object to read and no
+  // timeline to replay. Measured on one page, twelve elements moved in
+  // the original and in neither recording: a sticky header, several
+  // scroll-linked transforms, and three counters.
+  //
+  // Two things are recorded here, because two different things are
+  // happening:
+  //   tracks — style as a function of the element's OWN progress
+  //            through the viewport, which is exactly the quantity
+  //            useScroll({target}) computes;
+  //   text   — elements whose TEXT changes once, when first seen. A
+  //            counter animates by rewriting itself, so no style read
+  //            will ever notice it.
+  //
+  // Progress, not scrollY: the port legitimately differs in height (it
+  // deletes badges and marketplace promos), so absolute positions do
+  // not carry across. Progress does.
+  var STOPS = %(stops)d, HOLD = %(hold)d, EVERY = %(every)d;
+  var out = { tracks: [], text: [], meta: {} }, stamped = 0;
+
+  function idOf(el) {
+    var id = el.getAttribute('data-ae-id');
+    if (!id) { id = 'e' + (++stamped); el.setAttribute('data-ae-id', id); }
+    return id;
+  }
+  function progressOf(el) {
+    var r = el.getBoundingClientRect();
+    var p = (innerHeight - r.top) / (innerHeight + r.height);
+    return Math.max(0, Math.min(1, p));
+  }
+  function styleOf(el) {
+    var s = getComputedStyle(el);
+    return [s.transform === 'none' ? '' : s.transform,
+            s.opacity === '1' ? '' : s.opacity,
+            s.filter === 'none' ? '' : s.filter];
+  }
+  function visible(el) {
+    var r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.top < innerHeight && (r.width || r.height);
+  }
+  // a leaf whose text carries digits is a counter candidate — but a
+  // CLOCK is live data, not an animation. One capture recorded
+  // '15:22:53' -> '15:22:54' and would have baked a frozen fake time
+  // into the port.
+  function counterish(el) {
+    if (el.children.length) return false;
+    var t = (el.textContent || '').trim();
+    if (!t || t.length > 16 || !/\d/.test(t)) return false;
+    if (/^\d{1,2}:\d{2}(:\d{2})?\s*(AM|PM)?$/i.test(t)) return false;
+    if (/^\d{1,2}\/\d{1,2}(\/\d{2,4})?$/.test(t)) return false;
+    return true;
+  }
+
+  // Settle the Web Animations BEFORE measuring scroll, deterministically
+  // rather than by waiting. A first run recorded 158 "scroll tracks"
+  // whose top entries were the hero characters sitting at
+  // matrix(1,0,0,1,0,10) — the PARKED entrance pose. Under a virtual
+  // time budget the animation clock barely advances, so no amount of
+  // waiting finishes an entrance; asking each animation to finish does.
+  // Marquees never finish (infinite), so they are pinned at frame 0
+  // instead, which stops them adding noise to every sample.
+  function settleAnimations() {
+    var list = [];
+    try { list = document.getAnimations() || []; } catch (e) { return; }
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i], ct = {};
+      try { ct = a.effect.getComputedTiming(); } catch (e) { }
+      try {
+        if (ct.iterations === Infinity || ct.iterations > 1e6) {
+          a.pause(); a.currentTime = 0;
+        } else {
+          a.finish();
+        }
+      } catch (e) { }
+    }
+  }
+
+  var all = [].slice.call(document.querySelectorAll('*')).filter(function (el) {
+    return el.getClientRects().length;
+  });
+  var samples = {}, texts = {}, watched = {}, firedText = {};
+
+  function record() {
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (!el.isConnected) continue;
+      var st = styleOf(el);
+      if (!st[0] && !st[1] && !st[2]) continue;   // nothing set: skip
+      var id = idOf(el);
+      (samples[id] = samples[id] || []).push(
+        [Math.round(progressOf(el) * 1000) / 1000, st[0], st[1], st[2]]);
+    }
+  }
+
+  // Catch a counter at the moment it first appears: hold the scroll and
+  // sample its text. Scrolling back later cannot work — these fire once
+  // (useInView with once), so a second look shows only the final value,
+  // which is exactly why the port shipped them frozen.
+  function catchText(done) {
+    var fresh = [];
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (!el.isConnected || firedText[idOf(el)]) continue;
+      if (!counterish(el) || !visible(el)) continue;
+      firedText[idOf(el)] = 1;
+      fresh.push(el);
+    }
+    if (!fresh.length) { done(); return; }
+    // Time is recorded on the ANIMATION timeline, not the wall clock.
+    // Headless runs under a virtual time budget where the two diverge
+    // badly — measured, document.timeline advanced 289ms while
+    // setTimeout advanced 1800ms. A hold measured in wall-clock ms
+    // therefore captured a couple of hundred ms of a one second count
+    // and produced two frames: the start and the end, with the whole
+    // animation missing in between. Holding until the TIMELINE has
+    // moved far enough is correct in both worlds.
+    function now() {
+      var t = null;
+      try { t = document.timeline.currentTime; } catch (e) { }
+      return typeof t === 'number' ? t : Date.now();
+    }
+    var t0 = now(), wall0 = Date.now();
+    fresh.forEach(function (el) { texts[idOf(el)] = []; });
+    (function tick() {
+      var dt = now() - t0;
+      fresh.forEach(function (el) {
+        var id = idOf(el), arr = texts[id];
+        var v = (el.textContent || '').trim();
+        if (!arr.length || arr[arr.length - 1][1] !== v)
+          arr.push([Math.round(dt), v]);
+      });
+      // stop on timeline progress, with a wall-clock backstop so a
+      // frozen timeline can never hang the capture
+      if (dt < HOLD && Date.now() - wall0 < HOLD * 12) setTimeout(tick, EVERY);
+      else done();
+    })();
+  }
+
+  var H = Math.max(document.body.scrollHeight,
+                   document.documentElement.scrollHeight);
+  var step = Math.max(1, Math.floor((H - innerHeight) / Math.max(1, STOPS - 1)));
+  var at = 0, n = 0;
+
+  function stop() {
+    window.scrollTo(0, at);
+    setTimeout(function () {
+      record();
+      catchText(function () {
+        record();                       // again: text hold moved time on
+        n++; at += step;
+        if (n < STOPS) { setTimeout(stop, 60); return; }
+        finish();
+      });
+    }, 70);
+  }
+
+  var done = false;
+  function finish() {
+    // Idempotent and watchdogged. A capture that runs out of budget
+    // mid-walk must still hand back what it has: the first version
+    // emitted nothing at all, and "no tag" is indistinguishable from
+    // "nothing animates" — a silent, total loss of the measurement.
+    if (done) return;
+    done = true;
+    window.scrollTo(0, 0);
+    for (var id in samples) {
+      var rows = samples[id];
+      var distinct = {};
+      for (var i = 0; i < rows.length; i++)
+        distinct[rows[i][1] + '|' + rows[i][2] + '|' + rows[i][3]] = 1;
+      if (Object.keys(distinct).length < 2) continue;   // never moved
+      rows.sort(function (a, b) { return a[0] - b[0]; });
+      out.tracks.push({ id: id, samples: rows });
+    }
+    for (var tid in texts) {
+      if ((texts[tid] || []).length > 1)
+        out.text.push({ id: tid, frames: texts[tid] });
+    }
+    out.meta = { stops: n, of: STOPS, height: H,
+                 tracked: out.tracks.length, counters: out.text.length,
+                 complete: n >= STOPS };
+    var tag = document.createElement('script');
+    tag.type = 'application/json';
+    tag.id = '__ae_scroll';
+    tag.textContent = JSON.stringify(out);
+    document.body.appendChild(tag);
+  }
+  setTimeout(function () { settleAnimations(); stop(); }, %(settle)d);
+  setTimeout(finish, %(max)d);          // watchdog: always emit something
+})();
+"""
+
+
+CONTINUOUS_JS = r"""
+(function () {
+  // The animations nothing else can see: driven by requestAnimationFrame
+  // writing inline style, on their own clock, forever. A rotating badge
+  // is the classic one — no Web Animation to read, no entrance to
+  // recover, no scroll position to key on. Measured on one page:
+  // transform:rotate(Ndeg) advancing 71.86 deg/s, a five second turn.
+  //
+  // This MUST run in real time. Under a virtual time budget the same
+  // element measured 0.60 deg/s — 120x slow, and not off by any
+  // constant that could be corrected for, because the rAF loop is
+  // starved relative to the clock. So the result is posted back to the
+  // server rather than waited for by --dump-dom.
+  // Start AFTER the entrances are over. An entrance is a one-shot that
+  // also changes style every frame, so sampling from t=0 records
+  // matrix(1,0,0,1,0,40) -> '' and calls a finished slide a continuous
+  // animation. Waiting is legitimate here because this pass runs in
+  // real time — unlike under a virtual clock, entrances actually finish.
+  var SPAN = %(span)d, DELAY = %(delay)d, POST = "%(post)s";
+  var els = [].slice.call(document.querySelectorAll('*')).filter(function (el) {
+    return el.getClientRects().length;
+  });
+  var seen = {}, stamped = 0;
+
+  function idOf(el) {
+    var id = el.getAttribute('data-ae-id');
+    if (!id) { id = 'c' + (++stamped); el.setAttribute('data-ae-id', id); }
+    return id;
+  }
+  // This pass is a SEPARATE page load from the one the port is built
+  // from — it has to be, because it needs real time and that load needs
+  // a virtual clock. So a stamped id is useless here: it would name an
+  // element in a document nobody keeps. Address them the way the rest
+  // of the tool does, by their framer-* classes.
+  function selectorOf(el) {
+    var raw = el.className;
+    var cls = String(raw && raw.baseVal !== undefined ? raw.baseVal
+                                                      : (raw || ''));
+    var framer = cls.split(/\s+/).filter(function (c) {
+      return /^framer-[A-Za-z0-9]{4,}$/.test(c);
+    });
+    if (framer.length) return '.' + framer.join('.');
+    var name = el.getAttribute('data-framer-name');
+    if (name) return '[data-framer-name="' + name.replace(/"/g, '\\"') + '"]';
+    return '';
+  }
+  function locate(el) {
+    var sel = selectorOf(el);
+    if (!sel) return null;
+    var all;
+    try { all = [].slice.call(document.querySelectorAll(sel)); }
+    catch (e) { return null; }
+    var idx = all.indexOf(el);
+    return idx < 0 ? null : { sel: sel, idx: idx, of: all.length };
+  }
+  function waapi(el) {
+    try { return (el.getAnimations() || []).length > 0; } catch (e) { return false; }
+  }
+  function read(el) {
+    var s = getComputedStyle(el);
+    return [s.transform === 'none' ? '' : s.transform,
+            s.opacity === '1' ? '' : s.opacity,
+            s.filter === 'none' ? '' : s.filter];
+  }
+
+  var t0 = 0, n = 0;
+  setTimeout(function () { t0 = performance.now(); tick(); }, DELAY);
+  function tick() {
+    var dt = performance.now() - t0;
+    for (var i = 0; i < els.length; i++) {
+      var el = els[i];
+      if (!el.isConnected || waapi(el)) continue;   // WAAPI is handled
+      var v = read(el);
+      if (!v[0] && !v[1] && !v[2]) continue;
+      var id = idOf(el);
+      var rec = seen[id] || (seen[id] = { rows: [], el: el });
+      var last = rec.rows[rec.rows.length - 1];
+      if (!last || last[1] !== v[0] || last[2] !== v[1] || last[3] !== v[2])
+        rec.rows.push([Math.round(dt), v[0], v[1], v[2]]);
+    }
+    n++;
+    if (dt < SPAN) { requestAnimationFrame(tick); return; }
+
+    var out = { spans: SPAN, frames: n, items: [], unaddressable: 0 };
+    for (var id in seen) {
+      var rec = seen[id];
+      if (rec.rows.length < 3) continue;      // one change is not a loop
+      var where = rec.el ? locate(rec.el) : null;
+      if (!where) { out.unaddressable++; continue; }
+      out.items.push({ id: id, sel: where.sel, idx: where.idx,
+                       of: where.of, rows: rec.rows });
+    }
+    try {
+      fetch(POST, { method: 'POST',
+                    body: JSON.stringify(out) });
+    } catch (e) { }
+  }
+})();
+"""
+
+
+def capture_realtime(site: Path, platform: str, page: str, script: str,
+                     wait_s: int = 25) -> dict:
+    """Run a page in REAL time and let it post its findings back.
+
+    --dump-dom needs --virtual-time-budget to know when the page is
+    settled, and that budget is exactly what makes rAF-driven motion
+    unmeasurable. So this drops the budget, lets real time pass, and
+    takes the result over HTTP instead of over stdout."""
+    import http.server
+    import subprocess
+    import tempfile
+    import threading
+    browser = forge._find_browser()
+    if not browser:
+        return {"available": False, "reason": "no browser"}
+
+    got, ready = {}, threading.Event()
+    base = _injecting_handler(site, platform, script)
+
+    class H(base):
+        def do_POST(self):
+            if self.path == "/__ae_capture":
+                n = int(self.headers.get("Content-Length") or 0)
+                try:
+                    got.update(json.loads(self.rfile.read(n) or b"{}"))
+                except Exception:
+                    pass
+                self.send_response(204)
+                self.end_headers()
+                ready.set()
+                return
+            self.send_response(404)
+            self.end_headers()
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    tmp = tempfile.mkdtemp(prefix="forge-rt-")
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [browser, "--headless=new", "--disable-gpu", "--no-first-run",
+             "--no-default-browser-check", "--disable-extensions",
+             "--disable-background-networking", "--mute-audio",
+             "--window-size=1440,2400", "--hide-scrollbars",
+             f"--user-data-dir={tmp}/profile",
+             # the point of this runner: NO virtual time budget
+             f"http://127.0.0.1:{port}/{page}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ready.wait(wait_s)
+    finally:
+        if proc:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                proc.kill()
+        srv.shutdown()
+        shutil.rmtree(tmp, ignore_errors=True)
+    if not got:
+        return {"available": False,
+                "reason": f"the page reported nothing within {wait_s}s"}
+    got["available"] = True
+    return got
+
+
+MATRIX_RE = re.compile(r"matrix\(([^)]*)\)")
+
+
+def _matrix(value: str):
+    m = MATRIX_RE.match(value or "")
+    if not m:
+        return None
+    try:
+        parts = [float(x) for x in m.group(1).split(",")]
+    except ValueError:
+        return None
+    return parts if len(parts) == 6 else None
+
+
+def _resample(rows, step=16):
+    """Uniform time grid — the browser hands back frames at whatever
+    interval it managed, and comparing a series against a shifted copy
+    of itself needs even spacing to mean anything."""
+    if len(rows) < 4:
+        return [], 0
+    t0, t1 = rows[0][0], rows[-1][0]
+    grid, i = [], 0
+    t = t0
+    while t <= t1:
+        while i + 1 < len(rows) and rows[i + 1][0] <= t:
+            i += 1
+        grid.append(rows[i][1])
+        t += step
+    return grid, step
+
+
+def _period_of(grid, step, min_ms=250, max_ms=None):
+    """Smallest lag at which the series repeats itself, or None.
+
+    Autocorrelation rather than looking for a jump: a loop that eases
+    has no discontinuity to find, and a linear one wraps somewhere the
+    sampling may never land on."""
+    n = len(grid)
+    if n < 8:
+        return None, 1.0
+    max_ms = max_ms or (n * step) // 2
+    width = max(abs(v) for row in grid for v in row) or 1.0
+
+    # The whole motion has to happen INSIDE one period. Without this a
+    # series that rests at one value between short bursts scores well at
+    # any tiny lag — the flat stretches dominate the average and the
+    # bursts are lost in it. One real element travelled 300px on a ~3s
+    # cycle and was fitted at 240ms, which would have shipped a visible
+    # jitter in place of a slow drift.
+    span_of = [max(r[i] for r in grid) - min(r[i] for r in grid)
+               for i in range(len(grid[0]))]
+    total = max(span_of) or 0.0
+
+    def covers(lag):
+        """Does SOME window of this length contain the motion?
+
+        Not the first window: an element can rest at one value for
+        seconds before it moves, and judging only grid[:lag] rejected a
+        genuine ~3s cycle because its opening stretch was flat."""
+        if total <= 0:
+            return True
+        stride = max(1, lag // 4)
+        for s in range(0, max(1, n - lag), stride):
+            window = grid[s:s + lag]
+            if len(window) < 2:
+                break
+            got = max(max(r[i] for r in window) - min(r[i] for r in window)
+                      for i in range(len(grid[0])))
+            if got >= 0.6 * total:
+                return True
+        return False
+
+    best, best_err = None, 1e9
+    for lag in range(max(2, min_ms // step), min(n // 2, max_ms // step) + 1):
+        overlap = n - lag
+        if overlap < 6:
+            break
+        if not covers(lag):
+            continue
+        err = 0.0
+        for i in range(overlap):
+            a, b = grid[i], grid[i + lag]
+            err += sum(abs(x - y) for x, y in zip(a, b)) / len(a)
+        err /= overlap * width
+        if err < best_err:
+            best, best_err = lag * step, err
+    return best, best_err
+
+
+def analyse_continuous(capture: dict, frames_per_loop=24) -> dict:
+    """Turn a real-time capture into animations the port can replay.
+
+    Three outcomes, and the third one matters as much as the others: a
+    motion whose period cannot be established is REPORTED, not guessed
+    at. Emitting a loop at the wrong period looks worse than emitting
+    nothing, and unlike nothing it hides the fact that it is wrong."""
+    out = {"rotate": [], "loop": [], "unhandled": []}
+    if not capture.get("available"):
+        return {**out, "available": False,
+                "reason": capture.get("reason", "no capture")}
+    for item in capture.get("items", []):
+        rows = [(r[0], _matrix(r[1])) for r in item["rows"] if _matrix(r[1])]
+        if len(rows) < 8:
+            out["unhandled"].append({"id": item["id"],
+                                     "why": "not enough matrix samples"})
+            continue
+        span = rows[-1][0] - rows[0][0]
+        varies = {i for i in range(6)
+                  if len({round(r[1][i], 4) for r in rows}) > 1}
+
+        # A pure rotation is the common case (spinning badges) and can
+        # be expressed exactly instead of sampled: scale is constant, so
+        # the angle alone describes it.
+        scales = {round((r[1][0] ** 2 + r[1][1] ** 2) ** 0.5, 3)
+                  for r in rows}
+        if varies <= {0, 1, 2, 3} and len(scales) == 1 and span:
+            import math
+            degs = [math.degrees(math.atan2(r[1][1], r[1][0])) for r in rows]
+            un = [degs[0]]
+            for k in range(1, len(degs)):
+                d = degs[k] - degs[k - 1]
+                d += 360 if d < -180 else (-360 if d > 180 else 0)
+                un.append(un[-1] + d)
+            rate = (un[-1] - un[0]) / (span / 1000.0)
+            if abs(rate) > 2:
+                out["rotate"].append({
+                    "id": item["id"], "sel": item.get("sel"),
+                    "idx": item.get("idx"), "from": round(degs[0], 2),
+                    "duration": round(abs(360.0 / rate) * 1000),
+                    "clockwise": rate > 0,
+                    "scale": scales.pop()})
+                continue
+
+        grid, step = _resample(rows)
+        period, err = _period_of(grid, step)
+        if period and err < 0.02:
+            # one full loop, evenly sampled
+            frames = []
+            for k in range(frames_per_loop + 1):
+                t = rows[0][0] + period * k / frames_per_loop
+                idx = min(range(len(rows)), key=lambda j: abs(rows[j][0] - t))
+                frames.append({"offset": round(k / frames_per_loop, 4),
+                               "transform": "matrix("
+                                            + ", ".join(str(round(v, 4))
+                                                        for v in rows[idx][1])
+                                            + ")"})
+            out["loop"].append({"id": item["id"], "sel": item.get("sel"),
+                                "idx": item.get("idx"),
+                                "duration": round(period),
+                                "frames": frames, "fit": round(err, 4)})
+        else:
+            # Say WHICH kind of failure. A drifting value that never
+            # comes back is an auto-advancing carousel whose cycle is
+            # longer than the capture; a value that returns but does not
+            # line up is something genuinely aperiodic. They need
+            # different answers, and "no period" hides that.
+            first = [r[1] for r in rows[:max(2, len(rows) // 10)]]
+            last = [r[1] for r in rows[-max(2, len(rows) // 10):]]
+            drift = max(abs(sum(c[i] for c in last) / len(last)
+                            - sum(c[i] for c in first) / len(first))
+                        for i in range(6))
+            rng = max(max(r[1][i] for r in rows) - min(r[1][i] for r in rows)
+                      for i in range(6)) or 1.0
+            if drift > 0.7 * rng:
+                why = (f"advances without returning ({round(drift, 1)} of "
+                       f"{round(rng, 1)} over {span}ms) — a stepped or "
+                       f"looping carousel whose full cycle is longer than "
+                       f"the capture window")
+            else:
+                why = f"no period found in {span}ms (best fit {round(err, 3)})"
+            out["unhandled"].append({"id": item["id"], "why": why})
+    out["available"] = True
+    return out
+
+
+def scroll_spec(dom: str) -> dict:
+    """The scroll-linked tracks and counter text, out of the dumped DOM."""
+    m = re.search(r'(?is)<script[^>]*id="__ae_scroll"[^>]*>(.*?)</script\s*>',
+                  dom or "")
+    if not m:
+        return {"tracks": [], "text": [], "meta": {}}
+    try:
+        return json.loads(m.group(1))
+    except ValueError:
+        return {"tracks": [], "text": [], "meta": {}}
+
+
 def entrance_spec(dom: str) -> dict:
     """Pull the recorder's findings back out of the dumped DOM."""
     m = re.search(r'(?is)<script[^>]*id="__ae_entrance"[^>]*>(.*?)</script\s*>',

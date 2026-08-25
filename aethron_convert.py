@@ -81,6 +81,12 @@ def anim_tag(doc) -> str:
     if ent.get("anims"):
         out += ('\n<script type="application/json" id="__ae_entrance">'
                 + json.dumps(ent, separators=(",", ":")) + "</script>")
+    cont = doc.get("continuous") or {}
+    if cont.get("rotate") or cont.get("loop"):
+        out += ('\n<script type="application/json" id="__ae_continuous">'
+                + json.dumps({"rotate": cont.get("rotate") or [],
+                              "loop": cont.get("loop") or []},
+                             separators=(",", ":")) + "</script>")
     return out + MOTION_TAG
 
 
@@ -293,6 +299,44 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
   // hero page saw 1 animation at t=0, 19 at t=60ms and 7 by t=140ms:
   // entrances finish and are collected, which is why the port used to
   // ship those characters settled and inert.
+  // ---- continuous motion: rotations and loops that never stop -------
+  // These are driven by requestAnimationFrame writing inline style, so
+  // there is no animation object to read and no entrance to recover —
+  // a spinning badge simply shipped frozen. They were measured in REAL
+  // time (a virtual clock reads them 120x slow) and are addressed by
+  // their framer-* classes, because that measurement is a different
+  // page load from the one this DOM came from.
+  var contTag = document.getElementById('__ae_continuous');
+  var CONT = contTag ? JSON.parse(contTag.textContent)
+                     : { rotate: [], loop: [] };
+  function pick(item) {
+    if (!item.sel) return null;
+    var all;
+    try { all = document.querySelectorAll(item.sel); } catch (e) { return null; }
+    return all[item.idx || 0] || null;
+  }
+  (CONT.rotate || []).forEach(function (r) {
+    var el = pick(r);
+    if (!el) return;
+    var a = r.from, b = r.from + (r.clockwise ? 360 : -360);
+    try {
+      el.animate([{ transform: 'rotate(' + a + 'deg)' },
+                  { transform: 'rotate(' + b + 'deg)' }],
+                 { duration: r.duration, iterations: Infinity,
+                   easing: 'linear' });
+      el.dataset.aeDone = '1';
+    } catch (e) { }
+  });
+  (CONT.loop || []).forEach(function (l) {
+    var el = pick(l);
+    if (!el || !l.frames || l.frames.length < 2) return;
+    try {
+      el.animate(l.frames, { duration: l.duration, iterations: Infinity,
+                             easing: 'linear' });
+      el.dataset.aeDone = '1';
+    } catch (e) { }
+  });
+
   var recTag = document.getElementById('__ae_entrance');
   var REC = recTag ? JSON.parse(recTag.textContent) : { anims: [] };
   var recorded = {}, recPending = [];
@@ -1702,6 +1746,41 @@ def convert(project, framework="astro", pages=None, on_event=None,
         srv.shutdown()
     if not docs:
         raise SystemExit("nothing rendered — cannot convert")
+
+    # A SECOND pass, in real time. The capture above runs under a virtual
+    # clock so --dump-dom knows when the page has settled, and that clock
+    # makes rAF-driven motion unreadable: a badge rotating at 71.9 deg/s
+    # measured 0.60 deg/s under it. So anything that animates itself
+    # forever gets its own load, with real seconds, reporting back over
+    # HTTP instead of through the DOM dump.
+    if not keep_runtime:
+        for page in list(docs):
+            say("stage", f"measuring continuous motion on {page} "
+                         f"(real time, ~20s)…")
+            cap = motion.capture_realtime(
+                site, cfg.get("platform", "static"), page,
+                # The window must be at least TWICE the longest period
+                # worth finding: a period is confirmed by matching the
+                # series against a shifted copy of itself, so only lags
+                # up to half the window can be tested. At 9s these same
+                # three elements reported "no period found" — their real
+                # cycle is 6s, which a 4.5s search ceiling cannot reach.
+                motion.CONTINUOUS_JS % {"span": 15000, "delay": 3500,
+                                        "post": "/__ae_capture"},
+                wait_s=75)
+            found = motion.analyse_continuous(cap)
+            docs[page]["continuous"] = found
+            if not found.get("available"):
+                say("page", f"  continuous motion UNMEASURED "
+                            f"({found.get('reason')}) — not proven absent")
+                continue
+            n_r, n_l = len(found["rotate"]), len(found["loop"])
+            lost = (cap.get("unaddressable") or 0) + len(found["unhandled"])
+            say("page", f"  {n_r} rotation(s) + {n_l} loop(s) reproduced"
+                        + (f"; {lost} not reproduced (reported, not guessed)"
+                           if lost else ""))
+            for u in found["unhandled"]:
+                say("page", f"    UNHANDLED {u['id']}: {u['why']}")
 
     say("stage", f"emitting {framework}")
     EMITTERS[framework](dest, docs, cfg.get("name", "site"))
