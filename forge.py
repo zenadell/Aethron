@@ -3416,8 +3416,21 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
                 for host, n in sorted(leaks.items(), key=lambda x: -x[1])[:3]:
                     print(f"         {n:>4}x {host}")
                 print(f"       the port renders only because that CDN is "
-                      f"reachable. Run `forge.py localize`, rebuild, and "
-                      f"convert again.")
+                      f"reachable.")
+                # Whose fault it is changes what the owner should do. A
+                # port that leaks what the ORIGINAL also leaks is a
+                # faithful copy of an un-localized project — the fix is
+                # upstream, in the project. A port that leaks what the
+                # original does not is the converter losing ownership,
+                # and that is the bug the Webflow build shipped.
+                own = mine.get("_leaks") or {}
+                if own:
+                    print(f"       the ORIGINAL leaks {sum(own.values())} "
+                          f"too — localize the PROJECT first: "
+                          f"`forge.py localize`, `build`, then convert.")
+                else:
+                    print(f"       the original does NOT — the port lost "
+                          f"ownership the source had.")
             if not ok:
                 bad += 1
     finally:
@@ -3517,6 +3530,10 @@ def cmd_probe(args):
             # this is what a baseline/comparison is made of
             r["_text"] = dom_text
             r["_headings"] = _headings(got["dom"])
+            # The original's own platform dependency, so a comparison can
+            # tell "the port lost ownership" from "the project never had
+            # it" — two failures with different fixes.
+            r["_leaks"] = _platform_refs(got["dom"])
             r.update(rendered_text=len(dom_text), requests=len(reqs),
                      failed_requests=bad, requested=asked[:200],
                      images=len(re.findall(r"<img\b", got["dom"])),
@@ -3603,7 +3620,21 @@ def cmd_probe(args):
         if not browser:
             print("\nVERDICT: SKIPPED — comparison needs a browser")
             sys.exit(0)
-        fails += _compare_against(root, against, results, budget)
+        # --against asks ONE question: is the other build the same site?
+        # The original's own runtime health is a different question, and
+        # folding it in here condemns a faithful port for a defect it
+        # correctly inherited — a template that ships two console errors
+        # would fail every port of itself, including a byte-identical
+        # copy. Report the original's problems as context; judge on the
+        # comparison alone.
+        drift = _compare_against(root, against, results, budget)
+        if fails:
+            print(f"\nnote: the ORIGINAL has {fails} runtime problem(s) of "
+                  "its own (listed above). A port inherits those; they do "
+                  "not count against the comparison.")
+        print("\nVERDICT:", "the port does NOT match the original"
+              if drift else "the port matches the original")
+        sys.exit(1 if drift else 0)
 
     if not browser:
         print("\nVERDICT: SKIPPED — no Chromium-family browser found, so "

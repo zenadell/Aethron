@@ -135,7 +135,18 @@ def main():
           fp["words"] > 50 and len(fp["headings"]) > 0)
     rc, out = probe("--page=index.html", "--against=site")
     check("an identical build compares 100%", "100% identical" in out)
-    check("identical build exits 0", rc == 0, f"rc={rc}")
+    # This fixture has never been localized, so comparing it with itself
+    # is a faithful copy of an un-owned project: the CONTENT referee
+    # agrees completely and the OWNERSHIP gate refuses it anyway. Both
+    # halves are the point — exit 0 here would mean the gate that caught
+    # the Webflow port (100% identical while shipping 112 CDN refs) had
+    # stopped working.
+    check("ownership refuses an un-localized project",
+          rc == 1 and "NOT OWNED" in out, f"rc={rc}")
+    check("and says whose fault it is", "the ORIGINAL leaks" in out)
+    check("the original's own runtime health is not counted as drift",
+          "do not count against the comparison" in out
+          or "runtime problem(s) of" not in out)
 
     naive = Path(tempfile.mkdtemp(prefix="naive-port-"))
     (naive / "index.html").write_text(

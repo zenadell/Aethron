@@ -1300,6 +1300,95 @@ def _w(p: Path, text: str):
     p.write_text(text, encoding="utf-8")
 
 
+def _ship_animation_source(project: Path, dest: Path, say) -> dict:
+    """Put the template's ORIGINAL animation code inside the port.
+
+    Framer serves a source map for every chunk it built, so the authored
+    source of the template's own components is recoverable exactly —
+    real names, real numbers, the actual useScroll offsets and spring
+    configs. A developer who opens this port should not have to reverse
+    a minified bundle to find out what an element was supposed to do.
+
+    Only the TEMPLATE AUTHOR'S modules travel. Framer's own runtime
+    bundles are excluded: they are the vendor's code, the port does not
+    depend on them, and the engine underneath is framer-motion — a
+    public package, not something to smuggle out of a CDN."""
+    try:
+        import aethron_source as source
+    except Exception:
+        return {"available": False, "reason": "recovery module unavailable"}
+    index = source.recover(project, quiet=True)
+    if not index.get("available"):
+        say("stage", "animation source: none served for this template "
+                     f"({index.get('reason', 'no maps')}) — port ships "
+                     "without it")
+        return index
+    doc = source.build_map(project, quiet=True)
+    if not doc.get("available"):
+        return doc
+
+    out = dest / "ANIMATIONS"
+    out.mkdir(parents=True, exist_ok=True)
+    src_dir = project / "pristine" / "sources"
+    shipped = 0
+    for comp in doc["components"]:
+        f = src_dir / comp["module"]
+        if f.exists():
+            (out / comp["origin"]).write_text(f.read_text(errors="replace"))
+            shipped += 1
+    (out / "animations.json").write_text(json.dumps(doc, indent=2))
+    (out / "README.md").write_text(_ANIM_README % {
+        "n": shipped,
+        "sites": doc["totals"]["animation_sites"],
+        "api": ", ".join(list(doc["framer_package_api"])[:12]),
+    })
+    say("stage", f"animation source: {shipped} component(s) recovered from "
+                 f"the template's own source maps → ANIMATIONS/ "
+                 f"({doc['totals']['animation_sites']} animation sites)")
+    return {"available": True, "components": shipped,
+            "sites": doc["totals"]["animation_sites"]}
+
+
+_ANIM_README = """# The template's original animation code
+
+`%(n)d` component(s) recovered from the source maps the original site
+served. This is the authored source — real identifier names, real
+numbers — not a reconstruction, and not the minified bundle.
+
+`animations.json` indexes every one: what it animates, the literal
+config at each of the %(sites)d animation sites (durations, easings,
+spring settings, scroll offsets), and which elements on which pages it
+renders, matched by class.
+
+## Reading it
+
+Each file is plain React. The motion primitives (`useScroll`,
+`useTransform`, `useSpring`, `useInView`, `motion.*`) come from
+**framer-motion**, which is a public npm package — `npm i framer-motion`
+and these components run.
+
+## The one thing that is not plug-and-play
+
+Framer components also import from a package called `framer`:
+
+    %(api)s …
+
+That package is proprietary and is deliberately NOT included here. Most
+of its surface is inert outside the Framer editor (property controls
+exist only for the canvas); the rest is small and mechanical — `cx` is
+class joining, `Link`/`Image` are `<a>`/`<img>`, `RichText` is a
+wrapper. Shim what you need.
+
+## Why this is here
+
+The port renders the design and replays the entrance animations on its
+own. This directory is the ground truth for everything beyond that: if
+an interaction does not feel right, the code that defines it is here,
+with the original values, and you can port it deliberately instead of
+guessing at it.
+"""
+
+
 # ─────────────────────────── the pipeline ────────────────────────────
 
 def convert(project, framework="astro", pages=None, on_event=None,
@@ -1445,8 +1534,10 @@ def convert(project, framework="astro", pages=None, on_event=None,
             n_assets += 1
     say("stage", f"{n_assets} local asset(s) copied — no CDN, no platform")
 
+    anim = _ship_animation_source(project, dest, say)
+
     result = {"ok": True, "dir": str(dest), "pages": list(docs),
-              "entrances": total_ae, "assets": n_assets}
+              "entrances": total_ae, "assets": n_assets, "animations": anim}
     if not build:
         return result
     say("stage", "npm install…")
