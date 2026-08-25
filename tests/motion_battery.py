@@ -154,6 +154,48 @@ def main():
     check("marquees are not gated on an observer",
           "marquees do not wait" in convert.MOTION_JS)
 
+    scenario("the recording survives being shrunk for shipping")
+    # A sampled spring easing is ~5KB and a stagger repeats it once per
+    # character, so the recording ships as a shape table. Shrinking it
+    # must not quietly round a delay or drop a curve — that would be a
+    # silently wrong animation rather than a missing one.
+    sample = {"anims": [
+        {"id": "e1", "delay": 200, "duration": 400, "easing": "linear(0 0%, 1 100%)",
+         "iterations": 1, "direction": "normal", "appear": False,
+         "frames": [{"opacity": "0.001", "offset": 0},
+                    {"opacity": "1", "offset": 1}]},
+        {"id": "e2", "delay": 250, "duration": 400, "easing": "linear(0 0%, 1 100%)",
+         "iterations": 1, "direction": "normal", "appear": False,
+         "frames": [{"opacity": "0.001", "offset": 0},
+                    {"opacity": "1", "offset": 1}]},
+        {"id": "m1", "delay": 0, "duration": 59280, "easing": "linear",
+         "iterations": "infinite", "direction": "normal", "appear": True,
+         "frames": [{"transform": "translateX(0px)", "offset": 0},
+                    {"transform": "translateX(-2964px)", "offset": 1}]},
+    ], "meta": {}}
+    comp = convert.compress_entrance(sample)
+    check("identical curves collapse to one shape",
+          len(comp["shapes"]) == 2, f"{len(comp['shapes'])}")
+
+    def expand(rec):                      # mirrors expand() in MOTION_JS
+        out = []
+        for r in rec["anims"]:
+            s = rec["shapes"][r["s"]]
+            out.append({"id": r["i"], "delay": r.get("d", 0),
+                        "appear": bool(r.get("a")), **s})
+        return out
+
+    back = expand(comp)
+    check("every animation comes back", len(back) == len(sample["anims"]))
+    check("nothing is lost or rounded in the round trip",
+          all(b["id"] == a["id"] and b["delay"] == a["delay"]
+              and b["appear"] == a["appear"] and b["frames"] == a["frames"]
+              and b["duration"] == a["duration"] and b["easing"] == a["easing"]
+              and b["iterations"] == a["iterations"]
+              for a, b in zip(sample["anims"], back)))
+    check("an empty recording stays empty (no phantom tag)",
+          convert.compress_entrance({}).get("anims") == [])
+
     if not browser:
         print("\nVERDICT: SKIPPED — no browser, motion is UNVERIFIED "
               "(not proven good)")

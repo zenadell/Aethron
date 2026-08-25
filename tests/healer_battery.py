@@ -84,30 +84,59 @@ def main():
           "HandGrid" in healer.evidence_text(res["evidence"]))
 
     print("\n── with the agent (mock model, real CLI, real tools)")
+    calls = {"n": 0}
+
     def model(body):
-        """A competent model, scripted by what it can SEE — not by a turn
-        counter. (A counter drifts: a denied tool may come back without a
-        tool_result, and the script then replays the same turn forever.)"""
-        results = sum(1 for m in body.get("messages", [])
-                      for c in (m.get("content") or [])
-                      if isinstance(c, dict) and c.get("type") == "tool_result")
-        if results == 0:
+        """A competent model, scripted by DURABLE MARKERS in the
+        transcript — not by any kind of count.
+
+        Counting drifts, and it does not matter whether you count turns
+        or tool_results: the CLI also makes AUXILIARY calls (conversation
+        titles, summaries) carrying a fresh, tiny message list with no
+        history in it at all. Measured here, request 2 and request 4 of
+        a four-request turn were auxiliary and showed zero tool_results.
+        A script reading those as "start from the beginning" replays the
+        same turn forever — which is exactly how this battery came to
+        hang for thirty minutes, reissuing set_content_bulk every 1.3s.
+
+        Markers are monotonic: once the transcript contains a successful
+        set_content_bulk, it always will, so the script cannot go
+        backwards no matter what a single request happens to show."""
+        calls["n"] += 1
+        if calls["n"] > 40:
+            # belt and braces: no scripted mock may loop forever again
+            return [{"text": "Done."}]
+        # Read what the ASSISTANT actually called. Substring matching on
+        # the whole body does not work: the healer's own prompt names
+        # mcp__aethron__set_content_bulk, and its evidence contains both
+        # "applied" and "rejected", so every obvious marker is already
+        # present before the model has done anything. Keying on those
+        # made the mock skip its first move and the deny check went
+        # vacuous — a passing test proving nothing.
+        used = [c.get("name", "")
+                for m in body.get("messages", [])
+                if m.get("role") == "assistant"
+                for c in (m.get("content") or [])
+                if isinstance(c, dict) and c.get("type") == "tool_use"]
+        did_write = any(n == "Write" for n in used)
+        did_pipeline = any("set_content" in n for n in used)
+        if did_write and did_pipeline:
+            return [{"text": "Rebuilt with the brand replaced."}]
+        if not did_write:
             # first instinct: edit the built page. It must be refused.
             return [{"text": "I'll fix the built page directly."},
                     {"tool": "Write",
                      "input": {"file_path": str(proj / "site/index.html"),
                                "content": "<h1>hand edited</h1>"}}]
-        if results == 1:
-            # then do it properly, through the guarded pipeline
-            return [{"text": "Going through the content pipeline instead."},
-                    {"tool": "mcp__aethron__set_content_bulk",
-                     "input": {"project": "broken", "build": True,
-                               "entries": [
-                                   {"section": "strings", "old": "HandGrid",
-                                    "new": "Acme"},
-                                   {"section": "strings", "old": "handgrid",
-                                    "new": "acme"}]}}]
-        return [{"text": "Rebuilt with the brand replaced."}]
+        # then do it properly, through the guarded pipeline
+        return [{"text": "Going through the content pipeline instead."},
+                {"tool": "mcp__aethron__set_content_bulk",
+                 "input": {"project": "broken", "build": True,
+                           "entries": [
+                               {"section": "strings", "old": "HandGrid",
+                                "new": "Acme"},
+                               {"section": "strings", "old": "handgrid",
+                                "new": "acme"}]}}]
 
     srv, url = code.mock_provider(script=model)
     threading.Thread(target=srv.serve_forever, daemon=True).start()

@@ -43,6 +43,7 @@ import json
 import os
 import queue
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -286,6 +287,8 @@ class CodeSession:
         self.busy = False
         self.cost_usd = 0.0
         self.error = ""
+        # why an events() iteration ended early: "" | "budget" | "idle"
+        self.stopped = ""
 
     # ---- lifecycle ---------------------------------------------------
     def start(self):
@@ -356,7 +359,15 @@ class CodeSession:
         self.proc = subprocess.Popen(
             argv, cwd=str(self.workspace), env=env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, bufsize=1)
+            stderr=subprocess.PIPE, text=True, bufsize=1,
+            # Its own process group, so close() can take the whole tree
+            # down. The CLI spawns our MCP server as ITS child, and a
+            # terminated CLI leaves that child orphaned — one forge_mcp.py
+            # was found still running from an earlier session. Now that
+            # sessions are stopped deliberately (budget, silence, loop)
+            # rather than only ending naturally, leaking one Python
+            # process per stop would add up in a long-lived studio.
+            start_new_session=(os.name != "nt"))
         threading.Thread(target=self._pump_stdout, daemon=True).start()
         threading.Thread(target=self._pump_stderr, daemon=True).start()
         return self
@@ -395,13 +406,28 @@ class CodeSession:
                 self.proc.stdin.close()
             except Exception:
                 pass
+            self._signal_group(signal.SIGTERM)
             self.proc.terminate()
             try:
                 self.proc.wait(timeout=5)
             except Exception:
+                self._signal_group(signal.SIGKILL)
                 self.proc.kill()
         if self._tmp:
             shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _signal_group(self, sig):
+        """Signal the CLI's whole process group, not just the CLI.
+
+        The MCP servers are the CLI's children; signalling only the CLI
+        leaves them running. Best effort — a group that has already gone
+        raises, and that is the outcome we wanted anyway."""
+        if os.name == "nt" or not self.proc:
+            return
+        try:
+            os.killpg(os.getpgid(self.proc.pid), sig)
+        except Exception:
+            pass
 
     def interrupt(self):
         """Stop the current turn. The session dies with it — restart is
@@ -422,13 +448,47 @@ class CodeSession:
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
 
-    def events(self, timeout=None):
-        """Blocking iterator of normalized events (for CLI use)."""
+    def events(self, timeout=None, idle=None):
+        """Blocking iterator of normalized events (for CLI use).
+
+        `idle` bounds SILENCE: how long to wait with nothing arriving
+        at all. A working turn streams steadily, so silence is the one
+        signal that tells a slow agent apart from a dead one.
+
+        `timeout` is a TOTAL budget, not a per-event one. It used to go
+        straight to queue.get(), so a caller asking for a 30 minute
+        ceiling waited 30 minutes for the FIRST event — and run_once's
+        own deadline check could never fire, because that check only
+        runs after an event arrives. A silent child therefore hung the
+        studio's heal button and MCP `heal` with no output at all: both
+        pump threads blocked on read, the main thread blocked on get,
+        and nothing to show the user for half an hour.
+        """
+        deadline = None if timeout is None else time.time() + timeout
+        last = time.time()
         while True:
+            waits = [2.0]
+            if deadline is not None:
+                left = deadline - time.time()
+                if left <= 0:
+                    self.stopped = "budget"
+                    return
+                waits.append(left)
+            if idle is not None:
+                quiet = idle - (time.time() - last)
+                if quiet <= 0:
+                    # Silence is the signal that separates a slow agent
+                    # from a dead one. A real turn streams text and tool
+                    # calls the whole way; nothing at all for minutes
+                    # means the child is not coming back.
+                    self.stopped = "idle"
+                    return
+                waits.append(quiet)
             try:
-                ev = self.q.get(timeout=timeout)
+                ev = self.q.get(timeout=min(waits))
             except queue.Empty:
-                return
+                continue          # both limits are checked at the top
+            last = time.time()
             yield ev
             if ev["type"] in ("done", "exit", "error"):
                 if ev["type"] != "done":
@@ -548,27 +608,63 @@ class CodeSession:
 # ─────────────────────── one-shot helper ─────────────────────────────
 
 def run_once(workspace, prompt, cfg=None, home=None, timeout=900,
-             on_event=None) -> dict:
-    """Start a session, ask one thing, wait for the turn to finish."""
+             on_event=None, idle=300, repeat_limit=6) -> dict:
+    """Start a session, ask one thing, wait for the turn to finish.
+
+    Three limits, because they catch three different failures:
+      timeout      total budget for the whole turn
+      idle         how long complete silence is tolerated
+      repeat_limit identical tool calls in a row before calling it a loop
+
+    They do not overlap. A wedged agent streams nothing (idle catches
+    it), a looping agent streams constantly (only repeat_limit catches
+    it), and a genuinely slow one is bounded by the budget."""
     s = CodeSession(workspace, cfg, home, on_event)
     s.start()
     s.send(prompt)
-    deadline = time.time() + timeout
     text, tools, err = [], [], ""
-    for ev in s.events(timeout=max(1, deadline - time.time())):
+    ended = False
+    same, last_call = 0, None
+    for ev in s.events(timeout=timeout, idle=idle):
         if ev["type"] == "text":
             text.append(ev["text"])
         elif ev["type"] == "tool":
             tools.append(ev["name"])
+            # A model that reissues an IDENTICAL call over and over is
+            # not working, it is stuck — and this CLI has no --max-turns
+            # to bound it, so without this the only limit is the wall
+            # clock. One loop measured here repeated the same call every
+            # 1.3s: with a real provider that is the whole budget spent
+            # on one wrong idea. Never idle, so `idle` cannot catch it.
+            call = (ev["name"], json.dumps(ev.get("input") or {},
+                                           sort_keys=True)[:2000])
+            same = same + 1 if call == last_call else 0
+            last_call = call
+            if same >= repeat_limit:
+                err = (f"the agent called {ev['name']} with identical "
+                       f"arguments {same + 1} times in a row — stopped "
+                       f"(it is looping, not working)")
+                ended = True
+                break
         elif ev["type"] == "done":
             err = ev["text"] if ev["error"] else ""
+            ended = True
             break
         elif ev["type"] == "exit":
             err = err or f"agent exited ({ev['code']}) without answering"
+            ended = True
             break
-        if time.time() > deadline:
-            err = "timed out"
-            break
+    if not ended:
+        # The iterator only ends on its own when a limit ran out. Say
+        # WHICH one: "it went quiet" and "it ran long" are different
+        # faults with different fixes, and a caller that gets ok=False
+        # with no reason cannot tell either from a finished turn.
+        why = getattr(s, "stopped", "") or "budget"
+        err = err or (
+            f"the agent went silent for {idle}s and was stopped "
+            f"({len(s._events)} event(s) seen)" if why == "idle" else
+            f"the agent did not finish within {timeout}s and was stopped "
+            f"({len(s._events)} event(s) seen)")
     events = list(s._events)
     s.close()
     return {"ok": not err, "error": err, "text": "\n".join(text),
