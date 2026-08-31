@@ -1,0 +1,17 @@
+{
+  "_comment": "Copy to aethron_admin_config.json (gitignored) and fill in. Env vars override every key. NEVER commit the real file — it holds the service_role key and Netlify token, which grant full access.",
+
+  "admin_emails": "you@jomiez.com",
+  "_admin_emails": "Comma-separated. ONLY these accounts can sign into the admin, even with a valid Aethron login. Everyone else is refused.",
+
+  "supabase_service_role": "eyJ...SERVICE_ROLE...  (Supabase → Settings → API → service_role secret)",
+  "_supabase_note": "Bypasses row-level security so the Operations tab can list all users and change plans. Server-side ONLY — never shipped, never in a browser. Supabase URL + anon key are read from aethron_config.json / env.",
+
+  "netlify_token": "nfp_...  (Netlify → User settings → Applications → Personal access tokens)",
+  "netlify_site_id": "incandescent-longma-2957f0  (Netlify → Site configuration → Site ID / API ID)",
+  "_netlify_note": "Used to deploy the rebuilt site/ folder. Without these, editing still works but 'Publish' is disabled.",
+
+  "project_dir": "projects/aethron-site",
+  "live_url": "https://aethron.jomiez.com",
+  "port": 8790
+}

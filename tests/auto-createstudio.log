@@ -1,0 +1,36 @@
+working on branch auto/createstudio-0831-2105
+project: createstudio
+
+--- migration ---
+  migration: all checks pass
+
+--- framework port ---
+  convert: FAILED (388s)
+      FAIL index.html: text 99% identical, headings 2/2, images 173/173
+             NOT OWNED: 52 reference(s) still point at the source platform —
+                 52x framerusercontent.com
+             the port renders only because that CDN is reachable.
+  NOT ACCEPTED: /Users/mac/Desktop/deveploment/template-editor/projects/createstudio/convert-astro
+
+--- differential: anything no check looks for ---
+  noise floor: 4114 element(s) differ between two runs of the SAME build
+  DIFFERENCES beyond noise: 527
+  missing from the copy: 15   (noise: 620)
+  ELEMENTS THE COPY DOES NOT HAVE:
+  ELEMENTS THAT BEHAVE DIFFERENTLY:
+  VERDICT: 277 difference(s) no check was looking for
+
+--- parity: does the port do everything the migration does? ---
+  elements: 4992 in migration, 4992 in port
+  MISSING ELEMENTS: none
+  LOST HOVER BEHAVIOUR: none
+  LOST MOTION: none
+  VERDICT: PARITY
+
+============================================================
+RESULT for createstudio   (797s)
+  migration: clean
+  port     : ['conversion failed']
+  fixes accepted by the corpus: 0
+  review with: git diff main...auto/createstudio-0831-2105
+  differential: FOUND differences no check looks for

@@ -1,0 +1,36 @@
+# Render blueprint for the Aethron Admin console (free-tier friendly).
+#
+# Content edits live in Supabase (durable), so the free tier's ephemeral
+# disk is fine — a wiped instance rebuilds the exact latest state on boot.
+# Pair with an uptime ping (UptimeRobot / cron-job.org) hitting the URL
+# every ~10 min to prevent the free-tier sleep.
+#
+# To use as a Blueprint: rename this to render.yaml on a deploy branch,
+# or just create a Web Service manually (see docs/ADMIN_DEPLOY.md) — the
+# manual path is simplest for a first deploy.
+#
+# Render injects $PORT automatically; the admin binds to it (no port env
+# needed). Set the secret env vars below in the dashboard — never in git.
+services:
+  - type: web
+    name: aethron-admin
+    runtime: python
+    plan: free
+    buildCommand: "pip install fonttools brotli || true"  # only for logo gen
+    startCommand: "python3 aethron_admin.py"
+    healthCheckPath: /
+    envVars:
+      - key: AETHRON_SUPABASE_URL
+        sync: false     # https://<ref>.supabase.co
+      - key: AETHRON_SUPABASE_ANON_KEY
+        sync: false     # anon/public key (admin login)
+      - key: AETHRON_SERVICE_ROLE
+        sync: false     # service_role secret — durable state + user mgmt
+      - key: AETHRON_ADMIN_EMAILS
+        sync: false     # you@jomiez.com (comma-separated)
+      - key: AETHRON_NETLIFY_TOKEN
+        sync: false     # Netlify personal access token (publish)
+      - key: AETHRON_NETLIFY_SITE
+        sync: false     # incandescent-longma-2957f0
+      - key: AETHRON_LIVE_URL
+        value: "https://aethron.jomiez.com"

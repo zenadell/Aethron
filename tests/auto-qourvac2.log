@@ -1,0 +1,23 @@
+project: qourvac2
+
+--- migration ---
+  migration: all checks pass
+
+--- framework port ---
+  convert: ok (235s)
+  PIXEL-PERFECT PORT READY: /Users/mac/Desktop/deveploment/template-editor/projects/qourvac2/convert-astro
+  port: all checks pass
+
+--- parity: does the port do everything the migration does? ---
+  elements: 912 in migration, 914 in port
+  MISSING ELEMENTS: none
+  LOST HOVER BEHAVIOUR: none
+  LOST MOTION: none
+  VERDICT: PARITY
+
+============================================================
+RESULT for qourvac2   (321s)
+  migration: clean
+  port     : clean
+  fixes accepted by the corpus: 0
+  NOTE: only defects the checks look for were examined. A failure nobody has written a check for finishes 'clean'.
