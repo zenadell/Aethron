@@ -179,6 +179,19 @@ def fix_loop(proj, build, key, model, allow_fix=True):
             touched = [l[-40:].strip()
                        for l in git("status", "--porcelain").stdout.splitlines()
                        if l.strip() and not l.strip().startswith("??")]
+            # ENFORCED, not merely asked. The prompt tells the agent its
+            # limits are off-limits; this makes it true. A session that
+            # hit the spend cap went and edited the spend cap — following
+            # the error message to its source, which is reasonable
+            # behaviour and still exactly what must not happen.
+            GUARDED = ("aethron_bridge.py", "aethron_brain.py",
+                       "aethron_fixer.py", "aethron_corpus.py")
+            crossed = [f for f in GUARDED if any(f in c for c in touched)]
+            if crossed:
+                say(f"REFUSED — it edited its own limits ({crossed}); "
+                    f"reverting everything", 3)
+                git("checkout", "--", ".")
+                continue
             # A FIX IS NOT ALWAYS AN EDIT. The correct answer to
             # "createstudio still fetches from the platform CDN" was to
             # re-run the pipeline, not to change a line — and the agent

@@ -88,6 +88,12 @@ Hard rules:
   aethron_motion.py, aethron_doctor.py). NEVER edit a project's site/ or
   pristine/ directory: those are generated and your edit is erased by the
   next build. This has been tried; it produced an invisible no-op.
+- NEVER edit aethron_bridge.py, aethron_brain.py or aethron_fixer.py.
+  Those hold the spend limits and the rules you are working under. If a
+  limit stops you, that is the answer, not an obstacle — say you were
+  stopped and why. A previous session hit the spend cap and edited the
+  cap; the work was reverted and the defect was still there. Removing
+  the thing that says no is never the fix.
 - Do not weaken or delete a check to make it pass. If you believe the
   check itself is wrong, say so and explain why rather than editing it
   to be quiet.
