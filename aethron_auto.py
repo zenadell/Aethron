@@ -98,7 +98,13 @@ def scrape(url, name):
 
 
 def prepare(proj):
-    for step in ("inventory", "localize", "build"):
+    # FETCH FIRST. A Framer export's chunks, CMS blobs and icons live on
+    # the platform CDN and are pulled by `fetch`; without it the site
+    # still renders — because that CDN is reachable — and every check
+    # that asks whether the copy is self-contained fails. Measured on
+    # createstudio: 188 assets localized, 0 chunks, and the main script
+    # still loading from framerusercontent.com.
+    for step in ("fetch", "inventory", "localize", "build"):
         ok, _ = run([sys.executable, str(ROOT / "forge.py"), step],
                     cwd=proj, label=step)
         if not ok:

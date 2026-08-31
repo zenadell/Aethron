@@ -26,6 +26,7 @@ Run it standalone:
     python3 aethron_bridge.py --selftest           (no key needed)
 """
 import json
+import os
 import sys
 import urllib.parse
 import threading
@@ -34,6 +35,12 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 DEFAULT_MAX_TOKENS = 8192
+# A CEILING, not a default. The Claude CLI asks for 64000 output tokens
+# on every turn; providers RESERVE that against the account balance
+# before generating a word, so a free-tier key is refused with
+# "402: requires more credits, or fewer max_tokens" for an answer that
+# would have cost a cent. The reservation is the problem, not the usage.
+MAX_TOKENS_CAP = int(os.environ.get("AETHRON_MAX_TOKENS_CAP", "16000"))
 
 # REASONING MODELS (DeepSeek v4-pro, and others that follow it) return a
 # `reasoning_content` field and then REQUIRE it back on the next request:
@@ -216,7 +223,8 @@ def to_openai(body: dict, model: str = "") -> dict:
             msgs.append({"role": role, "content": "\n".join(text_parts)})
 
     out = {"model": model or body.get("model", ""), "messages": msgs,
-           "max_tokens": body.get("max_tokens") or DEFAULT_MAX_TOKENS,
+           "max_tokens": min(body.get("max_tokens") or DEFAULT_MAX_TOKENS,
+                             MAX_TOKENS_CAP),
            "stream": bool(body.get("stream"))}
     if body.get("temperature") is not None:
         out["temperature"] = body["temperature"]
