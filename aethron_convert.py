@@ -87,7 +87,160 @@ def anim_tag(doc) -> str:
                 + json.dumps({"rotate": cont.get("rotate") or [],
                               "loop": cont.get("loop") or []},
                              separators=(",", ":")) + "</script>")
+    scr = doc.get("scroll") or {}
+    wh = doc.get("wheel") or {}
+    if wh.get("available"):
+        out += ('\n<script type="application/json" id="__ae_wheel">'
+                + json.dumps({"container": wh.get("container") or "",
+                              "via": wh.get("container_via") or "",
+                              "cycle": wh.get("cycle") or 0,
+                              "stops": wh.get("stops") or [],
+                              "elements": wh.get("elements") or []},
+                             separators=(",", ":")) + "</script>")
+    if scr.get("counters") or scr.get("tracks"):
+        out += ('\n<script type="application/json" id="__ae_scroll">'
+                + json.dumps({"counters": scr.get("counters") or [],
+                              "tracks": scr.get("tracks") or [],
+                              # one-shots too. Leaving these out shipped
+                              # a build where 55 animations were
+                              # classified, measured, and then silently
+                              # never emitted.
+                              "oneshots": scr.get("oneshots") or [],
+                              "height": scr.get("height") or 0},
+                             separators=(",", ":")) + "</script>")
     return out + MOTION_TAG
+
+
+def restore_consumed_scripts(dom: str, source_html: str) -> str:
+    """Put back scripts the runtime ate before we photographed the page.
+
+    We capture the POST-JS DOM, which is what makes the port look right.
+    But a runtime that CONSUMES its inputs leaves holes: Webflow's
+    commerce code reads its `data-wf-template-id` list templates and
+    removes them, so the capture has no trace of them — and a carry-mode
+    port then re-runs that same runtime with its inputs missing, and the
+    lists it should build never appear.
+
+    Anything the source shipped and the capture lacks is restored, keyed
+    by content so nothing is duplicated.
+    """
+    src_scripts = re.findall(r'(?is)<script\b(?![^>]*\bsrc=)[^>]*>(.*?)'
+                             r'</script\s*>', source_html)
+    if not src_scripts:
+        return dom
+    have = set()
+    for body in re.findall(r'(?is)<script\b(?![^>]*\bsrc=)[^>]*>(.*?)'
+                           r'</script\s*>', dom):
+        have.add(body.strip()[:400])
+    missing = []
+    seen = set()
+    for body in src_scripts:
+        key = body.strip()[:400]
+        if not key or key in have or key in seen:
+            continue
+        seen.add(key)
+        # find the ORIGINAL tag so its attributes (type, template id)
+        # come back with it — a bare <script> would lose the binding
+        m = re.search(r'(?is)(<script\b(?![^>]*\bsrc=)[^>]*>)'
+                      + re.escape(body[:120]), source_html)
+        open_tag = m.group(1) if m else "<script>"
+        missing.append(open_tag + body + "</script>")
+    if not missing:
+        return dom
+    print(f"── restored {len(missing)} script(s) the runtime consumed "
+          f"before capture")
+    block = "\n".join(missing)
+    if "</body>" in dom:
+        return dom.replace("</body>", block + "</body>", 1)
+    return dom + block
+
+
+def astro_markup(html: str) -> str:
+    """Make raw template HTML safe to paste into an .astro component.
+
+    Two things Astro does to markup that a carried page cannot survive:
+
+    1. `{` starts an expression. Braces become numeric entities, which
+       render and decode identically in markup and attribute values, so a
+       GraphQL query inside a data attribute comes through intact.
+
+    2. IT PROCESSES <script> AND <style>. Astro hoists component scripts
+       into ES modules and scopes component styles. Hoisting turned
+       Framer's `var animator = …` into a module-scoped variable, so the
+       global its engine looks for no longer existed and the appear
+       animations stopped — the script was in the source, absent from
+       every bundle, and nothing but a parity check would have noticed.
+       Scoping would rewrite the template's own selectors the same way.
+       `is:inline` tells Astro to emit both exactly as written.
+
+    Neither transformation is wrong; they are for code you authored. This
+    is code we are carrying, and it has to arrive unchanged.
+    """
+    def mark(m):
+        tag, attrs = m.group(1), m.group(2)
+        if "is:inline" in attrs:
+            return m.group(0)
+        return f"<{tag}{attrs} is:inline>"
+
+    parts = re.split(r'(?is)(<(?:style|script)\b[^>]*>.*?</(?:style|script)\s*>)',
+                     html)
+    out = []
+    for i, chunk in enumerate(parts):
+        if i % 2:
+            # raw-text element: entities are NOT decoded inside it, so its
+            # contents must be left byte-for-byte alone
+            out.append(re.sub(r'(?is)^<(style|script)((?:[^>"\']|"[^"]*"|\'[^\']*\')*)>',
+                              mark, chunk, count=1))
+        else:
+            out.append(chunk.replace("{", "&#123;").replace("}", "&#125;"))
+    return "".join(out)
+
+
+def clean_urls(html: str) -> str:
+    """Rewrite ./page.html links to the clean paths the original served.
+
+    The migration writes local links as ./about.html because it ships
+    plain files. A framework port builds real routes, so it should serve
+    /about — which is what the scraped site served in the first place.
+    Shipping /about.html made the port match neither the original nor the
+    framework's own conventions.
+    """
+    def sub(m):
+        stem = m.group("p")
+        tail = m.group("t") or ""
+        if stem in ("index", "home"):
+            return 'href="/' + tail + '"'
+        return 'href="/' + stem + tail + '"'
+    return re.sub(r'href="\./(?P<p>[\w-]+)\.html(?P<t>[#?][^"]*)?"',
+                  sub, html)
+
+
+def strip_instrumentation(dom: str) -> str:
+    """Remove Aethron's own measuring apparatus from a captured page.
+
+    The capture rides into the page as an injected script, and it leaves
+    its findings behind as DOM nodes — that is how the results get back
+    out. A carry-mode port keeps every script it finds, so all of it
+    shipped: the recorder itself (which scrolls the page in steps to take
+    readings, on the user's machine, forever), its 487KB of timeline
+    data, and a replay that then fought the platform's own runtime for
+    control of the same elements. Cards stopped mid-travel and hover
+    effects vanished because two systems were driving them.
+
+    Nothing here belongs in the output. The instrument is not the result.
+    """
+    n = 0
+    # the injected probe, by its marker
+    dom, k = re.subn(r'(?is)<script\b[^>]*\bdata-aethron-probe\b[^>]*>'
+                     r'.*?</script\s*>', "", dom)
+    n += k
+    # and the data nodes it wrote into the page
+    dom, k = re.subn(r'(?is)<script\b[^>]*\bid="__ae_[a-z]+"[^>]*>'
+                     r'.*?</script\s*>', "", dom)
+    n += k
+    if n:
+        print(f"── stripped {n} instrumentation node(s) from the capture")
+    return dom
 
 
 def compress_entrance(ent: dict) -> dict:
@@ -337,7 +490,386 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     } catch (e) { }
   });
 
+  // ---- scroll-linked tracks and counters ----------------------------
+  // Style as a function of the element's own progress through the
+  // viewport. The cards that shrink as you scroll (1424x794 -> 462x309)
+  // animate WIDTH AND HEIGHT and touch neither transform nor opacity,
+  // so every earlier recorder called them static and the port snapped
+  // them to the end size.
+  var scrTag = document.getElementById('__ae_scroll');
+  var SCR = scrTag ? JSON.parse(scrTag.textContent)
+                   : { tracks: [], counters: [] };
+
+  // One interpolator for every property. Rather than a case per type —
+  // matrix, rgb, blur, px, WxH — split each value into its numbers and
+  // the text between them: if two values have the same shape, the
+  // numbers can be walked. That covers the properties this page
+  // animates and the ones it does not yet.
+  var NUM = /-?\d*\.?\d+(?:e[-+]?\d+)?/gi;
+  function shapeOf(s) { return String(s).replace(NUM, ' '); }
+  function lerpStr(a, b, f) {
+    if (a === b) return a;
+    if (shapeOf(a) !== shapeOf(b)) return f < 0.5 ? a : b;
+    var na = String(a).match(NUM) || [], nb = String(b).match(NUM) || [];
+    if (na.length !== nb.length) return f < 0.5 ? a : b;
+    var i = 0;
+    return String(a).replace(NUM, function () {
+      var x = parseFloat(na[i]), y = parseFloat(nb[i]);
+      i++;
+      return String(Math.round((x + (y - x) * f) * 1000) / 1000);
+    });
+  }
+
+  var scrollTracks = [], oneShots = [], claimedEls = [];
+  var SCALE = 1;
+  try {
+    var recH = SCR.height || 0;
+    var nowH = Math.max(document.body.scrollHeight,
+                        document.documentElement.scrollHeight);
+    if (recH > 0 && nowH > 0) SCALE = recH / nowH;
+  } catch (e) { }
+  // ONE ELEMENT, ONE DRIVER. Two selectors can resolve to the same node
+  // (".framer-x[0]" and ".framer-x div[1]" are different strings and the
+  // same element), and two curves on one box fight: measured, a card
+  // snapped back to its natural 1424x794 mid-scroll because a second
+  // driver overwrote the first. First claim wins.
+  function claim(el) {
+    for (var i = 0; i < claimedEls.length; i++)
+      if (claimedEls[i] === el) return false;
+    claimedEls.push(el);
+    return true;
+  }
+  (SCR.tracks || []).forEach(function (t) {
+    var el = pick(t);
+    if (!el || !t.rows || t.rows.length < 2) return;
+    if (!claim(el)) return;
+    var r = el.getBoundingClientRect();
+    var sy0 = window.scrollY || window.pageYOffset || 0;
+    // Progress must be a PURE FUNCTION OF SCROLL. Computing it from the
+    // element's live rect fed back into itself: this replay changes the
+    // box, which moves the rect, which changes the progress that
+    // decided the box. Freezing the height was not enough because top
+    // still moves as the layout reflows — measured, a card oscillated
+    // 406 -> 462 -> 1424 -> 462 -> 1424 going DOWN the page, which is
+    // what stacked three cards on screen at once. Anchor to the
+    // document position captured before any replay, and the curve is
+    // monotonic like the original's.
+    scrollTracks.push({ el: el, props: t.props, rows: t.rows,
+                        h0: r.height || 1, docTop: r.top + sy0 });
+  });
+
+  function applyScroll() {
+    for (var i = 0; i < scrollTracks.length; i++) {
+      var t = scrollTracks[i], el = t.el;
+      if (!el.isConnected) continue;
+      var sy = window.scrollY || window.pageYOffset || 0;
+      var p = (sy + innerHeight - t.docTop) / (innerHeight + t.h0);
+      p = p < 0 ? 0 : (p > 1 ? 1 : p);
+      var rows = t.rows, a = rows[0], b = rows[rows.length - 1];
+      for (var j = 0; j < rows.length - 1; j++) {
+        if (p >= rows[j][0] && p <= rows[j + 1][0]) {
+          a = rows[j]; b = rows[j + 1]; break;
+        }
+      }
+      var span = (b[0] - a[0]) || 1;
+      var f = (p - a[0]) / span;
+      f = f < 0 ? 0 : (f > 1 ? 1 : f);
+      for (var k = 0; k < t.props.length; k++) {
+        var prop = t.props[k], v = lerpStr(a[1 + k], b[1 + k], f);
+        if (!v) continue;
+        if (prop === 'box') {
+          var wh = String(v).split('x');
+          if (wh.length === 2) {
+            el.style.width = wh[0] + 'px';
+            el.style.height = wh[1] + 'px';
+          }
+        } else {
+          try { el.style[prop] = v; } catch (e) { }
+        }
+      }
+    }
+  }
+  var scrBusy = false, osBusy = false;
+  if (scrollTracks.length) {
+    addEventListener('scroll', function () {
+      if (scrBusy) return;
+      scrBusy = true;
+      requestAnimationFrame(function () {
+        scrBusy = false; applyScroll(); checkOneShots();
+      });
+    }, { passive: true });
+    applyScroll();
+  }
+
+  // ---- one-shots: play once, at the position the ORIGINAL fires -----
+  // These are NOT scroll-linked. Dragging them by scroll position is
+  // what made every animation feel scroll-driven, and made them start
+  // the instant the element peeked into view instead of where the
+  // original starts them. Each carries the progress it fired at and the
+  // frames and duration measured by dwelling at that stop.
+  (SCR.oneshots || []).forEach(function (o) {
+    var el = pick(o);
+    if (!el) return;
+    if (!claim(el)) return;
+    var trig = (typeof o.trigger === 'number') ? o.trigger : 0.25;
+    var fired = false;
+
+    function park() {
+      if (!o.frames || !o.frames.length) return;
+      applyRow(el, o.props, o.frames[0], 1);
+    }
+    function play() {
+      if (fired) return;
+      fired = true;
+      // The original element may be REMOVED when its one-shot finishes.
+      // Its recording therefore ends mid-flight, and holding that pose
+      // leaves a half-animated element sitting on the page — a loading
+      // mask frozen across the viewport, in the case that produced this.
+      // Play what was recorded, then let it go, exactly as the original
+      // does.
+      function retire() {
+        if (!el || !el.style) return;
+        if (o.gone) {
+          el.style.setProperty('display', 'none', 'important');
+          return;
+        }
+        // DID THE REPLAY ACTUALLY GET THERE?
+        //
+        // A recorded end state is not always reachable element by
+        // element. fiber's loading panel is a flex item with
+        // `flex: 1 0 0px`, so its height belongs to its container: the
+        // original collapses it 813px -> 2px by changing an ancestor,
+        // and setting height on the panel — even !important — computes
+        // right back to 813px. Left there, the panel freezes half-way
+        // and lies across the page, which is worse than not animating
+        // at all. So check the result, and if the end state was not
+        // reached, take the element out of the way as the original does.
+        var want = null, props = o.props || [];
+        for (var i = 0; i < props.length; i++) {
+          if (props[i] === 'box') { want = o.frames[o.frames.length - 1][1 + i]; }
+        }
+        if (!want) return;
+        var wh = String(want).split('x');
+        if (wh.length !== 2) return;
+        var got = el.getBoundingClientRect().height;
+        var target = parseFloat(wh[1]);
+        if (Math.abs(got - target) > Math.max(8, target * 0.5)) {
+          el.style.setProperty('display', 'none', 'important');
+        }
+      }
+      if (o.frames && o.frames.length > 1 && o.duration) {
+        var t0 = performance.now();
+        (function step() {
+          var dt = performance.now() - t0;
+          var a = o.frames[0], b = o.frames[o.frames.length - 1], i;
+          for (i = 0; i < o.frames.length - 1; i++) {
+            if (o.frames[i][0] <= dt && dt <= o.frames[i + 1][0]) {
+              a = o.frames[i]; b = o.frames[i + 1]; break;
+            }
+          }
+          var span = (b[0] - a[0]) || 1;
+          var f = (dt - a[0]) / span;
+          f = f < 0 ? 0 : (f > 1 ? 1 : f);
+          applyRow(el, o.props, a, 1, b, f);
+          if (dt < o.duration) requestAnimationFrame(step);
+          else {
+            applyRow(el, o.props, o.frames[o.frames.length - 1], 1);
+            retire();
+          }
+        })();
+        return;
+      } else if (o.end) {
+        // no measured timing: land on the end state rather than
+        // inventing a speed, and say so in the spec
+        applyRow(el, o.props, [0].concat(o.end), 1);
+      }
+    }
+    // Park ONLY what the reader cannot see yet. A parked element whose
+    // trigger never fires sits frozen at its opening frame, which is
+    // worse than no animation at all — the element is simply wrong on
+    // screen. Anything already in view plays now instead; anything
+    // below the fold parks and waits, where being parked is invisible.
+    var r0 = el.getBoundingClientRect();
+    if (r0.top < innerHeight && r0.bottom > 0) {
+      // fire when the ORIGINAL fired, not at load
+      setTimeout(play, typeof o.delay === "number" ? o.delay : 60);
+    } else {
+      park();
+      var rr = el.getBoundingClientRect();
+      var sy1 = window.scrollY || window.pageYOffset || 0;
+      oneShots.push({ el: el, trig: trig, play: play,
+                      h0: rr.height || 1, docTop: rr.top + sy1,
+                      fired: function () { return fired; } });
+    }
+  });
+
+  function applyRow(el, props, a, _u, b, f) {
+    for (var k = 0; k < props.length; k++) {
+      var v = b ? lerpStr(a[1 + k], b[1 + k], f) : a[1 + k];
+      if (!v) continue;
+      if (props[k] === 'box') {
+        var wh = String(v).split('x');
+        if (wh.length === 2) {
+          // !important, because the template's own stylesheet carries it.
+          // Measured: the inline height WAS set to 2px and the computed
+          // height stayed 813px, so the loading panel never collapsed and
+          // sat across the page looking like a broken layout.
+          el.style.setProperty('width', wh[0] + 'px', 'important');
+          el.style.setProperty('height', wh[1] + 'px', 'important');
+        }
+      } else {
+        try { el.style.setProperty(props[k], v, 'important'); }
+        catch (e) { try { el.style[props[k]] = v; } catch (e2) { } }
+      }
+    }
+  }
+
+  function checkOneShots() {
+    for (var i = 0; i < oneShots.length; i++) {
+      var o = oneShots[i];
+      if (o.fired() || !o.el.isConnected) continue;
+      // Never drive an element the entrance spec owns.
+      var aeid = o.el.getAttribute && o.el.getAttribute('data-ae-id');
+      if (aeid && recorded && recorded[aeid]) continue;
+      var sy2 = window.scrollY || window.pageYOffset || 0;
+      var p = (sy2 + innerHeight - o.docTop) / (innerHeight + o.h0);
+      if (p >= o.trig) o.play();
+    }
+  }
+
+  if (oneShots.length) {
+    addEventListener('scroll', function () {
+      if (osBusy) return;
+      osBusy = true;
+      requestAnimationFrame(function () { osBusy = false; checkOneShots(); });
+    }, { passive: true });
+    setTimeout(checkOneShots, 160);
+  }
+
+  function setCounter(el, c, val) {
+    // Write into the element's OWN text node when the number sits
+    // beside a child element — a unit span, for instance. Assigning
+    // textContent here would delete that child, so the recorder marks
+    // these and the number goes back exactly where it came from.
+    if (!c.own) { el.textContent = val; return; }
+    for (var i = 0; i < el.childNodes.length; i++) {
+      if (el.childNodes[i].nodeType === 3) {
+        el.childNodes[i].nodeValue = val;
+        return;
+      }
+    }
+    el.insertBefore(document.createTextNode(val), el.firstChild);
+  }
+
+  // Counters: they fire ONCE when first seen, each on its own timing.
+  (SCR.counters || []).forEach(function (c) {
+    var el = pick(c);
+    if (!el || !c.frames || c.frames.length < 2) return;
+    var fired = false;
+    function play() {
+      if (fired) return;
+      fired = true;
+      c.frames.forEach(function (fr) {
+        setTimeout(function () { setCounter(el, c, fr[1]); }, fr[0]);
+      });
+    }
+    var io2 = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { play(); io2.disconnect(); } });
+    }, { threshold: 0.05 });
+    io2.observe(el);
+    // in view at load, or an observer that never fires
+    var rr = el.getBoundingClientRect();
+    if (rr.top < innerHeight && rr.bottom > 0) setTimeout(play, 120);
+  });
+
   var recTag = document.getElementById('__ae_entrance');
+  // ---- wheel-driven motion -------------------------------------------
+  // Some components animate from the viewer's wheel rather than from
+  // time or scroll position: fiber's hero accumulates deltaY into one
+  // number, springs it, and derives every layer's depth, scale, opacity
+  // and blur from it. There is no timeline to replay, so what ships is
+  // the sampled FUNCTION and the port re-derives the motion from the
+  // viewer's own input — the same way the original does.
+  var whTag = document.getElementById('__ae_wheel');
+  var WH = whTag ? JSON.parse(whTag.textContent) : null;
+  if (WH && WH.elements && WH.elements.length) {
+    var wc = WH.container ? document.querySelector(WH.container) : null;
+    if (!wc && WH.via) {
+      // the component's own container usually carries no class; it is
+      // identified as the parent of a child that does
+      var probe = document.querySelector(WH.via);
+      if (probe) { wc = probe.parentElement; }
+    }
+    var wels = [];
+    for (var wi = 0; wi < WH.elements.length; wi++) {
+      var we = WH.elements[wi];
+      var wlist = document.querySelectorAll(we.sel);
+      if (wlist[we.idx]) {
+        wels.push({ el: wlist[we.idx], st: we.states,
+                    jumps: we.jumps || [] });
+      }
+    }
+    if (wc && wels.length) {
+      var wstops = WH.stops, wcycle = WH.cycle || 0;
+      var wlast = wstops[wstops.length - 1];
+      var wtarget = 0, wcur = 0, wraf = 0;
+
+      function wapply(v) {
+        var x = v;
+        if (wcycle > 0) { x = ((v % wcycle) + wcycle) % wcycle; }
+        else if (x < wstops[0]) { x = wstops[0]; }
+        else if (x > wlast) { x = wlast; }
+        var i = 0;
+        while (i < wstops.length - 2 && wstops[i + 1] <= x) { i++; }
+        var a = wstops[i], b = wstops[i + 1];
+        var f0 = b > a ? (x - a) / (b - a) : 0;
+        for (var k = 0; k < wels.length; k++) {
+          var s1 = wels[k].st[i], s2 = wels[k].st[i + 1];
+          if (!s1 || !s2) { continue; }
+          var f = f0;
+          // Do not interpolate ACROSS a wrap. An infinite scroller sends
+          // its front layer back to the rear in one frame; blending that
+          // interval produces a layer sliding backwards through the
+          // whole scene, which is the one thing the original never does.
+          if (wels[k].jumps && wels[k].jumps.indexOf(i) !== -1) {
+            f = f0 < 0.5 ? 0 : 1;
+          }
+          var style = wels[k].el.style;
+          if (s1[0] || s2[0]) {
+            style.setProperty('transform', lerpStr(s1[0], s2[0], f),
+                              'important');
+          }
+          style.setProperty('opacity', lerpStr(s1[1], s2[1], f), 'important');
+          if (s1[2] || s2[2]) {
+            style.setProperty('filter', lerpStr(s1[2], s2[2], f), 'important');
+          }
+          var z1 = parseFloat(s1[3]), z2 = parseFloat(s2[3]);
+          if (!isNaN(z1) && !isNaN(z2)) {
+            style.setProperty('z-index',
+                              String(Math.round(z1 + (z2 - z1) * f)),
+                              'important');
+          }
+        }
+      }
+      function wtick() {
+        // The original springs its input (stiffness 100, damping 30), so
+        // the motion glides on after the wheel stops. An instant jump to
+        // the target would read as a different component.
+        wcur += (wtarget - wcur) * 0.11;
+        wapply(wcur);
+        if (Math.abs(wtarget - wcur) > 0.4) {
+          wraf = requestAnimationFrame(wtick);
+        } else { wcur = wtarget; wapply(wcur); wraf = 0; }
+      }
+      wc.addEventListener('wheel', function (e) {
+        wtarget += e.deltaY;
+        e.preventDefault();
+        if (!wraf) { wraf = requestAnimationFrame(wtick); }
+      }, { passive: false });
+      wapply(0);
+    }
+  }
+
   var REC = recTag ? JSON.parse(recTag.textContent) : { anims: [] };
   var recorded = {}, recPending = [];
 
@@ -585,6 +1117,14 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     }
     function onScroll() { if (!busy) { busy = true; requestAnimationFrame(sweep); } }
     addEventListener('scroll', onScroll, { passive: true });
+
+    // Scroll tracks and counters wire themselves at parse time, above,
+    // so they do not depend on this block running at all. Resize does
+    // matter here: the recorded curve is keyed on each element's
+    // progress through the viewport, and a resize moves that for every
+    // element at once.
+    if (scrollTracks.length)
+      addEventListener('resize', applyScroll, { passive: true });
   }
   requestAnimationFrame(function () { requestAnimationFrame(wire); });
   setTimeout(wire, 150);
@@ -1268,9 +1808,11 @@ def emit_astro(dest: Path, pages: dict, name: str):
         "dependencies": {"astro": "5.14.1"}}, indent=2))
     _w(dest / "astro.config.mjs",
        "import { defineConfig } from 'astro/config';\n"
-       "// `file` format keeps /about.html style URLs, matching the\n"
-       "// original site exactly.\n"
-       "export default defineConfig({ build: { format: 'file' },\n"
+       "// `directory` format emits /about/index.html so the site\n"
+       "// serves /about — the clean URLs the ORIGINAL used. `file`\n"
+       "// gave /about.html, which matched nothing: the scraped site\n"
+       "// had no .html in its links and neither should its port.\n"
+       "export default defineConfig({ build: { format: 'directory' },\n"
        "  devToolbar: { enabled: false } });\n")
     _w(dest / "tsconfig.json",
        json.dumps({"extends": "astro/tsconfigs/strict"}, indent=2))
@@ -1285,15 +1827,13 @@ def emit_astro(dest: Path, pages: dict, name: str):
         assert prefix + "".join(h for _, h in parts) + suffix == doc["body"], \
             f"{page}: section split is not byte-exact"
 
-        _w(dest / f"src/html/{r}.head.html", head)
+        _w(dest / f"src/html/{r}.head.html", clean_urls(head))
         imports, uses = [], []
         for i, (sec, html) in enumerate(parts, 1):
             comp = f"{i:02d}-{sec}"
-            _w(dest / f"src/components/{r}/{comp}.html", html)
             _w(dest / f"src/components/{r}/{comp}.astro",
-               f"---\n// {sec} — carried verbatim from the original build.\n"
-               f"import html from './{comp}.html?raw';\n---\n"
-               f"<Fragment set:html={{html}} />\n")
+               f"---\n// {sec} — from {page}. Edit this markup directly.\n"
+               f"---\n" + astro_markup(clean_urls(html)) + "\n")
             imports.append(f"import {sec} from "
                            f"'../components/{r}/{comp}.astro';")
             uses.append(f"    <{sec} />")
@@ -1307,9 +1847,9 @@ const anim = {json.dumps(anim_tag(doc))};
 <html lang="{doc['lang']}">
   <head set:html={{head}} />
   <body{(' ' + doc['battrs']) if doc['battrs'] else ''}>
-{prefix}
+{astro_markup(clean_urls(prefix))}
 {nl.join(uses)}
-{suffix}
+{astro_markup(clean_urls(suffix))}
     <Fragment set:html={{anim}} />
   </body>
 </html>
@@ -1529,6 +2069,20 @@ def _w(p: Path, text: str):
     p.write_text(text, encoding="utf-8")
 
 
+
+def _entrance_owned(docs: dict) -> dict:
+    """Selectors the ENTRANCE recorder actually captured, for this page.
+
+    Handed to the scroll recorder so it excludes exactly those and
+    nothing else. Inferring ownership from "this element has a Web
+    Animation" excluded 13 elements the entrance pass had in fact
+    missed, leaving them driven by neither."""
+    owned = {}
+    for doc in docs.values():
+        for k in (doc.get("entrance") or {}).get("owned") or {}:
+            owned[k] = 1
+    return owned
+
 def _ship_animation_source(project: Path, dest: Path, say) -> dict:
     """Put the template's ORIGINAL animation code inside the port.
 
@@ -1690,8 +2244,24 @@ def convert(project, framework="astro", pages=None, on_event=None,
                                      f"http://127.0.0.1:{port}/{page}",
                                      budget_ms=90000, timeout=180)
             if not got["dom"]:
-                say("error", f"{page} did not render — skipped")
-                continue
+                # The virtual clock wedged on this page. Read it in real
+                # time instead — the recorders publish their timeline and
+                # the page hands back its own DOM. Same injected scripts,
+                # same window size; only the clock differs.
+                say("stage", f"{page}: virtual clock never settled — "
+                             f"reading it in real time instead")
+                rt = motion.capture_dom_realtime(
+                    site, cfg.get("platform", "static"), page, tl_js,
+                    wait_s=120)
+                if rt.get("dom"):
+                    got = {"dom": rt["dom"], "console": [],
+                           "error": "", "mode": "realtime"}
+                    if not rt.get("settled"):
+                        say("warn", f"{page}: recorders had not finished "
+                                    f"— motion may be under-captured")
+                else:
+                    say("error", f"{page} did not render — skipped")
+                    continue
             timeline = {"entries": {}}
             tlm = re.search(r'(?is)<script[^>]*id="__ae_timeline"[^>]*>'
                             r'(.*?)</script\s*>', got["dom"])
@@ -1700,10 +2270,44 @@ def convert(project, framework="astro", pages=None, on_event=None,
                     timeline = json.loads(tlm.group(1))
                 except ValueError:
                     pass
+            # STRIP OUR OWN CAPTURE ORIGIN.
+            #
+            # The DOM is read from a page served on an ephemeral local
+            # port, and a runtime that rewrites links against
+            # location.origin bakes that address into the markup:
+            # Webflow's tab script turned href="#w-tabs-0" into
+            # href="http://127.0.0.1:64802/index.html#w-tabs-0", which
+            # shipped, 404'd for every visitor, and failed the referee.
+            # Anything pointing at loopback is ours, never the template's.
+            if got.get("dom"):
+                got["dom"] = re.sub(r'https?://127\.0\.0\.1:\d+', '',
+                                    got["dom"])
+                got["dom"] = strip_instrumentation(got["dom"])
+                if keep_runtime:
+                    # only carry mode re-runs the platform's code, so
+                    # only carry mode needs the inputs that code eats
+                    got["dom"] = restore_consumed_scripts(
+                        got["dom"],
+                        (site / page).read_text(encoding="utf-8",
+                                                errors="ignore"))
             if keep_runtime:
-                # the platform's own code stays: it draws AND animates
-                # the page exactly as it always did
-                dom = got["dom"]
+                # THE SOURCE HTML, NOT THE PHOTOGRAPH.
+                #
+                # Carry mode re-runs the platform's own code, which
+                # rebuilds the page from scratch — so it needs the page
+                # the platform shipped, not a snapshot of that page
+                # mid-flight. Using the post-JS DOM baked in whatever
+                # state each element happened to be in when the camera
+                # fired: elements below the fold that had not revealed
+                # yet kept opacity:0 forever (5 footer elements stayed
+                # invisible), and a card stack that had already advanced
+                # shipped starting from the wrong card. It also lost the
+                # scripts the runtime consumes and gained the recorder we
+                # injected. Every one of those problems is the snapshot,
+                # and none of them exists if we ship the source.
+                dom = (site / page).read_text(encoding="utf-8",
+                                              errors="ignore")
+                dom = re.sub(r'https?://127\.0\.0\.1:\d+', '', dom)
                 n_scripts = 0
                 dom, n_pre, n_link = strip_platform(dom, keep_preloads=True)
                 n_ae = 0
@@ -1776,11 +2380,89 @@ def convert(project, framework="astro", pages=None, on_event=None,
                 continue
             n_r, n_l = len(found["rotate"]), len(found["loop"])
             lost = (cap.get("unaddressable") or 0) + len(found["unhandled"])
+            found["lost"] = lost
+            skipped = cap.get("in_removed") or 0
             say("page", f"  {n_r} rotation(s) + {n_l} loop(s) reproduced"
                         + (f"; {lost} not reproduced (reported, not guessed)"
-                           if lost else ""))
+                           if lost else "")
+                        + (f"; {skipped} inside removed platform content "
+                           f"(correctly absent)" if skipped else ""))
             for u in found["unhandled"]:
                 say("page", f"    UNHANDLED {u['id']}: {u['why']}")
+
+            # Same real-time load requirement: counters rewrite their own
+            # text and scroll effects are written from rAF, so neither is
+            # visible under a virtual clock.
+            say("stage", f"measuring counters + scroll-linked motion on "
+                         f"{page} (real time)…")
+            scap = motion.capture_realtime(
+                site, cfg.get("platform", "static"), page,
+                motion.SCROLLREC_JS % {"stops": 14, "settle": 420,
+                                       "delay": 900,
+                                       "post": "/__ae_capture",
+                                       "max": 110000,
+                                       # every observable property, not
+                                       # the three that missed the cards
+                                       "props": json.dumps(
+                                           list(motion.WATCHED)),
+                                       "owned": json.dumps(
+                                           _entrance_owned(docs))},
+                wait_s=120)
+            scr = motion.analyse_scroll(scap, found)
+            # One-shots found by the continuous pass ride the same replay
+            # path as the scroll pass's: play once, at load, from their
+            # recorded frames. Before the recorder saw the first frames
+            # these simply did not exist, and fiber's progress bar and
+            # loading reveal shipped frozen.
+            if found.get("oneshot"):
+                # DEDUPE BY ELEMENT. The runtime enforces one driver per
+                # element and the FIRST claim wins, so appending blindly
+                # let a thinner recording win over a better one: fiber's
+                # loading reveal had a 9-frame entry from the scroll pass
+                # and an 18-frame entry from this one, and the 9-frame
+                # entry claimed the element and left it visibly static.
+                merged = {}
+                for o in (scr.get("oneshots") or []) + found["oneshot"]:
+                    key = (o.get("sel"), o.get("idx"))
+                    prev = merged.get(key)
+                    if prev is None or len(o.get("frames") or []) > \
+                            len(prev.get("frames") or []):
+                        merged[key] = o
+                scr["oneshots"] = list(merged.values())
+                scr["available"] = True
+            docs[page]["scroll"] = scr
+            if not scr.get("available"):
+                say("page", f"  counters/scroll UNMEASURED "
+                            f"({scr.get('reason')}) — not proven absent")
+            else:
+                say("page", f"  {len(scr['counters'])} counter(s) and "
+                            f"{len(scr['tracks'])} scroll-linked "
+                            f"element(s) recorded")
+                for c in scr["counters"]:
+                    v = [f[1] for f in c["frames"]]
+                    say("page", f"    {v[0]} -> {v[-1]} in {c['duration']}ms "
+                                f"({len(v)} steps)")
+
+            # Input-driven motion. Neither a timeline nor a scroll
+            # position: the viewer's wheel is the input, so what is
+            # recorded is the function and the port re-derives it.
+            say("stage", f"measuring wheel-driven motion on {page} "
+                         f"(real time)…")
+            wcap = motion.capture_realtime(
+                site, cfg.get("platform", "static"), page,
+                motion.WHEELREC_JS % {"step": 600, "steps": 40,
+                                      "settle": 700, "delay": 7000,
+                                      "post": "/__ae_capture"},
+                wait_s=150)
+            wh = motion.analyse_wheel(wcap)
+            docs[page]["wheel"] = wh
+            if wh.get("available"):
+                say("page", f"  wheel-driven: {len(wh['elements'])} "
+                            f"element(s) over {len(wh['stops'])} stops, "
+                            f"cycle {wh.get('cycle') or 'none (bounded)'}")
+            else:
+                say("page", f"  no wheel-driven motion "
+                            f"({wh.get('reason')})")
 
     say("stage", f"emitting {framework}")
     EMITTERS[framework](dest, docs, cfg.get("name", "site"))
@@ -1855,7 +2537,25 @@ def convert(project, framework="astro", pages=None, on_event=None,
     graded = [l for l in verdict if l.startswith(("PASS ", "FAIL "))
               and "identical" in l]
     ok = bool(graded) and all(l.startswith("PASS ") for l in graded)
-    return {**result, "ok": ok, "stage": "graded",
+
+    # MOTION IS NOT GRADED BY THE REFEREE. It compares text, headings and
+    # images, so it once stamped PIXEL-PERFECT on a build whose loading
+    # counter never left 0 and whose every page therefore sat behind a
+    # white cover. Content identical is a real result; it is not the same
+    # claim as motion reproduced, and the two must not share a verdict.
+    gaps = []
+    for page, doc in docs.items():
+        con, scr = doc.get("continuous") or {}, doc.get("scroll") or {}
+        if con and not con.get("available"):
+            gaps.append(f"{page}: continuous motion UNMEASURED "
+                        f"({con.get('reason')}) — not proven absent")
+        elif con.get("lost"):
+            gaps.append(f"{page}: {con['lost']} continuous animation(s) "
+                        f"seen but not reproduced")
+        if scr and not scr.get("available"):
+            gaps.append(f"{page}: counters/scroll UNMEASURED "
+                        f"({scr.get('reason')}) — not proven absent")
+    return {**result, "ok": ok, "stage": "graded", "motion_gaps": gaps,
             "out": str(out), "verdict": "\n".join(verdict)}
 
 
@@ -1873,8 +2573,17 @@ def main(argv):
                   build="--no-build" not in argv,
                   keep_runtime="--rebuild-motion" not in argv)
     print()
-    print(("PIXEL-PERFECT PORT READY: " if res.get("ok")
-           else "NOT ACCEPTED: ") + res.get("dir", ""))
+    gaps = res.get("motion_gaps") or []
+    if not res.get("ok"):
+        print("NOT ACCEPTED: " + res.get("dir", ""))
+    elif gaps:
+        print("CONTENT IDENTICAL, MOTION INCOMPLETE: " + res.get("dir", ""))
+        for g in gaps[:12]:
+            print("   " + g)
+        if len(gaps) > 12:
+            print(f"   … and {len(gaps) - 12} more")
+    else:
+        print("PIXEL-PERFECT PORT READY: " + res.get("dir", ""))
     if res.get("verdict"):
         print(res["verdict"])
     if res.get("log"):

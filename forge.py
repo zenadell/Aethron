@@ -44,6 +44,7 @@ import concurrent.futures as cf
 import hashlib
 import html as html_mod
 import json
+import os
 import re
 import shutil
 import struct
@@ -70,6 +71,13 @@ HIDE_CSS = (
     # to their own URL via copy_map
     'a[href*="buy.polar.sh"],a[href*="lemonsqueezy.com"],'
     'a[href*="gumroad.com"],a[href*="framer.com/marketplace"],'
+    # A template author's OWN marketplace profile is the same promo with
+    # a different URL: framer.com/@nframe/?tab=marketplace slipped past
+    # both of the rules above and shipped a visible 142x110 "buy this
+    # template" card on a site the owner believes is theirs. Measured on
+    # agero, in the migration as well as the port.
+    'a[href*="framer.com/@"],a[href*="tab=marketplace"],'
+    'a[href*="webflow.com/templates"],a[href*="webflow.io/template"],'
     '.w-webflow-badge{display:none !important}'
     '</style>'
 )
@@ -208,12 +216,29 @@ def _scrape_site(url: str, tmp: Path):
             continue
         if path and "." not in path.rsplit("/", 1)[-1]:
             routes.add(path)
-    for path in sorted(routes)[:14]:          # cap: home + 14 subpages
+    # A CAP THAT TRUNCATES MUST SAY SO.
+    #
+    # This took the first 14 routes ALPHABETICALLY and dropped the rest
+    # in silence, so a site whose product pages sort after "pricing"
+    # migrated without them — and the pages that survived still linked to
+    # the originals, which is how a port ends up pointing back at the
+    # template author's live site. Take more, and name what was left.
+    ordered = sorted(routes)
+    taken, dropped = ordered[:MAX_SCRAPE_PAGES], ordered[MAX_SCRAPE_PAGES:]
+    for path in taken:
         try:
             pages[path] = get(base + "/" + path)
             print(f"  scraped /{path}")
         except Exception:
             print(f"  skipped /{path} (fetch failed)")
+    if dropped:
+        print(f"  NOT SCRAPED — {len(dropped)} route(s) over the "
+              f"{MAX_SCRAPE_PAGES}-page limit; links to them will still "
+              f"point at {base}:")
+        for path in dropped[:12]:
+            print(f"      /{path}")
+        if len(dropped) > 12:
+            print(f"      … and {len(dropped) - 12} more")
     for path, html in pages.items():
         fname = (re.sub(r"[^\w-]+", "-", path).strip("-") or "index") + ".html"
         (tmp / fname).write_text(html, encoding="utf-8")
@@ -277,6 +302,15 @@ def cmd_init(args):
         else:
             stem = Path(h).stem.lower()
             routes.setdefault("" if stem in ("index", "home") else stem, h)
+    # THE HOST WE SCRAPED FROM IS AUTHORITATIVE. Deriving own-hosts only
+    # from <link rel=canonical>/og:url leaves it EMPTY on templates that
+    # ship neither — measured on a Webflow template whose 15 nav links
+    # then stayed absolute and sent every visitor back to the original
+    # site. We know where we fetched this from; use it.
+    if source_url:
+        _u = urllib.parse.urlparse(source_url)
+        if _u.netloc:
+            hosts.add(_u.netloc)
     if "" not in routes:                      # no page claims "/" — guess
         home = min(htmls, key=len)
         routes = {k: v for k, v in routes.items() if v != home}
@@ -1051,6 +1085,31 @@ RANGE_GUARD_RE = re.compile(
     r"(let [\w$]+=new [\w$]+,[\w$]+=0;for\(let [\w$]+ of ([\w$]+)\))")
 
 
+
+# Localising an asset turns an ABSOLUTE CDN url into a root-relative
+# path, and Framer's own code calls `new URL(src)` on image sources with
+# no base. That is fine for "https://framerusercontent.com/images/x.png"
+# and throws for "/assets/r/x.png" — measured on one template: 36 throws,
+# a code component crashed, and 18 of 19 images vanished from the page
+# while every file check still passed.
+#
+# Supplying a base fixes it without changing any absolute url, because
+# `new URL(absolute, base)` ignores the base. Only the single-argument
+# form is rewritten; calls that already pass a base are left alone.
+# ONLY an image source. A blanket patch is wrong: Framer also uses
+# `try{ new URL(x) }` as an "is this absolute?" TEST, where the
+# throw is the feature — giving those a base made every string
+# parse as absolute, the routing logic broke, and the page stopped
+# rendering entirely. `.src` is only ever an asset url we localized.
+BARE_URL_RE = re.compile(
+    r"new URL\(\s*([\w$]+(?:\??\.[\w$]+)*\??\.src)\s*\)")
+
+
+def _url_base(text: str) -> tuple:
+    """-> (patched, count). Give bare `new URL(x)` a base to resolve
+    against, so localized relative paths parse."""
+    return BARE_URL_RE.subn(r"new URL(\1,location.origin)", text)
+
 def _static_slice(m):
     c, s, l, i, rest, n = m.groups()
     return (
@@ -1623,6 +1682,19 @@ def cmd_build(_args):
         def _localize(m):
             path, tail = m.group("p").strip("/"), m.group("t")
             tgt = routes.get(path)
+            if not tgt and path:
+                # A NESTED ROUTE AND ITS FILE ARE SPELLED DIFFERENTLY.
+                # init names files by flattening the route
+                # ("category/webflow" -> category-webflow.html), but when
+                # a template ships no <link rel=canonical> the routes
+                # table gets keyed by that flattened stem while the page's
+                # own links still say "/category/webflow" — so the lookup
+                # missed and 15 nav links kept pointing at the original
+                # live site. Flatten the same way before giving up.
+                slug = re.sub(r"[^\w-]+", "-", path).strip("-")
+                tgt = routes.get(slug)
+                if not tgt and slug + ".html" in (cfg.get("pages") or []):
+                    tgt = slug + ".html"
             return f'href="./{tgt}{tail}"' if tgt else m.group(0)
         for host in cfg.get("own_hosts", []):
             t = re.sub(rf'href="https?://{re.escape(host)}'
@@ -1743,7 +1815,7 @@ def cmd_build(_args):
     if chunks_src.exists():
         cdir = site / "assets" / "chunks"
         cdir.mkdir()
-        n_patched = n_static = 0
+        n_patched = n_static = n_urlfix = 0
         for p in chunks_src.glob("*.mjs"):
             t = p.read_text(encoding="utf-8", errors="ignore")
             orig = t
@@ -1764,6 +1836,9 @@ def cmd_build(_args):
             # slices and take the untouched fast path.
             t, k = RANGE_GUARD_RE.subn(_static_slice, t)
             n_static += k
+            # a localized path is relative; `new URL(x)` needs a base
+            t, n_url = _url_base(t)
+            n_urlfix += n_url
             # icon modules are import()ed — name.js@1.2.3 gets a wrong
             # MIME on static hosts, which module scripts hard-reject.
             # Ship them as name.1.2.3.js instead (copy is renamed below)
@@ -1773,7 +1848,8 @@ def cmd_build(_args):
             (cdir / p.name).write_text(t, encoding="utf-8")
             n_patched += t != orig
         log(f"chunks: {n_patched} patched "
-            f"({n_static} static-host range guard(s)), "
+            f"({n_static} static-host range guard(s), "
+            f"{n_urlfix} url base(s)), "
             f"{len(list(chunks_src.glob('*.mjs')))} total")
 
     # CMS binaries: exact-byte-length padded replacement (offsets are law)
@@ -2254,9 +2330,23 @@ if __name__ == "__main__":
 
 # parens/percent allowed: Webflow filenames like "fav-icon (1).png";
 # trailing punctuation is stripped after matching
+# The platform CDNs, AND the third-party CDNs templates load their motion
+# from. Restricting this to website-files/framerusercontent left a Webflow
+# port fetching GSAP, Lenis, jQuery and a CMS filter from unpkg, jsdelivr,
+# ajax.googleapis and cloudfront at runtime: the site was "owned" right up
+# until the visitor was offline, and then it did not move. Framer never
+# exposed this because Framer bundles its own runtime.
+# How many sub-pages a URL scrape will fetch. Raisable by env for large
+# sites; the crawl is breadth-first over the home page's own links, so
+# this bounds a runaway, it is not a quality judgement.
+MAX_SCRAPE_PAGES = int(os.environ.get("AETHRON_MAX_PAGES", "40"))
+
 REMOTE_ASSET_RE = re.compile(
     r"https://(?:[a-z0-9.-]*website-files\.com|framerusercontent\.com"
-    r"|fonts\.gstatic\.com)/[^\"'\s<>`\\]+")
+    r"|fonts\.gstatic\.com|fonts\.googleapis\.com"
+    r"|unpkg\.com|cdn\.jsdelivr\.net|ajax\.googleapis\.com"
+    r"|cdnjs\.cloudflare\.com|[a-z0-9]+\.cloudfront\.net)"
+    r"/[^\"'\s<>`\\]+")
 
 
 # ── universal capture / reference audit (any platform) ───────────────
@@ -3209,8 +3299,9 @@ def _render_page(browser: str, url: str, budget_ms=8000, timeout=60,
            "--disable-background-networking", "--mute-audio",
            "--window-size=1440,2400", "--hide-scrollbars",
            f"--user-data-dir={tmp}/profile",
-           f"--virtual-time-budget={budget_ms}",
            "--enable-logging=stderr", "--log-level=0"]
+    if budget_ms:
+        cmd.append(f"--virtual-time-budget={budget_ms}")
     if offline:
         cmd.append("--host-resolver-rules=MAP * ~NOTFOUND, "
                    "EXCLUDE 127.0.0.1")
@@ -3238,7 +3329,22 @@ def _render_page(browser: str, url: str, budget_ms=8000, timeout=60,
             proc.wait(timeout=10)
         dom = b"".join(chunks).decode("utf-8", "ignore")
         log = errlog.read_text(encoding="utf-8", errors="ignore")
+        if not dom and budget_ms:
+            # THE VIRTUAL CLOCK CAN WEDGE. On fiber's desktop variant
+            # (>=1280px wide) every budget tried — 3s through 90s —
+            # produced not one byte in 45s, while the same page with no
+            # budget at the same window size rendered in 3s: 253KB, 19
+            # images. The budget exists only to tell --dump-dom when the
+            # page has settled, so when it never expires, drop it and
+            # dump at load instead. Reported as mode="realtime" because a
+            # less-settled DOM is a weaker measurement, not a free win.
+            again = _render_page(browser, url, budget_ms=0,
+                                 timeout=min(timeout, 45), offline=offline)
+            if again.get("dom"):
+                again["mode"] = "realtime"
+                return again
         return {"dom": dom, "console": _console_messages(log),
+                "mode": "virtual" if budget_ms else "realtime",
                 "error": "" if finished or dom else
                          f"browser did not render within {timeout}s"}
     except Exception as e:                                # pragma: no cover
