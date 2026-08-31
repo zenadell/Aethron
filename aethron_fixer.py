@@ -55,7 +55,10 @@ EVIDENCE: {evidence}
 PROJECT: {project}   BUILD: {build}
 
 Work the way an engineer works — you have the whole repository and real
-tools, so use them:
+tools, so use them. Run commands ONE AT A TIME and read each result
+before the next: a previous attempt issued several in parallel, could not
+tell which output belonged to which command, and abandoned a fix it had
+very nearly found.
 
 1. REPRODUCE IT. Run the check yourself and read the output:
        python3 aethron_doctor.py {project} --build={build} --quick
@@ -72,7 +75,10 @@ tools, so use them:
 3. FIX IT GENERALLY. The same defect will appear on templates nobody has
    seen. A special case for this one template is worthless.
 
-4. VERIFY IT. Re-run the check. Then run
+4. VERIFY IT. Re-run the check — and note that the fix is sometimes to
+   re-run the pipeline (fetch, localize, build) rather than to change
+   code, because the artifact was stale rather than wrong. That counts.
+   Then run
        python3 aethron_corpus.py
    which judges every other migration on disk. If it reports a
    regression, your change broke something else — fix that or revert.

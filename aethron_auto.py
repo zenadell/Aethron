@@ -75,7 +75,7 @@ def start_branch(name):
         say("REFUSING: uncommitted changes in tracked files. This run may "
             "edit the pipeline and reverts wholesale; commit or stash first.")
         return None
-    branch = f"auto/{name}-{time.strftime('%m%d-%H%M')}"
+    branch = f"auto/{name or 'run'}-{time.strftime('%m%d-%H%M')}"
     git("checkout", "-b", branch)
     say(f"working on branch {branch}")
     return branch
@@ -113,8 +113,12 @@ def prepare(proj):
 
 
 def convert(proj):
+    # A framework port installs a toolchain and renders every page in a
+    # browser. Measured: 16992s on a 16-page Framer site, where npm alone
+    # exceeded a 1800s ceiling and killed the whole run.
     ok, out = run([sys.executable, str(ROOT / "aethron_convert.py"),
-                   str(proj), "--framework=astro"], label="convert")
+                   str(proj), "--framework=astro"], timeout=21600,
+                  label="convert")
     for line in out.splitlines():
         if "PIXEL-PERFECT" in line or "NOT ACCEPTED" in line \
                 or "MOTION INCOMPLETE" in line:
@@ -175,8 +179,22 @@ def fix_loop(proj, build, key, model, allow_fix=True):
             touched = [l[-40:].strip()
                        for l in git("status", "--porcelain").stdout.splitlines()
                        if l.strip() and not l.strip().startswith("??")]
+            # A FIX IS NOT ALWAYS AN EDIT. The correct answer to
+            # "createstudio still fetches from the platform CDN" was to
+            # re-run the pipeline, not to change a line — and the agent
+            # did exactly that, took the migration from 2 failures to 0,
+            # and was logged as "changed nothing" because only git was
+            # consulted. Ask the check, not the diff.
+            settled = fixer.doctor(proj, build)
+            if settled["checks"].get(check) != "FAIL":
+                say(f"'{check}' now passes (no source change — the agent "
+                    f"corrected the build itself)", 3)
+                applied.append({"check": check, "file": "(rebuild)",
+                                "why": (r.get("text") or "").strip()[-120:]})
+                progressed = True
+                break
             if not touched:
-                say("changed nothing — no fix to judge", 3)
+                say("changed nothing and the check still fails", 3)
                 continue
             say(f"changed: {touched}", 3)
             if not rebuild_for(proj, build):
@@ -226,6 +244,8 @@ def main(argv):
         name = url.split("//")[-1].split(".")[0].replace("/", "") or "site"
 
     t0 = time.time()
+    if not name and project:
+        name = Path(project).resolve().name      # the branch should say which
     branch = start_branch(name) if allow_fix else "(not fixing)"
     if allow_fix and not branch:
         return 2
