@@ -48,6 +48,49 @@ CONFIG = ROOT / "aethron_config.json"
 EDITABLE = ("forge.py", "aethron_convert.py", "aethron_motion.py",
             "aethron_doctor.py", "aethron_source.py")
 
+AGENT_TASK = """A check on this repository is failing. Fix the cause.
+
+DEFECT: {check}
+EVIDENCE: {evidence}
+PROJECT: {project}   BUILD: {build}
+
+Work the way an engineer works — you have the whole repository and real
+tools, so use them:
+
+1. REPRODUCE IT. Run the check yourself and read the output:
+       python3 aethron_doctor.py {project} --build={build} --quick
+   Read `aethron_doctor.py` to see exactly what the failing check
+   measures. The check's docstring says why it exists and what shipped
+   when it did not.
+
+2. FIND THE CAUSE, not the symptom. Read the pipeline: forge.py,
+   aethron_convert.py, aethron_motion.py. Trace where the artifact the
+   check reads is produced. If the evidence does not identify a cause,
+   write a small script to measure what you need — that is how every
+   defect in this repo was actually found.
+
+3. FIX IT GENERALLY. The same defect will appear on templates nobody has
+   seen. A special case for this one template is worthless.
+
+4. VERIFY IT. Re-run the check. Then run
+       python3 aethron_corpus.py
+   which judges every other migration on disk. If it reports a
+   regression, your change broke something else — fix that or revert.
+
+Hard rules:
+- Edit only pipeline source (forge.py, aethron_convert.py,
+  aethron_motion.py, aethron_doctor.py). NEVER edit a project's site/ or
+  pristine/ directory: those are generated and your edit is erased by the
+  next build. This has been tried; it produced an invisible no-op.
+- Do not weaken or delete a check to make it pass. If you believe the
+  check itself is wrong, say so and explain why rather than editing it
+  to be quiet.
+- If you cannot find the cause, say that. A wrong fix is worse than none
+  because it will be believed.
+
+When you are done, state in one line what the cause was and what you
+changed."""
+
 SYSTEM = """You fix defects in Aethron, a tool that migrates Framer and \
 Webflow templates into self-owned sites and ports them to frameworks.
 
@@ -121,6 +164,38 @@ def ask(model, prompt, key, max_tokens=12000, timeout=600):
                  "tokens": usage.get("total_tokens"),
                  "finish": choice.get("finish_reason"),
                  "reasoned": bool(choice["message"].get("reasoning"))}
+
+
+def agent_fix(project: Path, build: str, check: str, evidence: str,
+              cfg=None, timeout=1800) -> dict:
+    """Let the coding agent do it — with tools, not a JSON guess.
+
+    Aethron already drives the real Claude Code CLI (aethron_code.py):
+    it can read the repository, run the checks, write a script to measure
+    something nobody measured before, edit the pipeline and verify the
+    result. Asking a chat endpoint for {old, new} instead throws all of
+    that away and gets a one-shot guess from a model that never ran the
+    failing check.
+
+    Every defect in this repo was found by reproducing, measuring, and
+    tracing. That is what this asks for.
+    """
+    import aethron_code
+    prompt = AGENT_TASK.format(check=check, evidence=evidence[:8000],
+                               project=str(project), build=build)
+    seen = []
+
+    def on_event(ev):
+        if ev.get("type") == "tool":
+            seen.append(ev.get("name"))
+        elif ev.get("type") == "text" and ev.get("text", "").strip():
+            seen.append("text")
+
+    r = aethron_code.run_once(ROOT, prompt, cfg=cfg, timeout=timeout,
+                              on_event=on_event, idle=420)
+    return {"ok": r.get("ok"), "error": r.get("error"),
+            "text": r.get("text", ""), "tools": r.get("tools") or [],
+            "cost_usd": r.get("cost_usd", 0.0)}
 
 
 def parse_proposal(text):
@@ -260,10 +335,58 @@ def main(argv):
         return 2
 
     check = fails[0]
-    prompt = evidence_for(proj, build, check, report)
+    evidence = evidence_for(proj, build, check, report)
+
+    if "--oneshot" not in argv:
+        # THE AGENT, not a guess. It reads the repo, runs the failing
+        # check itself, traces the cause and verifies its own work — the
+        # way every defect in this repo was actually found. A chat
+        # endpoint asked for {old, new} has never run the check it is
+        # fixing.
+        print(f"\n  handing '{check}' to the coding agent (tools, repo, "
+              f"checks)")
+        if dry:
+            print("  --dry-run: the agent edits files, so not started")
+            print("  it would be asked:\n")
+            print(AGENT_TASK.format(check=check, evidence=evidence[:600],
+                                    project=str(proj), build=build)[:1200])
+            return 0
+        r = agent_fix(proj, build, check, evidence)
+        print(f"  agent finished: ok={r['ok']} tools={len(r['tools'])} "
+              f"cost=${r['cost_usd']:.4f}")
+        if r.get("error"):
+            print(f"  {r['error'][:160]}")
+        if r.get("text"):
+            print(f"  agent said: {r['text'].strip().splitlines()[-1][:150]}")
+        touched = git_dirty()
+        if not touched:
+            print("  it changed nothing — no fix to judge")
+            return 1
+        print(f"  changed: {[l[-40:].strip() for l in touched]}")
+
+        print("\n  judging …")
+        after = doctor(proj, build)
+        if after["checks"].get(check) == "FAIL":
+            print(f"  REJECT — '{check}' still fails")
+        else:
+            clear, out = corpus_clear()
+            if not clear:
+                print("  REJECT — it breaks another build in the corpus")
+                for line in out.splitlines():
+                    if "->" in line or "REGRESSION" in line:
+                        print("     " + line.strip())
+            else:
+                print(f"  ACCEPT — '{check}' passes and the corpus is clear")
+                print("  the change is in your working tree; review it")
+                return 0
+        git_revert()
+        print("  reverted")
+        return 1
+
+    # --oneshot: the old chat-completion path, kept for comparing models
     print(f"\n  asking {model} about: {check}")
     try:
-        text, meta = ask(model, prompt, key)
+        text, meta = ask(model, evidence, key)
     except Exception as e:
         print(f"  model call failed: {str(e)[:160]}")
         return 2
@@ -287,27 +410,21 @@ def main(argv):
         print("OLD:", (prop.get("old") or "")[:200])
         print("NEW:", (prop.get("new") or "")[:200])
         return 0
-
     ok, msg = apply_proposal(prop)
     print(f"  {msg}")
     if not ok:
         return 1
-
     print("\n  judging …")
     fixed = doctor(proj, build)
-    still = fixed["checks"].get(check) == "FAIL"
-    clear, out = corpus_clear()
-    if still:
+    if fixed["checks"].get(check) == "FAIL":
         print(f"  REJECT — '{check}' still fails after the change")
-    elif not clear:
-        print("  REJECT — the change breaks another build in the corpus")
-        for line in out.splitlines():
-            if "REGRESSION" in line or "->" in line:
-                print("     " + line.strip())
     else:
-        print(f"  ACCEPT — '{check}' now passes and the corpus is clear")
-        print("  the change is in your working tree; review and commit it")
-        return 0
+        clear, out = corpus_clear()
+        if not clear:
+            print("  REJECT — the change breaks another build in the corpus")
+        else:
+            print(f"  ACCEPT — '{check}' now passes and the corpus is clear")
+            return 0
     git_revert()
     print("  reverted")
     return 1

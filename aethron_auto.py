@@ -147,39 +147,49 @@ def fix_loop(proj, build, key, model, allow_fix=True):
 
         progressed = False
         for check in fails:
-            say(f"asking {model} about '{check}'", 2)
-            prompt = fixer.evidence_for(proj, build, check, report)
+            # THE CODING AGENT, with the repository and real tools. It
+            # reproduces the failure by running the check itself, traces
+            # the cause through the pipeline, writes a script if it needs
+            # a measurement nobody took, edits, and verifies. Asking a
+            # chat endpoint for a {old,new} pair instead gets a guess
+            # from something that never ran the check it is fixing.
+            say(f"handing '{check}' to the coding agent", 2)
+            evidence = fixer.evidence_for(proj, build, check, report)
             try:
-                text, meta = fixer.ask(model, prompt, key)
+                r = fixer.agent_fix(proj, build, check, evidence)
             except Exception as e:
-                say(f"model call failed: {str(e)[:80]}", 3)
+                say(f"agent failed to start: {str(e)[:90]}", 3)
                 continue
-            prop = fixer.parse_proposal(text)
-            if not prop or not prop.get("file"):
-                why = (prop or {}).get("why") or f"finish={meta.get('finish')}"
-                say(f"no usable proposal ({str(why)[:70]})", 3)
+            say(f"finished: ok={r['ok']} tools={len(r['tools'])} "
+                f"cost=${r['cost_usd']:.4f}", 3)
+            if r.get("error"):
+                say(r["error"][:120], 3)
+            if r.get("text"):
+                say("said: " + r["text"].strip().splitlines()[-1][:110], 3)
+            touched = [l[-40:].strip()
+                       for l in git("status", "--porcelain").stdout.splitlines()
+                       if l.strip() and not l.strip().startswith("??")]
+            if not touched:
+                say("changed nothing — no fix to judge", 3)
                 continue
-            ok, msg = fixer.apply_proposal(prop)
-            say(f"{msg} — {str(prop.get('why'))[:80]}", 3)
-            if not ok:
-                continue
+            say(f"changed: {touched}", 3)
             if not rebuild_for(proj, build):
                 say("rebuild failed with the change — reverting", 3)
-                git("checkout", "--", prop["file"])
+                git("checkout", "--", ".")
                 continue
             after = fixer.doctor(proj, build)
             if after["checks"].get(check) == "FAIL":
                 say(f"'{check}' still fails — reverting", 3)
-                git("checkout", "--", prop["file"])
+                git("checkout", "--", ".")
                 continue
             clear, _ = corpus_clear()
             if not clear:
                 say("breaks another build in the corpus — reverting", 3)
-                git("checkout", "--", prop["file"])
+                git("checkout", "--", ".")
                 continue
             say(f"ACCEPTED — '{check}' passes and the corpus is clear", 3)
-            applied.append({"check": check, "file": prop["file"],
-                            "why": prop.get("why")})
+            applied.append({"check": check, "file": ", ".join(touched),
+                            "why": (r.get("text") or "").strip()[-120:]})
             progressed = True
             break
         if not progressed:
@@ -233,6 +243,17 @@ def main(argv):
     else:
         port_fails, port_fixes = ["conversion failed"], []
 
+    say("\n--- differential: anything no check looks for ---")
+    d = subprocess.run([sys.executable, str(ROOT / "aethron_diff.py"),
+                        str(proj), "--pair=migration:port"],
+                       capture_output=True, text=True, cwd=str(ROOT),
+                       timeout=5400)
+    for line in d.stdout.splitlines():
+        if any(k in line for k in ("noise floor", "DIFFERENCES", "missing "
+                                   "from", "VERDICT", "ELEMENTS")):
+            say(line.strip(), 1)
+    diff_clean = d.returncode == 0
+
     say("\n--- parity: does the port do everything the migration does? ---")
     r = subprocess.run([sys.executable, str(ROOT / "aethron_parity.py"),
                         str(proj), "--pair=migration:port"],
@@ -252,8 +273,8 @@ def main(argv):
         say(f"     {f['check']} -> {f['file']}: {str(f['why'])[:70]}", 1)
     if branch and branch.startswith("auto/"):
         say(f"  review with: git diff main...{branch}")
-    say("  NOTE: only defects the checks look for were examined. A failure "
-        "nobody has written a check for finishes 'clean'.")
+    say("  differential: " + ("no unexplained differences" if diff_clean
+                              else "FOUND differences no check looks for"))
     (ROOT / "tests" / f"auto-{proj.name}.log").write_text("\n".join(LOG))
     return 0 if not (mig_fails or port_fails) else 1
 
