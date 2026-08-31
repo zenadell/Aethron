@@ -96,6 +96,46 @@ def check_instrumentation(html: str, r: Result):
         r.add("instrumentation leak", "PASS", "no Aethron tooling in output")
 
 
+def check_shipped_assets(root: Path, r: Result):
+    """Scan EVERY shipped file, not the entry page.
+
+    `platform assets` read index.html, found nothing, and passed — while
+    447 absolute framerusercontent.com URLs sat inside the chunk files,
+    which is where the runtime builds its requests from. The migration
+    reported clean and would have failed the moment a user went offline.
+    A check that inspects one file cannot speak for a build."""
+    import re as _re
+    pat = _re.compile(r'https://(?:[a-z0-9.-]*website-files\.com'
+                      r'|framerusercontent\.com|d3e54v103j8qbb\.cloudfront'
+                      r'\.net)/[^"\'\s<>`\\)]+')
+    hits, files = 0, []
+    for f in sorted(root.rglob("*")):
+        if not f.is_file() or f.suffix.lower() not in (
+                ".html", ".js", ".mjs", ".css", ".json"):
+            continue
+        # `sources/` is the authored source recovered from the platform's
+        # own source maps — reference material for whoever inherits the
+        # project, referenced by no page and loaded by nothing. Counting
+        # it reported 217 platform urls on a build that fetches none.
+        if "sources/" in str(f.relative_to(root)).replace("\\", "/"):
+            continue
+        try:
+            n = len(pat.findall(f.read_text(errors="ignore")))
+        except Exception:
+            continue
+        if n:
+            hits += n
+            files.append(f"{n}x {f.relative_to(root)}")
+    if hits:
+        r.add("platform urls in shipped files", "FAIL",
+              f"{hits} absolute platform URL(s) across {len(files)} file(s) "
+              f"— these are fetched at runtime, so the build is not "
+              f"self-contained", files[:8])
+    else:
+        r.add("platform urls in shipped files", "PASS",
+              "no absolute platform URLs anywhere in the build")
+
+
 def check_dependencies(html: str, r: Result):
     """A copy that FETCHES its own code from someone else is rented.
 
@@ -534,6 +574,7 @@ def main(argv):
 
         check_instrumentation(html, r)
         check_dependencies(html, r)
+        check_shipped_assets(root, r)
         check_own_host_links(html, cfg, r)
         is_copy = name != "migration" and ref_html
         check_baked_state(html, r, ref_html if is_copy else None)

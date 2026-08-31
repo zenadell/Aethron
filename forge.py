@@ -2618,6 +2618,39 @@ def cmd_localize(_args):
         if (rdir / _local_name(u)).exists():
             lmap[u] = _local_name(u)
 
+    # round 3+: FOLLOW THE MODULE GRAPH.
+    #
+    # A downloaded JS module imports more modules, which import more
+    # again. Rounds 1 and 2 scanned pages and CSS, so the first layer of
+    # /modules/ came down and everything it referenced stayed on the
+    # platform CDN: 217 absolute URLs survived on createstudio, in files
+    # the entry-page check never opened. Keep harvesting what was just
+    # downloaded until a pass finds nothing new.
+    for depth in range(8):
+        more = set()
+        for u, fn in list(lmap.items()):
+            if not fn.lower().endswith((".js", ".mjs")):
+                continue
+            f = rdir / fn
+            if not f.is_file():
+                continue
+            more |= harvest(f.read_text(encoding="utf-8", errors="ignore"))
+        more = {u for u in more if u.startswith("http") and u not in lmap}
+        if not more:
+            break
+        jobs = [(u, rdir / _local_name(u)) for u in sorted(more)
+                if not (rdir / _local_name(u)).exists()]
+        if jobs:
+            download_many(jobs, f"assets (round {depth + 3} via js, "
+                                f"{len(jobs)} urls)")
+        added = 0
+        for u in more:
+            if (rdir / _local_name(u)).exists():
+                lmap[u] = _local_name(u)
+                added += 1
+        if not added:
+            break
+
     cfg["localized"] = lmap
     write_cfg(root, cfg)
     print(f"localized map: {len(lmap)} asset(s) -> pristine/remote-assets/")
