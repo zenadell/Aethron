@@ -97,12 +97,23 @@ PRICES = {
     "gpt-5": (1.25, 10.0), "gpt-5-mini": (0.25, 2.0),
 }
 
-LIMITS = {"requests": 200, "tokens": 2_000_000, "repeats": 3}
+# MONEY IS THE LIMIT THAT MEANS SOMETHING.
+#
+# A token cap cannot be set once for every model: the same 2M tokens is
+# $1.12 on one and $0.15 on another, and the guard stopped a working
+# agent 40 tool calls into a real investigation for fifteen cents of
+# actual spend. Cost is the thing being guarded, so cost is the thing to
+# count. The token and request caps stay as backstops for a runaway that
+# is somehow cheap, and every one is raisable for a run worth it.
+LIMITS = {"requests": int(os.environ.get("AETHRON_MAX_REQUESTS", "600")),
+          "tokens": int(os.environ.get("AETHRON_MAX_TOKENS_RUN", "20000000")),
+          "usd": float(os.environ.get("AETHRON_MAX_USD", "5.0")),
+          "repeats": 3}
 USED = {"requests": 0, "input": 0, "output": 0, "usd": 0.0,
         "last_hash": "", "repeats": 0, "stopped": ""}
 
 
-def set_limits(requests=None, tokens=None, repeats=None):
+def set_limits(requests=None, tokens=None, repeats=None, usd=None):
     for k, v in (("requests", requests), ("tokens", tokens),
                  ("repeats", repeats)):
         if v:
@@ -136,6 +147,11 @@ def _budget_check(body: dict) -> str:
                            f"(~${USED['usd']:.2f} spent, "
                            f"{USED['input'] + USED['output']:,} tokens). "
                            f"Raise it deliberately if this run is worth it.")
+        return USED["stopped"]
+    if USED["usd"] >= LIMITS["usd"]:
+        USED["stopped"] = (f"Aethron spend guard: ~${USED['usd']:.2f} spent, "
+                           f"which is the limit for this run. Raise "
+                           f"AETHRON_MAX_USD deliberately if it is worth it.")
         return USED["stopped"]
     total = USED["input"] + USED["output"]
     if total >= LIMITS["tokens"]:
