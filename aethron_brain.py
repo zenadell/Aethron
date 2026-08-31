@@ -74,8 +74,13 @@ DEFAULT = {"provider": "deepseek", "api_key": "", "model": "",
            # Spend guards. An agent that loops is an agent that spends,
            # so these are ON by default and deliberately low: a single
            # run that needs more should say so out loud.
-           "budget_requests": 200, "budget_tokens": 2_000_000,
-           "budget_usd": 2.0}
+           # A token ceiling cannot be set once for every model: 2M
+           # tokens is a dollar on one and fifteen cents on another, and
+           # this one stopped a working agent 36 tool calls in, twice, for
+           # 21 cents of real spend. Money is the cap that means
+           # something; tokens and requests are backstops.
+           "budget_requests": 600, "budget_tokens": 20_000_000,
+           "budget_usd": 1.0}
 
 
 # ────────────────────────── settings ─────────────────────────────────
@@ -206,9 +211,12 @@ def anthropic_endpoint(cfg: dict = None) -> dict:
             if _BRIDGE["srv"]:
                 _BRIDGE["srv"].shutdown()
             cfg_all = {**load(), **(cfg or {})}
+            # pass the DOLLAR cap too — it was defined here and never
+            # sent, so the bridge fell back to counting tokens alone
             aethron_bridge.set_limits(
                 requests=cfg_all.get("budget_requests"),
-                tokens=cfg_all.get("budget_tokens"))
+                tokens=cfg_all.get("budget_tokens"),
+                usd=cfg_all.get("budget_usd"))
             aethron_bridge.reset_usage()
             srv, url = aethron_bridge.start(
                 aethron_bridge.BridgeConfig(r["base"], r["key"], r["model"]))

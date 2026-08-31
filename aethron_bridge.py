@@ -118,6 +118,11 @@ def set_limits(requests=None, tokens=None, repeats=None, usd=None):
                  ("repeats", repeats)):
         if v:
             LIMITS[k] = int(v)
+    # the dollar cap is a float and was silently dropped by the int loop
+    # above — the parameter existed, the caller passed it, and the guard
+    # went on counting tokens
+    if usd:
+        LIMITS["usd"] = float(usd)
 
 
 def reset_usage():
