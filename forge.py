@@ -176,18 +176,28 @@ def _scrape_site(url: str, tmp: Path):
     'scraping' is just fetching the home page, discovering same-host
     routes from its nav links, and fetching each one. The rest of the
     pipeline (fetch/inventory/build) does the heavy lifting as usual."""
-    def get(u, tries=3):
-        """Framer's CDN closes big SSR responses early often enough that
-        a single read is not reliable — one IncompleteRead used to abort
-        the whole migration before it started. Retry, and accept a
-        partial body only when it is a complete document."""
+    def get(u, tries=6):
+        """Framer's CDN truncates big SSR responses, intermittently.
+
+        Measured on one 2.7MB page: three consecutive reads stopped at
+        170KB and killed the migration before it started, and the same
+        URL fetched whole minutes later. So this is a flaky transport,
+        not a broken page — the answer is persistence, and checking what
+        comes back rather than trusting a clean return.
+
+        A read that succeeds can STILL be short, so completeness is
+        judged the same way for both paths: a document that has no
+        </html> is not a document, whatever the socket said."""
         import http.client
         last = None
         for attempt in range(tries):
             try:
                 req = urllib.request.Request(u, headers=UA)
-                with urllib.request.urlopen(req, timeout=60) as r:
-                    return r.read().decode("utf-8", "ignore")
+                with urllib.request.urlopen(req, timeout=90) as r:
+                    body = r.read().decode("utf-8", "ignore")
+                if "</html>" in body.lower() or not body.lstrip()[:1] == "<":
+                    return body          # complete, or not html at all
+                last = RuntimeError("response ended before </html>")
             except http.client.IncompleteRead as e:
                 last = e
                 body = e.partial.decode("utf-8", "ignore")
@@ -197,7 +207,7 @@ def _scrape_site(url: str, tmp: Path):
                     return body
             except Exception as e:
                 last = e
-            time.sleep(1.5 * (attempt + 1))
+            time.sleep(min(8, 1.5 * (attempt + 1)))
         raise last or RuntimeError(f"could not fetch {u}")
 
     p = urllib.parse.urlparse(url)
