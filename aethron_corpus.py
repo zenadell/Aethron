@@ -224,12 +224,39 @@ def main(argv):
     if unseen:
         print(f"  new build(s) with no baseline: {', '.join(unseen[:6])}")
     if regressions:
-        print(f"  REGRESSIONS / FALSE POSITIVES: {len(regressions)}")
-        for key, name, was, now_s in regressions:
-            print(f"     {key}: {name}  ({was} -> {now_s})")
-        print("\n  VERDICT: STOP — a build that was good now fails a check.")
-        print("  Either the build broke, or the check does. Both need a "
-              "person.")
+        # TWO DIFFERENT FINDINGS, REPORTED SEPARATELY.
+        #
+        # Both stop the run, but they mean opposite things and lead to
+        # opposite investigations. A true regression means MY CHANGE broke
+        # a build that used to pass. A new check failing means the build
+        # was never judged on it — the defect may be years old, or the
+        # check may be crying wolf.
+        #
+        # Printing both under "a build that was good now fails a check"
+        # sent a reader hunting for a regression that did not exist: eight
+        # builds were flagged, the baseline held only seven checks, and
+        # none of the eight had ever been measured on the new one.
+        true_regs = [r for r in regressions if r[2] != "new check fails"]
+        new_fails = [r for r in regressions if r[2] == "new check fails"]
+        if true_regs:
+            print(f"  REGRESSIONS — was passing, now fails: {len(true_regs)}")
+            for key, name, was, now_s in true_regs:
+                print(f"     {key}: {name}  ({was} -> {now_s})")
+        if new_fails:
+            print(f"  NEW CHECK, NOT IN BASELINE — fails: {len(new_fails)}")
+            for key, name, _was, _now in new_fails:
+                print(f"     {key}: {name}")
+            print("     (never measured before: a real old defect, or the "
+                  "check is wrong. Not caused by this change.)")
+        print("\n  VERDICT: STOP —", end=" ")
+        if true_regs:
+            print("a build that was good now fails a check.")
+            print("  Either the build broke, or the check does. Both need a "
+                  "person.")
+        else:
+            print("a new check fails on builds it never judged before.")
+            print("  Confirm each is real, then fix it or the check, then "
+                  "re-baseline.")
         return 1
     print("  no regressions")
     print("\n  VERDICT: CLEAR — every known-good build still passes "
