@@ -318,6 +318,21 @@ def main(argv):
         say(f"  review with: git diff main...{branch}")
     say("  differential: " + ("no unexplained differences" if diff_clean
                               else "FOUND differences no check looks for"))
+    # WHAT IT ACTUALLY COST, in the one unit that is not a guess. Token
+    # counts come from the provider's own usage field and are exact; the
+    # dollar figure multiplies them by our PRICES table, which is an
+    # estimate nobody has ever checked against a real invoice. Printing
+    # both makes that comparison possible: read the tokens here, read the
+    # bill there, and the ratio settles whether the table is honest.
+    try:
+        import aethron_bridge
+        u = aethron_bridge.usage_report()
+        if u.get("requests"):
+            say(f"  spend: {u['requests']} request(s), "
+                f"{u['input']:,} in + {u['output']:,} out tokens "
+                f"= ~${u['usd']:.4f} by our price table (ESTIMATE)")
+    except Exception:
+        pass
     (ROOT / "tests" / f"auto-{proj.name}.log").write_text("\n".join(LOG))
     return 0 if not (mig_fails or port_fails) else 1
 
