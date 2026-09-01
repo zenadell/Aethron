@@ -27,6 +27,7 @@ Run it standalone:
 """
 import json
 import os
+import re
 import sys
 import time
 import urllib.parse
@@ -712,6 +713,16 @@ def _handler(cfg: BridgeConfig, log=None):
                         last = e
                         if e.code not in (429, 500, 502, 503, 529):
                             raise
+                        # A QUOTA WALL IS NOT A RATE LIMIT. Both arrive as
+                        # 429 and they need opposite answers: a per-minute
+                        # limit clears if you wait, an exhausted plan quota
+                        # does not clear today no matter how long you sit
+                        # there. Waiting on one burned the agent's entire
+                        # 420s idle window in silence and reported "the
+                        # agent went silent" — about an agent that was
+                        # never given a single answer.
+                        if _is_quota_wall(e):
+                            raise
                         rate_limited = rate_limited or e.code in (429, 503)
                         cfg.rotate()
                         time.sleep(0.6)
@@ -837,12 +848,52 @@ def _handler(cfg: BridgeConfig, log=None):
     return H
 
 
+def _error_body(e) -> str:
+    """Read an HTTPError body ONCE and remember it.
+
+    e.read() is a stream: the second reader gets an empty string. The
+    quota check and the message formatter both want it, and whichever ran
+    second used to silently report nothing.
+    """
+    if not hasattr(e, "_aethron_body"):
+        try:
+            e._aethron_body = e.read().decode("utf8", "replace")
+        except Exception:
+            e._aethron_body = ""
+    return e._aethron_body
+
+
+# A plan quota that is spent says so in words, not in the status code.
+QUOTA_WALL_RE = re.compile(
+    r"(?i)exceeded your current quota|billing details|quota_?exceeded"
+    r"|insufficient[_ ]quota|out of credit|exceeded your monthly")
+
+
+def _is_quota_wall(e) -> bool:
+    """True when waiting cannot help: the plan's allowance is gone.
+
+    Free-tier keys return 429 for two unrelated conditions — "too many
+    requests this minute", which clears in under a minute, and "your
+    quota is spent", which does not clear today. Treating the second as
+    the first made the bridge wait out its whole budget and the agent die
+    of silence, with the real reason sitting in the response body all
+    along: "You exceeded your current quota, please check your plan and
+    billing details."
+    """
+    return bool(QUOTA_WALL_RE.search(_error_body(e)))
+
+
 def _upstream_error(e) -> str:
+    body = _error_body(e)
     try:
-        detail = json.loads(e.read())
+        detail = json.loads(body)
         msg = (detail.get("error") or {}).get("message") or json.dumps(detail)
     except Exception:
-        msg = e.reason if hasattr(e, "reason") else str(e)
+        msg = body or (e.reason if hasattr(e, "reason") else str(e))
+    if _is_quota_wall(e):
+        return (f"upstream {e.code}: the API key's quota is SPENT, not "
+                f"rate-limited — waiting will not help today. Use another "
+                f"provider/key or top up the plan. ({str(msg)[:220]})")
     return f"upstream {e.code}: {str(msg)[:400]}"
 
 
