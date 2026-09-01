@@ -246,6 +246,81 @@ def doctor(project: Path, build: str) -> dict:
     return {"checks": checks, "details": details, "raw": r.stdout}
 
 
+PLATFORM_URL_RE = re.compile(
+    r'https://(?:[a-z0-9.-]*website-files\.com|framerusercontent\.com'
+    r'|d3e54v103j8qbb\.cloudfront\.net)/[^"\'\s<>`\\)]+')
+
+
+def _project_side_evidence(project: Path, build: str, report: dict,
+                           check: str) -> list:
+    """Name the offending values, and say when they are CONTENT not code.
+
+    The agent cannot fix what it has not been shown. Pointing it at the
+    pipeline while withholding the actual string is how a well-specified
+    defect becomes an open-ended search of the repository.
+    """
+    site = project / ("convert-astro" if build == "port" else "site")
+    if not site.is_dir():
+        return []
+    out, seen = [], {}
+    for f in sorted(site.rglob("*")):
+        if not f.is_file() or f.suffix.lower() not in (
+                ".html", ".js", ".mjs", ".css", ".json"):
+            continue
+        rel = str(f.relative_to(site)).replace("\\", "/")
+        if "sources/" in rel or rel.startswith("ANIMATIONS/") \
+                or "/ANIMATIONS/" in rel or Path(rel).name.startswith(".forge-"):
+            continue
+        try:
+            for u in PLATFORM_URL_RE.findall(f.read_text(errors="ignore")):
+                seen.setdefault(u, []).append(rel)
+        except Exception:
+            continue
+    if not seen:
+        return []
+    out.append("THE OFFENDING VALUES, verbatim:")
+    for u, files in list(seen.items())[:8]:
+        out.append(f"  {u}")
+        out.append(f"     in: {', '.join(sorted(set(files))[:3])}")
+
+    # where did they come from? a value present in copy_map is CONTENT.
+    cmp_path = project / "copy_map.json"
+    if cmp_path.is_file():
+        try:
+            cm = json.loads(cmp_path.read_text())
+        except Exception:
+            cm = None
+        hits = []
+        if isinstance(cm, dict):
+            for section, entries in cm.items():
+                if not isinstance(entries, list):
+                    continue
+                for i, e in enumerate(entries):
+                    if not isinstance(e, dict):
+                        continue
+                    for u in seen:
+                        if u.split("?")[0] in str(e.get("new") or ""):
+                            hits.append((section, i, e))
+                            break
+        if hits:
+            out += ["", "THESE CAME FROM copy_map.json — THIS IS CONTENT, "
+                        "NOT A PIPELINE BUG:"]
+            for section, i, e in hits[:5]:
+                out.append(f'  copy_map["{section}"][{i}].new = '
+                           f'{str(e.get("new"))[:100]}')
+                out.append(f'     .old = {str(e.get("old"))[:80]}')
+            out += ["",
+                    "FIX IT AS CONTENT. Change the entry's value with "
+                    "mcp__aethron__set_content (or set_content_bulk) so it "
+                    "points at a local asset instead of the platform CDN, "
+                    "then build. Do NOT edit forge.py, aethron_doctor.py or "
+                    "any other pipeline file for this: the pipeline is "
+                    "shipping exactly the value it was given, which is "
+                    "correct behaviour."]
+    out.append("")
+    return out
+
+
 def evidence_for(project: Path, build: str, check: str, report: dict) -> str:
     """The defect, its evidence, and the source most likely to contain it."""
     lines = [f"DEFECT: {check}",
@@ -260,7 +335,19 @@ def evidence_for(project: Path, build: str, check: str, report: dict) -> str:
                 check.replace(" ", "_") in m.group(1):
             lines += ["WHAT THIS CHECK MEANS:", m.group(2).strip(), ""]
             break
-    lines.append("RELEVANT SOURCE (excerpts):")
+    # IS THIS A PIPELINE BUG OR A CONTENT VALUE? The two need opposite
+    # fixes and the evidence used to describe only the first, under the
+    # heading "the source most likely to contain it" — so the agent went
+    # looking in forge.py for a defect that lived in one copy_map entry.
+    # Measured: 15 tool calls and 1.98M input tokens spent reading
+    # pipeline source, with the actual offending value never mentioned.
+    #
+    # A value that appears in the build AND in copy_map.json came from
+    # the owner's own content, and the guarded content tools change it.
+    # Nothing in the pipeline is broken and editing it would be wrong.
+    lines += _project_side_evidence(project, build, report, check)
+    lines.append("RELEVANT PIPELINE SOURCE (excerpts) — only useful if the "
+                 "defect is in the pipeline itself, not in project content:")
     for name in EDITABLE:
         p = ROOT / name
         if not p.is_file():
