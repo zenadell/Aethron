@@ -208,6 +208,28 @@ def reset_usage():
                 repeats=0, stopped="", loop_stopped="")
 
 
+def _retry_not_repeat():
+    """An upstream failure means the next identical request is a RETRY.
+
+    The repeat detector exists to catch an agent asking the same thing
+    over and over because it is stuck. A client re-sending a request that
+    never got an answer is the opposite: correct behaviour, and the only
+    way to survive a transient error.
+
+    Free-tier keys make this the common case, not the rare one. They are
+    rate-limited per minute, so 429s are expected — that is exactly why
+    the pool has four keys — and when every key is briefly exhausted the
+    CLI retries. Measured: the very first call of a session went out three
+    times, the detector latched, and the session died having made ZERO
+    tool calls, reporting "the agent is looping" about a model that had
+    not yet been given the chance to say anything.
+
+    Forgetting the hash after a failure costs nothing: a genuinely stuck
+    agent repeats requests that SUCCEED, and those still latch.
+    """
+    USED["last_hash"], USED["repeats"] = "", 0
+
+
 def reset_loop_guard():
     """Start a fresh conversation with a fresh loop detector.
 
@@ -675,8 +697,10 @@ def _handler(cfg: BridgeConfig, log=None):
                 with self._open_rotating(req) as r:
                     data = json.loads(r.read())
             except urllib.error.HTTPError as e:
+                _retry_not_repeat()
                 return self._error(e.code, _upstream_error(e))
             except Exception as e:
+                _retry_not_repeat()
                 return self._error(502, f"bridge could not reach "
                                         f"{cfg.base_url}: {e}")
             self._say(200, from_openai_message(data, cfg.model))
@@ -685,8 +709,10 @@ def _handler(cfg: BridgeConfig, log=None):
             try:
                 up = self._open_rotating(req)
             except urllib.error.HTTPError as e:
+                _retry_not_repeat()
                 return self._error(e.code, _upstream_error(e))
             except Exception as e:
+                _retry_not_repeat()
                 return self._error(502, f"bridge could not reach "
                                         f"{cfg.base_url}: {e}")
             self.send_response(200)
