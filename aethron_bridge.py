@@ -182,8 +182,25 @@ def set_limits(requests=None, tokens=None, repeats=None, usd=None):
     # the dollar cap is a float and was silently dropped by the int loop
     # above — the parameter existed, the caller passed it, and the guard
     # went on counting tokens
-    if usd:
-        LIMITS["usd"] = float(usd)
+    #
+    # A FREE-TIER KEY HAS NO DOLLARS TO CAP, and `if usd:` made 0 mean
+    # "unset" rather than "no limit", so there was no way to say so. The
+    # cost is an ESTIMATE from the PRICES table; on a free-tier key the
+    # real figure is always $0.00, and the guard stopped a working agent
+    # 32 tool calls in, reporting "~$4.02 spent" that never existed.
+    # Nothing about that run was expensive — it was free, and cut short.
+    #
+    # 0 or negative now means no dollar limit. That is safe because money
+    # was never the only stop: the request cap, the token cap, the repeat
+    # detector and the idle limit all still apply, and on a free tier the
+    # binding constraint is requests-per-minute anyway — which is what
+    # the key pool exists to spread.
+    if usd is not None:
+        try:
+            _u = float(usd)
+        except (TypeError, ValueError):
+            _u = 0.0
+        LIMITS["usd"] = _u if _u > 0 else float("inf")
 
 
 def reset_usage():
