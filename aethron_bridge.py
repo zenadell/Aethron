@@ -95,6 +95,10 @@ PRICES = {
     "deepseek-chat": (0.27, 1.10), "deepseek-reasoner": (0.55, 2.19),
     "gemini-2.5-flash": (0.30, 2.50), "gemini-2.5-pro": (1.25, 10.0),
     "gpt-5": (1.25, 10.0), "gpt-5-mini": (0.25, 2.0),
+    "gemini-3.7-flash": (0.75, 3.75), "gemini-3.6-flash": (0.75, 3.75),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-3.1-pro-preview": (2.00, 12.0),
 }
 
 # MONEY IS THE LIMIT THAT MEANS SOMETHING.
@@ -412,9 +416,30 @@ class BridgeConfig:
 
     def __init__(self, base_url, api_key, model="", token="aethron"):
         self.base_url = (base_url or "").rstrip("/")
-        self.api_key = api_key or ""
+        # A POOL, not a key. Providers refuse for reasons that have
+        # nothing to do with the request — two of four Gemini keys
+        # answered 503 "high demand" on the same prompt in the same
+        # second — and a run should not die because one key was unlucky.
+        # A plain string still works; it is a pool of one.
+        if isinstance(api_key, (list, tuple)):
+            self.keys = [k for k in api_key if k]
+        else:
+            self.keys = [k for k in str(api_key or "").split(",") if k.strip()]
+        self.keys = [k.strip() for k in self.keys]
+        self._k = 0
         self.model = model or ""
         self.token = token          # what the CLI must present to US
+
+    @property
+    def api_key(self):
+        return self.keys[self._k] if self.keys else ""
+
+    def rotate(self) -> bool:
+        """-> True when another key is worth trying."""
+        if len(self.keys) < 2:
+            return False
+        self._k = (self._k + 1) % len(self.keys)
+        return True
 
     @property
     def endpoint(self):
@@ -495,9 +520,31 @@ def _handler(cfg: BridgeConfig, log=None):
                                        json.dumps(req).encode(), headers)
             return urllib.request.urlopen(r, timeout=600)
 
+        def _open_rotating(self, req, tries=None):
+            """Try the pool. 429 and 503 are the provider's problem, not
+            the prompt's, so another key is a real answer to them."""
+            import urllib.error
+            attempts = tries or max(1, len(cfg.keys))
+            last = None
+            for i in range(attempts):
+                try:
+                    return self._open(req)
+                except urllib.error.HTTPError as e:
+                    last = e
+                    if e.code not in (429, 500, 502, 503, 529):
+                        raise
+                    if not cfg.rotate():
+                        raise
+                    time.sleep(0.6)
+                except Exception as e:
+                    last = e
+                    if not cfg.rotate():
+                        raise
+            raise last
+
         def _once(self, req):
             try:
-                with self._open(req) as r:
+                with self._open_rotating(req) as r:
                     data = json.loads(r.read())
             except urllib.error.HTTPError as e:
                 return self._error(e.code, _upstream_error(e))
@@ -508,7 +555,7 @@ def _handler(cfg: BridgeConfig, log=None):
 
         def _stream(self, req, original):
             try:
-                up = self._open(req)
+                up = self._open_rotating(req)
             except urllib.error.HTTPError as e:
                 return self._error(e.code, _upstream_error(e))
             except Exception as e:
