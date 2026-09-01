@@ -117,7 +117,25 @@ def check_shipped_assets(root: Path, r: Result):
         # own source maps — reference material for whoever inherits the
         # project, referenced by no page and loaded by nothing. Counting
         # it reported 217 platform urls on a build that fetches none.
-        if "sources/" in str(f.relative_to(root)).replace("\\", "/"):
+        # `ANIMATIONS/` is the same thing one level on: the authored
+        # components recovered from the source maps, shipped into a port
+        # as reference material with its own README. Nothing loads it —
+        # measured zero references from anything outside the folder — so
+        # its platform URLs are quotations of the original code, not
+        # fetches. Counting it reported 700 platform URLs on a port whose
+        # real defect was 2, and two unattended runs spent hours handing
+        # that phantom to a model that could never fix it.
+        _rel = str(f.relative_to(root)).replace("\\", "/")
+        if "sources/" in _rel or _rel.startswith("ANIMATIONS/") \
+                or "/ANIMATIONS/" in _rel:
+            continue
+        # forge's OWN dot-files are records of the build, not part of it.
+        # .forge-report.json stores every copy_map pair, and an image pair
+        # is {old: <the platform url>, new: …} — so the report necessarily
+        # quotes the URLs the build removed. Counting them made three
+        # corpus projects fail for having documented their own fix, while
+        # the four with a genuine leak looked like the same problem.
+        if Path(_rel).name.startswith(".forge-"):
             continue
         try:
             n = len(pat.findall(f.read_text(errors="ignore")))

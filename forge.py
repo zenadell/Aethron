@@ -1945,6 +1945,27 @@ def cmd_build(_args):
                     if absu in lmap:
                         css = css.replace(rel, "/assets/r/" + lmap[absu])
                 (adir / fn).write_text(css, encoding="utf-8")
+            elif fn.lower().endswith((".js", ".mjs", ".json")):
+                # A LOCALIZED MODULE STILL IMPORTS ITS OWN IMPORTS.
+                #
+                # localize follows the module graph and downloads every
+                # layer, so the files were all here — but only .css was
+                # rewritten on the way into the build. A downloaded .js
+                # was copied byte-for-byte, absolute platform URLs and
+                # all, so the deepest layer of the graph still pointed at
+                # the CDN after a "successful" localize.
+                #
+                # The lazy form is why this survived so long:
+                #     C=[()=>import("https://framerusercontent.com/…js")]
+                # It is fetched only when that component mounts, so the
+                # page renders, the markup scans are clean, and the
+                # runtime probe records zero platform requests. Measured
+                # on mondragon: 2 modules, 58KB, already downloaded and
+                # mapped, still served from Framer.
+                (adir / fn).write_text(
+                    _localize_refs(src.read_text(encoding="utf-8",
+                                                 errors="ignore"), lmap),
+                    encoding="utf-8")
             else:
                 shutil.copy(src, adir / fn)
             n_loc += 1
@@ -2614,6 +2635,24 @@ def cmd_localize(_args):
             continue
         css = (rdir / fn).read_text(encoding="utf-8", errors="ignore")
         extra |= harvest(css)
+        # ABSOLUTE url() NEEDS ITS OWN READING INSIDE CSS.
+        #
+        # REMOTE_ASSET_RE deliberately allows parentheses, because Webflow
+        # ships filenames like "fav-icon (1).png" and stopping at "(" cut
+        # those in half. In MINIFIED css that generosity backfires: url()
+        # has no other delimiter, so the match runs past the closing paren
+        # into the next declaration and harvests
+        #     .../background-image.svg);backgr
+        # which 404s. rstrip(",);.") cannot repair it — the junk is in the
+        # middle, not the tail — so localize honestly reported the asset
+        # "unavailable" and the platform URL stayed in the shipped css.
+        # Measured on test-2: 8 of 8 round-2 downloads failed this way,
+        # every one of them reachable when asked for properly.
+        #
+        # Inside url(...) the paren IS the delimiter, so read it as such
+        # here and leave the permissive pattern for markup attributes.
+        for absu in re.findall(r"url\(\s*['\"]?(https?://[^'\")\s]+)", css):
+            extra.add(absu.split("#")[0])
         base_dir = u.rsplit("/", 1)[0]
         for rel in re.findall(r"url\(\s*['\"]?(?!https?:|data:|//|#)"
                               r"([^'\")\s]+)", css):
