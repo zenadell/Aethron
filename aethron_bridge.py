@@ -162,6 +162,13 @@ LIMITS = {"requests": int(os.environ.get("AETHRON_MAX_REQUESTS", "600")),
 # Raise this only together with the idle limit in aethron_code, never alone.
 UPSTREAM_TIMEOUT = float(os.environ.get("AETHRON_UPSTREAM_TIMEOUT", "90"))
 
+# How long to keep waiting out a rate limit, and how long to pause between
+# passes over the key pool. A free-tier per-minute window needs more than
+# one 60s wait to clear reliably; the total stays well under the agent's
+# 420s idle limit so a wait never reads as a wedged session.
+RATE_BACKOFF = (5, 15, 30, 60)
+RATE_LIMIT_BUDGET = float(os.environ.get("AETHRON_RATE_BUDGET", "180"))
+
 # TWO LATCHES, NOT ONE. Money, requests and tokens are spent by the RUN and
 # must stay latched across sessions — that is the whole point of a cap. A
 # repeat loop is a property of ONE stuck conversation, and the cure for it is
@@ -671,25 +678,51 @@ def _handler(cfg: BridgeConfig, log=None):
             return urllib.request.urlopen(r, timeout=UPSTREAM_TIMEOUT)
 
         def _open_rotating(self, req, tries=None):
-            """Try the pool. 429 and 503 are the provider's problem, not
-            the prompt's, so another key is a real answer to them."""
+            """Try the pool, then WAIT and try the pool again.
+
+            429 and 503 are the provider's problem, not the prompt's, so
+            another key is a real answer to them. But rotation alone only
+            answers "this key is exhausted" — it cannot answer "ALL of
+            them are", which is the ordinary case on a free tier, where
+            the limit is per MINUTE and the pool exists to widen a window
+            that still closes.
+
+            One pass with 0.6s pauses spent about 2.4 seconds before
+            giving up on a limit that clears in 60. Measured: an agent got
+            two real tool calls in and died on "upstream 429" with every
+            key merely resting.
+
+            So a rate limit now gets waited out, in passes, with a hard
+            deadline well inside the agent's idle limit (420s) — long
+            enough to outlast a per-minute window, short enough that a
+            genuinely dead upstream still fails fast. Errors that are NOT
+            rate limits keep the old single-pass behaviour: retrying those
+            just wastes the same time twice.
+            """
             import urllib.error
-            attempts = tries or max(1, len(cfg.keys))
-            last = None
-            for i in range(attempts):
-                try:
-                    return self._open(req)
-                except urllib.error.HTTPError as e:
-                    last = e
-                    if e.code not in (429, 500, 502, 503, 529):
-                        raise
-                    if not cfg.rotate():
-                        raise
-                    time.sleep(0.6)
-                except Exception as e:
-                    last = e
-                    if not cfg.rotate():
-                        raise
+            pool = tries or max(1, len(cfg.keys))
+            deadline = time.time() + RATE_LIMIT_BUDGET
+            last, waits = None, list(RATE_BACKOFF)
+            while True:
+                rate_limited = False
+                for _ in range(pool):
+                    try:
+                        return self._open(req)
+                    except urllib.error.HTTPError as e:
+                        last = e
+                        if e.code not in (429, 500, 502, 503, 529):
+                            raise
+                        rate_limited = rate_limited or e.code in (429, 503)
+                        cfg.rotate()
+                        time.sleep(0.6)
+                    except Exception as e:
+                        last = e
+                        cfg.rotate()
+                # only a rate limit is worth waiting on, and only while
+                # there is budget left to wait with
+                if not (rate_limited and waits and time.time() < deadline):
+                    break
+                time.sleep(min(waits.pop(0), max(0, deadline - time.time())))
             raise last
 
         def _once(self, req):
