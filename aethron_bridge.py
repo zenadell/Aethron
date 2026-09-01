@@ -28,6 +28,7 @@ Run it standalone:
 import json
 import os
 import sys
+import time
 import urllib.parse
 import threading
 import urllib.error
@@ -142,6 +143,25 @@ LIMITS = {"requests": int(os.environ.get("AETHRON_MAX_REQUESTS", "600")),
           "tokens": int(os.environ.get("AETHRON_MAX_TOKENS_RUN", "20000000")),
           "usd": float(os.environ.get("AETHRON_MAX_USD", "5.0")),
           "repeats": 3}
+# A HANGING KEY MUST LOSE ITS TURN BEFORE THE AGENT LOSES ITS SESSION.
+#
+# Rotation already treats any upstream exception as "try the next key", and
+# a socket timeout is an exception — so this was believed handled. It was
+# not, because of an ordering nobody checked: the upstream read waited 600s
+# while the agent's idle guard stops a silent session at 420s. The session
+# always died 180s BEFORE rotation could fire, so one bad key wasted the
+# whole run and three good ones sat unused.
+#
+# Measured: of four Gemini keys, three answer in ~1s and one never answers
+# at all. A key that ERRORS rotates fine; a key that HANGS looked exactly
+# like a model with nothing to say ("the agent went silent for 420s"),
+# which is why it read as a capability failure for two runs.
+#
+# The whole sweep must therefore fit inside the idle budget:
+#     4 keys x 90s = 360s  <  420s idle guard
+# Raise this only together with the idle limit in aethron_code, never alone.
+UPSTREAM_TIMEOUT = float(os.environ.get("AETHRON_UPSTREAM_TIMEOUT", "90"))
+
 # TWO LATCHES, NOT ONE. Money, requests and tokens are spent by the RUN and
 # must stay latched across sessions — that is the whole point of a cap. A
 # repeat loop is a property of ONE stuck conversation, and the cure for it is
@@ -576,7 +596,7 @@ def _handler(cfg: BridgeConfig, log=None):
                 headers["Authorization"] = "Bearer " + cfg.api_key
             r = urllib.request.Request(cfg.endpoint,
                                        json.dumps(req).encode(), headers)
-            return urllib.request.urlopen(r, timeout=600)
+            return urllib.request.urlopen(r, timeout=UPSTREAM_TIMEOUT)
 
         def _open_rotating(self, req, tries=None):
             """Try the pool. 429 and 503 are the provider's problem, not
@@ -944,6 +964,71 @@ def selftest() -> int:
     set_limits(requests=200, tokens=2_000_000, repeats=3)
     srv2.shutdown()
     up2.shutdown()
+
+    # A KEY THAT HANGS MUST LOSE ITS TURN, NOT THE RUN.
+    # Rotation handles a key that ERRORS. A key that never answers is the
+    # dangerous one: it blocked the upstream read for longer than the
+    # agent's idle guard allows, so the session was killed before another
+    # key was ever tried, and the log said "the agent went silent" — which
+    # reads as a model with nothing to say, not as one bad credential.
+    global UPSTREAM_TIMEOUT
+    _saved_to, UPSTREAM_TIMEOUT = UPSTREAM_TIMEOUT, 3.0
+    HANGS, GOOD = "key-that-hangs", "key-that-works"
+    tried = []
+
+    class _Up3(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            key = (self.headers.get("Authorization") or "").replace(
+                "Bearer ", "")
+            tried.append(key)
+            if key == HANGS:
+                time.sleep(30)            # answers nothing, ever
+                return
+            out = json.dumps(
+                {"id": "x", "choices": [{"message": {
+                    "role": "assistant", "content": "ok"},
+                    "finish_reason": "stop"}],
+                 "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    up3 = ThreadingHTTPServer(("127.0.0.1", 0), _Up3)
+    threading.Thread(target=up3.serve_forever, daemon=True).start()
+    cfg3 = BridgeConfig(f"http://127.0.0.1:{up3.server_address[1]}",
+                        [HANGS, GOOD], model="m")
+    srv3, url3 = start(cfg3)
+    reset_usage()
+    t0 = time.time()
+    answered = ""
+    try:
+        rq = urllib.request.Request(
+            url3 + "/v1/messages",
+            data=json.dumps({"model": "claude", "max_tokens": 16,
+                             "messages": [{"role": "user",
+                                           "content": "hi"}]}).encode(),
+            headers={"Content-Type": "application/json",
+                     "x-api-key": "aethron"})
+        with urllib.request.urlopen(rq, timeout=60) as rs:
+            answered = "".join(c.get("text", "") for c in
+                               json.loads(rs.read()).get("content", []))
+    except Exception as e:
+        answered = f"<{type(e).__name__}>"
+    took = time.time() - t0
+    ck("a hanging key rotates instead of killing the session",
+       answered == "ok" and took < 20 and tried[:2] == [HANGS, GOOD],
+       f"{answered!r} in {took:.1f}s, tried={tried}")
+    UPSTREAM_TIMEOUT = _saved_to
+    reset_usage()
+    srv3.shutdown()
+    up3.shutdown()
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
