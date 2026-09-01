@@ -259,9 +259,42 @@ def _budget_check(body: dict) -> str:
     if h == USED["last_hash"]:
         USED["repeats"] += 1
         if USED["repeats"] >= LIMITS["repeats"]:
+            # SAY WHAT REPEATED. "The agent is looping" is a verdict about
+            # the model, and this guard cannot support it on its own: the
+            # CLI also makes auxiliary calls (titles, summaries) carrying a
+            # short message list of their own, and three of those in a row
+            # look identical to a detector hashing the last two messages.
+            # Blaming the model for the harness's own traffic is exactly
+            # the mistake the healer battery made with a turn counter.
+            # Record the shape of what repeated so the reader can tell a
+            # stuck agent from ordinary chatter.
+            msgs = body.get("messages") or []
+            last = msgs[-1] if msgs else {}
+            content = last.get("content")
+            if isinstance(content, list):
+                kinds = [c.get("type", "?") for c in content
+                         if isinstance(c, dict)]
+                names = [c.get("name", "") for c in content
+                         if isinstance(c, dict) and c.get("type") == "tool_use"]
+                shape = f"{'+'.join(kinds) or 'empty'}"
+                if names:
+                    shape += f" ({', '.join(n for n in names if n)})"
+                preview = ""
+                for c in content:
+                    if isinstance(c, dict) and c.get("type") == "text":
+                        preview = str(c.get("text", ""))[:70]
+                        break
+            else:
+                shape = "text"
+                preview = str(content or "")[:70]
             USED["loop_stopped"] = (
                 f"Aethron spend guard: the same request {USED['repeats']} "
-                f"times in a row — the agent is looping, not working. Stopped.")
+                f"times in a row. Stopped. Repeated payload: "
+                f"{len(msgs)} message(s), last is {last.get('role','?')}/"
+                f"{shape}"
+                + (f" — {preview!r}" if preview else "")
+                + ". A long conversation here means the AGENT is stuck; a "
+                  "short one means it was the CLI's own auxiliary traffic.")
             return USED["loop_stopped"]
     else:
         USED["last_hash"], USED["repeats"] = h, 0
