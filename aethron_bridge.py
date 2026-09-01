@@ -52,6 +52,35 @@ MAX_TOKENS_CAP = int(os.environ.get("AETHRON_MAX_TOKENS_CAP", "16000"))
 _REASONING = {}
 _REASONING_MAX = 200
 
+# GEMINI 3.x does the same thing with a different name and a stricter
+# rule: every functionCall it emits carries a `thought_signature`, and
+# sending that call back WITHOUT the signature is a hard 400 — "Function
+# call is missing a thought_signature in functionCall parts. This is
+# required for tools to work correctly." So the agent died on its second
+# tool call, every time, on every key. Same shape as the DeepSeek fix
+# above: remember it against the call id, re-attach on the way out.
+_SIGNATURES = {}
+
+
+def _sig_of(tc: dict):
+    """Where Gemini actually puts it: tool_calls[].extra_content.google
+    .thought_signature — not a top-level field, which is why the first
+    reading of the error found nothing to carry."""
+    extra = tc.get("extra_content") or {}
+    google = extra.get("google") or {}
+    return (google.get("thought_signature")
+            or tc.get("thought_signature")
+            or (tc.get("function") or {}).get("thought_signature"))
+
+
+def _remember_sig(call_id: str, sig: str):
+    if not call_id or not sig:
+        return
+    if len(_SIGNATURES) > _REASONING_MAX:
+        for k in list(_SIGNATURES)[:_REASONING_MAX // 2]:
+            _SIGNATURES.pop(k, None)
+    _SIGNATURES[call_id] = sig
+
 
 def _remember(key: str, text: str):
     if not key or not text:
@@ -243,6 +272,11 @@ def to_openai(body: dict, model: str = "") -> dict:
             reasoning = _recall(m)
             if reasoning:
                 m["reasoning_content"] = reasoning
+            for tc in tool_calls:
+                sig = _SIGNATURES.get(tc.get("id"))
+                if sig:
+                    tc["extra_content"] = {"google":
+                                           {"thought_signature": sig}}
             msgs.append(m)
         elif text_parts or not tool_results:
             msgs.append({"role": role, "content": "\n".join(text_parts)})
@@ -384,6 +418,10 @@ def from_openai_message(data: dict, model: str) -> dict:
     if msg.get("reasoning_content"):
         for tc in msg.get("tool_calls") or []:
             _remember(tc.get("id", ""), msg["reasoning_content"])
+    for tc in msg.get("tool_calls") or []:
+        sig = _sig_of(tc)
+        if sig:
+            _remember_sig(tc.get("id", ""), sig)
     content = []
     if msg.get("content"):
         content.append({"type": "text", "text": msg["content"]})
@@ -586,6 +624,7 @@ def _handler(cfg: BridgeConfig, log=None):
             stop, usage = None, {}
             names = {}
             reasoning, call_ids, text_seen = [], [], []
+            sigs = {}          # gemini: per-call thought_signature
             try:
                 for line in up:
                     line = line.decode("utf-8", "replace").strip()
@@ -608,6 +647,10 @@ def _handler(cfg: BridgeConfig, log=None):
                         delta = ch.get("delta") or {}
                         if delta.get("reasoning_content"):
                             reasoning.append(delta["reasoning_content"])
+                        for tc in (delta.get("tool_calls") or []):
+                            sg = _sig_of(tc)
+                            if sg and tc.get("id"):
+                                sigs[tc["id"]] = sg
                         if delta.get("content"):
                             text_seen.append(delta["content"])
                             out.text(delta["content"])
@@ -627,6 +670,8 @@ def _handler(cfg: BridgeConfig, log=None):
             except Exception as e:                       # upstream died
                 out.text(f"\n[bridge: upstream stream failed: {e}]")
             finally:
+                for cid, sg in (sigs or {}).items():
+                    _remember_sig(cid, sg)
                 blob = "".join(reasoning)
                 if blob:
                     for cid in call_ids:
