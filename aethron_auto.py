@@ -184,8 +184,12 @@ def fix_loop(proj, build, key, model, allow_fix=True):
             # hit the spend cap went and edited the spend cap — following
             # the error message to its source, which is reasonable
             # behaviour and still exactly what must not happen.
+            # aethron_auto.py is on this list because it is the referee:
+            # it decides what failed, what counts as fixed, and what gets
+            # reverted. An agent editing it can pass itself.
             GUARDED = ("aethron_bridge.py", "aethron_brain.py",
-                       "aethron_fixer.py", "aethron_corpus.py")
+                       "aethron_fixer.py", "aethron_corpus.py",
+                       "aethron_auto.py")
             crossed = [f for f in GUARDED if any(f in c for c in touched)]
             if crossed:
                 say(f"REFUSED — it edited its own limits ({crossed}); "

@@ -142,8 +142,16 @@ LIMITS = {"requests": int(os.environ.get("AETHRON_MAX_REQUESTS", "600")),
           "tokens": int(os.environ.get("AETHRON_MAX_TOKENS_RUN", "20000000")),
           "usd": float(os.environ.get("AETHRON_MAX_USD", "5.0")),
           "repeats": 3}
+# TWO LATCHES, NOT ONE. Money, requests and tokens are spent by the RUN and
+# must stay latched across sessions — that is the whole point of a cap. A
+# repeat loop is a property of ONE stuck conversation, and the cure for it is
+# a new conversation. Sharing a latch made the cure impossible: the first
+# session to loop poisoned every session after it, which arrived pre-rejected
+# and reported "ok=False tools=0 cost=$0.0000" — indistinguishable from a
+# model that read the task and declined it. Measured on mondragon: attempt 2
+# never made a single request.
 USED = {"requests": 0, "input": 0, "output": 0, "usd": 0.0,
-        "last_hash": "", "repeats": 0, "stopped": ""}
+        "last_hash": "", "repeats": 0, "stopped": "", "loop_stopped": ""}
 
 
 def set_limits(requests=None, tokens=None, repeats=None, usd=None):
@@ -160,7 +168,17 @@ def set_limits(requests=None, tokens=None, repeats=None, usd=None):
 
 def reset_usage():
     USED.update(requests=0, input=0, output=0, usd=0.0, last_hash="",
-                repeats=0, stopped="")
+                repeats=0, stopped="", loop_stopped="")
+
+
+def reset_loop_guard():
+    """Start a fresh conversation with a fresh loop detector.
+
+    Deliberately does NOT touch requests/tokens/usd: a run's budget must
+    survive session boundaries or the cap means nothing. Call this when a
+    new agent session begins, never per request.
+    """
+    USED.update(last_hash="", repeats=0, loop_stopped="")
 
 
 def usage_report() -> dict:
@@ -179,6 +197,8 @@ def _budget_check(body: dict) -> str:
     """-> "" when it may proceed, else the reason it must not."""
     if USED["stopped"]:
         return USED["stopped"]
+    if USED["loop_stopped"]:
+        return USED["loop_stopped"]
     if USED["requests"] >= LIMITS["requests"]:
         USED["stopped"] = (f"Aethron spend guard: {USED['requests']} requests "
                            f"is the limit for this run "
@@ -202,10 +222,10 @@ def _budget_check(body: dict) -> str:
     if h == USED["last_hash"]:
         USED["repeats"] += 1
         if USED["repeats"] >= LIMITS["repeats"]:
-            USED["stopped"] = (f"Aethron spend guard: the same request "
-                               f"{USED['repeats']} times in a row — the agent "
-                               f"is looping, not working. Stopped.")
-            return USED["stopped"]
+            USED["loop_stopped"] = (
+                f"Aethron spend guard: the same request {USED['repeats']} "
+                f"times in a row — the agent is looping, not working. Stopped.")
+            return USED["loop_stopped"]
     else:
         USED["last_hash"], USED["repeats"] = h, 0
     USED["requests"] += 1

@@ -300,6 +300,17 @@ class CodeSession:
             raise RuntimeError("the `claude` CLI is not installed — "
                                "install it, or switch the runtime to "
                                "'internal' (any provider, API key)")
+        # A NEW CONVERSATION GETS A NEW LOOP DETECTOR. The repeat guard
+        # catches a stuck conversation, and the cure for a stuck
+        # conversation is this one starting. Leaving it latched rejected
+        # the replacement session's first request, so an unattended run
+        # got one attempt and reported the rest as refusals. The money
+        # cap is untouched here on purpose — it is per run, not per try.
+        try:
+            import aethron_bridge
+            aethron_bridge.reset_loop_guard()
+        except Exception:
+            pass
         argv = [binary, "-p",
                 "--input-format", "stream-json",
                 "--output-format", "stream-json",
