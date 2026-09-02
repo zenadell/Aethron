@@ -57,6 +57,30 @@ from pathlib import Path
 UA = {"User-Agent": "Mozilla/5.0 (TemplateForge/1.0)"}
 CHUNK_NAME_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{6,12}\.mjs")
 
+# The editor bar the runtime lazily imports from the platform, and a
+# stand-in that satisfies its contract offline. The caller does
+#     let {createEditorBar: b} = await import(...); return {default: b({…})}
+# so the stub must EXPORT that name and return a component; an empty
+# module would throw where the missing fetch merely errored.
+EDITORBAR_URL = "https://edit.framer.com/init.mjs"
+EDITORBAR_STUB = ("data:text/javascript,export%20const%20createEditorBar"
+                  "%3D()%3D%3E()%3D%3Enull")
+
+# A RELATIVE IMPORT NAMES A CHUNK THE PATTERN ABOVE CANNOT SEE.
+#
+# CHUNK_NAME_RE wants name.HASH.mjs — two dots. Rolldown also emits
+# name-HASH.mjs, joined with a hyphen, and those appear only inside a
+# lazy import: x(Se(()=>import("./PX9hIOIVM-DJ3HQDK3.mjs"))). The
+# fixpoint sweep therefore never asked for it, the build rewrote the
+# import to /assets/chunks/ anyway, and the browser got a 404 six times
+# over with "Failed to fetch dynamically imported module".
+#
+# Matching the import form itself is exact: it is precisely the string
+# the runtime will request, so nothing is guessed and nothing is fetched
+# speculatively.
+CHUNK_IMPORT_RE = re.compile(
+    r"""(?:import\(|from\s*)["'`]\./([A-Za-z0-9_.-]+\.mjs)["'`]""")
+
 # CSS that suppresses platform chrome re-created by the runtime.
 # Removal from HTML alone never works (React re-renders it) — CSS wins
 # in both worlds with zero hydration mismatch.
@@ -414,8 +438,9 @@ def fetch_framer(root: Path, cfg: dict):
         have = {p.name for p in chunks_dir.glob("*.mjs")}
         refs = set()
         for p in chunks_dir.glob("*.mjs"):
-            refs |= set(CHUNK_NAME_RE.findall(p.read_text(encoding="utf-8",
-                                                          errors="ignore")))
+            src = p.read_text(encoding="utf-8", errors="ignore")
+            refs |= set(CHUNK_NAME_RE.findall(src))
+            refs |= set(CHUNK_IMPORT_RE.findall(src))
         missing = sorted(refs - have)
         if not missing:
             break
@@ -1968,6 +1993,20 @@ def cmd_build(_args):
                 t = t.replace(ib, "${location.origin}" + pub + "/icons/")
             t = re.sub(r"EditorBar:([A-Za-z$_][\w$]*)===void 0\?void 0:",
                        "EditorBar:!0?void 0:", t)
+            # NEUTRALISE THE EDITOR BAR AT ITS URL, not at its ternary.
+            #
+            # The patch above matches one shape of the guard; ovo ships
+            # another, so the guard stayed live and the page did
+            #     await import("https://edit.framer.com/init.mjs")
+            # at runtime — a self-hosted site reaching for Framer's editor,
+            # which fails with "Failed to fetch dynamically imported
+            # module" and is a live call home besides.
+            #
+            # The import destructures createEditorBar and CALLS it, so an
+            # empty module would throw. This stub satisfies the contract
+            # and renders nothing. Rewriting the url works whatever the
+            # surrounding guard looks like.
+            t = t.replace(EDITORBAR_URL, EDITORBAR_STUB)
             # STATIC-HOST HARDENING (the blank-page killer): the CMS
             # loader requests ?range=a-b,c-d and THROWS if the response
             # length differs — a dumb static host ignores the query and
