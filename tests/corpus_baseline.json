@@ -7,7 +7,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "aethron-site:migration": {
   "instrumentation leak": "PASS",
@@ -26,7 +26,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "agero:port": {
   "instrumentation leak": "PASS",
@@ -36,7 +36,7 @@
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "script parity": "PASS",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "createstudio:migration": {
   "instrumentation leak": "PASS",
@@ -46,6 +46,16 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
+  "__seconds__": 0.2
+ },
+ "createstudio:port": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "PASS",
+  "baked animation state": "PASS",
+  "script parity": "PASS",
   "__seconds__": 0.2
  },
  "fiber:migration": {
@@ -96,7 +106,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "jomiez-lesmana:migration": {
   "instrumentation leak": "PASS",
@@ -126,6 +136,16 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
+  "__seconds__": 0.2
+ },
+ "mondragon:port": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "PASS",
+  "baked animation state": "PASS",
+  "script parity": "PASS",
   "__seconds__": 0.2
  },
  "ovo:migration": {
@@ -166,7 +186,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "test-1:migration": {
   "instrumentation leak": "PASS",
@@ -176,7 +196,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "test-2:migration": {
   "instrumentation leak": "PASS",
@@ -186,6 +206,16 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "PASS",
+  "__seconds__": 0.1
+ },
+ "test-2:port": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "SKIPPED",
+  "baked animation state": "PASS",
+  "script parity": "PASS",
   "__seconds__": 0.1
  },
  "test-3:migration": {
