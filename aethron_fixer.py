@@ -310,11 +310,27 @@ def crash_evidence(cmd, cwd, code, output, root=None) -> str:
                 mark = ">>" if i + 1 == n else "  "
                 lines.append(f"{mark} {i + 1:>5}| {src[i]}")
             lines.append("")
-    else:
+    refs = _artifact_refs(output or "", root)
+    if not ours and refs:
         lines.append("No frame belongs to our Python — this crash came from "
                      "a tool we invoke (astro, npm, the browser). That tool "
                      "is not broken: it choked on a file WE GENERATED, and "
                      "that file is the evidence.")
+    elif not ours:
+        # DO NOT DIAGNOSE WHAT HAS NOT BEEN ESTABLISHED. This branch used to
+        # assert the failure came from a foreign tool choking on a file we
+        # generated — with no traceback and no file reference to support it.
+        # On a step that simply reported "no site/ — migrate and build the
+        # project first" the agent was sent looking for a generated file
+        # that did not exist, made ONE tool call and stopped. Evidence that
+        # states an unverified cause is worse than evidence that admits it
+        # has none: the reader trusts it and walks the wrong way.
+        lines.append("There is NO traceback and NO generated file named in "
+                     "this output, so nothing here points at a line yet. "
+                     "The step reported the message above and exited. Start "
+                     "by reproducing the command, then find which step "
+                     "produced that message — a grep for its wording in the "
+                     "pipeline source is usually one hop from the cause.")
     # THE ARTIFACT IS THE EVIDENCE WHEN THE TOOL IS SOMEONE ELSE'S.
     #
     # Astro's traceback is entirely node_modules, so the frame scan above
@@ -324,7 +340,7 @@ def crash_evidence(cmd, cwd, code, output, root=None) -> str:
     # line: 01-Page.astro:68:39. Quoting that shows the defect directly,
     # because a mangled artifact is visibly mangled, and the question
     # becomes "which step wrote this?" instead of "where is the bug?".
-    for path, ln in _artifact_refs(output or "", root)[:2]:
+    for path, ln in refs[:2]:
         src = path.read_text(encoding="utf-8", errors="ignore").splitlines()
         a, b = max(0, ln - 14), min(len(src), ln + 8)
         rel = path
