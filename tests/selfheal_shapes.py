@@ -151,7 +151,11 @@ def run_shape(shape, live=True):
         try:
             import aethron_bridge as _bridge
             _bridge.reset_usage()
-            print("  budget reset for this shape")
+            # 15x what the one proven fix cost. If a shape needs
+            # more than this, the evidence is the problem, not the
+            # ceiling — and that is worth learning cheaply.
+            _bridge.set_limits(usd=1.0)
+            print("  budget reset for this shape (cap $1.00)")
         except Exception:
             pass
         t0 = time.time()
