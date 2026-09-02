@@ -1349,22 +1349,27 @@ def strip_platform(dom: str, keep_preloads=False) -> tuple:
 
 
 def _outside_raw_text(dom: str, pattern: str):
-    """First match of `pattern` that is NOT inside a <script> or <style>.
+    """First match of `pattern` that is NOT inside a <script>, <style>,
+    or HTML comment.
 
-    A tag name written in script text is still just text, and avenlo's
-    own head script has this in a comment:
+    A tag name written in script text or a comment is still just text,
+    and avenlo's own head script has this in a comment:
 
         // … so a backdrop parked on <body>
 
+    and head comments can also reference markup:
+
+        <!-- layout note: the sticky <body> wrapper owns the scroll -->
+
     <body> matched there first, so the page body was taken from the
-    middle of that script: the component began three thousand characters
-    into the JavaScript, without its opening <script> tag, and the brace
-    escaper then treated the rest of the code as markup. Astro refused to
-    compile `window.scrollTo(&#123; top: 0 …`, which is the right answer
-    to markup that was never markup.
+    middle of that script or comment: the component began three thousand
+    characters into the JavaScript or inside a comment, without its opening
+    tag, and the brace escaper then treated the rest of the code as markup.
+    Astro refused to compile `window.scrollTo(&#123; top: 0 …`, which is
+    the right answer to markup that was never markup.
     """
     spans = [(m.start(), m.end()) for m in re.finditer(
-        r"(?is)<(script|style)\b[^>]*>.*?</\1\s*>", dom)]
+        r"(?is)<(script|style)\b[^>]*>.*?</\1\s*>|<!--.*?-->", dom)]
     for m in re.finditer(pattern, dom, re.I | re.S):
         if not any(a <= m.start() < b for a, b in spans):
             return m

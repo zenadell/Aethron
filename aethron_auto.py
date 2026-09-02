@@ -194,6 +194,18 @@ def step_with_fix(label, cmd, proj, cwd=ROOT, timeout=3600,
                 # failure mode the corpus exists to catch, and it caught
                 # one today.
                 say("the step now completes — checking the corpus", 2)
+                # THE BATTERIES ARE PART OF THE GATE. The corpus judges
+                # BUILDS; it says nothing about the assertions that encode
+                # why each fix exists. An accepted fix left a battery
+                # failing and nothing objected, because nothing ran it —
+                # so a repair could quietly undo a lesson this project
+                # paid for. They cost seconds and need no key or network.
+                bat_ok, bat_out = _batteries_pass()
+                if not bat_ok:
+                    say(f"the fix breaks a test battery — reverting it: "
+                        f"{bat_out}", 3)
+                    git("checkout", "--", ".")
+                    return False, out
                 clear, _ = corpus_clear()
                 if not clear:
                     say("the fix breaks another build in the corpus — "
@@ -271,6 +283,26 @@ def _restore_cmap(proj, data):
     put it back. Keep the bytes and write them."""
     if data is not None:
         (proj / "copy_map.json").write_bytes(data)
+
+
+def _batteries_pass():
+    """-> (ok, summary). The fast, offline suites only.
+
+    Kept to seconds so it can run on every accepted fix: no key, no
+    network, no browser. The slow suites stay in run_all.py.
+    """
+    fast = ["tests/selfheal_battery.py"]
+    for rel in fast:
+        p = ROOT / rel
+        if not p.is_file():
+            continue
+        r = subprocess.run([sys.executable, str(p)], capture_output=True,
+                           text=True, cwd=str(ROOT), timeout=600)
+        if r.returncode != 0:
+            tail = [l for l in (r.stdout + r.stderr).splitlines()
+                    if "FAILED:" in l or "passed," in l]
+            return False, f"{rel}: {'; '.join(tail[-2:])[:160]}"
+    return True, "fast batteries green"
 
 
 def corpus_clear():

@@ -55,12 +55,22 @@ COMMENT_BODY_PAGE = (
     '<body class="real"><main><h1>Hello</h1></main></body></html>'
 )
 
+# A comment in <head> or <body> can also reference markup:
+# <!-- layout note: the sticky <body> wrapper owns the scroll -->
+HTML_COMMENT_BODY_PAGE = (
+    '<html lang="en"><head>\n'
+    '<title>Studio</title>\n'
+    '<!-- layout note: the sticky <body> wrapper owns the scroll -->\n'
+    '<style data-forge-overrides>body { margin: 0; }</style>\n'
+    '</head><body class="real"><main><h1>Hello</h1></main></body></html>'
+)
+
 
 def test_body_extraction():
     """The defect that needed a person, as a unit test."""
     import aethron_convert as ac
     head, body, attrs, lang = ac.split_document(COMMENT_BODY_PAGE)
-    check("body is taken from the real <body>, not a comment",
+    check("body is taken from the real <body>, not a script comment",
           body.strip() == "<main><h1>Hello</h1></main>",
           f"got {body.strip()[:60]!r}")
     check("body attributes survive", attrs == 'class="real"', repr(attrs))
@@ -71,6 +81,14 @@ def test_body_extraction():
     check("brace escaper leaves script bodies alone",
           "window.scrollTo({ top: 0" in out,
           "braces inside <script> were entity-escaped")
+
+    # HTML comments containing tag names
+    head2, body2, attrs2, _ = ac.split_document(HTML_COMMENT_BODY_PAGE)
+    check("body is taken from the real <body>, not an HTML comment",
+          body2.strip() == "<main><h1>Hello</h1></main>",
+          f"got {body2.strip()[:60]!r}")
+    check("HTML comment in head survives in head",
+          "layout note: the sticky <body>" in head2)
 
 
 def test_crash_evidence():
@@ -95,8 +113,13 @@ def test_crash_evidence():
              '  File "/usr/lib/python3/json/decoder.py", line 9, in raw_decode\n'
              'ValueError: nope\n')
     ev2 = fx.crash_evidence(["x"], "/tmp", 2, other, root=ROOT)
-    check("a crash outside our code is reported as such",
-          "came from a tool we invoke" in ev2)
+    # With no frame of ours AND no generated file named, the evidence
+    # must admit it has no pointer rather than assert a cause. It used to
+    # claim a foreign tool had choked on a file we generated — on output
+    # that named no file at all — and the agent followed that to nowhere.
+    check("a crash with no pointer says so instead of guessing",
+          "NO traceback and NO generated file" in ev2
+          and "came from a tool we invoke" not in ev2)
 
     # WHEN THE TOOL IS SOMEONE ELSE'S, THE ARTIFACT IS THE EVIDENCE.
     # Astro's traceback is entirely node_modules, so the frame scan finds
