@@ -1,0 +1,43 @@
+working on branch auto/avenlo-0902-1551
+project: avenlo
+
+--- migration ---
+  migration: all checks pass
+
+--- framework port ---
+  convert: CRASHED (exit 2) (107s)
+        Stack trace:
+          at handleCompileResultErrors (file:///Users/mac/Desktop/deveploment/template-editor/projects/avenlo/convert-astro/no
+          at async compileAstro (file:///Users/mac/Desktop/deveploment/template-editor/projects/avenlo/convert-astro/node_modu
+          at async transform (file:///Users/mac/Desktop/deveploment/template-editor/projects/avenlo/convert-astro/node_modules
+    handing the convert crash to the coding agent (attempt 1 of 2)
+      finished: ok=True tools=20 cost=$0.0642
+      changed: ['M aethron_convert.py']
+  convert: ok (109s)
+    the step now completes — checking the corpus
+    ACCEPTED — convert completes and the corpus is clear
+  PIXEL-PERFECT PORT READY: /Users/mac/Desktop/deveploment/template-editor/projects/avenlo/convert-astro
+  port: all checks pass
+
+--- differential: anything no check looks for ---
+  noise floor: 234 element(s) differ between two runs of the SAME build
+  DIFFERENCES beyond noise: 1060
+  missing from the copy: 0   (noise: 0)
+  ELEMENTS THAT BEHAVE DIFFERENTLY:
+  VERDICT: 1060 difference(s) no check was looking for
+
+--- parity: does the port do everything the migration does? ---
+  elements: 1110 in migration, 1110 in port
+  MISSING ELEMENTS: none
+  LOST HOVER BEHAVIOUR: none
+  LOST MOTION: none
+  VERDICT: PARITY
+
+============================================================
+RESULT for avenlo   (553s)
+  migration: clean
+  port     : clean
+  fixes accepted by the corpus: 0
+  review with: git diff main...auto/avenlo-0902-1551
+  differential: FOUND differences no check looks for
+  spend: 22 request(s), 4,491,347 in + 8,848 out tokens = ~$3.4017 by our price table (ESTIMATE)
