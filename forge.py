@@ -447,7 +447,14 @@ def fetch_framer(root: Path, cfg: dict):
             pack = m.group(1)
             icon_bases.add(pack)
             ver = (re.search(r"\.js@([0-9.]+)`", t) or [None, "0.0.29"])[1]
-            for lst in re.findall(r"`([a-z0-9.-]{200,})`", t):
+            # ICON NAMES ARE CamelCase. The list is a dot-joined run of
+            # Phosphor names — Acorn.AddressBook.AirTrafficControl… — and
+            # a lowercase-only class can never match 200 consecutive
+            # characters of it. So the whole set went undiscovered, and
+            # the build shipped chunks that import icons it never
+            # downloaded: 17 requests for /assets/icons/Star.0.0.57.js
+            # and friends, all 404, on every affected project.
+            for lst in re.findall(r"`([A-Za-z0-9.-]{200,})`", t):
                 for name in lst.split("."):
                     if name:
                         icon_jobs.append((f"{pack}{name}.js@{ver}",
