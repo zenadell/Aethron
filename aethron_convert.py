@@ -1348,14 +1348,54 @@ def strip_platform(dom: str, keep_preloads=False) -> tuple:
     return dom, n_pre + n_hint, n_link + n_badge
 
 
+def _outside_raw_text(dom: str, pattern: str):
+    """First match of `pattern` that is NOT inside a <script> or <style>.
+
+    A tag name written in script text is still just text, and avenlo's
+    own head script has this in a comment:
+
+        // … so a backdrop parked on <body>
+
+    <body> matched there first, so the page body was taken from the
+    middle of that script: the component began three thousand characters
+    into the JavaScript, without its opening <script> tag, and the brace
+    escaper then treated the rest of the code as markup. Astro refused to
+    compile `window.scrollTo(&#123; top: 0 …`, which is the right answer
+    to markup that was never markup.
+    """
+    spans = [(m.start(), m.end()) for m in re.finditer(
+        r"(?is)<(script|style)\b[^>]*>.*?</\1\s*>", dom)]
+    for m in re.finditer(pattern, dom, re.I | re.S):
+        if not any(a <= m.start() < b for a, b in spans):
+            return m
+    return None
+
+
+def _body_of(dom: str):
+    """(inner html, attrs) of the real <body>, or (None, "").
+
+    Located as the OPENING TAG first and sliced afterwards: searching for
+    the whole <body>…</body> at once lets one bad candidate swallow the
+    document — the match that starts inside a script runs to the closing
+    tag, and the scan resumes past it with no candidate left.
+    """
+    open_m = _outside_raw_text(dom, r"<body\b[^>]*>")
+    if not open_m:
+        return None, ""
+    end = dom.rfind("</body")
+    if end < open_m.end():
+        end = len(dom)
+    attrs = re.match(r"(?is)<body\b([^>]*)>", open_m.group(0))
+    return dom[open_m.end():end], (attrs.group(1) if attrs else "")
+
+
 def split_document(dom: str) -> tuple:
     head = re.search(r"(?is)<head\b[^>]*>(.*?)</head\s*>", dom)
-    body = re.search(r"(?is)<body\b[^>]*>(.*?)</body\s*>", dom)
-    battrs = re.search(r"(?is)<body\b([^>]*)>", dom)
+    inner, body_attrs = _body_of(dom)
     lang = re.search(r'(?is)<html\b[^>]*\blang="([^"]*)"', dom)
     return (head.group(1) if head else "",
-            body.group(1) if body else dom,
-            (battrs.group(1) if battrs else "").strip(),
+            dom if inner is None else inner,
+            body_attrs.strip(),
             lang.group(1) if lang else "en")
 
 
