@@ -3918,6 +3918,26 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
                      if animated else ""))
             if missing:
                 print(f"       missing heading(s): {missing[:3]}")
+            if sim < 0.90:
+                # SHOW WHERE THEY DIVERGE. The referee computes the score
+                # from both texts and then prints only the number, so
+                # "73% identical" says a quarter of the page is wrong and
+                # not one word about which quarter. A person re-renders
+                # both builds by hand to find out; an agent handed this
+                # spent $3.10 and 27 tool calls deriving what the referee
+                # already knew.
+                #
+                # The first divergence is almost always the defect itself:
+                # a body sliced from the wrong offset starts with the tail
+                # of a comment, and one line of context says so outright.
+                _a, _b = mine.get("_text", "").split(), theirs.split()
+                _i = 0
+                while _i < min(len(_a), len(_b)) and _a[_i] == _b[_i]:
+                    _i += 1
+                print(f"       first divergence at word {_i} of "
+                      f"{len(_a)} (original) / {len(_b)} (this build):")
+                print(f"         original: …{' '.join(_a[max(0, _i - 6):_i + 10])[:150]}")
+                print(f"         this one: …{' '.join(_b[max(0, _i - 6):_i + 10])[:150]}")
             vendor = _platform_links(got["dom"])
             if vendor and not leaks:
                 # Reported, never failed: the invariant is that promos are
