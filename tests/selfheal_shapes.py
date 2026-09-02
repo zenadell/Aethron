@@ -141,6 +141,19 @@ def run_shape(shape, live=True):
 
         import aethron_auto as auto
         auto.CRASH_FIXES.clear()
+        # EACH SHAPE IS AN INDEPENDENT RUN, so it gets an independent
+        # budget. The spend guard latches per PROCESS, and this harness
+        # runs every shape in one — so the first shape exhausted the cap
+        # and the other two were starved before they began (shape three
+        # made zero tool calls). Reported as "0 of 3 healed", which would
+        # have been filed as a capability limit when it was an artifact
+        # of how the test was run.
+        try:
+            import aethron_bridge as _bridge
+            _bridge.reset_usage()
+            print("  budget reset for this shape")
+        except Exception:
+            pass
         t0 = time.time()
         # A hang must not wait an hour to be recognised as a hang.
         timeout = 90 if shape == "hang" else 900
