@@ -34,6 +34,11 @@ SUITES = [
      [PY, "tests/motion_battery.py"], True),
     ("healer battery (deterministic -> agent -> checks decide)",
      [PY, "tests/healer_battery.py"], True),
+    # A crash was the one failure that never reached the agent at all,
+    # so every one of them needed a person. This asserts the routing and
+    # the refusals; whether a given model fixes it needs --live.
+    ("self-heal battery (a crash reaches the agent, refusals hold)",
+     [PY, "tests/selfheal_battery.py"], False),
 ]
 
 # A suite that hangs is worse than one that fails: it reports nothing at
