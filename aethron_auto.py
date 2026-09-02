@@ -40,6 +40,7 @@ sys.path.insert(0, str(ROOT))
 import aethron_fixer as fixer                        # noqa: E402
 
 MAX_FIX_ATTEMPTS = 3          # per check, before giving up and saying so
+CRASH_FIXES = []              # pipeline repairs the corpus accepted
 LOG = []
 
 
@@ -183,7 +184,8 @@ def step_with_fix(label, cmd, proj, cwd=ROOT, timeout=3600,
     complete, AND the corpus must still be clear. Anything else is
     reverted.
     """
-    for attempt in range(1, attempts + 1):
+    touched = []          # set by a previous attempt; named here so
+    for attempt in range(1, attempts + 1):   # the accept path cannot NameError
         ok, out, code = run_step(cmd, cwd, timeout, label)
         if ok:
             if attempt > 1:
@@ -199,6 +201,9 @@ def step_with_fix(label, cmd, proj, cwd=ROOT, timeout=3600,
                     git("checkout", "--", ".")
                     return False, out
                 say(f"ACCEPTED — {label} completes and the corpus is clear", 2)
+                CRASH_FIXES.append({"check": f"{label} crashed",
+                                    "file": ", ".join(touched) or "(pipeline)",
+                                    "why": (r.get("text") or "").strip()[-120:]})
             return True, out
         for line in out.strip().splitlines()[-4:]:
             say(line[:120], 3)
@@ -467,7 +472,12 @@ def main(argv):
     say(f"RESULT for {proj.name}   ({time.time() - t0:.0f}s)")
     say(f"  migration: {'clean' if not mig_fails else str(mig_fails)}")
     say(f"  port     : {'clean' if not port_fails else str(port_fails)}")
-    fixes = mig_fixes + port_fixes
+    # COUNT THE CRASH FIXES TOO. This tally only ever summed check-fixes,
+    # so a run that reproduced a crash, repaired the pipeline and had the
+    # repair accepted by the corpus still printed "fixes accepted: 0".
+    # A product that under-reports its own successes teaches its owner to
+    # stop reading the summary, which is how a real failure gets missed.
+    fixes = mig_fixes + port_fixes + CRASH_FIXES
     say(f"  fixes accepted by the corpus: {len(fixes)}")
     for f in fixes:
         say(f"     {f['check']} -> {f['file']}: {str(f['why'])[:70]}", 1)
