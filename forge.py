@@ -938,6 +938,49 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
     return out
 
 
+def _cms_localize_pairs(cfg, cms_blobs, existing):
+    """Localized urls that live inside byte-locked CMS data, as pairs.
+
+    _localize_refs is a plain text substitution, which is right for pages
+    and chunks and impossible for a .framercms blob: those are length-
+    locked, and a shorter replacement shifts every offset after it.
+
+    So they go through the pair machinery instead, which already knows
+    how to hold the lock — fragment padding (#000…), never spaces, since
+    the CMS stores a url and its ?query contiguously and a space lands
+    mid-url. The padded form then goes into pages, chunks AND the blob
+    identically, which is what hydration equality requires.
+
+    The trailing query survives byte-for-byte after the padding; it ends
+    up inside the fragment, which is never sent to a server, and a local
+    file has no use for scale-down-to= anyway.
+    """
+    lmap = cfg.get("localized", {}) or {}
+    if not lmap or not cms_blobs:
+        return []
+    have = {p["old"] for p in existing}
+    out = []
+    for url, fn in lmap.items():
+        if url in have or not url.startswith("http"):
+            continue
+        old_b = url.encode()
+        if not any(old_b in blob for blob in cms_blobs):
+            continue
+        new = "/assets/r/" + fn
+        pad = len(old_b) - len(new.encode())
+        if pad < 0:
+            # cannot hold the lock; pages and chunks still get it via
+            # _localize_refs, and the check will still report the blob.
+            continue
+        out.append({"old": url,
+                    "new": new + ("#" + "0" * (pad - 1) if pad else ""),
+                    "scope": "all", "in_cms": True, "flex": False})
+    if out:
+        log(f"CMS: localizing {len(out)} platform url(s) inside byte-locked "
+            f"CMS data")
+    return out
+
+
 def _pairs_from_map(root: Path, cms_blobs):
     cm = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
     pairs = []
@@ -1498,6 +1541,7 @@ def cmd_build(_args):
     cms_blobs = [p.read_bytes() for p in cms_src.glob("*.framercms")] \
         if cms_src.exists() else []
     pairs = _pairs_from_map(root, cms_blobs)
+    pairs += _cms_localize_pairs(cfg, cms_blobs, pairs)
 
     # CAN'T-FAIL local images in CMS slots: a local asset whose path is
     # longer than a byte-locked slot can't fit — so build ships a SHORT
@@ -2616,6 +2660,19 @@ def cmd_localize(_args):
     chunks = root / "pristine" / "chunks"
     if chunks.exists():
         for c in chunks.glob("*.mjs"):
+            urls |= harvest(c.read_text(encoding="utf-8", errors="ignore"))
+
+    # THE CMS IS WHERE THE IMAGES ACTUALLY LIVE.
+    #
+    # Every CMS-driven image — blog covers, project cards, team photos —
+    # has its url inside a .framercms binary, and the runtime fetches
+    # straight from that data. Nothing harvested them, so a migration
+    # could pass every ownership check while its entire blog streamed
+    # from the platform CDN: mondragon 526 urls, sadewa 426,
+    # createstudio 406, on builds reported CLEAN.
+    cms = root / "pristine" / "cms"
+    if cms.exists():
+        for c in cms.glob("*.framercms"):
             urls |= harvest(c.read_text(encoding="utf-8", errors="ignore"))
 
     # THE OWNER'S OWN CHOICES ARE ASSETS TOO.
