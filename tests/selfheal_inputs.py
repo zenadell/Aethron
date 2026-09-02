@@ -148,9 +148,22 @@ def run_case(case, live=True):
         bridge.set_limits(usd=1.0)      # each case is its own run
     except Exception:
         pass
+    # HAND OVER THE STEP THAT ACTUALLY FAILED. breaks() already found it,
+    # and the first version threw that away and always handed over convert
+    # — so when inventory or build was the real casualty the agent was
+    # given a downstream symptom ("no site/") and blamed for not fixing a
+    # defect it was never shown.
+    failing = next((s for s in ("inventory", "build")
+                    if subprocess.run([sys.executable, str(ROOT / "forge.py"), s],
+                                      capture_output=True, cwd=str(WORK)).returncode),
+                   None)
+    cmd = ([sys.executable, str(ROOT / "forge.py"), failing] if failing
+           else convert_cmd())
+    cwd = WORK if failing else ROOT
+    print(f"  handing over the step that failed: {failing or 'convert'}")
     t0 = time.time()
-    healed, _ = auto.step_with_fix("convert", convert_cmd(), WORK,
-                                   cwd=ROOT, timeout=1800, attempts=2,
+    healed, _ = auto.step_with_fix(failing or "convert", cmd, WORK,
+                                   cwd=cwd, timeout=1800, attempts=2,
                                    allow_fix=True)
     dt = time.time() - t0
     changed = [l[-40:].strip() for l in
