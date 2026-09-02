@@ -949,7 +949,15 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
 # `&amp;&amp;` is a logical and: both are syntax, and neither survives in
 # working JavaScript. A string literal that merely contains "&gt;" has no
 # encoded operator anywhere, which is what keeps it out of this.
-ENCODED_JS = re.compile(r"=&gt;|&amp;&amp;|&lt;=|&gt;=")
+ENCODED_JS = re.compile(
+    r"=&gt;|&amp;&amp;|&lt;=|&gt;="
+    # An encoded quote where a STRING BEGINS — after [ ( , : ; { = or
+    # whitespace. Webflow's WebFont bootstrap has no encoded operator at
+    # all, only encoded quotes: `families: [&#34;Open Sans…` , which JS
+    # reads as a bitwise AND and rejects with "Unexpected token '&'".
+    # Position is what makes this safe: in a legitimate literal such as
+    # var s = "&#34;" the entity follows a real quote, never a delimiter.
+    r"|[\s\[\(,:;{=]&(?:#34|#39|quot|apos);")
 SCRIPT_BLOCK = re.compile(r"(<script[^>]*>)(.*?)(</script>)", re.S | re.I)
 # ANY script with a non-JavaScript type carries DATA, not code. Listing
 # the types by name missed framer/appear — the entrance-animation
