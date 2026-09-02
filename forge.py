@@ -938,6 +938,77 @@ def _locate_element(html, contains, ancestor=0, occurrence=0):
     return out
 
 
+# An ENCODED OPERATOR, not encoded data. `=&gt;` is an arrow function and
+# `&amp;&amp;` is a logical and: both are syntax, and neither survives in
+# working JavaScript. A string literal that merely contains "&gt;" has no
+# encoded operator anywhere, which is what keeps it out of this.
+ENCODED_JS = re.compile(r"=&gt;|&amp;&amp;|&lt;=|&gt;=")
+SCRIPT_BLOCK = re.compile(r"(<script[^>]*>)(.*?)(</script>)", re.S | re.I)
+# ANY script with a non-JavaScript type carries DATA, not code. Listing
+# the types by name missed framer/appear — the entrance-animation
+# payload — so those animations were shipping unparseable on every
+# saved-file capture while the named handover block was being repaired
+# right next to them. The repair verifies itself, so breadth is safe.
+DATA_SCRIPT = re.compile(
+    r'\btype="(?!text/javascript|application/javascript|module|'
+    r'text/babel)[^"]+"', re.I)
+
+
+def _decode_encoded_scripts(text: str) -> str:
+    """Undo HTML-entity encoding inside inline <script> bodies.
+
+    A <script> is a raw-text element: entities inside it are literal
+    characters, so a correct serializer never writes them. Some "save
+    page source" paths do it anyway, and the result is JavaScript that
+    cannot parse — `(()=&gt;{` instead of `(()=>{`.
+
+    The browser said so plainly and for a long time: "Uncaught
+    SyntaxError: Unexpected token ')'" and "Unexpected token '&'" on
+    every page of the affected builds. It was assumed to be a
+    pre-existing export artifact of the kind the invariant says to leave
+    alone, and it was not — it is a broken capture we can repair.
+
+    Affects only projects supplied as SAVED FILES (jomiez, jomiez-lesmana,
+    test-1, test-2); nothing scraped from a live URL is encoded this way.
+
+    Decoding is gated on an encoded OPERATOR being present, so a script
+    whose string literals happen to contain "&gt;" is never touched.
+    """
+    def fix(m):
+        open_tag, body, close = m.groups()
+        if DATA_SCRIPT.search(open_tag):
+            # A DATA BLOCK CAN BE CHECKED RATHER THAN GUESSED AT.
+            #
+            # Framer's handover block is JSON the runtime reads with
+            # JSON.parse(el.textContent). textContent of a raw-text
+            # element is literal, so an encoded quote is never decoded
+            # for it and the parse dies at character eight — which is
+            # exactly what the browser reported.
+            #
+            # Here the repair is verifiable: decode only when the block
+            # does NOT parse as-is and DOES parse decoded. A blob whose
+            # string values merely contain entities still parses as-is
+            # and is left alone.
+            s = body.strip()
+            if not s:
+                return m.group(0)
+            try:
+                json.loads(s)
+                return m.group(0)
+            except ValueError:
+                pass
+            try:
+                fixed = html_mod.unescape(s)
+                json.loads(fixed)
+            except ValueError:
+                return m.group(0)
+            return open_tag + fixed + close
+        if not ENCODED_JS.search(body):
+            return m.group(0)
+        return open_tag + html_mod.unescape(body) + close
+    return SCRIPT_BLOCK.sub(fix, text)
+
+
 def _cms_localize_pairs(cfg, cms_blobs, existing):
     """Localized urls that live inside byte-locked CMS data, as pairs.
 
@@ -1832,6 +1903,8 @@ def cmd_build(_args):
                 tag = re.sub(r'\s+(?:integrity|crossorigin)="[^"]*"', "", tag)
             return tag
         t = re.sub(r"<(?:link|script)\b[^>]*>", _drop_local_sri, t)
+
+        t = _decode_encoded_scripts(t)
 
         dest = site / page
         dest.parent.mkdir(parents=True, exist_ok=True)
