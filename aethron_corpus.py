@@ -194,19 +194,39 @@ def main(argv):
         return 2
 
     if "--baseline" in argv:
-        BASELINE.parent.mkdir(parents=True, exist_ok=True)
-        BASELINE.write_text(json.dumps(now, indent=1))
-        n_checks = sum(len([k for k in v if not k.startswith("__")])
-                       for v in now.values())
-        print(f"\nbaseline recorded: {len(now)} build(s), {n_checks} check "
-              f"result(s) -> {BASELINE.relative_to(ROOT)}")
+        # A BASELINE IS A RECORD OF WHAT GOOD LOOKS LIKE.
+        #
+        # Writing a FAIL into it does not record reality, it retires the
+        # check: from the next run on, that build is *expected* to fail,
+        # so a real regression there can never be reported again. The old
+        # note said "reality, not perfection" and then silently did
+        # exactly that — three stale ports were about to be blessed, and
+        # with them any future failure of the same check on those builds.
+        #
+        # Failing builds are simply left OUT. They then show up as having
+        # no baseline, which is honest: unjudged, not approved. Pass
+        # --bless to record them anyway, deliberately and out loud.
         fails = [(k, c) for k, v in now.items() for c, s in v.items()
                  if s == "FAIL" and not c.startswith("__")]
+        bless = "--bless" in argv
+        keep = dict(now)
+        if fails and not bless:
+            for k, _c in fails:
+                keep.pop(k, None)
+        BASELINE.parent.mkdir(parents=True, exist_ok=True)
+        BASELINE.write_text(json.dumps(keep, indent=1))
+        n_checks = sum(len([k for k in v if not k.startswith("__")])
+                       for v in keep.values())
+        print(f"\nbaseline recorded: {len(keep)} build(s), {n_checks} check "
+              f"result(s) -> {BASELINE.relative_to(ROOT)}")
         if fails:
-            print(f"NOTE: {len(fails)} check(s) already fail — the baseline "
-                  f"records reality, not perfection:")
+            verb = "RECORDED AS EXPECTED (--bless)" if bless else "LEFT OUT"
+            print(f"{len(fails)} failing check(s) {verb}:")
             for k, c in fails[:10]:
                 print(f"   {k}: {c}")
+            if not bless:
+                print("  fix them and re-baseline, or pass --bless to accept "
+                      "them as the expected state.")
         return 0
 
     if not BASELINE.is_file():

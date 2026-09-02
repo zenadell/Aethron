@@ -1,27 +1,10 @@
 {
- ".qourvac-superseded:migration": {
-  "instrumentation leak": "PASS",
-  "rented code": "PASS",
-  "platform assets": "PASS",
-  "platform links": "NOTE",
-  "self-referencing links": "FAIL",
-  "baked animation state": "PASS",
-  "__seconds__": 0.1
- },
- ".qourvac-superseded:port": {
-  "instrumentation leak": "FAIL",
-  "rented code": "PASS",
-  "platform assets": "FAIL",
-  "self-referencing links": "FAIL",
-  "baked animation state": "FAIL",
-  "script parity": "PASS",
-  "__seconds__": 0.1
- },
  "acme-demo:migration": {
   "instrumentation leak": "PASS",
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -30,6 +13,7 @@
   "instrumentation leak": "PASS",
   "rented code": "PASS",
   "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "__seconds__": 0.1
@@ -39,6 +23,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -47,16 +32,28 @@
   "instrumentation leak": "PASS",
   "rented code": "PASS",
   "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "script parity": "PASS",
   "__seconds__": 0.1
+ },
+ "createstudio:migration": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "PASS",
+  "baked animation state": "NOTE",
+  "__seconds__": 0.2
  },
  "fiber:migration": {
   "instrumentation leak": "PASS",
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "__seconds__": 0.1
@@ -66,6 +63,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -75,6 +73,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -83,6 +82,7 @@
   "instrumentation leak": "PASS",
   "rented code": "PASS",
   "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "script parity": "PASS",
@@ -93,6 +93,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -102,15 +103,37 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
+ },
+ "jomiez-lesmana:port": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "SKIPPED",
+  "baked animation state": "PASS",
+  "script parity": "PASS",
+  "__seconds__": 0.1
+ },
+ "mondragon:migration": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "PASS",
+  "baked animation state": "NOTE",
+  "__seconds__": 0.2
  },
  "ovo:migration": {
   "instrumentation leak": "PASS",
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -120,6 +143,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "__seconds__": 0.1
@@ -128,6 +152,7 @@
   "instrumentation leak": "PASS",
   "rented code": "PASS",
   "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "script parity": "PASS",
@@ -138,6 +163,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -147,6 +173,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -156,6 +183,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "PASS",
   "__seconds__": 0.1
@@ -165,6 +193,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
   "__seconds__": 0.1
@@ -174,6 +203,7 @@
   "rented code": "PASS",
   "platform assets": "PASS",
   "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "PASS",
   "__seconds__": 0.1
