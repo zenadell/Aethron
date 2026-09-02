@@ -135,6 +135,41 @@ def rebuild_for(proj, build):
     return ok
 
 
+def _fills(proj):
+    """{(section, index): value} for every non-empty fill in copy_map.
+
+    The owner's choices, in the one place they live. A fix that shrinks
+    this set has removed content, whatever it did for the checks.
+    """
+    p = proj / "copy_map.json"
+    if not p.is_file():
+        return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out = {}
+    for sec, entries in (d.items() if isinstance(d, dict) else []):
+        if not isinstance(entries, list):
+            continue
+        for i, e in enumerate(entries):
+            if isinstance(e, dict) and str(e.get("new") or "").strip():
+                out[(sec, i)] = str(e["new"])
+    return out
+
+
+def _cmap_bytes(proj):
+    p = proj / "copy_map.json"
+    return p.read_bytes() if p.is_file() else None
+
+
+def _restore_cmap(proj, data):
+    """copy_map lives under gitignored projects/, so `git checkout` cannot
+    put it back. Keep the bytes and write them."""
+    if data is not None:
+        (proj / "copy_map.json").write_bytes(data)
+
+
 def corpus_clear():
     r = subprocess.run([sys.executable, str(ROOT / "aethron_corpus.py")],
                        capture_output=True, text=True, cwd=str(ROOT),
@@ -165,10 +200,34 @@ def fix_loop(proj, build, key, model, allow_fix=True):
             # from something that never ran the check it is fixing.
             say(f"handing '{check}' to the coding agent", 2)
             evidence = fixer.evidence_for(proj, build, check, report)
+            fills_before, cmap_before = _fills(proj), _cmap_bytes(proj)
             try:
                 r = fixer.agent_fix(proj, build, check, evidence)
             except Exception as e:
                 say(f"agent failed to start: {str(e)[:90]}", 3)
+                continue
+            # DELETING THE CONTENT IS NOT FIXING THE DEFECT.
+            #
+            # "platform urls in shipped files" failed because one image
+            # fill pointed at the template's CDN. The agent emptied the
+            # entry: the check passed, the corpus stayed green, and the
+            # owner's chosen image was silently gone — replaced by the
+            # template's original. Every guard approved, because no guard
+            # was watching the content.
+            #
+            # A check measures a property of the build. Passing it by
+            # removing what the build was supposed to contain satisfies
+            # the letter and destroys the point, and it is the cheapest
+            # move available to anything being graded on checks alone.
+            lost = [k for k in fills_before if k not in _fills(proj)]
+            if lost:
+                _restore_cmap(proj, cmap_before)
+                say(f"REFUSED: the check would pass only because "
+                    f"{len(lost)} owner fill(s) were deleted "
+                    f"({', '.join(f'{s}[{i}]' for s, i in lost[:3])}). "
+                    f"Content restored.", 3)
+                say("a fix must keep what the owner chose — localize the "
+                    "asset, do not discard it", 3)
                 continue
             say(f"finished: ok={r['ok']} tools={len(r['tools'])} "
                 f"cost=${r['cost_usd']:.4f}", 3)

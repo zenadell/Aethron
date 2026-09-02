@@ -2618,6 +2618,32 @@ def cmd_localize(_args):
         for c in chunks.glob("*.mjs"):
             urls |= harvest(c.read_text(encoding="utf-8", errors="ignore"))
 
+    # THE OWNER'S OWN CHOICES ARE ASSETS TOO.
+    #
+    # A fill in copy_map can point anywhere, and an image picked in the
+    # editor from the template's own CDN lands here as an absolute
+    # platform URL. Nothing harvested those, so the one asset the owner
+    # actually chose was the one asset that stayed rented: the build
+    # shipped it, the ownership check failed, and the only fix available
+    # was to DELETE the choice — which is what an agent did, passing the
+    # check by throwing the owner's image away.
+    #
+    # Harvesting fills makes the constructive fix exist: the picked image
+    # is downloaded like any other asset, build rewrites the reference,
+    # and the owner keeps what they chose AND owns it.
+    cmap = root / "copy_map.json"
+    if cmap.is_file():
+        try:
+            _cm = json.loads(cmap.read_text(encoding="utf-8"))
+        except Exception:
+            _cm = {}
+        for _sec, _entries in (_cm.items() if isinstance(_cm, dict) else []):
+            if not isinstance(_entries, list):
+                continue
+            for _e in _entries:
+                if isinstance(_e, dict) and _e.get("new"):
+                    urls |= harvest(str(_e["new"]))
+
     new_urls = [u for u in sorted(urls) if u not in lmap]
     jobs = [(u, rdir / _local_name(u)) for u in new_urls
             if not (rdir / _local_name(u)).exists()]
