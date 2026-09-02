@@ -38,6 +38,26 @@
   "script parity": "PASS",
   "__seconds__": 0.2
  },
+ "avenlo:migration": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform links": "NOTE",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "PASS",
+  "baked animation state": "NOTE",
+  "__seconds__": 0.1
+ },
+ "avenlo:port": {
+  "instrumentation leak": "PASS",
+  "rented code": "PASS",
+  "platform assets": "PASS",
+  "platform urls in shipped files": "PASS",
+  "self-referencing links": "PASS",
+  "baked animation state": "PASS",
+  "script parity": "PASS",
+  "__seconds__": 0.1
+ },
  "createstudio:migration": {
   "instrumentation leak": "PASS",
   "rented code": "PASS",
@@ -76,7 +96,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
-  "__seconds__": 0.1
+  "__seconds__": 0.4
  },
  "intelli:migration": {
   "instrumentation leak": "PASS",
@@ -106,7 +126,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
-  "__seconds__": 0.2
+  "__seconds__": 0.4
  },
  "jomiez-lesmana:migration": {
   "instrumentation leak": "PASS",
@@ -176,7 +196,7 @@
   "self-referencing links": "PASS",
   "baked animation state": "PASS",
   "script parity": "PASS",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "sadewa:migration": {
   "instrumentation leak": "PASS",
@@ -196,7 +216,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "SKIPPED",
   "baked animation state": "NOTE",
-  "__seconds__": 0.2
+  "__seconds__": 0.4
  },
  "test-2:migration": {
   "instrumentation leak": "PASS",
@@ -226,7 +246,7 @@
   "platform urls in shipped files": "PASS",
   "self-referencing links": "PASS",
   "baked animation state": "NOTE",
-  "__seconds__": 0.1
+  "__seconds__": 0.2
  },
  "webflow-demo:migration": {
   "instrumentation leak": "PASS",
