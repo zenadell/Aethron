@@ -420,8 +420,19 @@ def fetch_framer(root: Path, cfg: dict):
                   for p in cfg["pages"]]
 
     # 1. site chunk base(s) + directly referenced chunks
+    # A SITE BASE IS A SITE ID, not any path under /sites/.
+    #
+    # Framer serves its shared default favicons from /sites/icons/, and
+    # the old pattern accepted that as a chunk base. The build then
+    # rewrote https://…/sites/icons/default-favicon-dark.v1.png to
+    # ./assets/chunks/default-favicon-dark.v1.png — a directory the file
+    # was never in — so gravitest 404'd its favicon on every page while
+    # the correctly localized copy sat unused in /assets/r/.
+    #
+    # Real site ids are long and random (2imzE79WBk4XzfT01EDZnz);
+    # requiring length keeps "icons" and any future sibling out.
     bases = sorted({m.group(0) for t in html_texts for m in re.finditer(
-        r"https://framerusercontent\.com/sites/[^/\"'\s]+/", t)})
+        r"https://framerusercontent\.com/sites/[^/\"'\s]{12,}/", t)})
     if not bases:
         die("no framerusercontent site base found — is this a Framer export?")
     cfg["site_bases"] = bases
@@ -2775,7 +2786,19 @@ def cmd_localize(_args):
         for u in REMOTE_ASSET_RE.findall(html_mod.unescape(text)):
             base = u.split("?")[0].split("#")[0].rstrip(",);.")
             # chunks/CMS/icons are already localized by fetch
-            if "/sites/" in base or base.endswith((".mjs", ".framercms")):
+            if base.endswith((".mjs", ".framercms")):
+                continue
+            # …but /sites/ is not only runtime files. Framer serves the
+            # default favicons from /sites/icons/, and skipping the whole
+            # prefix meant nobody fetched them: localize passed them over
+            # as "fetch's job" and fetch only knows chunks, CMS and icon
+            # modules. gravitest shipped a 404 for
+            # /sites/icons/default-favicon-dark.v1.png on every page.
+            # A plain image or font under /sites/ is an asset like any
+            # other, so let those through and keep skipping the code.
+            if "/sites/" in base and not base.lower().endswith(
+                    (".png", ".jpg", ".jpeg", ".webp", ".avif", ".gif",
+                     ".svg", ".ico", ".woff", ".woff2", ".ttf", ".otf")):
                 continue
             out.add(base)
         return out
@@ -3952,10 +3975,26 @@ def cmd_probe(args):
             with lock:
                 reqs = list(requests)
             dom_text = _visible_text(got["dom"])
+            # A favicon the SITE asks for is the site's problem; one only
+            # the browser asks for is not.
+            page_links_favicon = bool(
+                re.search(r'rel="[^"]*icon[^"]*"', got["dom"] or "", re.I))
             bad = {}
             for path, status in reqs:
-                if status >= 400:
-                    bad.setdefault(path.split("#")[0], status)
+                if status < 400:
+                    continue
+                clean = path.split("#")[0].split("?")[0]
+                # THE BROWSER ASKS FOR THIS ONE BY ITSELF. Chrome requests
+                # /favicon.ico on every navigation when no icon is linked,
+                # so a site that never mentions a favicon is charged with a
+                # 404 it did not cause — measured on qourvac2 and
+                # webflow-demo, neither of which references one on any of
+                # their 36 and 3 pages. The console filter already ignored
+                # it; the request filter did not, so the same non-event was
+                # a NOTE in one place and a FAIL in the other.
+                if clean == "/favicon.ico" and not page_links_favicon:
+                    continue
+                bad.setdefault(path.split("#")[0], status)
             hard, soft = [], []
             for msg, src in got["console"]:
                 low = msg.lower()
