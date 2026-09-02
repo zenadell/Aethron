@@ -4231,10 +4231,19 @@ def cmd_probe(args):
               f"  Install Chrome, or set {BROWSER_ENV} to a Chromium "
               "binary, and run `forge.py probe` again.")
         sys.exit(0)
+    # SAY WHAT WAS NOT LOOKED AT. The probe renders a capped number of
+    # pages, and on a 22-page site that meant 6 checked and 16 never
+    # opened — reported as "CLEAN at runtime" with no qualification.
+    # That is the vacuous pass the invariant forbids: a check that cannot
+    # run reports SKIPPED, never PASS, and one that ran on a quarter of
+    # the site must say which quarter.
+    scope = (f" ({len(pages)} of {len(pages) + skipped} pages checked; "
+             f"{skipped} not probed — `forge.py probe --all` covers "
+             f"every page)" if skipped else f" (all {len(pages)} pages)")
     print("\nVERDICT:", f"{fails} runtime problem(s) — the built site does "
-          f"not behave correctly" if fails else
+          f"not behave correctly{scope}" if fails else
           "CLEAN at runtime — pages render, every request served, no "
-          "console errors")
+          f"console errors{scope}")
     sys.exit(1 if fails else 0)
 
 
