@@ -1,0 +1,40 @@
+working on branch auto/mondragon-0901-0145
+project: mondragon
+
+--- migration ---
+  migration: 1 failing — ['platform urls in shipped files']
+    handing 'platform urls in shipped files' to the coding agent
+      finished: ok=False tools=13 cost=$0.0310
+      the agent went silent for 420s and was stopped (27 event(s) seen)
+      changed nothing and the check still fails
+
+--- framework port ---
+  convert: ok (9846s)
+  PIXEL-PERFECT PORT READY: /Users/mac/Desktop/deveploment/template-editor/projects/mondragon/convert-astro
+  port: 1 failing — ['platform urls in shipped files']
+    handing 'platform urls in shipped files' to the coding agent
+      finished: ok=False tools=0 cost=$0.0000
+      the agent went silent for 420s and was stopped (1 event(s) seen)
+      changed nothing and the check still fails
+
+--- differential: anything no check looks for ---
+  noise floor: 113 element(s) differ between two runs of the SAME build
+  DIFFERENCES beyond noise: 208
+  missing from the copy: 0   (noise: 0)
+  ELEMENTS THAT BEHAVE DIFFERENTLY:
+  VERDICT: 201 difference(s) no check was looking for
+
+--- parity: does the port do everything the migration does? ---
+  elements: 1125 in migration, 1125 in port
+  MISSING ELEMENTS: none
+  LOST HOVER BEHAVIOUR: none
+  LOST MOTION: 18
+  VERDICT: GAPS FOUND
+
+============================================================
+RESULT for mondragon   (23186s)
+  migration: ['platform urls in shipped files']
+  port     : ['platform urls in shipped files']
+  fixes accepted by the corpus: 0
+  review with: git diff main...auto/mondragon-0901-0145
+  differential: FOUND differences no check looks for

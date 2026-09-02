@@ -1,0 +1,43 @@
+working on branch auto/jomiez-lesmana-0902-0032
+project: jomiez-lesmana
+
+--- migration ---
+  migration: 1 failing — ['platform urls in shipped files']
+    handing 'platform urls in shipped files' to the coding agent
+      finished: ok=False tools=18 cost=$0.0227
+      API Error: Request rejected (429) · Aethron spend guard: ~$1.56 spent, which is the limit for this run. Raise AETHRON_MA
+      said: API Error: Request rejected (429) · Aethron spend guard: ~$1.56 spent, which is the limit for this run. Raise 
+      'platform urls in shipped files' now passes (no source change — the agent corrected the build itself)
+  migration: all checks pass
+
+--- framework port ---
+  convert: FAILED (29s)
+      FAIL index.html: text 99% identical, headings 33/33, images 60/60
+             NOT OWNED: 36 reference(s) still point at the source platform —
+                 36x framerusercontent.com
+             the port renders only because that CDN is reachable.
+  NOT ACCEPTED: /Users/mac/Desktop/deveploment/template-editor/projects/jomiez-lesmana/convert-astro
+
+--- differential: anything no check looks for ---
+  noise floor: 110 element(s) differ between two runs of the SAME build
+  DIFFERENCES beyond noise: 1427
+  missing from the copy: 0   (noise: 0)
+  ELEMENTS THAT BEHAVE DIFFERENTLY:
+  VERDICT: 467 difference(s) no check was looking for
+
+--- parity: does the port do everything the migration does? ---
+  elements: 1307 in migration, 1333 in port
+  MISSING ELEMENTS: none
+  LOST HOVER BEHAVIOUR: none
+  LOST MOTION: none
+  VERDICT: PARITY
+
+============================================================
+RESULT for jomiez-lesmana   (494s)
+  migration: clean
+  port     : ['conversion failed']
+  fixes accepted by the corpus: 1
+       platform urls in shipped files -> (rebuild): ethron spend guard: ~$1.56 spent, which is the limit for this run. Rai
+  review with: git diff main...auto/jomiez-lesmana-0902-0032
+  differential: FOUND differences no check looks for
+  spend: 19 request(s), 2,076,176 in + 1,814 out tokens = ~$1.5639 by our price table (ESTIMATE)

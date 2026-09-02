@@ -1391,7 +1391,10 @@ def _body_of(dom: str):
 
 def split_document(dom: str) -> tuple:
     head = re.search(r"(?is)<head\b[^>]*>(.*?)</head\s*>", dom)
-    inner, body_attrs = _body_of(dom)
+    _m = re.search(r'(?is)<body\b[^>]*>(.*?)</body\s*>', dom)
+    _a = re.search(r'(?is)<body\b([^>]*)>', dom)
+    inner = _m.group(1) if _m else None
+    body_attrs = _a.group(1) if _a else ''
     lang = re.search(r'(?is)<html\b[^>]*\blang="([^"]*)"', dom)
     return (head.group(1) if head else "",
             dom if inner is None else inner,
