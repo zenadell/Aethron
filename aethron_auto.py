@@ -97,7 +97,7 @@ def scrape(url, name):
     return dest if dest.is_dir() else None
 
 
-def prepare(proj):
+def prepare(proj, allow_fix=True):
     # FETCH FIRST. A Framer export's chunks, CMS blobs and icons live on
     # the platform CDN and are pulled by `fetch`; without it the site
     # still renders — because that CDN is reachable — and every check
@@ -105,20 +105,23 @@ def prepare(proj):
     # createstudio: 188 assets localized, 0 chunks, and the main script
     # still loading from framerusercontent.com.
     for step in ("fetch", "inventory", "localize", "build"):
-        ok, _ = run([sys.executable, str(ROOT / "forge.py"), step],
-                    cwd=proj, label=step)
+        ok, _ = step_with_fix(step,
+                              [sys.executable, str(ROOT / "forge.py"), step],
+                              proj, cwd=proj, allow_fix=allow_fix)
         if not ok:
             return False
     return True
 
 
-def convert(proj):
+def convert(proj, allow_fix=True):
     # A framework port installs a toolchain and renders every page in a
     # browser. Measured: 16992s on a 16-page Framer site, where npm alone
     # exceeded a 1800s ceiling and killed the whole run.
-    ok, out = run([sys.executable, str(ROOT / "aethron_convert.py"),
-                   str(proj), "--framework=astro"], timeout=21600,
-                  label="convert")
+    ok, out = step_with_fix(
+        "convert",
+        [sys.executable, str(ROOT / "aethron_convert.py"),
+         str(proj), "--framework=astro"],
+        proj, timeout=21600, allow_fix=allow_fix)
     for line in out.splitlines():
         if "PIXEL-PERFECT" in line or "NOT ACCEPTED" in line \
                 or "MOTION INCOMPLETE" in line:
@@ -133,6 +136,101 @@ def rebuild_for(proj, build):
     if ok and build == "port":
         ok = convert(proj)
     return ok
+
+
+GUARDED = ("aethron_bridge.py", "aethron_brain.py", "aethron_fixer.py",
+           "aethron_corpus.py", "aethron_auto.py")
+
+
+def run_step(cmd, cwd=ROOT, timeout=3600, label=""):
+    """-> (ok, output, exit_code). run() drops the code; a crash needs it."""
+    t0 = time.time()
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True,
+                           cwd=str(cwd), timeout=timeout)
+        out, code = r.stdout + r.stderr, r.returncode
+    except subprocess.TimeoutExpired as e:
+        out = (e.stdout or "") + (e.stderr or "") if isinstance(
+            e.stdout, str) else ""
+        out += f"\nTIMEOUT after {timeout}s"
+        code = -9
+    ok = code == 0
+    say(f"{label}: {'ok' if ok else f'CRASHED (exit {code})'} "
+        f"({time.time() - t0:.0f}s)", 1)
+    return ok, out, code
+
+
+def step_with_fix(label, cmd, proj, cwd=ROOT, timeout=3600,
+                  attempts=3, allow_fix=True):
+    """Run a pipeline step; when it CRASHES, let the agent fix it and retry.
+
+    THE GAP THIS CLOSES. Only a named check on a finished build ever
+    reached the agent. A step that exited non-zero became the string
+    "conversion failed" and the run moved on — so a crash was the one
+    failure Aethron could not even attempt, and every one of them needed
+    a person. The Astro port died exactly there: a code comment
+    containing "<body>" broke document splitting, and the whole 22-page
+    conversion stopped on it.
+
+    A crash is the BEST-evidenced defect there is. The traceback names
+    the file and the line; nothing else in this pipeline points that
+    precisely. What was missing was that nobody assembled it and handed
+    it over.
+
+    The acceptance rule is the same one that has held all along, because
+    it is the only one that cannot be talked around: the model never
+    decides it succeeded. The exact command that crashed must now
+    complete, AND the corpus must still be clear. Anything else is
+    reverted.
+    """
+    for attempt in range(1, attempts + 1):
+        ok, out, code = run_step(cmd, cwd, timeout, label)
+        if ok:
+            if attempt > 1:
+                # The command completing is necessary, not sufficient: a
+                # fix that unblocks this input by breaking others is the
+                # failure mode the corpus exists to catch, and it caught
+                # one today.
+                say("the step now completes — checking the corpus", 2)
+                clear, _ = corpus_clear()
+                if not clear:
+                    say("the fix breaks another build in the corpus — "
+                        "reverting it", 3)
+                    git("checkout", "--", ".")
+                    return False, out
+                say(f"ACCEPTED — {label} completes and the corpus is clear", 2)
+            return True, out
+        for line in out.strip().splitlines()[-4:]:
+            say(line[:120], 3)
+        if not allow_fix or attempt == attempts:
+            break
+        say(f"handing the {label} crash to the coding agent "
+            f"(attempt {attempt} of {attempts - 1})", 2)
+        evidence = fixer.crash_evidence(cmd, cwd, code, out, root=ROOT)
+        try:
+            r = fixer.agent_fix(proj, "pipeline", label, evidence,
+                                task=fixer.CRASH_TASK)
+        except Exception as e:
+            say(f"agent failed to start: {str(e)[:90]}", 3)
+            break
+        say(f"finished: ok={r['ok']} tools={len(r['tools'])} "
+            f"cost=${r['cost_usd']:.4f}", 3)
+        if r.get("error"):
+            say(r["error"][:120], 3)
+        touched = [l[-40:].strip()
+                   for l in git("status", "--porcelain").stdout.splitlines()
+                   if l.strip() and not l.strip().startswith("??")]
+        crossed = [f for f in GUARDED if any(f in c for c in touched)]
+        if crossed:
+            say(f"REFUSED: touched {crossed} — the limits and the referee "
+                f"are not editable. Reverting.", 3)
+            git("checkout", "--", ".")
+            break
+        if not touched:
+            say("changed nothing — the crash stands", 3)
+            break
+        say(f"changed: {touched}", 3)
+    return False, ""
 
 
 def _fills(proj):
@@ -332,7 +430,7 @@ def main(argv):
         return 1
     say(f"project: {proj.name}")
 
-    if not project and not prepare(proj):
+    if not project and not prepare(proj, allow_fix):
         say("preparation failed")
         return 1
 
@@ -340,7 +438,7 @@ def main(argv):
     mig_fails, mig_fixes = fix_loop(proj, "migration", key, model, allow_fix)
 
     say("\n--- framework port ---")
-    if convert(proj):
+    if convert(proj, allow_fix):
         port_fails, port_fixes = fix_loop(proj, "port", key, model, allow_fix)
     else:
         port_fails, port_fixes = ["conversion failed"], []

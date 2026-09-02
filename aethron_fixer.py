@@ -179,7 +179,7 @@ def ask(model, prompt, key, max_tokens=12000, timeout=600):
 
 
 def agent_fix(project: Path, build: str, check: str, evidence: str,
-              cfg=None, timeout=1800) -> dict:
+              cfg=None, timeout=1800, task=None) -> dict:
     """Let the coding agent do it — with tools, not a JSON guess.
 
     Aethron already drives the real Claude Code CLI (aethron_code.py):
@@ -193,8 +193,10 @@ def agent_fix(project: Path, build: str, check: str, evidence: str,
     tracing. That is what this asks for.
     """
     import aethron_code
-    prompt = AGENT_TASK.format(check=check, evidence=evidence[:8000],
-                               project=str(project), build=build)
+    prompt = (task or AGENT_TASK).format(
+        check=check, evidence=evidence[:12000],
+        project=str(project), build=build,
+        editable=", ".join(EDITABLE))
     seen = []
 
     def on_event(ev):
@@ -208,6 +210,112 @@ def agent_fix(project: Path, build: str, check: str, evidence: str,
     return {"ok": r.get("ok"), "error": r.get("error"),
             "text": r.get("text", ""), "tools": r.get("tools") or [],
             "cost_usd": r.get("cost_usd", 0.0)}
+
+
+CRASH_TASK = """A pipeline STEP CRASHED on this repository. Fix the cause.
+
+STEP: {check}
+EVIDENCE:
+{evidence}
+
+This is not a failing check on a finished build — the command itself did
+not complete, so there is no artifact to inspect. The traceback names the
+file and the line. That is a better starting point than most defects get.
+
+Work the way an engineer works, ONE COMMAND AT A TIME, reading each
+result before running the next.
+
+1. REPRODUCE IT. Run the exact command from the evidence and see the
+   failure with your own eyes. If it does not reproduce, say so and stop
+   — a fix for a failure you cannot trigger cannot be verified.
+
+2. UNDERSTAND WHY THIS INPUT. The pipeline works on other templates, so
+   the code is not simply broken: something about THIS input reached a
+   case the code does not handle. Find what is different about it. Read
+   the input that the failing line was processing.
+
+3. FORM A HYPOTHESIS AND TEST IT BEFORE FIXING. Write a small script
+   that demonstrates the cause — feed the suspect input to the suspect
+   function and show it misbehaving. Every real defect in this repo was
+   found that way, and more than one confident fix was wrong until a
+   measurement contradicted it. If your script proves you wrong, that is
+   the script working.
+
+4. FIX THE GENERAL CASE. Templates nobody has seen will hit this code. A
+   special case for this one input is worthless.
+
+5. PROVE IT. Re-run the exact command from step 1 — it must now succeed.
+   Then run
+       python3 aethron_corpus.py
+   which judges every other build on disk. A regression there means your
+   change broke something that was working: fix that or revert.
+
+6. KEEP THE SCRIPT. If you wrote something that found the cause, it is
+   worth more than the fix — add it to tests/ so the next crash of this
+   shape is caught automatically instead of rediscovered.
+
+Hard rules:
+- Edit only pipeline source: {editable}. NEVER edit a project's site/ or
+  pristine/ directory — those are generated, and the edit is erased by
+  the next build.
+- NEVER edit aethron_bridge.py, aethron_brain.py, aethron_fixer.py or
+  aethron_auto.py. Those hold the limits and the rules you work under,
+  and aethron_auto.py is the referee that decides whether you succeeded.
+  If a limit stops you, that is the answer — say you were stopped and
+  why. Removing the thing that says no is never the fix.
+- Do not make the command succeed by skipping the input. Silently
+  dropping the page that crashed turns a loud failure into a missing
+  page, which is worse.
+- If you cannot find the cause, say so plainly and say what you ruled
+  out. A wrong fix is worse than none.
+"""
+
+
+TRACE_FILE_RE = re.compile(r'File "([^"]+)", line (\d+)')
+
+
+def crash_evidence(cmd, cwd, code, output, root=None) -> str:
+    """Everything a person would want after a step exits non-zero.
+
+    A crash carries better evidence than a failing check: the traceback
+    names the file and the line. What was missing was that nobody
+    assembled it — the runner kept four lines of tail and dropped the
+    rest, so the one thing that pinpoints the cause never reached anyone.
+
+    Includes the source around each editable frame, innermost first,
+    because that is the line that actually raised.
+    """
+    root = Path(root or ROOT)
+    tail = (output or "").strip().splitlines()
+    lines = [f"COMMAND: {' '.join(str(c) for c in cmd)}",
+             f"CWD: {cwd}", f"EXIT CODE: {code}", "",
+             "OUTPUT (last 120 lines):",
+             *tail[-120:], ""]
+    frames = TRACE_FILE_RE.findall(output or "")
+    ours = [(f, int(n)) for f, n in frames
+            if Path(f).name in EDITABLE]
+    if ours:
+        lines.append("THE TRACEBACK NAMES OUR OWN CODE — innermost last, so "
+                     "the final frame is where it raised:")
+        for f, n in ours[-3:]:
+            p = Path(f)
+            if not p.is_file():
+                p = root / p.name
+            if not p.is_file():
+                continue
+            src = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+            a, b = max(0, n - 12), min(len(src), n + 8)
+            lines.append(f"--- {p.name} around line {n}")
+            for i in range(a, b):
+                mark = ">>" if i + 1 == n else "  "
+                lines.append(f"{mark} {i + 1:>5}| {src[i]}")
+            lines.append("")
+    else:
+        lines.append("No frame in the traceback belongs to editable pipeline "
+                     "source; the failure may come from a tool we invoke "
+                     "(npm, astro, the browser). Read the output above for "
+                     "the file and message it names.")
+    return "\n".join(lines)
 
 
 def parse_proposal(text):
