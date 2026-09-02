@@ -1969,7 +1969,20 @@ def cmd_build(_args):
     # non-page files from multi-file exports (Webflow css/js/images…):
     # pass through with copy pairs applied to text assets. Framer runtime
     # dirs (chunks/cms/icons) and downloaded fonts are handled separately.
-    reserved = {"chunks", "cms", "icons", "fonts"}
+    # remote-assets/ is SHIPPED TWICE, and only one copy is real.
+    #
+    # The localized store has its own loop above, which copies it to
+    # /assets/r/ and rewrites the references inside every text asset —
+    # that is the copy the build points at. This passthrough then copied
+    # the same directory again, verbatim, to /remote-assets/: nothing
+    # references it (measured: 0 referring files in all 17 projects,
+    # 106-327 duplicate files each), so it doubled the asset payload of
+    # every migration and carried the un-rewritten originals with it.
+    #
+    # That is how ovo regressed. Its served /assets/r/ was clean — 0
+    # platform urls — while the shadow copy held 375, and the ownership
+    # check, rightly, reads what is shipped rather than what is used.
+    reserved = {"chunks", "cms", "icons", "fonts", "remote-assets"}
     page_set = set(cfg["pages"])
     text_ext = (".css", ".js", ".txt", ".xml", ".json", ".svg", ".webmanifest")
     for f in (root / "pristine").rglob("*"):
