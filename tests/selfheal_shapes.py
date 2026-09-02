@@ -58,13 +58,13 @@ SHAPES = {
     ),
     "index-assumption": (
         "forge.py",
-        'def _local_name(url: str) -> str:',
-        'def _local_name(url: str) -> str:\n'
-        '    _tail = url.rsplit("/", 1)[1]\n'
-        '    _ext = _tail.rsplit(".", 1)[1]   # no dot in the last segment\n',
-        "A split that assumes structure the input does not always have. "
-        "The line reads as obviously correct; only the data proves it wrong "
-        "— exactly how the icon and chunk-name regexes failed.",
+        '        for u, fn in lmap.items():',
+        '        for u, fn in lmap.items():\n'
+        '            _kind = fn.split(".")[2]   # every real name has ONE dot\n',
+        "A split that assumes structure the input does not always have, "
+        "sitting in a loop over real localized filenames. The line reads as "
+        "obviously correct; only the data proves it wrong — exactly how the "
+        "icon and chunk-name patterns failed.",
     ),
     "hang": (
         "forge.py",
