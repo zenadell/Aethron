@@ -119,8 +119,18 @@ def _recall(msg: dict):
 # Exceeding any of them returns a plain Anthropic error, which the CLI
 # surfaces and the session ends. Nothing silently keeps spending.
 
-# USD per 1M tokens (input, output). Estimates for reporting only —
-# the caps that actually stop things are requests and tokens.
+# USD per 1M tokens (input, output).
+#
+# CALIBRATED AGAINST A REAL BILL, 2026-09-03: a day of runs this table
+# scored at ~$9.25 cost $5.80 on the account. So the estimate reads about
+# 1.6x HIGH for gemini-3.7-flash.
+#
+# That direction is the safe one — the guard stops before the money is
+# actually gone — but it must be stated, because a $1.00 cap really
+# permits about $0.63 of spend, and anyone sizing a budget from these
+# numbers is sizing it small. The figures below are deliberately left
+# unchanged: an estimate known to be conservative is more useful than a
+# guess re-tuned from one day's data.
 PRICES = {
     "deepseek-v4-pro": (0.55, 2.19), "deepseek-v4-flash": (0.07, 0.28),
     "deepseek-chat": (0.27, 1.10), "deepseek-reasoner": (0.55, 2.19),
