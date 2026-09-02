@@ -1382,24 +1382,40 @@ def _body_of(dom: str):
     open_m = _outside_raw_text(dom, r"<body\b[^>]*>")
     if not open_m:
         return None, ""
-    end = dom.rfind("</body")
-    if end < open_m.end():
-        end = len(dom)
+    close_m = _outside_raw_text(dom, r"</body\s*>")
+    if close_m and close_m.start() >= open_m.end():
+        end = close_m.start()
+    else:
+        end = dom.rfind("</body")
+        if end < open_m.end():
+            end = len(dom)
     attrs = re.match(r"(?is)<body\b([^>]*)>", open_m.group(0))
     return dom[open_m.end():end], (attrs.group(1) if attrs else "")
 
 
 def split_document(dom: str) -> tuple:
-    head = re.search(r"(?is)<head\b[^>]*>(.*?)</head\s*>", dom)
-    _m = re.search(r'(?is)<body\b[^>]*>(.*?)</body\s*>', dom)
-    _a = re.search(r'(?is)<body\b([^>]*)>', dom)
-    inner = _m.group(1) if _m else None
-    body_attrs = _a.group(1) if _a else ''
-    lang = re.search(r'(?is)<html\b[^>]*\blang="([^"]*)"', dom)
-    return (head.group(1) if head else "",
+    head_open = _outside_raw_text(dom, r"<head\b[^>]*>")
+    head_close = _outside_raw_text(dom, r"</head\s*>")
+    body_open = _outside_raw_text(dom, r"<body\b[^>]*>")
+    if head_open:
+        if head_close and head_close.start() >= head_open.end():
+            head = dom[head_open.end():head_close.start()]
+        elif body_open and body_open.start() >= head_open.end():
+            head = dom[head_open.end():body_open.start()]
+        else:
+            head = ""
+    else:
+        head_m = re.search(r"(?is)<head\b[^>]*>(.*?)</head\s*>", dom)
+        head = head_m.group(1) if head_m else ""
+
+    inner, body_attrs = _body_of(dom)
+    lang_m = _outside_raw_text(dom, r'<html\b[^>]*\blang="([^"]*)"') or \
+        re.search(r'(?is)<html\b[^>]*\blang="([^"]*)"', dom)
+    lang = lang_m.group(1) if lang_m else "en"
+    return (head,
             dom if inner is None else inner,
             body_attrs.strip(),
-            lang.group(1) if lang else "en")
+            lang)
 
 
 def route_of(page: str) -> str:
