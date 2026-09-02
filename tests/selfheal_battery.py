@@ -96,7 +96,29 @@ def test_crash_evidence():
              'ValueError: nope\n')
     ev2 = fx.crash_evidence(["x"], "/tmp", 2, other, root=ROOT)
     check("a crash outside our code is reported as such",
-          "No frame in the traceback belongs to editable" in ev2)
+          "came from a tool we invoke" in ev2)
+
+    # WHEN THE TOOL IS SOMEONE ELSE'S, THE ARTIFACT IS THE EVIDENCE.
+    # Astro's traceback is entirely node_modules, so the frame scan finds
+    # nothing of ours; the agent then read the pipeline blind and spent
+    # two million input tokens without a fix. The error names the file we
+    # GENERATED and the line — quoting it shows the defect directly.
+    gen = ROOT / "tests" / "_selfheal_tmp.astro"
+    gen.write_text("---\n// generated\n---\n" + "x\n" * 20 +
+                   "window.scrollTo(&#123; top: 0 &#125;)\n")
+    try:
+        astro_err = (f"[ERROR] Unexpected \"}}\"\n  Location:\n    {gen}:24:9\n"
+                     "  Stack trace:\n    at compileAstro "
+                     "(file:///x/node_modules/astro/dist/compile.js:62:11)\n")
+        ev3 = fx.crash_evidence(["convert"], str(ROOT), 2, astro_err, root=ROOT)
+        check("a foreign tool's crash quotes the file WE generated",
+              "THE GENERATED FILE IT REJECTED" in ev3)
+        check("the offending generated line is shown",
+              "window.scrollTo(&#123;" in ev3)
+        check("node_modules frames are not quoted as our artifact",
+              "compile.js" not in ev3.split("THE GENERATED")[-1])
+    finally:
+        gen.unlink(missing_ok=True)
 
 
 def test_crash_reaches_the_agent():

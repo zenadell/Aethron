@@ -311,11 +311,71 @@ def crash_evidence(cmd, cwd, code, output, root=None) -> str:
                 lines.append(f"{mark} {i + 1:>5}| {src[i]}")
             lines.append("")
     else:
-        lines.append("No frame in the traceback belongs to editable pipeline "
-                     "source; the failure may come from a tool we invoke "
-                     "(npm, astro, the browser). Read the output above for "
-                     "the file and message it names.")
+        lines.append("No frame belongs to our Python — this crash came from "
+                     "a tool we invoke (astro, npm, the browser). That tool "
+                     "is not broken: it choked on a file WE GENERATED, and "
+                     "that file is the evidence.")
+    # THE ARTIFACT IS THE EVIDENCE WHEN THE TOOL IS SOMEONE ELSE'S.
+    #
+    # Astro's traceback is entirely node_modules, so the frame scan above
+    # found nothing of ours and the agent was handed no pointer at all —
+    # it then read the pipeline blind and spent 2,047,615 input tokens
+    # without a fix. But the error names the generated file and the exact
+    # line: 01-Page.astro:68:39. Quoting that shows the defect directly,
+    # because a mangled artifact is visibly mangled, and the question
+    # becomes "which step wrote this?" instead of "where is the bug?".
+    for path, ln in _artifact_refs(output or "", root)[:2]:
+        src = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+        a, b = max(0, ln - 14), min(len(src), ln + 8)
+        rel = path
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            pass
+        lines += ["", f"THE GENERATED FILE IT REJECTED — {rel} around line "
+                      f"{ln} (this artifact is produced by the pipeline; if "
+                      f"it looks wrong, the step that wrote it is the bug):"]
+        for i in range(a, b):
+            mark = ">>" if i + 1 == ln else "  "
+            lines.append(f"{mark} {i + 1:>5}| {src[i][:200]}")
+        head = "\n".join(src[:6])
+        lines += ["", f"  the same file's first lines, which say what it is "
+                      f"and where it came from:", *(f"   | {h[:160]}"
+                                                    for h in head.splitlines())]
     return "\n".join(lines)
+
+
+ARTIFACT_REF_RE = re.compile(
+    r"([/\w.\-]+\.(?:astro|jsx?|tsx?|vue|svelte|html|css|mjs))"
+    r"[:(](\d+)[:,)]")
+
+
+def _artifact_refs(output: str, root: Path):
+    """(path, line) for generated files a foreign tool complained about.
+
+    Only files that exist and sit inside the repo, so a stack frame from
+    node_modules or a URL in a log line cannot drag in something
+    irrelevant.
+    """
+    out, seen = [], set()
+    for m in ARTIFACT_REF_RE.finditer(output):
+        raw, ln = m.group(1), int(m.group(2))
+        p = Path(raw)
+        if not p.is_absolute():
+            p = root / raw
+        try:
+            p = p.resolve()
+            p.relative_to(root.resolve())
+        except (ValueError, OSError):
+            continue
+        if "node_modules" in p.parts or not p.is_file():
+            continue
+        key = (str(p), ln)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((p, ln))
+    return out
 
 
 def parse_proposal(text):
