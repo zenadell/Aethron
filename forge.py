@@ -3587,13 +3587,52 @@ PLATFORM_HOSTS = re.compile(
     r"d3e54v103j8qbb\.cloudfront\.net)[^\"']*")
 
 
+# Hosts that SERVE THE SITE'S BYTES. A reference to one of these is a
+# dependency: pull the plug and the page loses content. Hosts that merely
+# host the vendor's own website are a different thing — a link.
+ASSET_HOSTS = ("framerusercontent.com", "website-files.com",
+               "d3e54v103j8qbb.cloudfront.net", "cloudfront.net")
+
+
 def _platform_refs(dom: str) -> dict:
-    """{host: count} of everything still pointing at the source platform."""
+    """{host: count} of everything the page still FETCHES from the platform.
+
+    A LINK IS NOT A DEPENDENCY. The invariant is that badges and promos
+    are CSS-hidden rather than deleted, because the runtime re-creates any
+    node removed from the DOM — so a carried runtime legitimately still
+    holds an <a href> to framer.com/@author?tab=marketplace, hidden and
+    never fetched.
+
+    Counting that as NOT OWNED failed a port whose every one of 83 runtime
+    requests was served locally, under the message "renders only because
+    that CDN is reachable", which was simply untrue of it.
+
+    Asset hosts stay strict: those are the bytes the page cannot do
+    without, and today they hid 445 CMS urls behind a check that was not
+    reading the right files. Vendor-site links are reported separately by
+    the caller as a note.
+    """
     out = {}
     for u in PLATFORM_HOSTS.findall(dom):
         try:
             host = u.split("/")[2]
         except IndexError:
+            continue
+        if not any(h in host for h in ASSET_HOSTS):
+            continue
+        out[host] = out.get(host, 0) + 1
+    return out
+
+
+def _platform_links(dom: str) -> dict:
+    """{host: count} of vendor-site links — hidden promos, not fetches."""
+    out = {}
+    for u in PLATFORM_HOSTS.findall(dom):
+        try:
+            host = u.split("/")[2]
+        except IndexError:
+            continue
+        if any(h in host for h in ASSET_HOSTS):
             continue
         out[host] = out.get(host, 0) + 1
     return out
@@ -3680,6 +3719,14 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
                      if animated else ""))
             if missing:
                 print(f"       missing heading(s): {missing[:3]}")
+            vendor = _platform_links(got["dom"])
+            if vendor and not leaks:
+                # Reported, never failed: the invariant is that promos are
+                # CSS-hidden rather than deleted, because the runtime
+                # re-creates a removed node. Nothing is fetched.
+                print("       NOTE hidden vendor link(s), nothing fetched: "
+                      + ", ".join(f"{n}x {h}" for h, n in
+                                  sorted(vendor.items(), key=lambda x: -x[1])[:2]))
             if leaks:
                 total = sum(leaks.values())
                 print(f"       NOT OWNED: {total} reference(s) still point "
