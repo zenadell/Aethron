@@ -62,6 +62,11 @@ CHUNK_NAME_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{6,12}\.mjs")
 #     let {createEditorBar: b} = await import(...); return {default: b({…})}
 # so the stub must EXPORT that name and return a component; an empty
 # module would throw where the missing fetch merely errored.
+# Endpoints that only the source platform can answer. A self-hosted
+# site calling one is inherited behaviour, not a migration defect.
+PLATFORM_BACKEND_RE = re.compile(
+    r"^/(?:\.wf_graphql/|api/v2/sites/|\.wf_forms?/)")
+
 EDITORBAR_URL = "https://edit.framer.com/init.mjs"
 EDITORBAR_STUB = ("data:text/javascript,export%20const%20createEditorBar"
                   "%3D()%3D%3E()%3D%3Enull")
@@ -4007,10 +4012,13 @@ def cmd_probe(args):
                 reqs = list(requests)
             dom_text = _visible_text(got["dom"])
             # A favicon the SITE asks for is the site's problem; one only
-            # the browser asks for is not.
-            page_links_favicon = bool(
-                re.search(r'rel="[^"]*icon[^"]*"', got["dom"] or "", re.I))
-            bad = {}
+            # the browser asks for is not. The question is whether the
+            # page references THAT PATH — not whether it links some icon.
+            # qourvac2 links six localized icons on every page and Chrome
+            # still probed /favicon.ico on two of them, so "an icon is
+            # linked" wrongly made the browser's own fallback a defect.
+            page_links_favicon = "/favicon.ico" in (got["dom"] or "")
+            bad, platform_calls = {}, {}
             for path, status in reqs:
                 if status < 400:
                     continue
@@ -4024,6 +4032,19 @@ def cmd_probe(args):
                 # it; the request filter did not, so the same non-event was
                 # a NOTE in one place and a FAIL in the other.
                 if clean == "/favicon.ico" and not page_links_favicon:
+                    continue
+                # A PLATFORM BACKEND CANNOT BE SELF-HOSTED. Webflow's
+                # runtime opens an Apollo client against /.wf_graphql/
+                # (and /api/v2/sites/ in the designer) to fetch a CSRF
+                # token. Those endpoints exist only on Webflow's own
+                # infrastructure, so the call fails on every other host —
+                # a plain static host included — and the runtime carries
+                # on: the probe's own "nothing failed to load or execute"
+                # holds on all six pages. Owning the site is precisely
+                # what makes this unanswerable, so it is reported rather
+                # than counted as breakage.
+                if PLATFORM_BACKEND_RE.match(clean):
+                    platform_calls.setdefault(clean, status)
                     continue
                 bad.setdefault(path.split("#")[0], status)
             hard, soft = [], []
@@ -4122,6 +4143,11 @@ def cmd_probe(args):
                 fails += 1
             else:
                 print(f"PASS all {len(reqs)} runtime request(s) served")
+            if platform_calls:
+                print("     NOTE the platform runtime calls its own backend, "
+                      "which no self-hosted copy can answer: "
+                      + ", ".join(f"{p} ({s})"
+                                  for p, s in list(platform_calls.items())[:3]))
 
             # 3. did the code throw?
             if hard:
