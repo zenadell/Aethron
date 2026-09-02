@@ -108,10 +108,30 @@ def check_shipped_assets(root: Path, r: Result):
     pat = _re.compile(r'https://(?:[a-z0-9.-]*website-files\.com'
                       r'|framerusercontent\.com|d3e54v103j8qbb\.cloudfront'
                       r'\.net)/[^"\'\s<>`\\)]+')
+    # AN ALLOWLIST OF EXTENSIONS IS THE SAME MISTAKE AS AN ENTRY PAGE.
+    #
+    # This check was written because reading index.html could not speak
+    # for a build — and then it read five extensions and spoke for the
+    # build anyway. Framer's CMS binaries (.framercms) hold the urls for
+    # every CMS-driven image: blog covers, project cards, team photos.
+    # The runtime fetches them from that data, so they are as live as
+    # anything in a chunk, and they were never opened.
+    #
+    # Measured the day this was found: mondragon 526, createstudio 406,
+    # jomiez-lesmana 346, sadewa 426 — on builds this check was calling
+    # clean, in files it had never read. The DOM-based referee in the
+    # converter had been reporting the same leak for weeks and was
+    # assumed to be the one that was wrong.
+    #
+    # So: skip only what cannot carry a url (encoded media), and read
+    # everything else.
+    BINARY = (".png", ".jpg", ".jpeg", ".webp", ".avif", ".gif", ".ico",
+              ".woff", ".woff2", ".ttf", ".otf", ".eot",
+              ".mp4", ".webm", ".mov", ".mp3", ".wav", ".zip", ".gz",
+              ".pdf", ".bin", ".wasm")
     hits, files = 0, []
     for f in sorted(root.rglob("*")):
-        if not f.is_file() or f.suffix.lower() not in (
-                ".html", ".js", ".mjs", ".css", ".json"):
+        if not f.is_file() or f.suffix.lower() in BINARY:
             continue
         # `sources/` is the authored source recovered from the platform's
         # own source maps — reference material for whoever inherits the
