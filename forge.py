@@ -3596,6 +3596,37 @@ def _console_messages(log: str) -> list:
     return out
 
 
+def _reference_render(root: Path, page: str, browser: str, budget: int):
+    """Visible-text length of the UNTOUCHED export for this page, or None.
+
+    pristine/ is the original as captured, so serving it and rendering it
+    answers "does the original do this too?" without a live URL and
+    without a person. Returns None when it cannot be rendered — a
+    comparison that could not run must never be reported as agreement.
+    """
+    src = root / "pristine" / page
+    if not src.is_file() or not browser:
+        return None
+    try:
+        import functools
+        import threading
+        from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+        d = str((root / "pristine").resolve())
+        h = functools.partial(SimpleHTTPRequestHandler, directory=d)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), h)
+        srv.RequestHandlerClass.log_message = lambda *a, **k: None
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            got = _render_page(
+                browser, f"http://127.0.0.1:{srv.server_address[1]}/{page}",
+                budget_ms=budget)
+        finally:
+            srv.shutdown()
+        return len(_visible_text(got["dom"])) if got.get("dom") else None
+    except Exception:
+        return None
+
+
 def _render_page(browser: str, url: str, budget_ms=8000, timeout=60,
                  offline=False) -> dict:
     """Load one page in headless Chromium. -> {dom, console, error}.
@@ -4032,15 +4063,50 @@ def cmd_probe(args):
                 continue
 
             # 1. does it render at all?
-            if len(dom_text) < 120:
+            # SMALL IS NOT BROKEN. The blank-page rule exists to catch a
+            # page whose content DISAPPEARS — the wild failure where a
+            # site ships 13k of HTML and renders 129 chars. A page that
+            # renders everything it shipped has lost nothing, however
+            # little that is: webflow-demo's about.html is 116 chars in
+            # the source and 116 on screen, and was failed for "the page
+            # ships but shows nothing" while showing all of it.
+            faithful = ssr and len(dom_text) >= 0.9 * len(ssr)
+            if len(dom_text) < 120 and not faithful:
                 print(f"FAIL renders BLANK ({len(dom_text)} chars of text "
-                      f"after JS) — the page ships but shows nothing")
+                      f"after JS) — the page ships but shows nothing"
+                      + (f", from {len(ssr)} chars of HTML" if ssr else ""))
                 fails += 1
             elif ssr and len(ssr) >= 400 and len(dom_text) < 0.4 * len(ssr):
-                print(f"FAIL content DISAPPEARS after JS: {len(ssr)} chars "
-                      f"in the HTML -> {len(dom_text)} rendered "
-                      f"(hydration is wiping the page)")
-                fails += 1
+                # ASK THE ORIGINAL BEFORE BLAMING THE BUILD.
+                #
+                # The ratio is a heuristic and it cannot tell "hydration
+                # wiped the page" from "this template's SSR carries more
+                # text than it ever displays". Both look like a big number
+                # shrinking. The invariant already says what to do —
+                # compare against the untouched original — and pristine/
+                # IS that original, so the probe can do it rather than
+                # leave it to a person.
+                #
+                # Measured on test-3: 10,128 chars of HTML rendering 3,737
+                # looked like a wipe; the pristine export renders 3,875
+                # from the same page, so the build loses one character to
+                # the original, not two thirds of the page.
+                ref = _reference_render(root, page, browser, budget)
+                if ref is not None and len(dom_text) >= 0.9 * ref:
+                    print(f"NOTE the ORIGINAL renders the same: {len(ssr)} "
+                          f"chars of HTML -> {ref} in the untouched export "
+                          f"vs {len(dom_text)} here. Not a wipe; this "
+                          f"template's SSR text is not all displayed.")
+                    print(f"PASS renders {len(dom_text)} chars of text, "
+                          f"{r['images']} image(s)")
+                else:
+                    print(f"FAIL content DISAPPEARS after JS: {len(ssr)} "
+                          f"chars in the HTML -> {len(dom_text)} rendered "
+                          f"(hydration is wiping the page)"
+                          + (f"; the untouched export renders {ref}"
+                             if ref is not None else
+                             "; could not render the original to compare"))
+                    fails += 1
             else:
                 print(f"PASS renders {len(dom_text)} chars of text, "
                       f"{r['images']} image(s)")
