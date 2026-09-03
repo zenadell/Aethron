@@ -611,7 +611,17 @@ def cmd_inventory(_args):
         # replacement would hit the pages' tolerant pass but MISS the
         # chunks, and hydration would revert the edit. Mark it flexible
         # so every layer matches whitespace-tolerantly.
-        if " " in s and not in_cms \
+        # AN AMPERSAND IS THE SAME LANDMINE AS A DOUBLE SPACE. The parser
+        # hands back "Income & expense tracking" while the page stores
+        # "Income &amp; expense tracking", so the stored form never
+        # matches. That is not merely a missed fill: the engine is a
+        # single-pass longest-first alternation, so when the LONG pair
+        # cannot match, a SHORTER pair inside it wins instead. Measured —
+        # "Income" -> "Images" was applied inside the untouched sentence,
+        # shipping "Images & expense tracking" on eight spots, half
+        # rebranded and worse than either version.
+        _entityish = any(c in s for c in "&<> ") or " " in s
+        if _entityish and not in_cms \
                 and not any(s in t for t in page_texts.values()) \
                 and not any(s in t for t in chunk_texts):
             entry["flex"] = True
@@ -1206,7 +1216,23 @@ def _flex_pat(old):
     ESCAPED forms (\\n, \\t) that appear inside minified chunk strings,
     which is where client-side route pages keep their copy."""
     ws = r"(?:\s|&nbsp;|\xa0|\\n|\\t)+"
-    return ws.join(re.escape(w) for w in old.split())
+
+    # AND THE CHARACTERS THAT ARE THEMSELVES ENTITY-ENCODED.
+    #
+    # The docstring already promised entity tolerance and delivered it
+    # only for SPACES. A word containing & < > or a quote is stored as
+    # &amp; &lt; &gt; &#39; in the page, so the harvested form never
+    # matched — and because replacement is one pass, longest-first, a
+    # failed long pair lets a SHORTER pair match inside it. Measured:
+    # "Income" -> "Images" fired inside "Income &amp; expense tracking",
+    # shipping a half-rebranded line on eight spots.
+    ENT = {"&": r"(?:&|&amp;)", "<": r"(?:<|&lt;)", ">": r"(?:>|&gt;)",
+           "'": r"(?:'|&#39;|&apos;|’)", '"': r'(?:"|&#34;|&quot;)'}
+
+    def word(w):
+        return "".join(ENT.get(c, re.escape(c)) for c in w)
+
+    return ws.join(word(w) for w in old.split())
 
 
 # Webflow asset filenames EMBED the brand (kitpro-cyntra…min.css) —
