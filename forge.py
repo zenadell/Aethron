@@ -733,6 +733,64 @@ def cmd_inventory(_args):
         except Exception:
             pass
 
+    # PROSE THAT ONLY EXISTS IN THE CHUNKS.
+    #
+    # Framer splits a sentence across per-word spans, so harvesting the
+    # page's text nodes yields fragments while the WHOLE sentence lives in
+    # a chunk as one template literal. Measured on a real rebrand: 99% of
+    # HTML text nodes were covered and the homepage still said "Makro is a
+    # financial clarity platform ... understand cash", because that string
+    # was never an entry. Nothing could fill it, and short pairs rewrote
+    # half of it into something nobody wrote.
+    #
+    # So harvest the literals too. Prose only — anything with code in it,
+    # a url, or no sentence shape stays out, because a bad entry here gets
+    # replaced across every layer.
+    _have = {e["old"] for e in strings}
+    # RUNTIME STRINGS ARE NOT SITE COPY. The first filter kept anything
+    # sentence-shaped, which swept in font stacks, glyph coverage sets,
+    # React's own error messages and Framer's editor hints — 48 entries
+    # the model correctly refused to rebrand, because "React.Children.only
+    # expected to receive a single React element child" is not marketing.
+    # It looked like the model failing; it was the harvest asking a silly
+    # question.
+    _CODEY = ("=>", "function", "return ", "${", "://", "var(", "px",
+              "null", "undefined", "className", "sans-serif", "serif",
+              "Placeholder", "React", "props", "component", "must be",
+              "expected to", "npm", "webpack", "Fragment", "useState",
+              "Youtube video", "thumbnail improves", "maxBatchSize")
+    _added = 0
+    for _src in chunk_texts:
+        for _lit in re.findall(r"`([^`]{25,400})`", _src):
+            s = _lit.strip()
+            if s in _have or len(s.split()) < 5:
+                continue
+            if any(c in s for c in _CODEY) or s[0] in "<{[/.#":
+                continue
+            if not re.search(r"[a-z]", s) or not re.search(r"[.!?,:]", s):
+                continue
+            if sum(ch.isalpha() or ch.isspace() for ch in s) < len(s) * 0.85:
+                continue
+            # a glyph-coverage string is single characters separated by
+            # spaces; real prose is words
+            _w = s.split()
+            if sum(1 for x in _w if len(x) == 1) > len(_w) * 0.25:
+                continue
+            if sum(1 for x in _w if len(x) >= 3) < 5:
+                continue
+            _in_cms = any(s.encode() in b for b in cms_blobs)
+            ent = {"old": s, "new": "", "scope": "all",
+                   "where": ["chunks"] + (["cms"] if _in_cms else []),
+                   # the key must exist even when there is no lock: the
+                   # summary and every consumer read it unconditionally
+                   "max_bytes": len(s.encode()) if _in_cms else None}
+            strings.append(ent)
+            _have.add(s)
+            _added += 1
+    if _added:
+        print(f"  chunk prose: {_added} sentence(s) that exist only in the "
+              f"runtime data (split text) — now fillable")
+
     existing.write_text(
         json.dumps(copy_map, indent=1, ensure_ascii=False), encoding="utf-8")
     _seal_pristine(root)

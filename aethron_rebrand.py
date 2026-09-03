@@ -78,6 +78,60 @@ def _sample_template(cm, n=28):
     return "\n".join("- " + o[:140] for o in olds[:n])
 
 
+def brief_from_url(url, cfg=None, pages=6):
+    """Learn the owner's brand from their EXISTING website.
+
+    Most owners have one already, and it says everything a brief needs in
+    their own words — what they do, who they serve, what they call their
+    products, how they write. Asking them to retype it into a plan file
+    is asking them to do the model's job.
+
+    Reads the live pages, strips markup, and hands the visible copy to
+    the brief expander. Text only: layout and assets belong to the
+    template being rebranded, not to the source of the words.
+    """
+    import forge
+    import urllib.request
+
+    def fetch(u):
+        req = urllib.request.Request(u, headers={
+            "User-Agent": "Mozilla/5.0 (Aethron brief reader)"})
+        with urllib.request.urlopen(req, timeout=45) as r:
+            return r.read().decode("utf8", "replace")
+
+    seen, texts = set(), []
+    try:
+        home = fetch(url)
+    except Exception as e:
+        raise ValueError(f"could not read {url}: {e}")
+    texts.append(forge._visible_text(home))
+    base = url.rstrip("/")
+    for href in re.findall(r'href="([^"#?]+)"', home):
+        if len(texts) >= pages:
+            break
+        if href.startswith("http") and base.split("//")[-1].split("/")[0] \
+                not in href:
+            continue                       # someone else's site
+        link = href if href.startswith("http") else \
+            base + "/" + href.lstrip("./")
+        if link in seen or link.rstrip("/") == base:
+            continue
+        seen.add(link)
+        try:
+            body = forge._visible_text(fetch(link))
+            if len(body.split()) > 40:
+                texts.append(body)
+        except Exception:
+            continue
+    joined = re.sub(r"\s+", " ", " ".join(texts))[:14000]
+    if len(joined.split()) < 60:
+        raise ValueError(f"{url} gave too little copy to learn a brand from "
+                         f"({len(joined.split())} words) — write a short "
+                         f"project_plan.md instead")
+    print(f"  read {len(texts)} page(s), {len(joined.split())} words of copy")
+    return joined
+
+
 def make_brief(plan_text, cm, cfg=None):
     import aethron_brain as brain
     raw = brain.text_call(
@@ -134,6 +188,28 @@ def audit(root: Path):
             brief = {}
     avoid = [w.lower() for w in (brief.get("avoid") or []) if len(w) > 3]
 
+    # THE TEMPLATE'S OWN WORDS ARE THE ONES THAT MUST NOT SURVIVE.
+    #
+    # `avoid` is written by the brief, which is built from the OWNER's
+    # site — so it lists the owner's industry, not the template's. A fill
+    # that rewrote half a sentence and left "Makro is a creative clarity
+    # platform … understand cash" passed every check: it is filled, so it
+    # is not "never filled", and "cash" is not in an art studio's avoid
+    # list. The page still said Makro.
+    #
+    # The vocabulary map already names them: its KEYS are the template's
+    # domain nouns, chosen precisely because they must be translated. Any
+    # key surviving inside a FILLED value is a half-done rewrite. So is
+    # the template's own brand, which the config records as forbidden.
+    stale = [str(k).lower() for k in (brief.get("vocabulary") or {})
+             if len(str(k)) > 3]
+    try:
+        cfg = json.loads((root / "forge.json").read_text())
+        stale += [str(w).lower() for w in (cfg.get("forbidden_words") or [])
+                  if len(str(w)) > 2]
+    except Exception:
+        pass
+
     offenders = []
     for i, e in enumerate(cm.get("strings", [])):
         cur = str(e.get("new") or e.get("old", ""))
@@ -143,7 +219,22 @@ def audit(root: Path):
         if not str(e.get("new", "")).strip() and len(e.get("old", "")) > 25:
             why = "never filled"
         elif avoid and any(w in cur.lower() for w in avoid):
-            why = "still uses the template's vocabulary"
+            why = "uses a word the brief said to avoid"
+        elif str(e.get("new", "")).strip():
+            # CARRIED OVER, NOT CHOSEN. A template word is only evidence
+            # of a half-rewrite when it survived from the OLD text into
+            # the new one. The same word chosen freshly is usually right:
+            # "No subscriptions, no paywalls" is exactly what a free
+            # painting app should say, and flagging it would teach the
+            # owner to ignore this check — which is how the real
+            # half-rewrite ("Makro is a creative clarity platform ...
+            # understand cash", where 'cash' came straight from the
+            # original) gets missed.
+            o = str(e.get("old", "")).lower()
+            n_ = cur.lower()
+            hit = next((w for w in stale if w in n_ and w in o), None)
+            if hit:
+                why = f"carried {hit!r} over from the original — half-rewritten"
         if why:
             offenders.append({"i": i, "old": e.get("old", "")[:90],
                               "cur": cur[:90], "why": why,
@@ -185,19 +276,39 @@ def fill_round(root: Path, brief_str, entries, cfg=None, size=25):
         except ValueError:
             print(f"    batch {start // size + 1}: unparseable, skipped")
             continue
+        # SAY WHY AN ENTRY WAS NOT FILLED. The first version printed only
+        # a running total, so a batch that filled 0 of 25 looked identical
+        # whether the model declined every string, the answers overflowed
+        # their byte locks, or the reply came back misaligned. Without the
+        # reason there is nothing to fix.
+        why = {"empty": 0, "over_budget": 0, "backtick": 0, "same": 0}
+        if len(got) != len(chunk):
+            print(f"    batch {start // size + 1}: model returned "
+                  f"{len(got)} of {len(chunk)} entries — alignment lost, "
+                  f"matching by 'old' instead")
+            by_old = {str(e.get("old", "")): e for e in got}
+            got = [by_old.get(strings[i]["old"], {}) for i in chunk]
         for i, ent in zip(chunk, got):
             new = str(ent.get("new") or "").strip()
-            if not new or new == strings[i]["old"]:
+            if not new:
+                why["empty"] += 1
+                continue
+            if new == strings[i]["old"]:
+                why["same"] += 1
                 continue
             cap = strings[i].get("max_bytes")
             if cap and len(new.encode()) > int(cap):
-                continue                      # the lock is not negotiable
+                why["over_budget"] += 1       # the lock is not negotiable
+                continue
             if "`" in new or "${" in new:
+                why["backtick"] += 1
                 continue
             strings[i]["new"] = new
             filled += 1
+        skipped = ", ".join(f"{k}={v}" for k, v in why.items() if v)
         print(f"    batch {start // size + 1}/{(len(idx) + size - 1) // size}: "
-              f"{filled} filled so far")
+              f"{filled} filled so far" + (f"   (skipped: {skipped})"
+                                           if skipped else ""))
     cm_path.write_text(json.dumps(cm, indent=1, ensure_ascii=False))
     return filled
 
@@ -222,16 +333,25 @@ def cmd_rebrand(args):
         _report(same, offenders)
         return 0
 
+    from_url = next((a.split("=", 1)[1] for a in args
+                     if a.startswith("--from=")), None)
     plan = plan_arg or ""
+    if from_url and not plan:
+        print(f"brief: learning the brand from {from_url}")
+        plan = brief_from_url(from_url)
     if not plan:
         p = root / "project_plan.md"
         plan = p.read_text() if p.is_file() else ""
-    if not plan.strip():
-        print("no plan — pass --plan=\"Name, what you do, email\" or write "
-              "project_plan.md")
+    # A BRIEF ALREADY ON DISK IS A PLAN. Demanding the notes again made
+    # a second round impossible: the first run writes brand_brief.json,
+    # and the next invocation refused with "no plan" while the brief sat
+    # beside it. Resuming is the normal case, not the exception.
+    bp = root / "brand_brief.json"
+    if not plan.strip() and not bp.is_file():
+        print("no plan — pass --plan=\"Name, what you do, email\", "
+              "--from=<your website>, or write project_plan.md")
         return 1
 
-    bp = root / "brand_brief.json"
     if bp.is_file():
         brief = json.loads(bp.read_text())
         print(f"brief: reusing {bp.name} for {brief.get('brand','?')!r}")
