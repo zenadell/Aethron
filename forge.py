@@ -1130,9 +1130,29 @@ def _pairs_from_map(root: Path, cms_blobs):
                     # (external). Never a dead build.
                     cms_over, in_cms = True, False
                 else:
-                    die(f"CMS budget exceeded for {old[:40]!r}: "
-                        f"{len(new_b)} > {len(old_b)} bytes. Shorten the "
-                        "text.")
+                    # TEXT THAT WILL NOT FIT IS NOT A DEAD BUILD EITHER.
+                    #
+                    # A URL over its slot degrades to text-layers-only
+                    # (above); text killed the whole build instead. That
+                    # asymmetry bites the commonest rebrand there is: a
+                    # brand whose name is longer than the one it replaces.
+                    # Measured on this repo — "Makro"(5) -> "Jomiez"(6) is
+                    # one byte over a locked slot, and one byte refused a
+                    # 644-string migration outright.
+                    #
+                    # So it degrades the same way: HTML and chunks get the
+                    # new text (they stay identical to each other, which
+                    # is what hydration requires), the CMS blob keeps the
+                    # old bytes, and the mismatch is REPORTED rather than
+                    # hidden. verify's forbidden-word scan then names the
+                    # leftover, so the owner learns it from a check
+                    # instead of from a screenshot.
+                    cms_over, in_cms = True, False
+                    OVER_SLOT.add(old.lower())
+                    log(f"NOTE {old[:32]!r} is {len(new_b) - len(old_b)} "
+                        f"byte(s) over its CMS slot ({len(old_b)}): text "
+                        f"layers updated, CMS keeps the original. Shorten "
+                        f"the replacement to change it everywhere.")
             else:
                 # identical padded text EVERYWHERE or hydration mismatches
                 pad = len(old_b) - len(new_b)
@@ -2271,6 +2291,9 @@ def cmd_build(_args):
         report["__at_risk__"] = at_risk
     if moot:
         report["__moot__"] = sorted(set(moot))
+        # what could not fit a byte-locked CMS slot, so verify
+        # can report it as a limit rather than a mistake
+        report["__cms_over__"] = sorted(OVER_SLOT)
     (site / ".forge-report.json").write_text(
         json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
     zeros = [o for o, n in stats.items() if n == 0 and o not in set(moot)]
@@ -2571,6 +2594,11 @@ if __name__ == "__main__":
 # sites; the crawl is breadth-first over the home page's own links, so
 # this bounds a runaway, it is not a quality judgement.
 MAX_SCRAPE_PAGES = int(os.environ.get("AETHRON_MAX_PAGES", "40"))
+
+# Olds whose replacement could not fit a byte-locked CMS slot.
+# Written into the build report so verify can tell 'cannot' from
+# 'forgot' — the difference between a NOTE and a FAIL.
+OVER_SLOT = set()
 
 REMOTE_ASSET_RE = re.compile(
     r"https://(?:[a-z0-9.-]*website-files\.com|framerusercontent\.com"
@@ -4269,6 +4297,42 @@ def cmd_probe(args):
 
 # ─────────────────────────── verify ──────────────────────────────────
 
+def _rebrand_depth(root: Path, site: Path):
+    """-> (fraction of visible copy identical to the template, pages) | None.
+
+    Compares what the BUILT pages show against what the PRISTINE pages
+    show, word for word. Text only: markup, classes and asset paths are
+    irrelevant to whether the writing is yours.
+
+    It reads the source HTML rather than rendering, so it is a file check
+    like the rest of verify — cheap, no browser. That undercounts on
+    templates whose copy lives mostly in chunks, which is the safe
+    direction: it will under-claim a rebrand, never over-claim one.
+    """
+    try:
+        import difflib
+        pages = [p for p in (root / "pristine").glob("*.html")][:8]
+        if not pages:
+            return None
+        ratios = []
+        for p in pages:
+            built = site / p.name
+            if not built.is_file():
+                continue
+            a = _visible_text(p.read_text(encoding="utf-8", errors="ignore"))
+            b = _visible_text(built.read_text(encoding="utf-8",
+                                              errors="ignore"))
+            if len(a.split()) < 30:
+                continue
+            ratios.append(difflib.SequenceMatcher(
+                None, a.split(), b.split()).ratio())
+        if not ratios:
+            return None
+        return sum(ratios) / len(ratios), len(ratios)
+    except Exception:
+        return None
+
+
 def cmd_verify(_args):
     root = Path.cwd()
     cfg = read_cfg(root)
@@ -4283,9 +4347,32 @@ def cmd_verify(_args):
     # those are never rendered, so they're a NOTE, not a FAIL.
     cdn_b = re.compile(CDN_URL_RE.pattern.encode())
     words = cfg.get("forbidden_words", [])
+    # The build records what could not fit a locked slot; without it
+    # verify cannot tell "impossible" from "forgotten".
+    _rep = site / ".forge-report.json"
+    over_slot = set()
+    if _rep.is_file():
+        try:
+            over_slot = {s.lower() for s in
+                         json.loads(_rep.read_text()).get("__cms_over__", [])}
+        except Exception:
+            over_slot = set()
+
     for w in words:
         hits, url_only = [], []
         for f in site.rglob("*"):
+            # `sources/` is the AUTHORED SOURCE recovered from the
+            # platform's own source maps — reference material for whoever
+            # inherits the project, loaded by nothing and referenced by no
+            # page. Of course it still says the template's original name:
+            # those are its variable names and comments. The doctor learned
+            # to skip it after it reported 217 platform urls on a build
+            # that fetched none; the brand scan never did, so a rebrand
+            # that had replaced every rendered mention still reported FAIL
+            # and pointed at five files the browser never opens.
+            _rel = str(f.relative_to(site)).replace("\\", "/")
+            if _rel.startswith("sources/") or "/sources/" in _rel:
+                continue
             if f.is_file() and f.suffix in (".html", ".mjs", ".framercms", ".js"):
                 blob = f.read_bytes()
                 present = w.encode() in blob or w.lower().encode() in blob
@@ -4296,7 +4383,25 @@ def cmd_verify(_args):
                     hits.append(str(f.relative_to(site)))
                 else:
                     url_only.append(str(f.relative_to(site)))
-        if hits:
+        # A LEFTOVER THAT PHYSICALLY CANNOT BE REPLACED IS NOT A DEFECT.
+        #
+        # A CMS slot is byte-locked, so a replacement longer than the
+        # original cannot be written into one — and the commonest rebrand
+        # of all hits this: a brand whose name is longer than the one it
+        # replaces. Build already degrades to text-layers-only and says
+        # so. Reporting the survivor as a plain FAIL on every subsequent
+        # verify teaches the owner that verify cries wolf, which is how a
+        # real leftover gets ignored later.
+        #
+        # It is still reported — loudly, with the reason and the remedy —
+        # just not counted as a failure the owner cannot act on.
+        cms_only = hits and all(h.endswith(".framercms") for h in hits)
+        if hits and cms_only and w.lower() in over_slot:
+            print(f"NOTE '{w}' remains in {len(hits)} CMS binary(ies): the "
+                  f"replacement is longer than its byte-locked slot, so the "
+                  f"text layers were updated and the CMS kept the original. "
+                  f"Shorten the replacement to change it everywhere.")
+        elif hits:
             print(f"FAIL leftover '{w}' in: {', '.join(hits[:5])}")
             fails += 1
         else:
@@ -4442,6 +4547,32 @@ def cmd_verify(_args):
                   "(fix: python3 forge.py heal drops it; then re-remove "
                   "the element in edit mode)")
             fails += 1
+
+    # 6. HOW MUCH OF THIS SITE IS STILL THE TEMPLATE'S?
+    #
+    # Every other check here asks whether the OLD BRAND survived. None
+    # asked whether the COPY did — so a migration could replace the brand
+    # token everywhere, report "no leftover 'Makro'", and still be a
+    # finance product with a new logo on it. That happened: 0 brand
+    # mentions, 72% of strings untouched, and the owner saw it on the
+    # page in seconds while the tool said clean.
+    #
+    # The port referee compares rendered text and wants it IDENTICAL. This
+    # is the same measurement wanting the opposite, and it is the only
+    # honest way to tell a rebrand from a relabel.
+    _depth = _rebrand_depth(root, site)
+    if _depth is not None:
+        same, pages = _depth
+        pct = int(same * 100)
+        if same >= 0.85:
+            print(f"NOTE {pct}% of the visible copy across {pages} page(s) is "
+                  f"still WORD-FOR-WORD the template's. The brand is "
+                  f"replaced; the content is not. If that is deliberate, "
+                  f"ignore this — if you meant to make the site yours, most "
+                  f"of copy_map is still unfilled.")
+        else:
+            print(f"PASS copy is {100 - pct}% rewritten from the template "
+                  f"across {pages} page(s)")
 
     # These are FILE checks. They cannot see a page that ships every
     # byte and still renders blank — `probe` runs the code.
