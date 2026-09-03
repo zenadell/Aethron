@@ -309,18 +309,41 @@ def _kill_previews():
 # The model's only job, verbatim from PLAYBOOK Part 2 Step 4. Batched so
 # small models (DeepSeek flash, 7B local) never blow their output limit.
 
+# REBRAND MEANS REBRAND. The previous rules made only brand tokens
+# mandatory and said "leave new as '' for anything that should keep the
+# original text" — so a model did the literal minimum: it swapped the
+# company name and left a finance product's every sentence in place. The
+# owner saw a site with their logo on someone else's business and was
+# right to call it a relabel.
+#
+# The default is now inverted. Every string is rewritten unless it is
+# genuinely generic, and the model is told what "generic" means so the
+# exception cannot swallow the rule.
 PROMPT_RULES = """Rules:
-1. If max_bytes is set, the UTF-8 byte length of "new" must be <= it.
+1. REWRITE EVERYTHING. This is a rebrand, not a find-and-replace. Every
+   heading, paragraph, feature name, testimonial, blog title, changelog
+   line, FAQ, dashboard label and micro-copy must describe the OWNER'S
+   business. A visitor reading the finished site must not be able to tell
+   what the template originally sold.
+2. The ONLY entries you may leave as "" are ones that are already true of
+   any business: navigation words (Home, Blog, Contact), UI verbs (Submit,
+   Close, Next), country and browser names, dates, and legal boilerplate
+   that names no industry. If a string mentions the original industry, its
+   products, its jargon or its example data, it MUST be rewritten. When in
+   doubt, rewrite it.
+3. Map the original's domain onto the owner's, concept for concept, and
+   keep it consistent across the whole site. Do not translate word by word:
+   "invoice" -> "migration" produces sentences that parse and mean nothing.
+   Read what the sentence is FOR, then write that sentence for this owner.
+4. If max_bytes is set, the UTF-8 byte length of "new" must be <= it.
    Em-dashes and curly quotes are 3 bytes each. When unsure, write shorter.
-2. Never use backticks or ${ in any "new" value.
-3. Keep the same tone-length-shape as the original (a 3-word button stays
-   ~3 words; a one-line subtitle stays one line).
-4. Leave "new" as "" for anything that should keep the original text.
-5. Fill every brand-token entry (marked in "where").
-6. Links: retarget emails, phone numbers and socials per the plan; leave
+   A shorter true sentence beats a longer one that is rejected.
+5. Never use backticks or ${ in any "new" value.
+6. Keep the same shape as the original (a 3-word button stays ~3 words; a
+   one-line subtitle stays one line). Shape is layout; words are yours.
+7. Links: retarget emails, phone numbers and socials per the plan; leave
    internal anchors (#...) alone unless the plan says otherwise.
-7. Images: leave "new" empty unless the plan supplies a replacement
-   URL or path for that image.
+8. Images: leave "new" empty unless the plan supplies a replacement URL.
 Return the complete JSON you were given, nothing else."""
 
 

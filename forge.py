@@ -4751,11 +4751,23 @@ def cmd_card(_args):
           f"features: " + ", ".join(k for k, v in feats.items() if v))
 
 
+def _cmd_rebrand(args):
+    """Deep rebrand: a few lines about the owner -> the whole site is theirs.
+
+    Lives in aethron_rebrand.py because it is the only command that needs a
+    model; forge stays usable with no key at all.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import aethron_rebrand
+    return aethron_rebrand.cmd_rebrand(args)
+
+
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "capture": cmd_capture,
             "serve": cmd_serve, "probe": cmd_probe,
-            "verify": cmd_verify, "card": cmd_card, "heal": cmd_heal}
+            "verify": cmd_verify, "card": cmd_card, "heal": cmd_heal,
+            "rebrand": _cmd_rebrand}
 
 if __name__ == "__main__":
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
