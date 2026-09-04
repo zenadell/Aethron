@@ -29,6 +29,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "aethron_config.json"
+# Which keys are spent, and when that was last true. Kept OUT of the
+# config so a shared or committed config never carries key material, and
+# kept on disk because every forge subprocess is a fresh process — an
+# in-memory ring would rediscover each exhausted key by burning a request
+# on it, once per batch.
+KEYSTATE = ROOT / "aethron_keys.json"
 
 # wire: how the provider expects to be talked to.
 #   openai        -> /chat/completions   (the majority)
@@ -70,6 +76,18 @@ PROVIDERS = {
 }
 
 DEFAULT = {"provider": "deepseek", "api_key": "", "model": "",
+           # A RING OF KEYS, CHEAPEST FIRST.
+           #
+           # Free-tier keys cost nothing and run out daily; a paid key
+           # costs money and does not. Holding exactly one key forced the
+           # choice up front and spent real credit on work a free key
+           # would have done. The ring is tried IN ORDER, so put the free
+           # keys first and the paid one last: the paid key is only
+           # reached when every free allowance is genuinely gone.
+           #
+           # `api_key` still works and is treated as a one-key ring, so
+           # nothing that already worked stops working.
+           "api_keys": [],
            "base_url": "", "wire": "",
            # Spend guards. An agent that loops is an agent that spends,
            # so these are ON by default and deliberately low: a single
@@ -116,9 +134,98 @@ def save(patch: dict) -> dict:
     return ai
 
 
+def _fp(key: str) -> str:
+    """A key's fingerprint. The state file records these, never the key."""
+    import hashlib
+    return hashlib.sha1(key.encode()).hexdigest()[:12]
+
+
+def _today() -> str:
+    import datetime
+    return datetime.date.today().isoformat()
+
+
+def _keystate() -> dict:
+    """Exhausted fingerprints, reset when the day turns.
+
+    Free-tier allowances are DAILY. Latching a key as dead forever would
+    throw away tomorrow's free requests and quietly move every future run
+    onto the paid key — the exact cost the ring exists to avoid.
+    """
+    try:
+        st = json.loads(KEYSTATE.read_text(encoding="utf-8"))
+    except Exception:
+        st = {}
+    if st.get("date") != _today():
+        st = {"date": _today(), "exhausted": []}
+    st.setdefault("exhausted", [])
+    return st
+
+
+def mark_exhausted(key: str) -> None:
+    st = _keystate()
+    f = _fp(key)
+    if f not in st["exhausted"]:
+        st["exhausted"].append(f)
+        try:
+            KEYSTATE.write_text(json.dumps(st, indent=1), encoding="utf-8")
+        except Exception:
+            pass
+
+
+def free_ring(cfg: dict = None) -> list:
+    """The free keys, in order. `api_keys` is exactly this list."""
+    cfg = {**load(), **(cfg or {})}
+    return [str(k).strip() for k in (cfg.get("api_keys") or [])
+            if str(k).strip()]
+
+
+def paid_key(cfg: dict = None) -> str:
+    """The last resort. `api_key` keeps its old meaning — the one key —
+    which is why a config that predates the ring still works untouched."""
+    cfg = {**load(), **(cfg or {})}
+    return str(cfg.get("api_key") or "").strip()
+
+
+def ring(cfg: dict = None) -> list:
+    """Every key we may use, cheapest first."""
+    keys = free_ring(cfg)
+    p = paid_key(cfg)
+    if p and p not in keys:
+        keys.append(p)
+    return keys
+
+
+def live_keys(cfg: dict = None) -> list:
+    """The ring minus whatever is spent today."""
+    spent = set(_keystate()["exhausted"])
+    return [k for k in ring(cfg) if _fp(k) not in spent]
+
+
 def resolve(cfg: dict = None) -> dict:
     """Settings -> everything a caller needs, with an honest `ready`."""
+    # PINNING GETS ITS OWN FIELD, and deliberately not `api_key`.
+    # The paid key IS the config's `api_key`, so treating that field as
+    # "the caller pinned a key" answers yes for any caller that passes
+    # whole settings through — studio does — and pins the PAID key on
+    # every call. The ring would exist and never once be used. Caught by
+    # the battery, which passes a config-shaped cfg exactly as studio
+    # does. Only `_pin_key` pins, and only text_call sets it.
+    #
+    # Note it reads the ARGUMENT, never the merged settings: the paid key
+    # lives in the stored `api_key`, so merging first would make every
+    # call look pinned and the ring would never be used.
+    pin = str((cfg or {}).get("_pin_key")
+              or (cfg or {}).get("api_key") or "").strip()
     cfg = {**load(), **(cfg or {})}
+    if pin:
+        cfg["api_key"] = pin
+    else:
+        avail, allk = live_keys(cfg), ring(cfg)
+        # ALL SPENT IS NOT THE SAME AS NO KEY. Falling back to the last
+        # key makes the failure the provider's real "quota exceeded"
+        # message instead of a misleading "add an API key".
+        cfg["api_key"] = avail[0] if avail else (allk[-1] if allk else "")
     p = PROVIDERS.get(cfg.get("provider") or "", PROVIDERS["custom"])
     base = (cfg.get("base_url") or p["base"]).rstrip("/")
     model = cfg.get("model") or p["model"]
@@ -147,8 +254,76 @@ def resolve(cfg: dict = None) -> dict:
 def text_call(prompt: str, cfg: dict = None, timeout=300,
               max_tokens=16000) -> str:
     """The simple call the template side makes (fill, plan, match).
-    Same settings, same provider, whichever wire it speaks."""
-    r = resolve(cfg)
+
+    Walks the key ring: a key whose free allowance is spent is marked and
+    the next key takes over, so a run drains the free keys before it ever
+    touches the paid one. A 429 that is merely "too many this minute" is
+    waited out on the SAME key — rotating on that would burn the whole
+    ring in seconds and land on the paid key for no reason.
+    """
+    import time
+    import urllib.error
+    import aethron_bridge as _br
+
+    spent = set(_keystate()["exhausted"])
+    frees = [k for k in free_ring(cfg) if _fp(k) not in spent]
+    paid = paid_key(cfg)
+    last = None
+
+    def attempt(key):
+        """-> (answer, verdict). verdict: 'ok' | 'spent' | 'busy' | raise."""
+        try:
+            return _text_once(resolve({**(cfg or {}), "_pin_key": key}),
+                              prompt, timeout, max_tokens), "ok"
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and _br._is_quota_wall(e):
+                return e, "spent"
+            # 429-as-pace and 5xx are both "not now", not "not ever".
+            # FREE CAPACITY IS INTERMITTENT — measured on this account,
+            # the same key answered, then 503'd, then answered again
+            # within a minute. Treating a 503 as a dead key would walk
+            # the whole free ring in one second and spend real credit on
+            # a blip.
+            if e.code == 429 or 500 <= e.code < 600:
+                return e, "busy"
+            raise
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            return e, "busy"
+
+    # SWEEP THE FREE RING, THEN WAIT, THEN SWEEP AGAIN. Only when the
+    # free keys cannot serve across several minutes does this reach for
+    # the key that costs money.
+    for delay in (0,) + _br.RATE_BACKOFF:
+        if delay:
+            time.sleep(delay)
+        for key in list(frees):
+            out, verdict = attempt(key)
+            if verdict == "ok":
+                return out
+            last = out
+            if verdict == "spent":
+                mark_exhausted(key)
+                frees.remove(key)
+                print(f"  free key {_fp(key)} is out of quota for today — "
+                      f"{len(frees)} free key(s) left")
+        if not frees:
+            break
+
+    if paid and _fp(paid) not in _keystate()["exhausted"]:
+        if free_ring(cfg):
+            print("  free keys unavailable — falling back to the PAID key")
+        out, verdict = attempt(paid)
+        if verdict == "ok":
+            return out
+        if verdict == "spent":
+            mark_exhausted(paid)
+        last = out
+    if isinstance(last, BaseException):
+        raise last
+    raise ValueError("no API key could serve this request")
+
+
+def _text_once(r, prompt, timeout, max_tokens):
     if not r["ready"]:
         raise ValueError(r["why"] or "AI settings incomplete")
     if r["wire"] == "anthropic":
@@ -268,8 +443,14 @@ def shutdown_bridge():
 
 def status() -> dict:
     r = resolve()
+    allk, live = ring(), live_keys()
     return {"settings": {**load(), "api_key":
-                         ("set" if load().get("api_key") else "")},
+                         ("set" if load().get("api_key") else ""),
+                         "api_keys": f"{len(allk)} key(s) in the ring"},
+            "keyring": {"total": len(allk), "live_today": len(live),
+                        "spent_today": len(allk) - len(live),
+                        "in_use": _fp(r["key"]) if r.get("key") else "",
+                        "resets": "daily (free-tier allowances)"},
             "resolved": {k: v for k, v in r.items() if k != "key"},
             "providers": {k: {"label": v["label"], "wire": v["wire"],
                               "base": v["base"], "model": v["model"],
@@ -284,7 +465,11 @@ if __name__ == "__main__":
         ok = True
         r = resolve({"provider": "deepseek", "api_key": "k", "model": "m"})
         ok &= r["wire"] == "openai" and r["ready"]
-        r2 = resolve({"provider": "deepseek", "api_key": "", "model": "m"})
+        # "no key" now has to be stated, not assumed: resolve falls back
+        # to the configured ring, so a machine WITH keys would otherwise
+        # make this assertion fail for the right reason.
+        r2 = resolve({"provider": "deepseek", "api_key": "",
+                      "api_keys": [], "model": "m"})
         ok &= not r2["ready"] and "API key" in r2["why"]
         r3 = resolve({"provider": "ollama", "api_key": "", "model": "x"})
         ok &= r3["ready"]        # local models need no key

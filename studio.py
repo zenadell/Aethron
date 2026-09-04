@@ -327,17 +327,32 @@ PROMPT_RULES = """Rules:
    what the template originally sold.
 2. The ONLY entries you may leave as "" are ones that are already true of
    any business: navigation words (Home, Blog, Contact), UI verbs (Submit,
-   Close, Next), country and browser names, dates, and legal boilerplate
-   that names no industry. If a string mentions the original industry, its
-   products, its jargon or its example data, it MUST be rewritten. When in
-   doubt, rewrite it.
+   Close, Next), country, city and browser names, dates, statistics and
+   numbers, and legal boilerplate that names no industry. If a string
+   mentions the original industry, its products, its jargon or its example
+   data, it MUST be rewritten. When in doubt, rewrite it.
+2b. SHORT STRINGS ARE NOT EXEMPT. Most of what a visitor reads is short —
+   pricing tier names, feature labels, section eyebrows, card titles, job
+   titles, chart legends. A two-word label naming the template's industry
+   ("Predict your income", "Smart Expense Sorting", "AI-Powered Finance")
+   is exactly as wrong as a paragraph and must be rewritten into the
+   owner's equivalent. Never answer "" merely because a string is short or
+   because you cannot see where it appears; write the label this owner's
+   site would use in that slot.
+2c. NEVER answer "" for a string containing the template's own brand name.
+   That name must not survive anywhere, in any form — including possessive
+   forms, tier names ("Brand Pro"), page titles, email addresses and URL
+   slugs. In a slug or an address use one lowercase word, not the full
+   name with spaces.
 3. Map the original's domain onto the owner's, concept for concept, and
    keep it consistent across the whole site. Do not translate word by word:
    "invoice" -> "migration" produces sentences that parse and mean nothing.
    Read what the sentence is FOR, then write that sentence for this owner.
 4. If max_bytes is set, the UTF-8 byte length of "new" must be <= it.
    Em-dashes and curly quotes are 3 bytes each. When unsure, write shorter.
-   A shorter true sentence beats a longer one that is rejected.
+   A shorter true sentence beats a longer one that is rejected. When
+   max_bytes cannot hold the full brand name, use the SHORT BRAND given in
+   the plan — never invent an abbreviation or an acronym of your own.
 5. Never use backticks or ${ in any "new" value.
 6. Keep the same shape as the original (a 3-word button stays ~3 words; a
    one-line subtitle stays one line). Shape is layout; words are yours.

@@ -80,16 +80,44 @@ def main():
     else:
         backup = target.read_bytes()
         try:
+            # A CHUNK THAT DOES NOT PARSE IS NOW CAUGHT ON DISK. verify
+            # gained a syntax check after a rebrand rewrote a bare object
+            # key (`Annual:` -> `Complete Sets:`) and shipped a chunk that
+            # could not parse: every file was present, the brand was gone,
+            # verify said CLEAN and the homepage rendered 126 characters.
+            # This scenario used to assert that CLEAN — the old limitation
+            # written down as an expectation.
             target.write_bytes(backup + b"\nconst boom = (((;\n")
             v = subprocess.run([sys.executable, str(FORGE), "verify"],
                                cwd=PROJ, capture_output=True, text=True)
-            check("verify still says CLEAN (it reads files)",
-                  "CLEAN" in v.stdout)
+            check("verify now catches a chunk that cannot parse",
+                  "does not parse" in v.stdout or "SKIPPED chunk syntax"
+                  in v.stdout, v.stdout.strip().splitlines()[-1][:80])
             rc, out = probe("--page=index.html")
             check("probe exits nonzero", rc != 0, f"rc={rc}")
             check("parse failure reported as fatal",
                   "code or assets failed to load" in out)
             check("wiped page detected",
+                  "content DISAPPEARS after JS" in out or
+                  "renders BLANK" in out)
+        finally:
+            target.write_bytes(backup)
+
+        # THE CASE ONLY A BROWSER CAN SEE. The syntax check above closes
+        # one hole, and closing it must not be mistaken for making probe
+        # optional: code that parses perfectly and then throws is
+        # invisible to every file-level check there is.
+        scenario("valid syntax, throws at runtime: only the browser knows")
+        try:
+            target.write_bytes(backup + b'\nthrow new Error("boom");\n')
+            v = subprocess.run([sys.executable, str(FORGE), "verify"],
+                               cwd=PROJ, capture_output=True, text=True)
+            check("verify says CLEAN — it parses, so files look fine",
+                  "does not parse" not in v.stdout)
+            rc, out = probe("--page=index.html")
+            check("probe still exits nonzero", rc != 0, f"rc={rc}")
+            check("the runtime failure is reported",
+                  "code or assets failed to load" in out or
                   "content DISAPPEARS after JS" in out or
                   "renders BLANK" in out)
         finally:

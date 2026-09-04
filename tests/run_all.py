@@ -28,6 +28,8 @@ SUITES = [
      [PY, "aethron_bridge.py", "--selftest"], False),
     ("code layer (drives the real CLI, mock providers)",
      [PY, "aethron_code.py", "--selftest"], True),
+    ("key ring (free keys first, paid last)",
+     [PY, "tests/keyring_battery.py"], False),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
     ("motion battery (does the PORT actually move)",

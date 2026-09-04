@@ -1,0 +1,39 @@
+working on branch auto/makro-0903-0005
+scraping https://makro.framer.website/
+  init: ok (87s)
+  scraped 10 page(s) from https://makro.framer.website
+project: makro
+  fetch: ok (395s)
+  inventory: ok (1s)
+  localize: ok (37s)
+  build: ok (4s)
+
+--- migration ---
+  migration: all checks pass
+
+--- framework port ---
+  convert: ok (109s)
+  PIXEL-PERFECT PORT READY: /Users/mac/Desktop/deveploment/template-editor/projects/makro/convert-astro
+  port: all checks pass
+
+--- differential: anything no check looks for ---
+  noise floor: 223 element(s) differ between two runs of the SAME build
+  DIFFERENCES beyond noise: 460
+  missing from the copy: 0   (noise: 0)
+  ELEMENTS THAT BEHAVE DIFFERENTLY:
+  VERDICT: 444 difference(s) no check was looking for
+
+--- parity: does the port do everything the migration does? ---
+  elements: 1780 in migration, 1780 in port
+  MISSING ELEMENTS: none
+  LOST HOVER BEHAVIOUR: none
+  LOST MOTION: none
+  VERDICT: PARITY
+
+============================================================
+RESULT for makro   (800s)
+  migration: clean
+  port     : clean
+  fixes accepted by the corpus: 0
+  review with: git diff main...auto/makro-0903-0005
+  differential: FOUND differences no check looks for

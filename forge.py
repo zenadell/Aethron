@@ -719,10 +719,20 @@ def cmd_inventory(_args):
             for sec in ("strings", "images", "links"):
                 pnew = {e["old"]: e["new"] for e in prev.get(sec, [])
                         if e.get("new")}
+                # A REFUSAL IS AS WORTH KEEPING AS A FILL. The rebrand
+                # loop drops an entry after two declines, so 'Home' stops
+                # costing a request every round. Re-running inventory used
+                # to reset that ledger while preserving the fills, and the
+                # next run spent six batches of 25 re-asking about strings
+                # a model had already refused twice.
+                ptry = {e["old"]: e["_tries"] for e in prev.get(sec, [])
+                        if e.get("_tries")}
                 for e in copy_map[sec]:
                     if e["old"] in pnew:
                         e["new"] = pnew[e["old"]]
                         kept += 1
+                    if e["old"] in ptry:
+                        e["_tries"] = ptry[e["old"]]
             for sec in ("styles", "remove"):
                 if prev.get(sec):
                     copy_map[sec] = prev[sec]
@@ -785,6 +795,43 @@ def cmd_inventory(_args):
                    # summary and every consumer read it unconditionally
                    "max_bytes": len(s.encode()) if _in_cms else None}
             strings.append(ent)
+            _have.add(s)
+            _added += 1
+
+    # DISPLAY STRINGS TOO SHORT TO LOOK LIKE PROSE.
+    #
+    # The pass above asks "does this read like a sentence?", so it needs
+    # five words and punctuation — and a stat label like `Balance
+    # Increase` has neither. That label is rendered per-character, so the
+    # HTML holds twenty single-character spans and the whole string exists
+    # only here. It survived a rebrand that scored 0 brand mentions and
+    # 80% rewritten, sitting on the homepage in the owner's own words'
+    # place.
+    #
+    # POSITION IS THE EVIDENCE, NOT SHAPE. A literal in `children:` or
+    # `text:` position is what React renders — it is copy by construction,
+    # so no sentence test is needed or wanted. Framer's own marketplace
+    # promo card ("Proceed to checkout", "$995 total value") is harvested
+    # too; that card is CSS-hidden, so filling it is harmless noise rather
+    # than a wrong edit. Runtime state words are excluded because they are
+    # swapped by code, not read by a visitor.
+    _STATE = {"content", "success", "error", "loading", "idle", "default",
+              "true", "false", "none", "auto"}
+    for _src in chunk_texts:
+        for _m in re.finditer(r"(?:children|text):`([^`]{2,200})`", _src):
+            s = _m.group(1).strip()
+            if s in _have or s.lower() in _STATE:
+                continue
+            if any(c in s for c in _CODEY) or s[0] in "<{[/.#":
+                continue
+            if not re.search(r"[A-Za-z]{2}", s):
+                continue
+            if " " not in s and len(s) < 4:
+                continue
+            _in_cms = any(s.encode() in b for b in cms_blobs)
+            strings.append({"old": s, "new": "", "scope": "all",
+                            "where": ["chunks"] + (["cms"] if _in_cms else []),
+                            "max_bytes": len(s.encode()) if _in_cms else None})
             _have.add(s)
             _added += 1
     if _added:
@@ -1188,6 +1235,28 @@ def _pairs_from_map(root: Path, cms_blobs):
                 "(these strings land inside JS template literals)")
         old_b, new_b = old.encode(), new.encode()
         in_cms = any(old_b in blob for blob in cms_blobs)
+        # THE CMS STORES RICH TEXT AS JSON; THE HTML DOES NOT.
+        #
+        # A paragraph harvested from a page carries a plain quote, and the
+        # same paragraph inside a .framercms blob carries \" — so the
+        # exact-byte test says "not in CMS", the long pair never applies
+        # there, and only the SHORT pairs land. Measured: a changelog
+        # paragraph became "…model your tactile future. Set building lets
+        # you create multiple \"what if\" forecasts… See how it affects
+        # runway." — half ceramics, half finance, on a page that scored
+        # zero brand mentions. Exactly the half-rewrite the audit exists
+        # to prevent, arriving by a route it could not see.
+        #
+        # So try the JSON-escaped spelling too, and carry BOTH forms: the
+        # text layers keep the plain one, the CMS pass gets the escaped
+        # one, and the byte lock is measured on what the blob holds.
+        cms_old, cms_new = old, new
+        if not in_cms and ('"' in old or "\\" in old):
+            esc_o, esc_n = json.dumps(old)[1:-1], json.dumps(new)[1:-1]
+            if any(esc_o.encode() in blob for blob in cms_blobs):
+                in_cms = True
+                cms_old, cms_new = esc_o, esc_n
+                old_b, new_b = esc_o.encode(), esc_n.encode()
         cms_over = False
         if in_cms:
             if len(new_b) > len(old_b):
@@ -1236,6 +1305,16 @@ def _pairs_from_map(root: Path, cms_blobs):
                       "scope": entry.get("scope", "all"), "in_cms": in_cms,
                       "cms_over": cms_over,
                       "flex": bool(entry.get("flex"))})
+        if in_cms and cms_old != old:
+            # The blob spells it escaped, so it needs its own pair.
+            # `new` is already padded by the ESCAPED delta above, so the
+            # escaped replacement lands at exactly the escaped old's byte
+            # length, and both layers decode to the same characters —
+            # which is what hydration compares. scope="cms" keeps _rx
+            # (pages and chunks) from ever seeing this spelling.
+            pairs.append({"old": cms_old, "new": json.dumps(new)[1:-1],
+                          "scope": "cms", "in_cms": True,
+                          "cms_over": False, "flex": False})
     # longest-first ordering; replacement itself is single-pass (see _rx)
     # so pair collisions can no longer clobber each other's new text
     pairs.sort(key=lambda p: -len(p["old"]))
@@ -1252,20 +1331,42 @@ def _rx(pairs, escaped):
     for p in pairs:
         if p["scope"] == "cms":
             continue
-        old, new = p["old"], p["new"]
-        if escaped:
-            old = html_mod.escape(old, quote=False)
-            new = html_mod.escape(new, quote=False)
-        if old in lookup:
-            continue
-        pat = re.escape(old)
-        if re.fullmatch(r"\w+", old, re.A):
-            pat = rf"\b{pat}\b"
-        parts.append(pat)
-        lookup[old] = (new, p["old"])       # (replacement, original old)
-    if not parts:
-        return None, None
-    return re.compile("|".join(parts)), lookup
+        # THE SAME SENTENCE IS SPELLED DIFFERENTLY AT EACH NESTING DEPTH.
+        #
+        # A page carries the paragraph plainly inside <p>, and carries it
+        # AGAIN inside an embedded CMS payload — a JSON document inside a
+        # JS string — where its quotes are escaped once, then twice. Only
+        # the plain copy matched, so the visible text came out half
+        # rewritten: "…model your tactile future. Set building lets you
+        # create multiple \"what if\" forecasts… See how it affects
+        # runway." The short pairs reached the nested copy; the long one
+        # that would have replaced the whole sentence never could.
+        #
+        # Registering every escape level costs nothing when the string
+        # holds no quote (the common case skips this entirely) and makes
+        # the replacement whole when it does.
+        forms = [(p["old"], p["new"])]
+        if '"' in p["old"] or "\\" in p["old"]:
+            o1, n1 = json.dumps(p["old"])[1:-1], json.dumps(p["new"])[1:-1]
+            o2, n2 = json.dumps(o1)[1:-1], json.dumps(n1)[1:-1]
+            forms += [(o1, n1), (o2, n2)]
+        for old, new in forms:
+            _register(parts, lookup, old, new, p, escaped)
+    return (re.compile("|".join(parts)) if parts else None), lookup
+
+
+def _register(parts, lookup, old, new, p, escaped):
+    """Add one spelling of a pair to the alternation."""
+    if escaped:
+        old = html_mod.escape(old, quote=False)
+        new = html_mod.escape(new, quote=False)
+    if old in lookup:
+        return
+    pat = re.escape(old)
+    if re.fullmatch(r"\w+", old, re.A):
+        pat = rf"\b{pat}\b"
+    parts.append(pat)
+    lookup[old] = (new, p["old"])           # (replacement, original old)
 
 
 def _flex_pat(old):
@@ -1305,7 +1406,65 @@ CDN_URL_RE = re.compile(
 # url(...) paren is harmless (vault+restore is byte-exact either way)
 
 
-def _apply(text, pairs, escaped=False, stats=None):
+def _js_literal_mask(s):
+    """-> (mask, trustworthy). mask[i] is 1 where s[i] is inside a JS string.
+
+    IN A CHUNK, COPY LIVES IN LITERALS AND NOTHING ELSE DOES. Framer names
+    a variant "Annual" and then emits it BOTH as display text inside a
+    template literal AND as a bare object key in code:
+
+        Xf={"Annual Mobile":`PnMUPIAUp`, Annual:`yEfDEXydQ`, Montly:`aRW8N7ZRz`}
+
+    Rewriting the copy to "Complete Sets" also rewrote the key, producing
+    `Complete Sets:` — two identifiers where JavaScript expects one. The
+    chunk stopped parsing, hydration died, and the page rendered 126
+    characters instead of 8,149. verify saw nothing wrong: every file was
+    present and the brand was gone. Only probe caught it.
+
+    The scanner does not understand regex literals or comments, so an
+    apostrophe inside `/['"]/` can desync it. Measured across 431 real
+    chunks in 7 projects, 430 end with every literal closed; the one that
+    does not is a vendored lottie player. An unbalanced end is the tell,
+    and the caller degrades instead of trusting a bad mask.
+    """
+    mask = bytearray(len(s))
+    delim = None
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if delim:
+            mask[i] = 1
+            if c == "\\":
+                if i + 1 < n:
+                    mask[i + 1] = 1
+                i += 2
+                continue
+            if c == delim:
+                delim = None
+        elif c in "`\"'":
+            delim = c
+            mask[i] = 1
+        i += 1
+    return mask, delim is None
+
+
+def _code_position(s, a, b):
+    """Conservative fallback: does s[a:b] sit where JS expects a NAME?
+
+    Used only when the literal mask cannot be trusted. It catches the
+    shape that actually broke a build — a bare object key or a property
+    access — and leaves everything else replaceable, so a desynced mask
+    costs correctness in one narrow direction rather than silently
+    dropping every fill in the file.
+    """
+    before = s[:a].rstrip()[-1:]
+    after = s[b:b + 1]
+    if before == ".":
+        return True
+    return after == ":" and before in ",{;"
+
+
+def _apply(text, pairs, escaped=False, stats=None, code=False):
     pair_urls = tuple(p["old"] for p in pairs if p["old"].startswith("http"))
     vault = []
 
@@ -1321,9 +1480,22 @@ def _apply(text, pairs, escaped=False, stats=None):
             stats[orig] = stats.get(orig, 0) + n
 
     text = CDN_URL_RE.sub(_shield, text)
+    mask = trusted = None
+    if code:
+        mask, trusted = _js_literal_mask(text)
+
+    def _replaceable(m):
+        if not code:
+            return True
+        if trusted:
+            return bool(mask[m.start()])
+        return not _code_position(text, m.start(), m.end())
+
     rx, lookup = _rx(pairs, escaped=False)
     if rx:
         def repl(m):
+            if not _replaceable(m):
+                return m.group(0)        # this is code, not copy
             new, orig = lookup[m.group(0)]
             bump(orig)
             return new
@@ -1332,8 +1504,17 @@ def _apply(text, pairs, escaped=False, stats=None):
     # differ from the source's whitespace — match those flexibly
     for p in pairs:
         if p.get("flex") and p["scope"] != "cms" and " " in p["old"]:
-            text, n = re.subn(_flex_pat(p["old"]),
-                              p["new"].replace("\\", "\\\\"), text)
+            rep = p["new"].replace("\\", "\\\\")
+            if code:
+                m2, t2 = _js_literal_mask(text)
+
+                def _flex_repl(m, _r=rep, _m=m2, _t=t2):
+                    ok = bool(_m[m.start()]) if _t else \
+                        not _code_position(text, m.start(), m.end())
+                    return m.expand(_r) if ok else m.group(0)
+                text, n = re.subn(_flex_pat(p["old"]), _flex_repl, text)
+            else:
+                text, n = re.subn(_flex_pat(p["old"]), rep, text)
             bump(p["old"], n)
     if escaped:
         rx2, lk2 = _rx(pairs, escaped=True)
@@ -2157,7 +2338,7 @@ def cmd_build(_args):
             # MIME on static hosts, which module scripts hard-reject.
             # Ship them as name.1.2.3.js instead (copy is renamed below)
             t = re.sub(r"\.js@([0-9.]+)", r".\1.js", t)
-            t = _apply(t, pairs, stats=stats)
+            t = _apply(t, pairs, stats=stats, code=True)
             t = _localize_refs(t, cfg.get("localized", {}))
             (cdir / p.name).write_text(t, encoding="utf-8")
             n_patched += t != orig
@@ -4381,6 +4562,26 @@ def cmd_probe(args):
 
 # ─────────────────────────── verify ──────────────────────────────────
 
+# How much of the template's own wording a finished REBRAND may still
+# show. Nav labels, UI verbs, prices and legal boilerplate legitimately
+# survive, so the floor is well above zero.
+#
+# CALIBRATED ON THE STATIC INSTRUMENT, WHICH IS NOT THE RENDERED TRUTH.
+# _rebrand_depth reads built SSR HTML, and SSR carries pruned breakpoint
+# variants that the browser never shows, so it reads HIGHER than what a
+# visitor sees. Measured on the same project, twice:
+#     before the fill gate was fixed:  static 0.47   rendered 0.46  (bad)
+#     after:                           static 0.32   rendered 0.20  (good)
+# So the two instruments agree on a failure and diverge by 12 points on a
+# success. A threshold of 0.30 read against static condemns the good run;
+# 0.40 separates both measured pairs on the instrument this check
+# actually uses.
+#
+# TWO POINTS FROM ONE MIGRATION IS NOT A CORPUS. Widen it only with
+# evidence from several finished migrations — never to quiet one run.
+REBRAND_SAME_MAX = 0.40
+
+
 def _rebrand_depth(root: Path, site: Path):
     """-> (fraction of visible copy identical to the template, pages) | None.
 
@@ -4644,19 +4845,69 @@ def cmd_verify(_args):
     # The port referee compares rendered text and wants it IDENTICAL. This
     # is the same measurement wanting the opposite, and it is the only
     # honest way to tell a rebrand from a relabel.
+    # A CHUNK THAT DOES NOT PARSE IS A BLANK PAGE, and every file-level
+    # check above passes on one: the bytes are there, the refs resolve,
+    # the brand is gone. Only probe caught the `Complete Sets:` syntax
+    # error that killed hydration — and probe needs a browser. This needs
+    # only a parser, so it runs in far more places.
+    cdir = site / (cfg.get("public_base", "/assets").strip("/")) / "chunks"
+    mjs = sorted(cdir.glob("*.mjs")) if cdir.exists() else []
+    if mjs:
+        node = shutil.which("node")
+        if not node:
+            print(f"SKIPPED chunk syntax ({len(mjs)} file(s)) — no node on "
+                  f"this machine; UNVERIFIED, not proven good. "
+                  f"`forge.py probe` catches this at runtime.")
+        else:
+            import subprocess
+            broken = []
+            for f in mjs:
+                r = subprocess.run([node, "--check", str(f)],
+                                   capture_output=True, text=True)
+                if r.returncode:
+                    first = next((l for l in r.stderr.splitlines()
+                                  if "Error" in l), "parse error")
+                    broken.append(f"{f.name}: {first.strip()[:90]}")
+            if broken:
+                for b in broken:
+                    print(f"FAIL chunk does not parse — {b}")
+                print("     a replacement landed in CODE, not copy. The page "
+                      "will render blank. Shorten or remove that fill.")
+                fails += len(broken)
+            else:
+                print(f"PASS all {len(mjs)} chunk(s) parse as JavaScript")
+
     _depth = _rebrand_depth(root, site)
     if _depth is not None:
         same, pages = _depth
         pct = int(same * 100)
+        # MEASURING A FAILURE AND PRINTING "PASS" IS THE VACUOUS PASS AGAIN.
+        # This branch used to say `PASS copy is 53% rewritten` for a site
+        # that was 47% word-for-word the template's — the owner's exact
+        # complaint ("ninety percent of the data is still about the
+        # original template"), printed as a success by the check built to
+        # catch it. A number this check computed correctly must not be
+        # narrated as good news.
+        #
+        # It only becomes a FAIL when a full rebrand was actually asked
+        # for — brand_brief.json is the record of that. Swapping only the
+        # brand token is a legitimate thing to want, and failing those
+        # runs would teach owners to ignore this line.
+        wanted_rebrand = (root / "brand_brief.json").is_file()
+        print(f"MEASURED {pct}% of the copy across {pages} page(s) is still "
+              f"word-for-word the template's (static HTML; a browser "
+              f"typically renders ~10 points lower)")
         if same >= 0.85:
-            print(f"NOTE {pct}% of the visible copy across {pages} page(s) is "
-                  f"still WORD-FOR-WORD the template's. The brand is "
-                  f"replaced; the content is not. If that is deliberate, "
-                  f"ignore this — if you meant to make the site yours, most "
-                  f"of copy_map is still unfilled.")
-        else:
-            print(f"PASS copy is {100 - pct}% rewritten from the template "
-                  f"across {pages} page(s)")
+            print(f"{'FAIL' if wanted_rebrand else 'NOTE'} the brand is "
+                  f"replaced; the content is not. Most of copy_map is still "
+                  f"unfilled.")
+            fails += bool(wanted_rebrand)
+        elif wanted_rebrand and same >= REBRAND_SAME_MAX:
+            print(f"FAIL a rebrand was requested but this is still largely "
+                  f"the template's copy (threshold {int(REBRAND_SAME_MAX*100)}"
+                  f"%). Run `forge.py rebrand` again — it fills only what is "
+                  f"still the template's.")
+            fails += 1
 
     # These are FILE checks. They cannot see a page that ships every
     # byte and still renders blank — `probe` runs the code.
