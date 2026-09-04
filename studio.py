@@ -1321,14 +1321,26 @@ class Handler(BaseHTTPRequestHandler):
                 if not codelayer:
                     return self.fail("the coding layer is unavailable: "
                                      + CODE_IMPORT_ERROR)
-                d = self.ws_dir(body)
+                cfg = dict(body.get("cfg") or {})
+                if body.get("console"):
+                    # THE FRONT DOOR. Before any project exists there is
+                    # no workspace to root a session in — but the
+                    # mcp__aethron__* tools act on HOME/projects wherever
+                    # the agent is sitting, so a dedicated console folder
+                    # is enough to let it create the project it is about
+                    # to migrate.
+                    d = WORKSPACES / "__console__"
+                    d.mkdir(parents=True, exist_ok=True)
+                    cfg.setdefault("append_system", codelayer.CONSOLE_RULES)
+                else:
+                    d = self.ws_dir(body)
                 key = str(d)
                 old = CODE_SESSIONS.pop(key, None)
                 if old:
                     old.close()
                 try:
                     s = codelayer.CodeSession(
-                        d, cfg=body.get("cfg") or {}, home=HOME).start()
+                        d, cfg=cfg, home=HOME).start()
                 except Exception as e:
                     return self.fail(str(e))
                 CODE_SESSIONS[key] = s
@@ -2676,14 +2688,14 @@ INDEX_HTML = r"""<!doctype html>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root{
---bg:#161513;--panel:#1c1b19;--panel2:#232220;--field:#111110;
---line:rgba(255,255,255,.06);--line2:rgba(255,255,255,.13);
---tx:#f2f0ea;--dim:#96938a;
---acc:#d97757;--acc2:#e08b6d;--accg:#cd6f4f;
+--bg:#0b0b0c;--panel:#151417;--panel2:#1c1b1f;--field:#100f11;
+--line:#26252a;--line2:#35333a;
+--tx:#eceaf0;--dim:#a5a2ad;--lo:#78757f;--u:4px;
+--acc:#d97757;--acc2:#e08b6d;--accg:#d97757;--acc-ink:#1c0f09;
 --ok:#7ec699;--err:#e5695e;
 --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
 --r:8px;--r2:12px;
---shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -8px rgba(0,0,0,.5);
+--shadow:0 1px 0 rgba(0,0,0,.45);
 --inset:inset 0 1px 0 rgba(255,255,255,.04);
 --ease:cubic-bezier(.2,.8,.2,1)}
 *{box-sizing:border-box;margin:0}
@@ -3014,28 +3026,549 @@ display:flex;gap:8px;align-items:center;font-weight:600}
 @media (prefers-reduced-motion:reduce){
 *,*::before,*::after{animation-duration:.01ms !important;
 transition-duration:.01ms !important}}
+
+/* ── PRECISION WORKBENCH ─────────────────────────────────────────────
+   THE ONE ACCENT. The terracotta was on 19 selectors at once — tabs,
+   headings, hovers, progress fills, chips — so nothing it touched read
+   as important. It now lands on exactly ONE control per screen: the
+   action that advances the work in front of you. Everything else earns
+   hierarchy from weight, value and space.
+   White on #d97757 is only 3.1:1, so the accent button carries dark ink
+   (6.0:1) rather than white.                                          */
+button.primary,button.big{background:var(--acc);color:var(--acc-ink);
+  border-color:transparent;font-weight:600}
+button.primary:hover,button.big:hover{background:var(--acc2);color:var(--acc-ink)}
+
+/* demoted: state and emphasis in near-white or grey, never colour */
+nav .tab.on{color:var(--tx);border-bottom-color:var(--tx)}
+.card h3,#editpanel h3{color:var(--tx)}
+button:hover{color:var(--tx)}
+.step:hover,.step.run{color:var(--tx)}
+.step.run::before{border-color:var(--tx)}
+#progress .lbl{color:var(--dim)}
+#progress .lbl::before{border-color:var(--line2)}
+#progress .fill,.pbar i{background:var(--lo)}
+.libbtn.sel{border-color:var(--line2);color:var(--tx)}
+.tfile.sel{background:var(--panel2);color:var(--tx)}
+.lc-why,.tags .cms{color:var(--dim)}
+.empty b{background:var(--panel2);color:var(--tx)}
+.msg.you{background:var(--panel2)}
+
+/* focus stays obvious — a11y outranks restraint — but neutral */
+input:focus,textarea:focus,select:focus{border-color:var(--tx);
+  outline:none;box-shadow:0 0 0 3px rgba(236,234,240,.10)}
+:focus-visible{outline:2px solid var(--tx);outline-offset:2px}
+
+/* NUMBERS MUST NOT RE-FLOW as they count up during a fill */
+.pitem .pmeta,.pbar,#progress,.tags,.lc-pal,code,.mono{
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* quieter chrome: hairlines, not boxes */
+.card,.libcard,.newproj{box-shadow:none;border-color:var(--line)}
+.pitem.sel{background:var(--panel2)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;
+    transition-duration:.01ms!important}}
+
+/* ── THE FOCAL MOMENT ────────────────────────────────────────────────
+   The old empty state put three lines of explanation in the middle and
+   exiled the actual entry point — the URL field — to a form in the
+   sidebar, under a four-line caption. So the eye landed on prose and
+   the thing you came to do was somewhere else.
+   One line, one input, and the alternatives as quiet rows beneath.   */
+/* CENTRED OVERFLOW CLIPS THE TOP. place-items:center on a grid spills
+   equally in both directions once the content outgrows the container,
+   so the headline rendered at top:-127px — present, styled, invisible.
+   margin:auto centres without ever pushing content out of reach.     */
+.empty{display:flex;min-height:70vh;padding:56px 24px;overflow:auto;
+  text-align:left;color:var(--dim)}
+.focal{margin:auto;width:100%;max-width:600px}
+.focal h1{font-size:32px;line-height:1.18;letter-spacing:-.02em;
+  font-weight:600;color:var(--tx);margin:0 0 12px}
+.focal .sub{font-size:13px;line-height:1.6;color:var(--dim);
+  margin:0 0 32px;max-width:52ch}
+
+.startrow{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.startrow input{flex:1;height:44px;padding:0 14px;font-size:15px;
+  background:var(--field);border:1px solid var(--line2);border-radius:10px;
+  color:var(--tx)}
+.startrow button.primary{width:44px;height:44px;padding:0;flex:none;
+  border-radius:10px;display:grid;place-items:center}
+.startrow button.primary [data-ic]{transform:rotate(90deg)}
+
+.startmeta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  font-size:12px;color:var(--lo);margin-bottom:40px}
+.startmeta input{height:32px;padding:0 10px;font-size:12px;
+  background:transparent;border:1px solid var(--line);border-radius:8px;
+  color:var(--tx)}
+.startmeta .or{color:var(--lo)}
+.fpick{display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  color:var(--lo);transition:color var(--dur,180ms) var(--ease)}
+.fpick:hover{color:var(--tx)}
+.fpick input{position:absolute;width:1px;height:1px;opacity:0;
+  clip:rect(0 0 0 0)}
+
+/* quiet rows — the alternatives, available without shouting */
+.qrows,.srows{display:flex;flex-direction:column;margin-top:8px}
+.qrow{display:flex;align-items:center;gap:12px;width:100%;
+  padding:13px 12px;background:none;border:0;border-top:1px solid var(--line);
+  color:var(--dim);font-size:13px;text-align:left;cursor:pointer;
+  transition:color var(--dur,180ms) var(--ease),
+             background var(--dur,180ms) var(--ease)}
+.qrows .qrow:last-child,.srows .qrow:last-child{
+  border-bottom:1px solid var(--line)}
+.qrow:hover{color:var(--tx);background:var(--panel2)}
+.qrow .ql{flex:1}
+.qrow .qc{opacity:0;transform:rotate(90deg);
+  transition:opacity var(--dur,180ms) var(--ease)}
+.qrow:hover .qc{opacity:.5}
+.srows{margin:16px 0 0;padding:0 6px}
+.srows .qrow{padding:11px 8px;font-size:12.5px}
+
+@media (max-width:900px){.focal h1{font-size:24px}}
+
+/* the conversation lives where the welcome was */
+.clog{max-height:46vh;overflow:auto;margin:0 0 16px;display:flex;
+  flex-direction:column;gap:10px}
+.startrow textarea{flex:1;min-height:44px;max-height:180px;padding:12px 14px;
+  font:inherit;font-size:15px;line-height:1.45;resize:none;overflow:auto;
+  background:var(--field);border:1px solid var(--line2);border-radius:10px;
+  color:var(--tx)}
+.startrow textarea:focus{border-color:var(--tx);outline:none;
+  box-shadow:0 0 0 3px rgba(236,234,240,.10)}
+.startrow{align-items:flex-end}
+
+/* ══ ATMOSPHERE ══════════════════════════════════════════════════════
+   The flat version read as "dark grey rectangles" because nothing in it
+   was LIT. Three things fix that, and none of them is colour:
+     1. an ambient light layer — slow radial blooms behind everything,
+        one of them terracotta, so the brand is the light source in the
+        room rather than paint on a button;
+     2. film grain — 2% noise, which is the difference between a surface
+        and a fill;
+     3. edge light — a 1px top highlight on raised surfaces, the way a
+        real material catches light from above.
+   All of it sits behind pointer-events:none and dies under
+   prefers-reduced-motion.                                            */
+body{background:#08080a;position:relative}
+body::before{content:"";position:fixed;inset:-20%;z-index:0;
+  pointer-events:none;
+  background:
+    radial-gradient(38% 30% at 22% 18%, rgba(217,119,87,.16), transparent 70%),
+    radial-gradient(34% 28% at 78% 34%, rgba(96,116,168,.13), transparent 70%),
+    radial-gradient(45% 38% at 55% 88%, rgba(217,119,87,.09), transparent 72%);
+  filter:blur(20px);
+  animation:drift 34s cubic-bezier(.45,0,.55,1) infinite alternate}
+@keyframes drift{
+  0%{transform:translate3d(0,0,0) scale(1)}
+  50%{transform:translate3d(2.5%,-2%,0) scale(1.06)}
+  100%{transform:translate3d(-2%,2.5%,0) scale(1.02)}}
+body::after{content:"";position:fixed;inset:0;z-index:1;
+  pointer-events:none;opacity:.028;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
+aside,main,.tourbox{position:relative;z-index:2}
+
+/* ══ GLASS ═══════════════════════════════════════════════════════════ */
+aside{background:rgba(17,16,19,.62);backdrop-filter:blur(26px) saturate(1.5);
+  -webkit-backdrop-filter:blur(26px) saturate(1.5);
+  border-right:1px solid rgba(255,255,255,.055)}
+header{background:rgba(11,11,12,.5);backdrop-filter:blur(20px);
+  -webkit-backdrop-filter:blur(20px);
+  border-bottom:1px solid rgba(255,255,255,.05)}
+
+/* ══ THE FOCAL LINE ══════════════════════════════════════════════════
+   Optically-tightened display type with a top-lit gradient fill: bright
+   at the cap line, settling to warm grey at the baseline. It reads as
+   lit from above, matching the ambient layer.                        */
+.focal h1{font-size:40px;line-height:1.1;letter-spacing:-.035em;
+  font-weight:600;margin:0 0 14px;
+  background:linear-gradient(176deg,#fff 8%,#e6e2df 45%,#a8a29d 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  -webkit-text-fill-color:transparent}
+.focal .sub{font-size:14px;line-height:1.65;color:#8b8792;
+  margin:0 0 36px;max-width:50ch;letter-spacing:-.005em}
+
+/* ══ THE COMPOSER — the one lit object ═══════════════════════════════ */
+.startrow{position:relative;align-items:flex-end;gap:10px}
+.startrow::before{content:"";position:absolute;inset:-16px -20px;
+  border-radius:26px;pointer-events:none;opacity:0;
+  background:radial-gradient(58% 130% at 50% 50%,
+    rgba(217,119,87,.20),transparent 72%);
+  filter:blur(14px);transition:opacity .5s var(--e,cubic-bezier(.16,1,.3,1))}
+.startrow:focus-within::before{opacity:1}
+.startrow textarea{background:rgba(23,22,26,.78);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid rgba(255,255,255,.09);border-radius:14px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06),
+             0 12px 32px -16px rgba(0,0,0,.9);
+  transition:border-color .3s cubic-bezier(.16,1,.3,1),
+             box-shadow .3s cubic-bezier(.16,1,.3,1)}
+.startrow textarea:focus{border-color:rgba(217,119,87,.42);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),
+             0 0 0 4px rgba(217,119,87,.10),
+             0 12px 36px -14px rgba(0,0,0,.95)}
+.startrow button.primary{border-radius:13px;
+  background:linear-gradient(178deg,#e2865f,#cf6a49);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.26),
+             0 6px 20px -8px rgba(217,119,87,.6);
+  transition:transform .22s cubic-bezier(.16,1,.3,1),
+             box-shadow .22s cubic-bezier(.16,1,.3,1)}
+.startrow button.primary:hover{transform:translateY(-1px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.32),
+             0 10px 26px -8px rgba(217,119,87,.75)}
+.startrow button.primary:active{transform:translateY(0) scale(.97)}
+
+/* ══ CONVERSATION ════════════════════════════════════════════════════ */
+.msg{animation:rise .42s cubic-bezier(.16,1,.3,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(9px)}
+                to{opacity:1;transform:none}}
+.msg.you{background:linear-gradient(176deg,rgba(217,119,87,.20),
+  rgba(217,119,87,.11));border:1px solid rgba(217,119,87,.24);
+  border-radius:14px 14px 4px 14px;color:#f4efec;
+  align-self:flex-end;max-width:82%;padding:11px 15px}
+.msg.bot{background:rgba(255,255,255,.032);
+  border:1px solid rgba(255,255,255,.055);
+  border-radius:14px 14px 14px 4px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.045);
+  max-width:88%;padding:13px 16px;line-height:1.62}
+.msg.sys{background:none;border:0;color:#6f6b76;font-size:11.5px;
+  text-align:center;letter-spacing:.02em}
+
+/* ══ SIDEBAR — a project is a row, not a card ════════════════════════ */
+.pitem{border:0;border-radius:10px;padding:10px 12px;
+  transition:background .22s cubic-bezier(.16,1,.3,1)}
+.pitem:hover{background:rgba(255,255,255,.038)}
+.pitem.sel{background:rgba(255,255,255,.062);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07)}
+.pitem.sel .pname{color:#fff}
+.plat{font-size:9.5px;letter-spacing:.1em;padding:2px 6px;border-radius:5px;
+  background:rgba(255,255,255,.055);color:#807c88;border:0}
+.pbar{height:2px;border-radius:2px;background:rgba(255,255,255,.06)}
+.pbar i{background:rgba(217,119,87,.55)}
+
+.qrow{border-top:1px solid rgba(255,255,255,.05);border-radius:0}
+.qrow:hover{background:rgba(255,255,255,.035)}
+
+@media (prefers-reduced-motion:reduce){
+  body::before{animation:none}
+  .msg{animation:none}}
+
+/* ══ THE INSPECTOR DRAWER ════════════════════════════════════════════
+   Six tabs said "you are on page 2 of 6". One button plus a chip row
+   says "the forms are here if you want them". Same reach, no navigation. */
+nav#tabs{display:flex;align-items:center;gap:10px;padding:0 22px;
+  border-bottom:1px solid rgba(255,255,255,.05);min-height:46px}
+.panelbtn{display:inline-flex;align-items:center;gap:7px;padding:6px 11px;
+  background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);
+  border-radius:9px;color:#8b8792;font-size:12.5px;cursor:pointer;
+  transition:all .24s cubic-bezier(.16,1,.3,1)}
+.panelbtn:hover{color:#eceaf0;background:rgba(255,255,255,.07)}
+.panelbtn.on{color:#eceaf0;background:rgba(217,119,87,.14);
+  border-color:rgba(217,119,87,.3)}
+.panelpick{display:flex;gap:3px;overflow:hidden;
+  max-width:640px;opacity:1;transition:max-width .34s cubic-bezier(.16,1,.3,1),
+  opacity .24s ease}
+.panelpick.off{max-width:0;opacity:0;pointer-events:none}
+.pchip{padding:5px 11px;background:none;border:0;border-radius:8px;
+  color:#78757f;font-size:12.5px;white-space:nowrap;cursor:pointer;
+  transition:all .2s cubic-bezier(.16,1,.3,1)}
+.pchip:hover{color:#c9c5cf;background:rgba(255,255,255,.045)}
+.pchip.on{color:#eceaf0;background:rgba(255,255,255,.08)}
+
+/* ══ RUNNING WORK ════════════════════════════════════════════════════
+   One line, in the owner's language, never the tool's. Tool calls
+   themselves collapse to a faint monospace trace for whoever wants it. */
+.activity{display:flex;align-items:center;gap:10px;padding:11px 15px;
+  border-radius:12px;background:rgba(255,255,255,.028);
+  border:1px solid rgba(255,255,255,.05);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.045);
+  font-size:13px;color:#c9c5cf;animation:rise .4s cubic-bezier(.16,1,.3,1) both}
+.activity .aw{flex:1}
+.activity .ac{font-size:11.5px;color:#6f6b76;
+  font-variant-numeric:tabular-nums}
+.spin{width:13px;height:13px;flex:none;border-radius:50%;
+  border:1.5px solid rgba(217,119,87,.25);border-top-color:#d97757;
+  animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.msg.tool{background:none;border:0;padding:3px 4px;font-size:11.5px;
+  color:#5f5c66;font-family:var(--mono);opacity:.75;max-width:100%}
+.msg.tool b{color:#807c88;font-weight:500}
+.msg.think{background:none;border:0;color:#6f6b76;font-size:12.5px;
+  font-style:italic;padding:4px 2px;max-width:88%}
+@media (prefers-reduced-motion:reduce){.spin{animation-duration:2s}}
+
+/* ══════════════════════════════════════════════════════════════════════
+   SPEC v1 — a tool someone stares at for six hours, not a landing page
+   they scroll for six seconds. This layer supersedes the earlier pass,
+   which failed that test in five specific ways: glass over dense labels,
+   an animated aurora behind reading text, a coloured focus ring on the
+   most-touched object in the app, gradient text that cannot be contrast
+   graded, and a spinner pretending to know how long work takes.
+   ══════════════════════════════════════════════════════════════════════ */
+:root{
+  --g-0:#0b0a09;--g-1:#100e0d;--g-2:#151312;--g-3:#1b1817;
+  --g-4:#221e1d;--g-5:#2a2624;
+  --edge-1:rgba(255,255,255,.06);--edge-2:rgba(255,255,255,.10);
+  --edge-3:rgba(255,255,255,.18);--edge-top:rgba(255,255,255,.07);
+  --t-1:#ece8e5;--t-2:#b5aeaa;--t-3:#837c78;--t-4:#565150;
+  --a:#d97757;--a-hi:#e6906f;--a-lo:#b95c3e;
+  --a-08:rgba(217,119,87,.08);--a-16:rgba(217,119,87,.16);
+  --ok:#5fa383;--bad:#c96a5f;
+  --lift-1:0 .6px 1.6px -1.5px rgba(0,0,0,.20),
+           0 2.3px 6px -3px rgba(0,0,0,.16),0 10px 26px -4.5px rgba(0,0,0,.04);
+  --r-sm:6px;--r-md:10px;--r-lg:14px;--r-xl:18px;
+  --eo:cubic-bezier(.23,1,.32,1);--d-press:120ms;--d-pop:160ms;--d-menu:200ms;
+  /* remap the app's legacy names onto the ramp */
+  --bg:var(--g-0);--panel:var(--g-1);--panel2:var(--g-4);--field:var(--g-3);
+  --line:var(--edge-1);--line2:var(--edge-2);--tx:var(--t-1);--dim:var(--t-2);
+  --lo:var(--t-3);--acc:var(--a);--acc2:var(--a-hi);--accg:var(--a);
+}
+body{background:var(--g-0);color:var(--t-1);
+  font-feature-settings:"cv05" 1,"tnum" 1;font-optical-sizing:auto}
+
+/* ── LIGHT: fixed, quiet, behind opaque surfaces. No drift. ────────── */
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  animation:none;filter:none;
+  background:
+    radial-gradient(46% 40% at 14% -6%, rgba(217,119,87,.085) 0%,transparent 72%),
+    radial-gradient(52% 44% at 92% 104%, rgba(120,145,190,.045) 0%,transparent 74%)}
+body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  opacity:.032;mix-blend-mode:soft-light;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")}
+@media (prefers-reduced-transparency:reduce){body::after{display:none}}
+
+/* ── NO GLASS ON ANYTHING THAT HOLDS A FORM OR A LABEL ─────────────── */
+aside{background:var(--g-1);backdrop-filter:none;-webkit-backdrop-filter:none;
+  box-shadow:1px 0 0 0 var(--edge-1);border-right:0}
+header{background:var(--g-1);backdrop-filter:none;-webkit-backdrop-filter:none;
+  box-shadow:0 1px 0 0 var(--edge-1);border-bottom:0}
+section#content{background:var(--g-2)}
+
+/* ── TYPE: 400 / 510 / 590. Never 700. Tracking tightens with size. ── */
+.focal h1{font-size:34px;line-height:1.15em;letter-spacing:-.035em;
+  font-weight:590;color:var(--t-1);
+  background:none;-webkit-text-fill-color:currentColor;margin:0 0 14px}
+.focal h1 em{font-style:italic;color:var(--t-1)}
+.focal .sub{font-size:15px;line-height:1.62em;letter-spacing:-.014em;
+  color:var(--t-2);max-width:60ch;margin:0 0 var(--s-8,32px)}
+#ptitle{font-size:20px;line-height:1.3em;letter-spacing:-.028em;font-weight:590}
+
+/* ── THE COMPOSER: one slab. Focus is a brightening hairline. ──────── */
+.startrow{max-width:780px;margin:0 auto;gap:10px;align-items:flex-end}
+.startrow::before{display:none}                 /* the coloured glow: gone */
+.startrow textarea{background:linear-gradient(180deg,#1d1a19,#171514);
+  border:0;border-radius:var(--r-xl);padding:14px 16px;
+  font:400 15px/1.6em var(--sans,inherit);letter-spacing:-.014em;
+  color:var(--t-1);caret-color:var(--a);max-height:220px;
+  box-shadow:var(--lift-1),inset 0 0 0 1px var(--edge-2),
+             inset 0 1px 0 0 rgba(255,255,255,.09);
+  transition:box-shadow var(--d-pop) var(--eo)}
+.startrow textarea::placeholder{color:var(--t-3)}
+.startrow textarea:focus{background:linear-gradient(180deg,#1d1a19,#171514);
+  box-shadow:var(--lift-1),inset 0 0 0 1px var(--edge-3),
+             inset 0 1px 0 0 rgba(255,255,255,.13)}
+.startrow button.primary{width:44px;height:44px;border-radius:var(--r-md);
+  background:var(--a);color:#1c0f09;border:0;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22);
+  transition:background var(--d-press) var(--eo),transform var(--d-press) var(--eo)}
+.startrow button.primary:hover{background:var(--a-hi);transform:none}
+.startrow button.primary:active{background:var(--a-lo);transform:scale(.97)}
+
+/* ── CHAT: full-bleed rows, capped measure. No bubbles. ────────────── */
+.clog{max-height:52vh;gap:20px;max-width:780px;margin:0 auto 20px;width:100%}
+.msg{animation:none;max-width:100%;border-radius:0;border:0;padding:0;
+  font:400 15px/1.62em var(--sans,inherit);letter-spacing:-.014em}
+.msg.you{background:none;color:var(--t-2);align-self:stretch;
+  padding:0 0 0 14px;box-shadow:inset 2px 0 0 0 var(--a-16)}
+.msg.bot{background:none;color:var(--t-1);box-shadow:none}
+.msg.sys{color:var(--t-3);font-size:12px;text-align:left;letter-spacing:-.012em}
+.msg.tool{font:400 12px/1.5em var(--mono);color:var(--t-3);opacity:1;
+  padding:2px 0}
+.msg.tool b{color:var(--t-2);font-weight:510}
+
+/* ── RUNNING WORK: a dot that pulses, never a spinner. ─────────────── */
+.activity{background:none;border:0;box-shadow:none;padding:2px 0;
+  animation:none;color:var(--t-2);font:510 12.5px/1.4em var(--sans,inherit);
+  gap:8px}
+.spin{width:6px;height:6px;border:0;border-radius:9999px;background:var(--a);
+  animation:pulse 1.8s cubic-bezier(.77,0,.175,1) infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.activity .ac{color:var(--t-3);font-size:11.5px}
+
+/* ── ROWS: instant hover. A transition here lags under a sweeping cursor. */
+.pitem,.qrow,.pchip{transition:none}
+.pitem:hover,.qrow:hover{background:var(--g-4)}
+.pitem.sel{background:var(--g-4);box-shadow:inset 2px 0 0 0 var(--a)}
+.qrow{border-top:1px solid var(--edge-1);color:var(--t-2);
+  font:510 13px/1.4em var(--sans,inherit);letter-spacing:-.022em}
+.panelbtn,.pchip{font-weight:510;letter-spacing:-.022em}
+.panelbtn.on{background:var(--a-08);border-color:var(--a-16);color:var(--t-1)}
+
+@media (prefers-reduced-motion:reduce){
+  .spin{animation:none;opacity:.8}
+  *,*::before,*::after{animation-duration:.01ms!important;
+    transition-duration:.01ms!important}}
+
+/* ══ THE SPLIT: conversation always present, work beside it ══════════ */
+section#content{display:block;position:relative;overflow:hidden}
+section#content[data-split="1"]{display:grid;grid-template-columns:1fr 0fr;
+  transition:grid-template-columns var(--d-menu,200ms) var(--eo);min-height:0}
+body.split section#content[data-split="1"]{grid-template-columns:1fr minmax(380px,46%)}
+section#content>*{min-height:0;min-width:0}      /* the grid-overflow trap */
+
+.conv{display:flex;flex-direction:column;overflow:auto;padding:0 24px}
+.work{display:grid;grid-template-rows:44px 1fr;min-height:0;overflow:hidden;
+  background:var(--g-1);box-shadow:-1px 0 0 0 var(--edge-1);opacity:0;
+  transition:opacity var(--d-menu,200ms) var(--eo)}
+body.split .work{opacity:1}
+.workhd{display:flex;align-items:center;justify-content:space-between;
+  padding:0 12px 0 18px;box-shadow:0 1px 0 0 var(--edge-1);
+  font:590 13px/1 var(--sans,inherit);letter-spacing:-.022em;color:var(--t-1)}
+.workhd .iconbtn{transform:rotate(45deg)}
+.workbody{overflow:auto;padding:16px 18px;min-height:0}
+.workbody .card{background:none;border:0;box-shadow:none;padding:0;margin:0 0 18px}
+.workbody iframe{width:100%;border-radius:var(--r-md);border:0;
+  box-shadow:inset 0 0 0 1px var(--edge-1)}
+
+/* the conversation keeps its measure even when the pane is open */
+body.split .clog,body.split .startrow{max-width:100%}
+/* NARROW WINDOWS COVER THE CHAT, THEY DO NOT DESTROY IT.
+   display:none here was the same fault in a different costume: open the
+   preview on a small window and the conversation was gone, scroll
+   position and all. As an overlay it is still mounted, still scrolled
+   where you left it, and Close or Esc brings it straight back. */
+@media (max-width:1180px){
+  body.split section#content[data-split="1"]{grid-template-columns:1fr}
+  body.split .conv{display:flex}
+  body.split .work{position:absolute;inset:0;z-index:5;
+    box-shadow:-24px 0 48px -24px rgba(0,0,0,.6)}}
+
+/* ── PANEL CHIPS: always present, one click each ─────────────────── */
+.panelpick,.panelbtn{display:none!important}   /* the two-step: gone */
+nav#tabs{display:flex;align-items:center;gap:2px;padding:0 18px;min-height:44px}
+.tabgap{flex:1}
+.pchip{padding:6px 12px;background:none;border:0;border-radius:var(--r-md);
+  color:var(--t-3);font:510 12.5px/1 var(--sans,inherit);letter-spacing:-.022em;
+  cursor:pointer;transition:none;display:inline-flex;align-items:center;gap:6px}
+.pchip:hover{color:var(--t-1);background:var(--g-4)}
+.pchip.on{color:var(--t-1);background:var(--g-4);
+  box-shadow:inset 0 0 0 1px var(--edge-2)}
+.pchip.ghost{color:var(--t-4)}
+.pchip.ghost:hover{color:var(--t-2)}
+
+/* the preview must actually fill its pane */
+.workbody{padding:0}
+.workbody>*{padding:16px 18px}
+.workbody iframe{height:calc(100vh - 210px);min-height:420px;
+  border-radius:0;box-shadow:none;padding:0}
+
+/* ══ INSPECTOR FIELDS ════════════════════════════════════════════════
+   The pane was a two-column form squeezed into ~460px: labels wrapped to
+   two lines, the checkbox floated above its own text, and help text ran
+   as wide as the paragraph it was explaining. One column, short labels,
+   hints demoted under the field they explain. */
+.insp{padding:0 0 22px}
+.insp h4{position:sticky;top:0;z-index:2;margin:0 0 14px;padding:14px 0 9px;
+  background:linear-gradient(180deg,var(--g-1) 74%,transparent);
+  font:590 11px/1 var(--sans,inherit);letter-spacing:.09em;
+  text-transform:uppercase;color:var(--t-3)}
+.field{display:grid;gap:6px;margin-bottom:16px}
+.field label{font:510 12px/1.3 var(--sans,inherit);letter-spacing:-.012em;
+  color:var(--t-2)}
+.field .fh{font:400 11.5px/1.45 var(--sans,inherit);color:var(--t-4)}
+.insp input[type=text],.insp input:not([type]),.insp select,
+.workbody input:not([type=checkbox]):not([type=file]),.workbody select{
+  width:100%;min-height:34px;padding:8px 11px;border:0;border-radius:var(--r-md);
+  background:var(--g-3);color:var(--t-1);
+  font:400 13px/1.5 var(--sans,inherit);outline:none;
+  box-shadow:inset 0 0 0 1px var(--edge-1),inset 0 1px 0 var(--edge-top);
+  transition:box-shadow var(--d-pop) var(--eo),background var(--d-pop) var(--eo)}
+.workbody input:hover:not([type=checkbox]){box-shadow:inset 0 0 0 1px var(--edge-2),
+  inset 0 1px 0 var(--edge-top)}
+.workbody input:focus:not([type=checkbox]),.workbody select:focus{
+  background:var(--g-5);box-shadow:inset 0 0 0 1px var(--edge-3),
+  inset 0 1px 0 rgba(255,255,255,.12)}
+.check{display:flex;align-items:center;gap:9px;margin:2px 0 18px;
+  font:400 13px/1.4 var(--sans,inherit);color:var(--t-2);cursor:pointer}
+.check input{width:15px;height:15px;flex:none;margin:0;accent-color:var(--a)}
+.frow{display:flex;align-items:center;gap:10px}
+.workbody button{min-height:32px;padding:0 14px;border-radius:var(--r-md);
+  background:var(--g-3);color:var(--t-1);border:0;
+  font:510 12.5px/1 var(--sans,inherit);letter-spacing:-.022em;cursor:pointer;
+  box-shadow:inset 0 0 0 1px var(--edge-1),inset 0 1px 0 var(--edge-top)}
+.workbody button:hover{background:var(--g-4)}
+.workbody button.primary{background:var(--a);color:#1c0f09;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+.workbody button.primary:hover{background:var(--a-hi)}
+/* the model row: stack it, never four columns in a narrow pane */
+.workbody .row{display:grid!important;grid-template-columns:1fr;gap:14px}
+.workbody .row>div{min-width:0}
+.workbody .hint{font:400 11.5px/1.5 var(--sans,inherit);color:var(--t-4);
+  display:block;margin-top:8px}
+.workbody .card{background:none;border:0;box-shadow:none;padding:0;margin:0}
+.workbody .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-top:12px}
+
+/* ══ INSPECTOR, TIGHTENED ════════════════════════════════════════════
+   The sticky section heading was translucent over a 74% gradient, so the
+   first field's label read straight through it — two words stacked on the
+   same line. A sticky header has to be opaque where it overlaps, and it
+   has to own the space above the first field rather than borrow it. */
+.workbody{padding:0 18px 24px}
+.workbody>*{padding:0}
+.insp{padding:0}
+.insp h4{position:sticky;top:0;z-index:3;
+  margin:0 -18px 12px;padding:16px 18px 9px;
+  background:var(--g-1);
+  box-shadow:0 1px 0 var(--edge-1);
+  font:590 10.5px/1 var(--sans,inherit);letter-spacing:.1em;
+  text-transform:uppercase;color:var(--t-3)}
+.insp+.insp h4{margin-top:8px}
+.field{display:grid;gap:5px;margin:0 0 14px}
+.field label{font:510 12px/1.35 var(--sans,inherit);color:var(--t-2)}
+.field .fh{font:400 11px/1.4 var(--sans,inherit);color:var(--t-4);margin-top:1px}
+.insp input,.workbody input:not([type=checkbox]):not([type=file]),
+.workbody select{min-height:34px;font-size:12.5px}
+.check{margin:0 0 14px;font-size:12.5px}
+.frow{margin-bottom:4px}
+.workbody .row{gap:14px}
+.workbody .row>div{display:grid;gap:5px}
+.workbody .row label{font:510 12px/1.35 var(--sans,inherit);color:var(--t-2)}
+.workbody .hint{font-size:11px;line-height:1.5;margin-top:6px}
+.workbody .toolbar{margin-top:10px}
+
+/* ══ RESPONSIVE + RESIZABLE PANE ═════════════════════════════════════
+   A fixed half-screen is wrong at both ends: cramped on a laptop, wasteful
+   on a wide display. The pane now sizes from a stored width, clamped so
+   the conversation always keeps a readable measure. */
+body.split section#content[data-split="1"]{
+  grid-template-columns:minmax(420px,1fr) var(--workw,clamp(360px,38%,560px))}
+.work{position:relative}
+.wgrip{position:absolute;left:-3px;top:0;bottom:0;width:7px;cursor:col-resize;
+  z-index:6}
+.wgrip::after{content:"";position:absolute;left:3px;top:0;bottom:0;width:1px;
+  background:transparent;transition:background var(--d-pop) var(--eo)}
+.wgrip:hover::after,.wgrip.drag::after{background:var(--a)}
+@media (max-width:1180px){
+  body.split section#content[data-split="1"]{grid-template-columns:1fr}
+  .wgrip{display:none}}
 </style></head><body>
 <aside>
   <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
   <div id="plist"></div>
-  <button class="libbtn" id="codebtn" onclick="openCode()"
-   title="the coding workspace: file tree, editor and an agent that
-works inside your project — powered by the Claude Code CLI or any
-Anthropic-compatible endpoint you point it at."><span data-ic="terminal"></span>Code</button>
-  <button class="libbtn" id="libbtn" onclick="openLibrary()"
-   title="every migration you save becomes a design card — palette,
-fonts, motion, structure. Describe a new project and the AI ranks
-your saved designs by fit."><span data-ic="library"></span>Design library</button>
-  <div class="newproj">
-    <input id="npname" placeholder="new project name">
-    <input id="npurl" placeholder="live template URL (scrapes all pages)">
-    <input id="npfile" type="file" accept=".html,.htm,.zip" multiple>
-    <button class="primary" onclick="createProject()"><span data-ic="plus"></span>Create project</button>
-    <div class="hint" style="font-size:11px">paste the LIVE template URL
-     (home + subpages scraped automatically) — or upload an export, a
-     zip, or all your separately-saved pages at once</div>
+  <div class="srows">
+    <button class="qrow" onclick="S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}refresh()">
+      <span data-ic="plus"></span><span class="ql">New project</span>
+      <span class="qc" data-ic="up"></span></button>
+    <button class="qrow" id="codebtn" onclick="openCode()">
+      <span data-ic="terminal"></span><span class="ql">Code workspace</span>
+      <span class="qc" data-ic="up"></span></button>
+    <button class="qrow" id="libbtn" onclick="openLibrary()">
+      <span data-ic="library"></span><span class="ql">Design library</span>
+      <span class="qc" data-ic="up"></span></button>
   </div>
-</aside>
+  </aside>
 <main>
   <header>
     <div id="ptitle">no project selected</div>
@@ -3045,14 +3578,40 @@ your saved designs by fit."><span data-ic="library"></span>Design library</butto
   <div id="progress"><div class="lbl" id="prog-lbl">working…</div>
     <div class="bar"><div class="fill" id="prog-fill"></div></div></div>
   <nav id="tabs"></nav>
-  <section id="content"><div class="empty">
-   <b>Make any template yours.</b><br><br>
-   Paste a live Framer or Webflow URL on the left — or drop an export —
-   and get back a rebranded site you fully own: your copy, your images,
-   your links. No badge, no telemetry, pixel-identical design.<br><br>
-   <span style="font-size:12.5px;opacity:.75">Prepare · AI fill ·
-   click-to-edit · build · ship</span><br><br>
-   <button onclick="startTour(0)">Show me around</button></div></section>
+  <section id="content"><div class="empty"><div class="focal">
+     <div id="welcome">
+     <h1>Every template you buy<br>can be entirely yours.</h1>
+     <p class="sub">Paste a live Framer or Webflow URL and tell Aethron what it
+      should become. It rebrands every string, swaps the images, strips the
+      badge &mdash; and hands back a site you fully own.</p>
+     </div>
+     <div id="chatlog" class="clog" hidden></div>
+     <div class="startrow">
+       <textarea id="npurl" rows="1"
+        placeholder="Paste a template URL, or tell Aethron what you want…"
+        oninput="growTa(this)"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
+       <button class="primary" id="sendbtn" onclick="consoleSend()"
+        aria-label="Send"><span data-ic="up"></span></button>
+     </div>
+     <div class="startmeta">
+       <input id="npname" placeholder="Project name (optional)">
+       <span class="or">or</span>
+       <label class="fpick"><input id="npfile" type="file"
+        accept=".html,.htm,.zip" multiple><span data-ic="file"></span>
+        choose an export, a zip, or saved pages</label>
+     </div>
+     <div class="qrows">
+       <button class="qrow" onclick="openLibrary()">
+         <span data-ic="library"></span><span class="ql">Match a plan against
+         your design library</span><span class="qc" data-ic="up"></span></button>
+       <button class="qrow" onclick="openCode()">
+         <span data-ic="terminal"></span><span class="ql">Open the coding
+         workspace</span><span class="qc" data-ic="up"></span></button>
+       <button class="qrow" onclick="startTour(0)">
+         <span data-ic="help"></span><span class="ql">Show me around</span>
+         <span class="qc" data-ic="up"></span></button>
+     </div></div></div></section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
@@ -3105,7 +3664,7 @@ async function refresh(keepTab){
   renderSidebar();
   if(S.cur){
     S.info=S.projects.find(p=>p.name===S.cur)||null;
-    if(!S.info){S.cur=null;S.cm=null;}
+    if(!S.info){S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
   }
   renderHeader();
   if(!keepTab)renderTab();
@@ -3123,7 +3682,7 @@ function renderSidebar(){
      </div>`}).join('')||'<div class="hint" style="padding:8px">no projects yet</div>';
 }
 async function select(name){
-  S.cur=name;S.cm=null;S.tab='plan';S.view='project';
+  S.cur=name;S.cm=null;S.tab='chat';S.view='project';
   const lb=$('libbtn');if(lb)lb.classList.remove('sel');
   await refresh();
   try{S.cm=await api('/api/copymap?project='+name);}catch(e){}
@@ -3132,7 +3691,7 @@ async function select(name){
 async function delProject(name){
   if(!confirm(`Delete project "${name}"? pristine/, copy_map and site/ all go.`))return;
   await api('/api/projects/delete',{name});
-  if(S.cur===name){S.cur=null;S.cm=null;}
+  if(S.cur===name){S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
   refresh();
 }
 async function createProject(){
@@ -3157,6 +3716,40 @@ async function createProject(){
 const STEPS=[['fetch','1 Fetch'],['inventory','2 Inventory'],
              ['build','3 Build'],['verify','4 Verify'],
              ['probe','5 Runtime check']];
+function openWork(t){
+  if(S.panel&&S.tab===t)return closeWork();
+  S.panel=true;S.tab=t;renderHeader();renderTab();
+}
+/* Drag to resize, and remember it. A pane you keep re-adjusting is a
+   pane that forgot. */
+function initGrip(){
+  const g=document.getElementById('wgrip');if(!g||g.dataset.on)return;
+  g.dataset.on='1';
+  const saved=localStorage.getItem('forge_workw');
+  if(saved)document.documentElement.style.setProperty('--workw',saved);
+  g.addEventListener('pointerdown',e=>{
+    e.preventDefault();g.classList.add('drag');g.setPointerCapture(e.pointerId);
+    const move=ev=>{
+      const w=Math.min(Math.max(innerWidth-ev.clientX,320),innerWidth-460);
+      document.documentElement.style.setProperty('--workw',w+'px');};
+    const up=ev=>{
+      g.classList.remove('drag');g.releasePointerCapture(e.pointerId);
+      g.removeEventListener('pointermove',move);g.removeEventListener('pointerup',up);
+      localStorage.setItem('forge_workw',
+        getComputedStyle(document.documentElement).getPropertyValue('--workw').trim());};
+    g.addEventListener('pointermove',move);g.addEventListener('pointerup',up);
+  });
+}
+function closeWork(){S.panel=false;S.tab='chat';renderHeader();renderTab()}
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&S.panel&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName))
+    closeWork();});
+function togglePanel(){
+  S.panel=!S.panel;
+  if(S.panel){ if(S.tab==='chat')S.tab='plan'; }
+  else S.tab='chat';
+  renderHeader();renderTab();
+}
 function renderHeader(){
   $('ptitle').textContent=S.view==='library'?'Design library'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
@@ -3202,10 +3795,23 @@ function renderHeader(){
       fonts, motion, structure — never the files) to the library, so
       future plans can be matched against it"
       onclick="saveToLibrary()">${I('library')}Save design</button>`;
-  const tabs=[['plan','Plan & AI'],['strings','Strings'],['images','Images'],
-              ['links','Links'],['preview','Preview'],['logs','Logs']];
-  $('tabs').innerHTML=tabs.map(([t,l])=>
-    `<div class="tab${S.tab===t?' on':''}" onclick="S.tab='${t}';renderHeader();renderTab()">${l}</div>`).join('');
+  // ONE CLICK, NOT TWO. The previous version hid these behind an
+  // "Inspect" button, so opening the preview meant clicking a toggle to
+  // reveal a list to click again — the exact navigation this was meant
+  // to remove. They are always here now; clicking one opens it beside
+  // the chat, clicking it again closes it.
+  //
+  // "Plan & AI" is gone on purpose. The plan is something you TELL the
+  // agent — a form that duplicates the conversation is one more place
+  // the same fact can live, and one more thing to keep in sync.
+  const panels=[['preview','Preview'],['strings','Strings'],
+                ['images','Images'],['links','Links'],['logs','Logs']];
+  $('tabs').innerHTML=
+    panels.map(([t,l])=>`<button class="pchip${S.panel&&S.tab===t?' on':''}"
+        onclick="openWork('${t}')">${l}</button>`).join('')
+    +`<span class="tabgap"></span>`
+    +`<button class="pchip ghost" title="model, key and project settings"
+        onclick="openWork('plan')">${I('cur',13)} Settings</button>`;
 }
 
 async function doUndo(){
@@ -3253,7 +3859,7 @@ async function _runAll(){
   setProgress(100,'Ready! Now write your plan & fill, or edit directly '
     +'in Preview →','done');
   hideProgress();
-  S.tab='plan';renderHeader();renderTab();
+  S.tab='chat';renderHeader();renderTab();
 }
 async function runStep(cmd,extra){
   if(S.running)return;
@@ -3348,7 +3954,7 @@ async function showZeroFx(){
 
 // ---------- design library ----------
 async function openLibrary(){
-  S.view='library';S.cur=null;S.cm=null;
+  S.view='library';S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}
   renderSidebar();renderHeader();
   const lb=$('libbtn');if(lb)lb.classList.add('sel');
   renderTab();
@@ -3537,6 +4143,7 @@ async function saveCodeCfg(code){
   try{await api('/api/code/config',{code});}catch(e){alert(e.message)}
 }
 async function loadTree(){
+  if(!document.getElementById('idetree'))return;
   try{
     const r=await api('/api/fs/tree?'+wsq());
     CODE.tree=r.files;
@@ -3599,9 +4206,113 @@ async function pollCode(){
     if(!r.running&&CODE.key){clearInterval(CODE.poll);CODE.poll=0;}
   }catch(e){}
 }
+
+/* A PROJECT IS NOT A DIFFERENT KIND OF SCREEN. Selecting one used to
+   swap the conversation for a control panel: six tabs, a plan textarea,
+   forbidden words, hide selectors, an AI-settings block. That is a
+   settings page, not a product. The conversation continues; the forms
+   are still there, one tab away, for when you want to reach in by hand.
+   Rooting the session in the project dir also means forge.json is
+   present, so PROJECT_RULES and the site/ + pristine/ write-deny come
+   into force automatically. */
+function renderChatTab(c){
+  const n=(S.info&&S.info.strings)||0, f=(S.info&&S.info.filled)||0;
+  c.innerHTML=`<div class="empty"><div class="focal">
+    <div id="welcome" ${CODE.events.length?'hidden':''}>
+      <h1>What should <em>${esc(S.cur)}</em> become?</h1>
+      <p class="sub">Describe the brand and Aethron rebrands every string,
+       fits the byte-locked slots, rebuilds and checks the result. Ask it to
+       port the site to Astro, Next or Vue, swap a logo, or fix what a
+       check flagged.${n?` &mdash; ${f} of ${n} strings filled so far.`:''}</p>
+    </div>
+    <div id="chatlog" class="clog" ${CODE.events.length?'':'hidden'}></div>
+    <div class="startrow">
+      <textarea id="npurl" rows="1"
+       placeholder="Tell Aethron what to do with ${esc(S.cur)}…"
+       oninput="growTa(this)"
+       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
+      <button class="primary" onclick="consoleSend()" aria-label="Send">
+        <span data-ic="up"></span></button>
+    </div>
+    <div class="qrows">
+      <button class="qrow" onclick="quick('Rebrand this whole site. Ask me for the brand first if you do not have it.')">
+        <span data-ic="wand"></span><span class="ql">Rebrand every string</span>
+        <span class="qc" data-ic="up"></span></button>
+      <button class="qrow" onclick="quick('Build, then verify, then probe. Report exactly what fails.')">
+        <span data-ic="check"></span><span class="ql">Build and check it</span>
+        <span class="qc" data-ic="up"></span></button>
+      <button class="qrow" onclick="quick('Port this site to Astro and grade the port against the original.')">
+        <span data-ic="package"></span><span class="ql">Port to another framework</span>
+        <span class="qc" data-ic="up"></span></button>
+    </div></div></div>`;
+  renderChat();
+}
+function quick(t){const ta=$('npurl');if(!ta)return;ta.value=t;consoleSend()}
+function growTa(el){el.style.height='auto';
+  el.style.height=Math.min(el.scrollHeight,180)+'px'}
+
+/* THE FRONT DOOR. The composer is the product: a URL, an instruction,
+   or both. The first message starts a console session rooted outside
+   any project, because the project does not exist yet — the agent
+   creates it with the same mcp__aethron__* tools it uses for
+   everything else. */
+async function consoleSend(){
+  const ta=$('npurl'), text=(ta&&ta.value||'').trim();
+  if(!text)return;
+  const w=$('welcome'), log=$('chatlog'),
+        rows=document.querySelector('.focal .qrows'),
+        meta=document.querySelector('.focal .startmeta');
+  if(w)w.hidden=true; if(rows)rows.hidden=true; if(meta)meta.hidden=true;
+  if(log)log.hidden=false;
+  ta.value=''; growTa(ta);
+  try{
+    if(!CODE.key){
+      CODE.events=[];CODE.since=0;
+      const r=await api('/api/code/start',
+        S.cur?{project:S.cur}:{console:true});
+      CODE.key=r.key;
+    }
+    CODE.events.push({type:'you',text});renderChat();
+    await api('/api/code/send',{key:CODE.key,text});
+    if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
+  }catch(e){
+    CODE.events.push({type:'text',text:'Could not reach the agent: '
+      +e.message+' — open Plan & AI and check the model settings.'});
+    renderChat();
+  }
+}
+/* WHAT THE SYSTEM IS DOING, IN WORDS THE OWNER USES.
+   The chain the owner had to click by hand — save plan, build, fill copy
+   map, polish — is a sequence the agent already knows and already has
+   tools for. So the UI stops asking anyone to drive it and starts
+   REPORTING it: one line saying what is happening now, and the detail
+   folded away for whoever wants it. */
+const TOOLWORDS={
+  create_project:'Reading the template',fetch:'Downloading the runtime',
+  inventory:'Finding every string, image and link',
+  localize:'Localising assets',localize_assets:'Localising assets',
+  set_plan:'Saving the brand plan',get_plan:'Reading the plan',
+  get_content:'Reading the copy',set_content:'Writing copy',
+  set_content_bulk:'Rewriting the copy',build:'Rebuilding the site',
+  verify:'Checking the files',probe:'Loading it in a browser',
+  heal:'Repairing edits that did not land',
+  generate_logo:'Drawing the wordmark',serve_preview:'Starting a preview',
+  replace_image_slots:'Swapping images',remove_element:'Removing an element',
+  undo:'Undoing',list_projects:'Looking at your projects'};
+const toolWord=n=>TOOLWORDS[String(n||'').replace(/^mcp__aethron__/,'')]
+  ||String(n||'').replace(/^mcp__aethron__/,'').replace(/_/g,' ');
+function activityHtml(){
+  if(!CODE.poll)return '';
+  let last=null;
+  for(const e of CODE.events) if(e.type==='tool')last=e;
+  const done=CODE.events.filter(e=>e.type==='tool_result').length;
+  return `<div class="activity"><span class="spin"></span>
+    <span class="aw">${esc(last?toolWord(last.name):'Thinking')}</span>
+    ${done?`<span class="ac">${done} step${done>1?'s':''} done</span>`:''}</div>`;
+}
 function renderChat(){
   const box=$('chatlog');if(!box)return;
-  box.innerHTML=CODE.events.map(e=>{
+  const rows=CODE.events.map(e=>{
     if(e.type==='you')return `<div class="msg you">${esc(e.text)}</div>`;
     if(e.type==='text')return `<div class="msg bot">${esc(e.text)}</div>`;
     if(e.type==='thinking')return `<div class="msg think">${esc(e.text)}</div>`;
@@ -3617,6 +4328,7 @@ function renderChat(){
     if(e.type==='error')return `<div class="msg res bad">${esc(e.text||'')}</div>`;
     return '';
   }).join('');
+  box.innerHTML=rows+activityHtml();
   box.scrollTop=1e9;
 }
 
@@ -3627,12 +4339,37 @@ function renderTab(){
   if(S.view==='library')return renderLibrary(c);
   if(!S.cur){return}
   const t=++RT;
-  if(S.tab==='plan')return renderPlan(c,t);
-  if(S.tab==='strings')return renderStrings(c);
-  if(S.tab==='images')return renderImages(c);
-  if(S.tab==='links')return renderLinks(c);
-  if(S.tab==='preview')return renderPreview(c,t);
-  if(S.tab==='logs'){c.innerHTML=`<div id="logbox">${esc(S.log||'no output yet')}</div>`;
+  // TWO PANES THAT COEXIST — the fix for the real problem.
+  //
+  // Every surface used to replace every other one, so opening Preview
+  // meant LOSING the conversation with no way back. That is a structural
+  // fault, not a styling one: any layout that forces a trade between
+  // "see the work" and "talk about the work" feels wrong however it is
+  // painted. The conversation is now permanent on the left; the work
+  // opens beside it on the right and can be closed without leaving.
+  if(c.dataset.split!=='1'){
+    c.dataset.split='1';
+    c.innerHTML=`<div class="conv" id="conv"></div>
+                 <div class="work" id="work"><div class="wgrip" id="wgrip"></div><div class="workhd">
+                   <span id="worktitle"></span>
+                   <button class="iconbtn" title="close (Esc)"
+                     onclick="closeWork()">${I('up',14)}</button></div>
+                 <div class="workbody" id="workbody"></div></div>`;
+  }
+  const conv=$('conv'), work=$('workbody');
+  initGrip();
+  renderChatTab(conv);
+  document.body.classList.toggle('split', !!S.panel);
+  if(!S.panel)return;
+  const NAMES={plan:'Settings',strings:'Strings',images:'Images',
+               links:'Links',preview:'Preview',logs:'Logs'};
+  $('worktitle').textContent=NAMES[S.tab]||'';
+  if(S.tab==='plan')return renderPlan(work,t);
+  if(S.tab==='strings')return renderStrings(work);
+  if(S.tab==='images')return renderImages(work);
+  if(S.tab==='links')return renderLinks(work);
+  if(S.tab==='preview')return renderPreview(work,t);
+  if(S.tab==='logs'){work.innerHTML=`<div id="logbox">${esc(S.log||'no output yet')}</div>`;
     $('logbox').scrollTop=1e9;return}
 }
 
@@ -3667,45 +4404,32 @@ async function renderPlan(c,t){
   if(t!==RT)return;
   const a=aiCfg();
   c.innerHTML=`
-  <div class="card"><h3>Project plan — what this template becomes</h3>
-  <div class="hint">Brand name, one-line description, voice/tone, contact
-  email & phone, social links, image swaps. The AI reads ONLY this + the
-  copy map. The more specific, the better every model performs.</div>
-  <textarea id="plantxt" rows="10"
-   placeholder="Brand: Acme Cleaning&#10;What it is: professional home cleaning in Austin&#10;Tone: warm, confident, no jargon&#10;Email: hello@acme.com   Phone: +1 512 …&#10;Instagram: https://instagram.com/acme …">${esc(plan)}</textarea>
-  <div class="row" style="margin-top:10px">
-   <div><label>Forbidden words — old brand; verify FAILS if any survive
-    (auto-set by inventory, comma-separated)</label>
-    <input id="fwords" value="${esc((cfg.forbidden_words||[]).join(', '))}"></div>
-   <div><label>Extra hide selectors — CSS for promos/pills the defaults
-    miss (comma-separated)</label>
-    <input id="hsel" value="${esc((cfg.hide_selectors||[]).join(', '))}"></div>
+  <!-- THE PLAN BLOCK IS GONE ON PURPOSE.
+       A textarea that authors the brand, next to a chatbox that authors
+       the brand, is two places the same fact can live — and nothing
+       reconciles them when they disagree. "Polish rough plan with AI"
+       and "Fill copy map with AI" were second, dumber routes to work the
+       agent already does when you ask it. What is left here is real
+       configuration: things with no conversational equivalent. -->
+  <div class="insp">
+   <h4>Project</h4>
+   <div class="field">
+    <label for="fwords">Forbidden words</label>
+    <input id="fwords" value="${esc((cfg.forbidden_words||[]).join(', '))}">
+    <span class="fh">the old brand — verify fails if any survive</span></div>
+   <div class="field">
+    <label for="hsel">Hide selectors</label>
+    <input id="hsel" value="${esc((cfg.hide_selectors||[]).join(', '))}">
+    <span class="fh">CSS for promos the defaults miss</span></div>
+   <label class="check"><input type="checkbox" id="redmotion"
+     ${cfg.reduce_motion?'checked':''}><span>Reduce all motion site-wide</span></label>
+   <div class="frow"><button onclick="savePlan()">Save</button>
+     <span class="hint" id="plansaved"></span></div>
   </div>
-  <label style="margin:8px 0"><input type="checkbox" id="redmotion"
-    ${cfg.reduce_motion?'checked':''}> reduce ALL motion site-wide
-    (near-instant animations — baked into the build)</label>
-  <div class="toolbar" style="margin-top:10px">
-    <button class="primary" onclick="savePlan()">Save plan</button>
-    <button onclick="polishPlan()">${I('wand')}Polish rough plan with AI</button>
-    <span class="hint" id="plansaved"></span></div>
-  <div class="hint">too lazy for the format? type a few rough words
-   ("jomiez, ai agency, chill tone, insta @jomiez") and hit Polish —
-   the AI rewrites it into the full plan for you to review.</div></div>
 
-  <div class="card"><h3>AI — one key for everything</h3>
+  <div class="insp"><h4>Model</h4>
   ${aiSettingsHtml()}
-  <div class="toolbar">
-   <button class="primary" onclick="aiFill()">${I('sparkles')}Fill copy map with AI</button>
-   <span class="hint">batched · byte budgets & forbidden chars enforced
-   server-side · rejected lines shown in Logs</span></div>
-  <details><summary>No API key? Manual mode — paste into any chat model</summary>
-   <div class="toolbar"><button onclick="copyPrompt()">Copy prompt + JSON</button>
-   <span class="hint" id="copied"></span></div>
-   <textarea id="pasteback" rows="4" placeholder="paste the model's JSON answer here"></textarea>
-   <div class="toolbar" style="margin-top:8px">
-   <button onclick="mergePaste()">Merge pasted answer</button>
-   <span class="hint" id="mergeres"></span></div>
-  </details></div>`;
+</div>`;
   bindAiSettings();
 }
 
@@ -3761,13 +4485,17 @@ async function polishPlan(){
   $('plansaved').textContent='polishing…';
   try{
     const r=await api('/api/ai/plan',{project:S.cur,
-      plan:$('plantxt').value});
-    $('plantxt').value=r.plan;
+      plan:($('plantxt')||{}).value});
+    ($('plantxt')||{}).value=r.plan;
     $('plansaved').textContent='polished ✓ — review, tweak, then Save';
   }catch(e){$('plansaved').textContent=e.message}
 }
 async function savePlan(){
-  await api('/api/plan',{project:S.cur,plan:$('plantxt').value});
+  // ONLY WRITE THE PLAN WHEN A PLAN FIELD EXISTS. With the textarea
+  // removed this posted `undefined` and silently blanked the brand plan
+  // the agent had written — a settings save destroying the work.
+  const pt=$('plantxt');
+  if(pt)await api('/api/plan',{project:S.cur,plan:pt.value});
   if($('fwords'))await api('/api/config',{project:S.cur,
     forbidden_words:$('fwords').value.split(','),
     hide_selectors:$('hsel').value.split(','),
