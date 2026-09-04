@@ -548,7 +548,7 @@ def cmd_rebrand(args):
               f"avoid={len(brief.get('avoid') or [])} words")
     bstr = brief_text(brief)
 
-    last = first = None
+    last = first = last_depth = None
     for rnd in range(1, rounds + 1):
         same, offenders = audit(root)
         _report(same, offenders, prefix=f"round {rnd} before: ")
@@ -556,6 +556,27 @@ def cmd_rebrand(args):
             break
         # Stop when a round buys nothing: another identical pass is just
         # spend. Saying so is more useful than looping to the cap.
+        # THE OFFENDER COUNT IS NOT THE MEASURE — DEPTH IS.
+        #
+        # Measured on the fathom migration: offenders fell 570 -> 161 -> 1
+        # while the copy stayed 53% the template's the whole way. The queue
+        # drained because the attempt ledger retires entries a model has
+        # declined twice, not because anything was rewritten, so the rule
+        # below saw a delta of 160 and happily paid for another round that
+        # moved the page by nothing.
+        #
+        # Depth cannot be faked that way: it compares the built pages
+        # against pristine. Note this can only ever stop the SECOND
+        # unproductive round — a round's futility is not visible until the
+        # audit that follows it — so it is a brake, not a cure.
+        if (last_depth is not None and same is not None
+                and last_depth - same < 0.01):
+            print(f"  the last round changed {(last_depth - same) * 100:.1f}% "
+                  f"of the copy — stopping: the queue is draining but the "
+                  f"page is not changing")
+            break
+        last_depth = same
+
         # A MINIMUM DELTA, NOT MERE IMPROVEMENT. With the corrected gate
         # the offender set is ~10x bigger and contains an irreducible
         # floor (strings a model rightly refuses to change). Strict
