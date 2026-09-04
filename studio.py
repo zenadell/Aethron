@@ -3629,8 +3629,18 @@ body.split.editing .wgrip{display:none}
    path worked, which is exactly why it shipped: the pane I tested in
    happened to be 957px. Height is unconditional now; the media query
    only changes DIRECTION. */
-body.editing .workbody{padding:0;height:100%;min-height:0}
-body.editing .workbody>*{height:100%;min-height:0}
+/* THE TOOLBAR IS NOT THE FRAME. `.workbody > * { height:100% }` hit the
+   toolbar too, so it became full-height — that was the empty gap pushing
+   the site below the fold — and it scrolled away with the content, which
+   is why there was no way back out of edit mode. Column layout: toolbar
+   sized to its content and pinned, frame takes the rest. */
+body.editing .workbody{padding:0;height:100%;min-height:0;
+  display:flex;flex-direction:column;overflow:hidden}
+body.editing .workbody>.toolbar{flex:0 0 auto;height:auto;
+  position:sticky;top:0;z-index:8;margin:0;padding:10px 14px;
+  background:var(--g-1);box-shadow:0 1px 0 var(--edge-1);
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
 #editrow{flex:1;display:flex;min-height:0;height:100%}
 #editframe{min-width:0;min-height:0;flex:1 1 auto;width:100%;
   height:100%;border:0;display:block}
