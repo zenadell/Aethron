@@ -3599,6 +3599,47 @@ header{gap:12px}
 @media (prefers-reduced-transparency:reduce){
   .omlist{background:#1a1716;backdrop-filter:none}}
 @media (prefers-reduced-motion:reduce){.omlist{animation:none}}
+
+/* ══ THE PANE SIZES TO ITS CONTENT ═══════════════════════════════════ */
+body.split.wide section#content[data-split="1"]{
+  grid-template-columns:minmax(360px,1fr) var(--workw,clamp(620px,62%,1180px))}
+/* A display:none GRID CHILD LEAVES THE GRID. `0 1fr` plus a hidden
+   conversation meant the work pane stopped being the second track and
+   became the first — the 0px one — so it measured 0 wide and edit mode
+   opened blank. With one visible child there must be exactly one track. */
+body.split.editing section#content[data-split="1"]{
+  grid-template-columns:1fr}
+body.split.editing .conv{display:none}
+body.split.editing .wgrip{display:none}
+
+/* the frame never becomes a sliver, and the dock stacks when it must */
+#editrow{gap:0}
+#editframe{min-width:0;flex:1 1 auto}
+#editdock{max-width:min(392px,42%)}
+@media (max-width:1280px){
+  body.editing #editrow{flex-direction:column}
+  body.editing #editdock{max-width:none;width:100%!important;
+    max-height:46vh;overflow:auto}
+  body.editing #editframe{min-height:52vh}}
+.workbody iframe{min-width:0}
+
+/* ══ EDIT MODE NEEDS A HEIGHT AT EVERY WIDTH ═════════════════════════
+   min-height lived only inside the <=1280px block, so on a wide window
+   the frame had no height at all and edit mode opened blank. The narrow
+   path worked, which is exactly why it shipped: the pane I tested in
+   happened to be 957px. Height is unconditional now; the media query
+   only changes DIRECTION. */
+body.editing .workbody{padding:0;height:100%;min-height:0}
+body.editing .workbody>*{height:100%;min-height:0}
+#editrow{flex:1;display:flex;min-height:0;height:100%}
+#editframe{min-width:0;min-height:0;flex:1 1 auto;width:100%;
+  height:100%;border:0;display:block}
+#editdock{max-width:min(392px,42%);height:100%;overflow:auto}
+@media (max-width:1280px){
+  body.editing #editrow{flex-direction:column;height:100%}
+  body.editing #editdock{max-width:none;width:100%!important;
+    height:auto;max-height:44vh}
+  body.editing #editframe{height:auto;flex:1 1 56%;min-height:340px}}
 </style></head><body>
 <aside>
   <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -4431,6 +4472,12 @@ function renderTab(){
   initGrip();
   renderChatTab(conv);
   document.body.classList.toggle('split', !!S.panel);
+  // WIDTH FOLLOWS WHAT IS IN THE PANE. A settings form is happy at 400px;
+  // a website preview is not — squeezed to 38% with the edit dock open it
+  // rendered one character per line. Editing is a focused act, so it takes
+  // the whole work area and Done/Esc gives the conversation back.
+  document.body.classList.toggle('wide', S.panel&&S.tab==='preview');
+  document.body.classList.toggle('editing', !!(S.panel&&S.tab==='preview'&&S.editMode));
   if(!S.panel)return;
   const NAMES={plan:'Settings',strings:'Strings',images:'Images',
                links:'Links',preview:'Preview',logs:'Logs'};
