@@ -196,7 +196,14 @@ def run():
               not brain._keystate()["exhausted"])
         check("it stayed on the FREE ring", PAID not in hits, str(hits))
 
-        scenario("paid credit is only reached after the free ring is retried")
+        # A KEY THAT HANGS IS PARKED, NOT RETRIED. Measured on the real
+        # account, a dead free key does not fail fast — it accepts the
+        # connection and never answers, costing a full timeout every
+        # time it is tried. Re-sweeping it on every backoff round turned
+        # one rebrand batch into 18 minutes of nothing. So each free key
+        # gets ONE attempt, then goes cold for a while; free capacity is
+        # retried on a later call, not inside this one.
+        scenario("paid credit is reached only after every free key is tried")
         brain.KEYSTATE = tmp / "keys6.json"
         seq = []
 
@@ -208,10 +215,15 @@ def run():
         brain._text_once = all_free_busy
         out = brain.text_call("hi", cfg=CFG)
         check("it did fall back to paid in the end", out == "paid", out)
-        check("but only after MULTIPLE sweeps of the free ring",
-              seq.count(FREE[0]) >= 2, f"free1 tried {seq.count(FREE[0])}x")
+        check("every free key was tried before the paid one",
+              set(seq[:-1]) == set(FREE), str(seq))
+        check("each hanging key cost exactly one timeout, not five",
+              all(seq.count(k) == 1 for k in FREE), str(seq))
         check("no free key was marked spent by a blip",
               not brain._keystate()["exhausted"])
+        check("the hanging keys are parked, so the next call skips them",
+              len(brain._keystate().get("cold", {})) == len(FREE),
+              str(brain._keystate().get("cold")))
 
         scenario("a single api_key still works (nothing regressed)")
         one = {"provider": "gemini", "model": "m", "api_key": "solo",

@@ -162,6 +162,42 @@ def _keystate() -> dict:
     return st
 
 
+# A HANGING KEY COSTS TIME, WHICH IS THE OTHER BUDGET.
+#
+# Measured on this account: free-tier Gemini stopped returning 503 and
+# started ACCEPTING the connection and never answering — 3 of 4 free keys
+# hung, one served in 14.7s, the paid key in 1.8s. With a 300s per-attempt
+# timeout and a 4-key sweep, one batch of a rebrand sat blocked for 18
+# minutes inside its FIRST sweep, and the worst case was ~100 minutes per
+# batch across ~24 batches. The rotation was right; the clock was not.
+ATTEMPT_TIMEOUT = float(os.environ.get("AETHRON_ATTEMPT_TIMEOUT", "45"))
+FREE_BUDGET = float(os.environ.get("AETHRON_FREE_BUDGET", "120"))
+COLD_SECONDS = float(os.environ.get("AETHRON_COLD_SECONDS", "600"))
+
+
+def mark_cold(key: str) -> None:
+    """This key did not answer. Skip it for a while.
+
+    Distinct from exhausted: the allowance may be fine, the endpoint just
+    is not serving. Without this, every one of a rebrand's ~24 batches
+    re-discovers the same three dead keys and pays the timeout for each,
+    turning a 3-minute job into an hour of waiting.
+    """
+    import time as _t
+    st = _keystate()
+    st.setdefault("cold", {})[_fp(key)] = _t.time()
+    try:
+        KEYSTATE.write_text(json.dumps(st, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _is_cold(key: str) -> bool:
+    import time as _t
+    return (_t.time() - (_keystate().get("cold", {}).get(_fp(key), 0))
+            ) < COLD_SECONDS
+
+
 def mark_exhausted(key: str) -> None:
     st = _keystate()
     f = _fp(key)
@@ -266,15 +302,17 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
     import aethron_bridge as _br
 
     spent = set(_keystate()["exhausted"])
-    frees = [k for k in free_ring(cfg) if _fp(k) not in spent]
+    frees = [k for k in free_ring(cfg)
+             if _fp(k) not in spent and not _is_cold(k)]
     paid = paid_key(cfg)
     last = None
+    free_deadline = time.time() + FREE_BUDGET
 
-    def attempt(key):
+    def attempt(key, cap):
         """-> (answer, verdict). verdict: 'ok' | 'spent' | 'busy' | raise."""
         try:
             return _text_once(resolve({**(cfg or {}), "_pin_key": key}),
-                              prompt, timeout, max_tokens), "ok"
+                              prompt, cap, max_tokens), "ok"
         except urllib.error.HTTPError as e:
             if e.code == 429 and _br._is_quota_wall(e):
                 return e, "spent"
@@ -290,14 +328,21 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             return e, "busy"
 
-    # SWEEP THE FREE RING, THEN WAIT, THEN SWEEP AGAIN. Only when the
-    # free keys cannot serve across several minutes does this reach for
-    # the key that costs money.
+    # SWEEP THE FREE RING UNDER A CLOCK. Free capacity is worth waiting a
+    # little for and never worth waiting indefinitely for, so the whole
+    # free phase shares one budget: when it runs out, the paid key takes
+    # the request rather than the caller taking another twenty minutes.
     for delay in (0,) + _br.RATE_BACKOFF:
+        if not frees or time.time() >= free_deadline:
+            break
         if delay:
-            time.sleep(delay)
+            time.sleep(min(delay, max(0, free_deadline - time.time())))
         for key in list(frees):
-            out, verdict = attempt(key)
+            cap = min(ATTEMPT_TIMEOUT, timeout,
+                      max(1, free_deadline - time.time()))
+            if time.time() >= free_deadline:
+                break
+            out, verdict = attempt(key, cap)
             if verdict == "ok":
                 return out
             last = out
@@ -305,14 +350,18 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
                 mark_exhausted(key)
                 frees.remove(key)
                 print(f"  free key {_fp(key)} is out of quota for today — "
-                      f"{len(frees)} free key(s) left")
-        if not frees:
-            break
+                      f"{len(frees)} free key(s) left", flush=True)
+            elif verdict == "busy":
+                # It accepted the connection and did not answer. Park it
+                # so the next batch does not pay this same timeout again.
+                mark_cold(key)
+                frees.remove(key)
 
     if paid and _fp(paid) not in _keystate()["exhausted"]:
         if free_ring(cfg):
-            print("  free keys unavailable — falling back to the PAID key")
-        out, verdict = attempt(paid)
+            print("  no free key answered in time — using the PAID key",
+                  flush=True)
+        out, verdict = attempt(paid, timeout)
         if verdict == "ok":
             return out
         if verdict == "spent":
