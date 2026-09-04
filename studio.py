@@ -3553,6 +3553,52 @@ body.split section#content[data-split="1"]{
 @media (max-width:1180px){
   body.split section#content[data-split="1"]{grid-template-columns:1fr}
   .wgrip{display:none}}
+
+/* ══ HEADER: title, one action, overflow ═════════════════════════════ */
+header{gap:12px}
+.steps{display:flex;align-items:center;gap:6px}
+.steps button{min-height:32px;padding:0 13px;border-radius:var(--r-md);
+  background:var(--g-3);color:var(--t-2);border:0;
+  font:510 12.5px/1 var(--sans,inherit);letter-spacing:-.022em;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;
+  box-shadow:inset 0 0 0 1px var(--edge-1),inset 0 1px 0 var(--edge-top);
+  transition:background var(--d-press) var(--eo),color var(--d-press) var(--eo)}
+.steps button:hover{background:var(--g-4);color:var(--t-1)}
+.steps button.big{background:var(--a);color:#1c0f09;font-weight:590;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+.steps button.big:hover{background:var(--a-hi);color:#1c0f09}
+.steps button.big:active{background:var(--a-lo);transform:scale(.97)}
+.steps button.ghost{background:none;color:var(--t-3);box-shadow:none}
+.steps button.ghost:hover{background:var(--g-3);color:var(--t-1)}
+.steps button.warn{background:none;color:var(--bad);box-shadow:none}
+.steps button.warn:hover{background:rgba(201,106,95,.10)}
+
+/* overflow menu */
+.omenu{position:relative}
+.omenu>summary{list-style:none;width:32px;height:32px;border-radius:var(--r-md);
+  display:grid;place-items:center;cursor:pointer;color:var(--t-3);
+  box-shadow:inset 0 0 0 1px var(--edge-1)}
+.omenu>summary::-webkit-details-marker{display:none}
+.omenu>summary:hover{background:var(--g-3);color:var(--t-1)}
+.omenu[open]>summary{background:var(--g-4);color:var(--t-1)}
+.omlist{position:absolute;right:0;top:38px;z-index:40;min-width:216px;padding:6px;
+  border-radius:var(--r-lg);background:rgba(26,23,22,.86);
+  backdrop-filter:blur(20px) saturate(180%);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:0 1px 2px -1px rgba(0,0,0,.3),0 6px 14px -6px rgba(0,0,0,.28),
+             0 24px 56px -12px rgba(0,0,0,.36),
+             inset 0 0 0 1px rgba(255,255,255,.12),
+             inset 0 1px 0 rgba(255,255,255,.16);
+  animation:omin var(--d-menu) var(--eo) both}
+@keyframes omin{from{opacity:0;transform:scale(.98) translateY(-4px)}
+                to{opacity:1;transform:none}}
+.omlist button{width:100%;justify-content:flex-start;background:none;
+  box-shadow:none;color:var(--t-2);min-height:32px;padding:0 10px}
+.omlist button:hover{background:rgba(255,255,255,.07);color:var(--t-1)}
+.omlist hr{border:0;height:1px;background:var(--edge-1);margin:5px 8px}
+@media (prefers-reduced-transparency:reduce){
+  .omlist{background:#1a1716;backdrop-filter:none}}
+@media (prefers-reduced-motion:reduce){.omlist{animation:none}}
 </style></head><body>
 <aside>
   <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -3759,42 +3805,39 @@ function renderHeader(){
   const ready=S.info?.built;   // prepped at least once
   const busy=S.running||S.autoRunning;
   $('steps').className='steps'+(busy?' busy':'');
+  // ONE PRIMARY ACTION, THEN AN OVERFLOW.
+  //
+  // The header carried seven controls — Prepare/Build, a steps
+  // disclosure, Undo, Preview, site.zip, Dev handoff, Save design — all
+  // shouting at the top of a product whose premise is "just ask". Most
+  // of them are things you would SAY. What stays is the one action that
+  // advances the work in front of you; the rest is one click away and
+  // silent until wanted.
+  const menu=[
+    ready?['Re-run everything','zap',"runAll()"]:null,
+    ready?['Localize assets','home',"if(confirm('Download every remote asset into the project and rebuild? The site stops depending on the platform CDN.'))runStep('localize').then(ok=>ok!==false&&runStep('build'))"]:null,
+    null,
+    ['Download site.zip','download',"location='/api/download?project='+S.cur"],
+    ['Dev handoff','package',"location='/api/download?full=1&project='+S.cur"],
+    ['Save design to library','library',"saveToLibrary()"],
+  ];
   $('steps').innerHTML=
-    (ready?'':`<button class="big" onclick="runAll()"
-      title="fetch → inventory → build, in order, automatically">
-      ${I('zap')}${busy?'Preparing…':'Prepare project'}</button>`)
-   +`<details class="stepwrap"><summary>steps</summary><div class="stepchips">`
-   +STEPS.map(([c,l])=>
-    `<div class="step ${S.running===c?'run':done[c]?'done':''}"
-      onclick="runStep('${c}')">${done[c]&&S.running!==c?'✓ ':''}${l}</div>`).join('')
-   +(ready?`<div class="step" onclick="runAll()"
-      title="re-fetch + re-inventory + build (fills are preserved)">
-      ${I('zap')}Re-run all</div>
-     <div class="step" onclick="if(confirm('Download EVERY remote asset (css/js/images/fonts) into the project with brand-free names, then rebuild? The site stops depending on the template platform\\'s CDN entirely.'))runStep('localize').then(ok=>ok!==false&&runStep('build'))"
-      title="full ownership: no more CDN dependency">
-      ${I('home')}Localize assets</div>`:'')
-   +`</div></details>`
-   +(ready?`<button class="big" onclick="runStep('build')"
-      title="apply your edits to the site">${I('hammer')}Build</button>`:'')
-   +(S.zeroFx&&S.zeroFx.length?`<button onclick="showZeroFx()"
-      style="border-color:var(--err);color:var(--err)"
-      title="filled entries that replaced nothing in the last build"
-      >${I('alert')}${S.zeroFx.length} dead edit(s)</button>`:'')
-   +(S.info&&S.info.undo?`<button onclick="doUndo()"
-      title="revert the last change (copy map, styles, removals, config)"
-      >${I('undo')}Undo (${S.info.undo})</button>`:'')
-   +`<button onclick="openPreview()">${I('play')}Preview</button>
-     <button title="deploy-ready: fully static, works on any host —
-      DEPLOY.md inside has one-step instructions for Cloudflare Pages,
-      Netlify, Vercel, GitHub Pages"
-      onclick="location='/api/download?project='+S.cur">${I('download')}site.zip</button>
-     <button title="whole rebuildable project: pristine + copy map +
-      forge.py + backend API + AGENT_GUIDE — hand this to any dev or AI IDE"
-      onclick="location='/api/download?full=1&project='+S.cur">${I('package')}Dev handoff</button>
-     <button title="save this template's design fingerprint (palette,
-      fonts, motion, structure — never the files) to the library, so
-      future plans can be matched against it"
-      onclick="saveToLibrary()">${I('library')}Save design</button>`;
+    (S.zeroFx&&S.zeroFx.length?`<button class="warn" onclick="showZeroFx()"
+       title="filled entries that replaced nothing in the last build"
+       >${I('alert')}${S.zeroFx.length} dead</button>`:'')
+   +(S.info&&S.info.undo?`<button class="ghost" onclick="doUndo()"
+       title="revert the last change">${I('undo')}Undo</button>`:'')
+   +(ready
+      ? `<button class="big" onclick="runStep('build')"
+           title="apply your edits to the site">${I('hammer')}Build</button>`
+      : `<button class="big" onclick="runAll()"
+           title="fetch, inventory and build, in order">
+           ${I('zap')}${busy?'Preparing…':'Prepare'}</button>`)
+   +`<details class="omenu"><summary title="more">${I('tab',15)}</summary>
+      <div class="omlist">`
+   + menu.map(m=>m?`<button onclick="this.closest('details').open=false;${m[2]}">
+        ${I(m[1],14)}<span>${m[0]}</span></button>`:'<hr>').join('')
+   + `</div></details>`;
   // ONE CLICK, NOT TWO. The previous version hid these behind an
   // "Inspect" button, so opening the preview meant clicking a toggle to
   // reveal a list to click again — the exact navigation this was meant
@@ -3869,8 +3912,18 @@ async function runStep(cmd,extra){
     return await watchJob(job,cmd);
   }catch(e){alert(e.message);return false}
 }
+const LABELS={fetch:'Downloading the runtime…',
+  inventory:'Finding every string, image and link…',
+  build:'Rebuilding the site…',verify:'Checking the files…',
+  probe:'Loading it in a browser…',localize:'Localising assets…',
+  ai:'Rewriting the copy…'};
 async function watchJob(job,label){
-  S.running=label;S.tab='logs';renderHeader();renderTab();
+  // A RUN NO LONGER YANKS YOU INTO THE LOG TAB. The conversation is the
+  // surface; work reports INTO it. The log is still one click away for
+  // anyone who wants the raw output.
+  S.running=label;
+  CODE.events.push({type:'sys',text:LABELS[label]||label});
+  renderHeader();renderTab();
   let j;
   do{
     await new Promise(r=>setTimeout(r,800));
@@ -3889,6 +3942,24 @@ async function watchJob(job,label){
     // made real edits look like silent failures
     reloadFrames();
     checkZeroEffect();
+  }
+  // HAND OVER THE RESULT INSTEAD OF MAKING SOMEONE GO AND FIND IT.
+  // The button chain used to end in silence: the build finished and the
+  // site was somewhere else, behind another click. A finished build now
+  // opens the preview and puts the address in the conversation.
+  if(j.ok&&label==='build'){
+    try{
+      const {port}=await api('/api/preview',{project:S.cur});
+      const url=`http://127.0.0.1:${port}/`;
+      CODE.events.push({type:'sys',
+        text:`Build complete — live at ${url}`});
+      if(!S.panel)openWork('preview');
+    }catch(e){
+      CODE.events.push({type:'sys',text:'Build complete.'});
+    }
+  }else if(!j.ok){
+    CODE.events.push({type:'sys',
+      text:`${label} failed — open Logs for the output.`});
   }
   renderHeader();renderTab();
   return j.ok;
