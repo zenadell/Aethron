@@ -2355,6 +2355,21 @@ def cmd_build(_args):
         # hydration equality demands identical semantics in every layer
         bparts, blookup = [], {}
         for pr in pairs:
+            # ONLY PAIRS THAT WERE FITTED TO A SLOT MAY TOUCH A BLOB.
+            #
+            # This loop pads with b" " * (len(old) - len(new)), which is
+            # empty when the replacement is LONGER — so the blob grows and
+            # the size assert below fires. Pairs marked cms_over are
+            # text-layers-only by construction (the CMS keeps its bytes and
+            # build NOTEs it), and applying them here both corrupts the
+            # offsets and contradicts what the NOTE just promised.
+            #
+            # Latent until the fill layer stopped DISCARDING over-budget
+            # answers: no such pair could exist before, so nothing ever
+            # reached this line unfitted. The first template with tight
+            # slots produced thirteen of them and a dead build.
+            if not pr.get("in_cms"):
+                continue
             old_b = pr["old"].encode()
             if old_b in blookup:
                 continue
