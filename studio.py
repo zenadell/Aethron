@@ -1397,14 +1397,38 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/update/apply":
                 if not updater:
                     return self.fail("updater unavailable")
-                r = updater.update()
-                if r.get("ok"):
-                    # relaunch the REPLACED bundle, then let this
-                    # process die so the new one owns the port
-                    threading.Timer(0.8, lambda: (
+
+                def run_update(append):
+                    # THE UPDATE IS A JOB, NOT A REQUEST. Measured on the
+                    # owner's own connection: 100 KB/s, so a 43 MB build
+                    # takes ~6 minutes. Held open as a single HTTP call
+                    # that is indistinguishable from a hang — which is
+                    # exactly what it looked like the first time. Now it
+                    # streams a percentage like every other run does.
+                    seen = [-1]
+
+                    def progress(frac):
+                        pct = int(frac * 100)
+                        if pct != seen[0]:
+                            seen[0] = pct
+                            append(f"downloading {pct}%")
+
+                    append("checking for a newer build")
+                    r = updater.update(progress=progress)
+                    if not r.get("ok"):
+                        append(f"update failed: {r.get('why', 'unknown')}")
+                        append("your current app is untouched")
+                        return False
+                    append(f"installed {r['version']} — restarting")
+                    # relaunch the REPLACED bundle, then let this process
+                    # die so the new one owns the port. The delay lets
+                    # this job's final poll reach the UI first.
+                    threading.Timer(1.8, lambda: (
                         updater.relaunch(Path(r["path"])),
                         os._exit(0))).start()
-                return self.send_json(r)
+                    return True
+
+                return self.send_json({"job": start_fn_job(run_update, "")})
             if u.path == "/api/auth/logout":
                 s = self.headers.get("Cookie", "")
                 m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", s)
@@ -4004,15 +4028,61 @@ async function checkUpdate(){
   try{ UPD=await api('/api/update/check'); }catch(e){ return }
   if(UPD&&UPD.available)renderHeader();
 }
+/* An update is MINUTES on a slow connection, not seconds. It gets a
+   progress pill you can ignore and keep working behind — not a frozen
+   button and not a modal that holds the app hostage. */
+function updPill(html){
+  let p=$('updpill');
+  if(!p){ p=document.createElement('div'); p.id='updpill';
+    p.style.cssText='position:fixed;right:18px;bottom:18px;z-index:9999;'
+      +'background:var(--panel);border:1px solid var(--line2);'
+      +'border-radius:var(--r-lg);padding:11px 14px;min-width:210px;'
+      +'box-shadow:0 12px 34px rgba(0,0,0,.45);font-size:12.5px;'
+      +'color:var(--tx)';
+    document.body.appendChild(p); }
+  p.innerHTML=html;
+  return p;
+}
+function updBar(pct){
+  return '<div style="height:4px;border-radius:3px;background:var(--field);'
+    +'margin-top:8px;overflow:hidden"><div style="height:100%;width:'+pct
+    +'%;background:var(--acc);transition:width .3s var(--eo)"></div></div>';
+}
 async function applyUpdate(){
-  const el=$('updrow'); if(el)el.textContent='Downloading…';
+  updPill('<b>Updating Aethron</b><div style="color:var(--dim);'
+    +'margin-top:3px">starting…</div>'+updBar(0));
+  let j;
   try{
     const r=await api('/api/update/apply',{});
-    if(!r.ok){ alert('Update failed: '+(r.why||'unknown')); return }
-    document.body.innerHTML='<div class="empty"><div class="focal">'
-      +'<h1>Updated to '+esc(r.version)+'</h1>'
-      +'<p class="sub">Aethron is restarting.</p></div></div>';
-  }catch(e){ alert('Update failed: '+e.message) }
+    if(r.job===undefined){                       // older server shape
+      if(!r.ok)throw new Error(r.why||'unknown');
+      j={done:true,ok:true};
+    }else{
+      do{
+        await new Promise(s=>setTimeout(s,700));
+        try{ j=await api('/api/job?id='+r.job); }
+        catch(e){ break; }   // server exited under us = it restarted
+        const line=(j.log||'').trim().split('\n').pop()||'';
+        const m=line.match(/(\d+)%/);
+        updPill('<b>Updating Aethron</b><div style="color:var(--dim);'
+          +'margin-top:3px">'+esc(line||'working…')+'</div>'
+          +updBar(m?+m[1]:0));
+      }while(!j.done);
+    }
+  }catch(e){
+    updPill('<b>Update failed</b><div style="color:var(--dim);margin-top:3px">'
+      +esc(e.message)+'<br>Your app is untouched.</div>');
+    return;
+  }
+  if(j&&j.done&&!j.ok){
+    const why=((j.log||'').match(/update failed: (.*)/)||[])[1]||'unknown';
+    updPill('<b>Update failed</b><div style="color:var(--dim);margin-top:3px">'
+      +esc(why)+'<br>Your app is untouched.</div>');
+    return;
+  }
+  document.body.innerHTML='<div class="empty"><div class="focal">'
+    +'<h1>Updated to '+esc((UPD&&UPD.latest)||'the latest version')+'</h1>'
+    +'<p class="sub">Aethron is restarting.</p></div></div>';
 }
 function updateMenuItem(){
   if(!(UPD&&UPD.available))return '';
