@@ -42,11 +42,44 @@ from pathlib import Path
 
 # Bump this when cutting a release; the tag on GitHub must match
 # (with or without a leading "v").
-VERSION = "1.0.0"
+VERSION = "1.0.3"
 
 REPO = os.environ.get("AETHRON_UPDATE_REPO", "zenadell/Aethron")
-FEED = f"https://api.github.com/repos/{REPO}/releases/latest"
+GITHUB_FEED = f"https://api.github.com/repos/{REPO}/releases/latest"
 TIMEOUT = 30
+
+
+def feed_url() -> str:
+    """Where to ask about updates.
+
+    A PRIVATE REPO CANNOT SERVE ITS OWN UPDATES. The app checks
+    anonymously, and api.github.com answers 404 for a private
+    repository — so a published release is invisible and the owner is
+    back to installing by hand, which is the whole thing this exists to
+    stop. Any plain-JSON URL works instead:
+
+        {"version": "1.0.1",
+         "url": "https://…/Aethron-mac.zip",
+         "notes": "what changed"}
+
+    Supabase storage serves that from a public bucket with no key, so
+    the source stays private and the updates do not.
+    """
+    env = os.environ.get("AETHRON_UPDATE_FEED", "").strip()
+    if env:
+        return env
+    try:
+        cfg = json.loads((Path(__file__).resolve().parent
+                          / "aethron_config.json").read_text())
+        if cfg.get("update_feed"):
+            return str(cfg["update_feed"]).strip()
+        base = str(cfg.get("supabase_url") or "").rstrip("/")
+        if base:
+            return (base + "/storage/v1/object/public/releases/"
+                    + f"{platform_key()}.json")
+    except Exception:
+        pass
+    return GITHUB_FEED
 
 
 # ─────────────────────────── version compare ─────────────────────────
@@ -94,14 +127,24 @@ def platform_key() -> str:
 
 def check(timeout=TIMEOUT) -> dict:
     """-> {available, version, url, notes, why}. Never raises."""
-    req = urllib.request.Request(FEED, headers={
-        "Accept": "application/vnd.github+json",
+    url = feed_url()
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/json",
         "User-Agent": f"Aethron/{VERSION}"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             rel = json.loads(r.read().decode("utf8", "replace"))
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        # Supabase answers 400 (not 404) for a bucket or object that
+        # does not exist yet. Before the first publish that is the
+        # NORMAL state, and "update check failed (400)" in the UI reads
+        # like a broken app instead of an empty shelf.
+        body = ""
+        try:
+            body = e.read().decode("utf8", "replace")[:300]
+        except Exception:
+            pass
+        if e.code == 404 or "not found" in body.lower():
             return {"available": False, "version": VERSION,
                     "why": "no releases published yet"}
         return {"available": False, "version": VERSION,
@@ -109,6 +152,20 @@ def check(timeout=TIMEOUT) -> dict:
     except Exception as e:
         return {"available": False, "version": VERSION,
                 "why": f"update check failed ({type(e).__name__})"}
+
+    # a hosted feed is {version, url, notes}; a GitHub release is
+    # {tag_name, assets[]}. Accept either, so moving the feed later
+    # needs no new app build.
+    if "version" in rel and "assets" not in rel:
+        tag = str(rel.get("version") or "")
+        if not is_newer(tag):
+            return {"available": False, "version": VERSION, "latest": tag,
+                    "why": "you are on the latest version"}
+        if not rel.get("url"):
+            return {"available": False, "version": VERSION, "latest": tag,
+                    "why": f"{tag} has no download url in the feed"}
+        return {"available": True, "version": VERSION, "latest": tag,
+                "url": rel["url"], "notes": (rel.get("notes") or "")[:2000]}
 
     tag = rel.get("tag_name") or rel.get("name") or ""
     if not is_newer(tag):
@@ -138,6 +195,64 @@ def _verify_bundle(path: Path) -> bool:
             and any((path / "Contents" / "MacOS").iterdir()))
 
 
+def _extract(zpath: Path, into: Path):
+    """Unpack a .app — WITH ITS SYMLINKS.
+
+    THIS IS THE BUG THAT BRICKED THE FIRST REAL UPDATE, and nothing
+    short of launching the result would have shown it. The build ships
+    81 symlinks (Python.framework/Versions/Current and friends);
+    zipfile.extractall writes every one of them out as a REGULAR FILE.
+    The bundle still looks perfect — right size, right layout, launches
+    nothing. macOS answers "Launchd job spawn failed", because the
+    framework layout is gone and the code signature no longer matches.
+
+    ditto is the only extractor on macOS that preserves symlinks,
+    permissions and extended attributes, which is exactly why the build
+    script uses `ditto -c -k` to create the archive in the first place.
+    Use the matching tool to open it.
+    """
+    with zipfile.ZipFile(zpath) as z:
+        # zip-slip guard runs on the LISTING, before anything is
+        # written, so it protects whichever extractor runs below.
+        for m in z.namelist():
+            if m.startswith("/") or ".." in Path(m).parts:
+                raise ValueError(f"unsafe path in download: {m}")
+    if sys.platform == "darwin" and shutil.which("ditto"):
+        r = subprocess.run(["ditto", "-x", "-k", str(zpath), str(into)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            raise ValueError(f"could not unpack the download: "
+                             f"{(r.stderr or '').strip()[:200]}")
+        return
+    with zipfile.ZipFile(zpath) as z:
+        z.extractall(into)
+
+
+def _runnable(app: Path) -> bool:
+    """Would macOS actually launch this? Checked BEFORE we swap.
+
+    A bundle whose signature does not match its contents is refused by
+    launchd with an error the user cannot act on, so the honest place
+    to find out is here — while the working app is still in place.
+    Unsigned builds (our beta) are fine; INVALID ones are not.
+    """
+    if sys.platform != "darwin" or not shutil.which("codesign"):
+        return True
+    r = subprocess.run(["codesign", "--verify", "--deep", "--strict",
+                        str(app)], capture_output=True, text=True)
+    if r.returncode == 0:
+        return True
+    err = (r.stderr or "") + (r.stdout or "")
+    if "not signed at all" in err:
+        # ad-hoc re-sign and re-check: recoverable, and never silently
+        # assumed — if it still fails we refuse the update.
+        subprocess.run(["codesign", "--force", "--deep", "--sign", "-",
+                        str(app)], capture_output=True)
+        return subprocess.run(["codesign", "--verify", "--deep", "--strict",
+                               str(app)], capture_output=True).returncode == 0
+    return False
+
+
 def stage(url, into: Path, timeout=180, progress=None) -> Path:
     """Download + unzip into `into`. -> the extracted .app. Raises on
     anything that would leave us with something unusable."""
@@ -157,18 +272,17 @@ def stage(url, into: Path, timeout=180, progress=None) -> Path:
             got += len(chunk)
             if progress and total:
                 progress(got / total)
-    with zipfile.ZipFile(zpath) as z:
-        # zip-slip guard: refuse any member that escapes the staging dir
-        for m in z.namelist():
-            if m.startswith("/") or ".." in Path(m).parts:
-                raise ValueError(f"unsafe path in download: {m}")
-        z.extractall(into)
+    _extract(zpath, into)
     zpath.unlink(missing_ok=True)
 
     apps = [p for p in into.rglob("*.app") if _verify_bundle(p)]
     if not apps:
         raise ValueError("the download did not contain a usable app")
-    return sorted(apps, key=lambda p: len(p.parts))[0]
+    app = sorted(apps, key=lambda p: len(p.parts))[0]
+    if not _runnable(app):
+        raise ValueError("the downloaded app is not launchable "
+                         "(damaged signature) — keeping the current one")
+    return app
 
 
 # ─────────────────────────── the swap ────────────────────────────────
@@ -299,6 +413,47 @@ def _selftest() -> int:
            (live / "Contents" / "MacOS" / "Aethron").read_text()
            == "STILL WORKING")
 
+    print("── symlinks survive the download (the bricked-update bug)")
+    src = tmp / "src" / "Aethron.app"
+    (src / "Contents" / "MacOS").mkdir(parents=True)
+    (src / "Contents" / "MacOS" / "Aethron").write_text("#!/bin/sh\n")
+    fw = src / "Contents" / "Frameworks" / "Python.framework" / "Versions"
+    (fw / "3.13").mkdir(parents=True)
+    (fw / "3.13" / "Python").write_text("lib")
+    os.symlink("3.13", fw / "Current")          # <- what zipfile destroys
+    zp2 = tmp / "app.zip"
+    if sys.platform == "darwin":
+        subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
+                        str(src), str(zp2)], check=True, capture_output=True)
+    else:
+        with zipfile.ZipFile(zp2, "w") as z:
+            for p in src.rglob("*"):
+                z.write(p, p.relative_to(src.parent))
+    out = tmp / "unpacked"
+    out.mkdir()
+    _extract(zp2, out)
+    got = out / "Aethron.app"
+    link = got / "Contents/Frameworks/Python.framework/Versions/Current"
+    check_("the bundle extracts", _verify_bundle(got), str(got))
+    check_("a symlink is still a symlink, not a copied file",
+           link.is_symlink(),
+           "extracted as a regular file — this is what made the updated "
+           "app refuse to launch")
+    check_("it still points where it did", link.is_symlink()
+           and os.readlink(link) == "3.13")
+
+    # …and a bundle macOS would refuse to spawn must never reach the
+    # swap. This hand-made app cannot be signed, so it stands in for a
+    # damaged download.
+    if sys.platform == "darwin":
+        try:
+            stage("file://" + str(zp2), tmp / "refused")
+            check_("an unlaunchable download is refused", False,
+                   "it was accepted")
+        except Exception as e:
+            check_("an unlaunchable download is refused",
+                   "not launchable" in str(e), str(e)[:80])
+
     print("── zip-slip")
     zp = tmp / "evil.zip"
     with zipfile.ZipFile(zp, "w") as z:
@@ -309,6 +464,65 @@ def _selftest() -> int:
     except Exception as e:
         check_("escaping paths refused", "unsafe path" in str(e)
                or isinstance(e, (ValueError, urllib.error.URLError)))
+
+    print("── the hosted feed (a PRIVATE repo cannot serve its own)")
+    import http.server
+    import threading
+    feed = {"version": "9.9.9", "url": "https://example.invalid/A.zip",
+            "notes": "hosted"}
+    body = {"/mac.json": json.dumps(feed).encode(),
+            "/same.json": json.dumps(dict(feed, version=VERSION)).encode(),
+            "/nourl.json": json.dumps({"version": "9.9.9"}).encode(),
+            "/gh.json": json.dumps({
+                "tag_name": "v9.9.9",
+                "assets": [{"name": "Aethron-mac.zip",
+                            "browser_download_url": "https://x/A.zip"}]}).encode()}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            b = body.get(self.path)
+            self.send_response(200 if b else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b or b"{}")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+    old_env = os.environ.get("AETHRON_UPDATE_FEED")
+    try:
+        os.environ["AETHRON_UPDATE_FEED"] = base + "/mac.json"
+        check_("feed_url honours the env override",
+               feed_url() == base + "/mac.json", feed_url())
+        r = check(timeout=5)
+        check_("a hosted {version,url} feed offers the update",
+               r.get("available") and r.get("url") == feed["url"], str(r))
+        os.environ["AETHRON_UPDATE_FEED"] = base + "/same.json"
+        check_("same version offers nothing",
+               not check(timeout=5).get("available"))
+        os.environ["AETHRON_UPDATE_FEED"] = base + "/nourl.json"
+        r = check(timeout=5)
+        check_("a feed with no download url is refused, with a reason",
+               not r.get("available") and "download url" in r.get("why", ""),
+               str(r))
+        os.environ["AETHRON_UPDATE_FEED"] = base + "/gh.json"
+        r = check(timeout=5)
+        check_("a GitHub release still works through the same path",
+               r.get("available") and r.get("url") == "https://x/A.zip",
+               str(r))
+        os.environ["AETHRON_UPDATE_FEED"] = base + "/missing.json"
+        r = check(timeout=5)
+        check_("nothing published yet is not an error",
+               not r.get("available") and r.get("why"), str(r))
+    finally:
+        srv.shutdown()
+        if old_env is None:
+            os.environ.pop("AETHRON_UPDATE_FEED", None)
+        else:
+            os.environ["AETHRON_UPDATE_FEED"] = old_env
 
     print("── dev mode is honest")
     check_("no bundle in dev", app_bundle() is None)

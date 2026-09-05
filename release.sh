@@ -50,13 +50,26 @@ bash build_desktop.sh >/dev/null 2>&1
 ditto -c -k --sequesterRsrc --keepParent dist/Aethron.app "dist/Aethron-mac.zip"
 echo "  dist/Aethron-mac.zip ($(du -h dist/Aethron-mac.zip | cut -f1))"
 
-# 4. commit the version bump, tag, publish
+# 4. commit the version bump + tag (source history, not the delivery
+#    channel — the repo is PRIVATE, so an installed app cannot read it)
 git add -A
 git commit -qm "Release $TAG${NOTES:+ — $NOTES}" || true
 git push -q origin HEAD:main
-gh release create "$TAG" "dist/Aethron-mac.zip" \
-    --title "Aethron $TAG" \
-    --notes "${NOTES:-Maintenance release.}"
+git tag -f "$TAG" >/dev/null && git push -qf origin "$TAG"
+
+# 5. publish where the APP looks. This is the step that makes the
+#    update real; everything above it only makes a zip.
+echo "── publishing"
+python3 publish_release.py "$VER" "dist/Aethron-mac.zip" "${NOTES:-}"
+
+# 6. a GitHub release too, if gh is set up — nice for humans reading
+#    the repo, irrelevant to the updater. Never fails the release.
+if command -v gh >/dev/null 2>&1; then
+    gh release create "$TAG" "dist/Aethron-mac.zip" \
+        --title "Aethron $TAG" --notes "${NOTES:-Maintenance release.}" \
+        >/dev/null 2>&1 && echo "  github release: $TAG" \
+        || echo "  github release skipped (private repo / gh not authed)"
+fi
 
 echo
 echo "✓ published $TAG"

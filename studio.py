@@ -1140,7 +1140,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Never blocks the UI on a network call it cannot
                 # control: a failed check reports why and the app
                 # carries on unchanged.
-                self.send_json(updater.check() if updater else
+                self.send_json(updater.check(timeout=8) if updater else
                                {"available": False,
                                 "why": "updater unavailable"})
             elif u.path == "/api/projects":

@@ -7,6 +7,20 @@ import os as _os
 # ships fully local/offline (no login gate).
 _datas = [("aethron_config.json", ".")] if _os.path.isfile(
     "aethron_config.json") else []
+
+# ONE source of truth for the version. The updater compares
+# aethron_update.VERSION against the feed; if the plist said something
+# else, Finder and the About box would report a build that is not the
+# one deciding whether to update — which is how you end up "certain"
+# you are testing a fix you never installed.
+import re as _re
+_VERSION = "0.0.0"
+try:
+    _m = _re.search(r'^VERSION = "([^"]+)"',
+                    open("aethron_update.py").read(), _re.M)
+    _VERSION = _m.group(1) if _m else _VERSION
+except Exception:
+    pass
 a = Analysis(
     ["desktop.py"],
     pathex=["."],
@@ -47,7 +61,8 @@ if sys.platform == "darwin":
         bundle_identifier="app.aethron.studio",
         info_plist={
             "CFBundleDisplayName": "Aethron",
-            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleShortVersionString": _VERSION,
+            "CFBundleVersion": _VERSION,
             "NSHighResolutionCapable": True,
             # the app opens the user's browser; it has no UI of its own
             "LSUIElement": False,
