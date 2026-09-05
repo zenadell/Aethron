@@ -135,6 +135,10 @@ sys.path.insert(0, str(ROOT))
 from forge import _flex_pat, hide_selector_audit  # shared matchers  # noqa: E402
 import secrets  # noqa: E402
 import aethron_cloud as cloud  # noqa: E402
+try:
+    import aethron_update as updater
+except Exception:
+    updater = None
 
 # server-side login sessions (cloud mode only): opaque cookie -> user.
 # The Supabase access token stays here, never in the browser.
@@ -1085,6 +1089,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif u.path == "/api/update/check":
+                # Never blocks the UI on a network call it cannot
+                # control: a failed check reports why and the app
+                # carries on unchanged.
+                self.send_json(updater.check() if updater else
+                               {"available": False,
+                                "why": "updater unavailable"})
             elif u.path == "/api/projects":
                 PROJECTS.mkdir(parents=True, exist_ok=True)
                 out = []
@@ -1336,13 +1347,35 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(out)))
                 self.end_headers()
                 return self.wfile.write(out)
+            if u.path == "/api/update/apply":
+                if not updater:
+                    return self.fail("updater unavailable")
+                r = updater.update()
+                if r.get("ok"):
+                    # relaunch the REPLACED bundle, then let this
+                    # process die so the new one owns the port
+                    threading.Timer(0.8, lambda: (
+                        updater.relaunch(Path(r["path"])),
+                        os._exit(0))).start()
+                return self.send_json(r)
             if u.path == "/api/auth/logout":
                 s = self.headers.get("Cookie", "")
                 m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", s)
                 if m:
                     SESSIONS.pop(m.group(1), None)
                     _sessions_save()
-                return self.send_json({"ok": True})
+                # AND CLEAR THE COOKIE. Popping the server session alone
+                # left the browser holding a token forever now that both
+                # sides persist — logout has to expire it too.
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Set-Cookie", "aethron_sess=; Path=/; "
+                                 "HttpOnly; SameSite=Lax; Max-Age=0")
+                body_out = json.dumps({"ok": True}).encode()
+                self.send_header("Content-Length", str(len(body_out)))
+                self.end_headers()
+                self.wfile.write(body_out)
+                return
             if not self._gate(u):
                 return
             if u.path == "/api/projects":
@@ -3849,6 +3882,7 @@ async function delProject(name){
   await api('/api/projects/delete',{name});
   if(S.cur===name){S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
   refresh();
+  checkUpdate();
 }
 async function createProject(){
   const fl=[...$('npfile').files],name=$('npname').value,
@@ -3906,6 +3940,29 @@ function togglePanel(){
   else S.tab='chat';
   renderHeader();renderTab();
 }
+/* SELF-UPDATE. Checked once at startup, shown as one quiet row — never
+   a modal, never a nag. Applying replaces the bundle IN PLACE (that is
+   what stops a second copy appearing) and relaunches. */
+let UPD=null;
+async function checkUpdate(){
+  try{ UPD=await api('/api/update/check'); }catch(e){ return }
+  if(UPD&&UPD.available)renderHeader();
+}
+async function applyUpdate(){
+  const el=$('updrow'); if(el)el.textContent='Downloading…';
+  try{
+    const r=await api('/api/update/apply',{});
+    if(!r.ok){ alert('Update failed: '+(r.why||'unknown')); return }
+    document.body.innerHTML='<div class="empty"><div class="focal">'
+      +'<h1>Updated to '+esc(r.version)+'</h1>'
+      +'<p class="sub">Aethron is restarting.</p></div></div>';
+  }catch(e){ alert('Update failed: '+e.message) }
+}
+function updateMenuItem(){
+  if(!(UPD&&UPD.available))return '';
+  return `<hr><button id="updrow" onclick="this.closest('details').open=false;applyUpdate()">
+    ${I('download',14)}<span>Update to ${esc(UPD.latest||'')}</span></button>`;
+}
 function renderHeader(){
   $('ptitle').textContent=S.view==='library'?'Design library'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
@@ -3947,6 +4004,7 @@ function renderHeader(){
       <div class="omlist">`
    + menu.map(m=>m?`<button onclick="this.closest('details').open=false;${m[2]}">
         ${I(m[1],14)}<span>${m[0]}</span></button>`:'<hr>').join('')
+   + updateMenuItem()
    + `</div></details>`;
   // ONE CLICK, NOT TWO. The previous version hid these behind an
   // "Inspect" button, so opening the preview meant clicking a toggle to

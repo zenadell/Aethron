@@ -24,6 +24,8 @@ SUITES = [
                 "aethron_healer.py", "desktop.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
+    ("self-update (in-place, never a second copy)",
+     [PY, "aethron_update.py", "--selftest"], False),
     ("bridge (Anthropic <-> OpenAI translation)",
      [PY, "aethron_bridge.py", "--selftest"], False),
     ("code layer (drives the real CLI, mock providers)",
