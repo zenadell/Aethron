@@ -42,7 +42,7 @@ from pathlib import Path
 
 # Bump this when cutting a release; the tag on GitHub must match
 # (with or without a leading "v").
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 
 REPO = os.environ.get("AETHRON_UPDATE_REPO", "zenadell/Aethron")
 GITHUB_FEED = f"https://api.github.com/repos/{REPO}/releases/latest"
