@@ -34,3 +34,4 @@ aethron_keys.json
 
 # login sessions (holds access tokens — never commit)
 .sessions.json
+.aethron-release-key

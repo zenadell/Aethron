@@ -39,11 +39,40 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 
 
+KEY_FILE = Path.home() / ".aethron-release-key"
+
+
 def _cfg() -> dict:
     try:
         return json.loads((ROOT / "aethron_config.json").read_text())
     except Exception:
         return {}
+
+
+def _service_key() -> str:
+    """The WRITE credential, from the env or a file outside the repo.
+
+    A key pasted into a chat, a commit or an issue is a key that has to
+    be rotated. This one is saved once, to a file only the owner can
+    read, and every later release just works — which is the difference
+    between an update system that gets used and one that does not.
+
+    It never enters the app bundle: installed copies only ever READ the
+    feed, and reads need no key at all.
+    """
+    k = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+    if k:
+        return k
+    try:
+        if KEY_FILE.is_file():
+            mode = KEY_FILE.stat().st_mode & 0o077
+            if mode:                      # readable by anyone else
+                KEY_FILE.chmod(0o600)
+                print(f"  tightened permissions on {KEY_FILE}")
+            return KEY_FILE.read_text().strip()
+    except Exception:
+        pass
+    return ""
 
 
 def _req(method, url, key, data=None, ctype=None, extra=None):
@@ -94,14 +123,17 @@ def publish(version, zip_path: Path, notes="", platform="mac") -> dict:
     cfg = _cfg()
     base = (os.environ.get("AETHRON_SUPABASE_URL")
             or cfg.get("supabase_url") or "").rstrip("/")
-    key = os.environ.get("SUPABASE_SERVICE_KEY", "").strip()
+    key = _service_key()
     if not base:
         raise SystemExit("no supabase_url in aethron_config.json")
     if not key:
         raise SystemExit(
-            "SUPABASE_SERVICE_KEY is not set.\n"
-            "  Supabase dashboard → Project Settings → API → service_role\n"
-            "  export SUPABASE_SERVICE_KEY='…'   (this shell only)")
+            "No Supabase service key.\n"
+            "  Get it: dashboard → Project Settings → API keys → "
+            "service_role (Reveal)\n"
+            f"  Save it once:  echo 'PASTE_KEY' > {KEY_FILE} && "
+            f"chmod 600 {KEY_FILE}\n"
+            "  (or export SUPABASE_SERVICE_KEY for this shell only)")
     if not zip_path.is_file():
         raise SystemExit(f"no such file: {zip_path}")
 
