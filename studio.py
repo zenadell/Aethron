@@ -138,7 +138,60 @@ import aethron_cloud as cloud  # noqa: E402
 
 # server-side login sessions (cloud mode only): opaque cookie -> user.
 # The Supabase access token stays here, never in the browser.
+#
+# PERSISTED, because an app that forgets you every time you close it is
+# not behaving like an app. Two things were wrong and BOTH had to change:
+# this dict lived only in memory, and the cookie carried no Max-Age, so
+# it was a session cookie that died with the window regardless. Now: a
+# 0600 file beside the projects, a 30-day sliding window refreshed on
+# use, and expiry enforced on load. Logging out still clears it.
 SESSIONS = {}
+SESS_FILE = HOME / ".sessions.json"
+SESSION_TTL = 30 * 86400          # 30 days since last use
+_SESS_SAVED = 0.0                 # last flush, so use does not hit disk
+
+
+def _sessions_load():
+    """Restore sessions, dropping anything past its sliding window."""
+    try:
+        raw = json.loads(SESS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    now, kept = time.time(), 0
+    for tok, rec in (raw or {}).items():
+        if not isinstance(rec, dict) or "user" not in rec:
+            continue
+        if now - float(rec.get("seen") or 0) > SESSION_TTL:
+            continue
+        SESSIONS[tok] = rec["user"]
+        SESSIONS[tok]["_seen"] = float(rec.get("seen") or now)
+        kept += 1
+    if kept:
+        print(f"restored {kept} login session(s)")
+
+
+def _sessions_save():
+    """Write atomically, owner-readable only — these hold access tokens."""
+    global _SESS_SAVED
+    try:
+        SESS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = SESS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps({
+            t: {"user": {k: v for k, v in u.items() if k != "_seen"},
+                "seen": u.get("_seen") or time.time()}
+            for t, u in SESSIONS.items()}), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(SESS_FILE)
+        _SESS_SAVED = time.time()
+    except Exception:
+        pass
+
+
+def _session_touch(user):
+    """Slide the window. Disk is touched at most hourly, not per request."""
+    user["_seen"] = time.time()
+    if time.time() - _SESS_SAVED > 3600:
+        _sessions_save()
 
 # in-flight direct-Google logins: state -> {verifier, cookie|None, error|None}.
 # The OAuth completes in the SYSTEM browser (different cookie jar than a
@@ -180,7 +233,9 @@ def mint_session(auth_result):
         return None, ("Your free beta access has ended — upgrade to Pro "
                       "to keep using Aethron.", 402)
     tok = secrets.token_urlsafe(24)
+    user["_seen"] = time.time()
     SESSIONS[tok] = user
+    _sessions_save()
     return tok, None
 
 
@@ -818,7 +873,10 @@ class Handler(BaseHTTPRequestHandler):
         # returns the logged-in user dict, or None. Cloud mode only.
         cookie = self.headers.get("Cookie", "")
         m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", cookie)
-        return SESSIONS.get(m.group(1)) if m else None
+        u = SESSIONS.get(m.group(1)) if m else None
+        if u:
+            _session_touch(u)
+        return u
 
     def _gate(self, u):
         # When cloud auth is ON, everything except the login page and the
@@ -963,7 +1021,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Set-Cookie", f"aethron_sess={cookie}; "
-                                     "Path=/; HttpOnly; SameSite=Lax")
+                                     "Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
                     self.send_header("Content-Length", str(len(out)))
                     self.end_headers()
                     return self.wfile.write(out)
@@ -985,7 +1043,7 @@ class Handler(BaseHTTPRequestHandler):
                     cloud.track("login", token=user["token"], source="google")
                     self.send_response(302)
                     self.send_header("Set-Cookie", f"aethron_sess={tok}; "
-                                     "Path=/; HttpOnly; SameSite=Lax")
+                                     "Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
                     self.send_header("Location", "/")
                     self.end_headers()
                     return
@@ -1274,7 +1332,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Set-Cookie", f"aethron_sess={tok}; "
-                                 "Path=/; HttpOnly; SameSite=Lax")
+                                 "Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
                 self.send_header("Content-Length", str(len(out)))
                 self.end_headers()
                 return self.wfile.write(out)
@@ -1283,6 +1341,7 @@ class Handler(BaseHTTPRequestHandler):
                 m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", s)
                 if m:
                     SESSIONS.pop(m.group(1), None)
+                    _sessions_save()
                 return self.send_json({"ok": True})
             if not self._gate(u):
                 return
@@ -5295,6 +5354,7 @@ if __name__ == "__main__":
     port = int(sys.argv[1] if len(sys.argv) > 1 else (env_port or 8899))
     host = "0.0.0.0" if env_port else "127.0.0.1"
     PROJECTS.mkdir(parents=True, exist_ok=True)
+    _sessions_load()
     if os.environ.get("STUDIO_PASSWORD"):
         print("HTTP Basic auth: ON (user 'aethron')")
     elif env_port:

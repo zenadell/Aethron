@@ -31,3 +31,6 @@ aethron_config.json
 # admin console secrets (service_role, netlify token) — never commit
 aethron_admin_config.json
 aethron_keys.json
+
+# login sessions (holds access tokens — never commit)
+.sessions.json
