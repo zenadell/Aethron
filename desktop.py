@@ -121,7 +121,25 @@ def main():
     try:
         webview.create_window("Aethron", url, width=1280, height=840,
                               min_size=(940, 620))
-        webview.start()                      # blocks until the window closes
+        # THE REASON LOGIN NEVER STUCK. pywebview defaults
+        # private_mode=True, and on macOS that branch CLEARS every
+        # website data type from epoch on each launch (read the cocoa
+        # backend: `if _state['private_mode']` → removeDataOfTypes from
+        # 1970). So the server could remember a session perfectly — it
+        # did, the file had one stored — and the window still arrived
+        # with no cookie and showed sign-in.
+        #
+        # private_mode=False skips that wipe and uses
+        # WKWebsiteDataStore.defaultDataStore(), which persists to
+        # ~/Library/WebKit/<bundle-id>/WebsiteData.
+        #
+        # storage_path is IGNORED by the macOS backend (zero references
+        # in it) — it is passed for Windows/GTK, where it is honoured.
+        # Do not read the absence of files under it as a failure on a
+        # Mac; nothing writes there.
+        store = home / "webview"
+        store.mkdir(parents=True, exist_ok=True)
+        webview.start(private_mode=False, storage_path=str(store))
     except Exception as e:
         print(f"(native window unavailable: {e}; using browser)")
         webbrowser.open(url)
