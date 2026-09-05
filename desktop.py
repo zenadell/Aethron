@@ -23,6 +23,19 @@ import webbrowser
 from pathlib import Path
 
 
+def _log(msg):
+    """A windowed bundle (console=False) has NO stdout — every print in
+    this file has been going nowhere, which is why a fallback could
+    happen silently and look like a mystery. Write to a file instead."""
+    try:
+        import datetime
+        d = data_home()
+        with open(d / "aethron.log", "a") as f:
+            f.write(f"{datetime.datetime.now():%H:%M:%S} {msg}\n")
+    except Exception:
+        pass
+
+
 def data_home() -> Path:
     """Writable per-user data dir: the bundle itself is read-only."""
     if sys.platform == "darwin":
@@ -91,7 +104,8 @@ def main():
     # embedded webviews) and loops back via polling — handled in studio.
     try:
         import webview                       # pywebview
-    except ImportError:
+    except ImportError as e:
+        _log(f"pywebview NOT BUNDLED: {e}")
         webbrowser.open(url)                 # fallback: system browser
         return server.serve_forever()
 
@@ -139,8 +153,13 @@ def main():
         # Mac; nothing writes there.
         store = home / "webview"
         store.mkdir(parents=True, exist_ok=True)
+        import inspect
+        _log(f"pywebview {getattr(webview, '__version__', '?')} "
+             f"start params={list(inspect.signature(webview.start).parameters)}")
         webview.start(private_mode=False, storage_path=str(store))
+        _log("webview.start returned (window closed)")
     except Exception as e:
+        _log(f"NATIVE WINDOW FAILED: {type(e).__name__}: {e}")
         print(f"(native window unavailable: {e}; using browser)")
         webbrowser.open(url)
         try:

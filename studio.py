@@ -155,6 +155,34 @@ SESSION_TTL = 30 * 86400          # 30 days since last use
 _SESS_SAVED = 0.0                 # last flush, so use does not hit disk
 
 
+def _restore_sessions_once():
+    """Load persisted logins when this MODULE loads, not from __main__.
+
+    The desktop app never executes studio.py's __main__ — desktop.py
+    imports this module and constructs the server itself. So the startup
+    hook lived in dead code, SESSIONS stayed empty, and every launch
+    asked for a login while a perfectly good session sat in
+    .sessions.json. The trace said it plainly:
+        cookie_sent=True matches_session=False sessions=0
+    The cookie was always coming back; nobody had loaded the other half.
+    """
+    try:
+        _sessions_load()
+    except Exception:
+        pass
+
+
+def _clog(msg):
+    """Cookie-chain tracing. Windowed bundles have no stdout, and three
+    rounds were lost to reasoning about this instead of reading it."""
+    try:
+        import datetime
+        with open(HOME / "aethron.log", "a") as f:
+            f.write(f"{datetime.datetime.now():%H:%M:%S} COOKIE {msg}\n")
+    except Exception:
+        pass
+
+
 def _sessions_load():
     """Restore sessions, dropping anything past its sliding window."""
     try:
@@ -242,6 +270,8 @@ def mint_session(auth_result):
     _sessions_save()
     return tok, None
 
+
+_restore_sessions_once()
 
 # ───────────────────────── forge subprocess plumbing ─────────────────
 
@@ -882,7 +912,21 @@ class Handler(BaseHTTPRequestHandler):
             _session_touch(u)
         return u
 
+    def _trace_cookie(self, path):
+        raw = self.headers.get("Cookie") or ""
+        has = "aethron_sess=" in raw
+        m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", raw)
+        known = bool(m and SESSIONS.get(m.group(1)))
+        _clog(f"GET {path[:20]:20} cookie_sent={has} known_session={known} "
+              f"sessions_in_memory={len(SESSIONS)}")
+
     def _gate(self, u):
+        if u.path in ("/", "/index.html"):
+            raw = self.headers.get("Cookie") or ""
+            m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", raw)
+            _clog(f"PAGE {u.path} cookie_sent={'aethron_sess=' in raw} "
+                  f"matches_session={bool(m and SESSIONS.get(m.group(1)))} "
+                  f"sessions={len(SESSIONS)}")
         # When cloud auth is ON, everything except the login page and the
         # auth endpoints requires a session. Dormant otherwise (local /
         # desktop-offline use never sees a login screen).
@@ -901,6 +945,7 @@ class Handler(BaseHTTPRequestHandler):
             if cloud.entitled(s.get("plan", "free")):
                 return True
             if u.path == "/" or not u.path.startswith("/api"):
+                self._trace_cookie(u.path)
                 body = LOGIN_HTML.encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -1024,6 +1069,7 @@ class Handler(BaseHTTPRequestHandler):
                     out = json.dumps({"status": "ok"}).encode()
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
+                    _clog(f"SET via google/poll Max-Age=2592000 tok={cookie[:8]}…")
                     self.send_header("Set-Cookie", f"aethron_sess={cookie}; "
                                      "Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
                     self.send_header("Content-Length", str(len(out)))
@@ -1046,6 +1092,7 @@ class Handler(BaseHTTPRequestHandler):
                     SESSIONS[tok] = user
                     cloud.track("login", token=user["token"], source="google")
                     self.send_response(302)
+                    _clog("SET via /auth/callback (system browser jar)")
                     self.send_header("Set-Cookie", f"aethron_sess={tok}; "
                                      "Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000")
                     self.send_header("Location", "/")
@@ -2154,14 +2201,23 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail("Your free beta access has ended — upgrade "
                              "to Pro to keep using Aethron.", 402)
         tok = secrets.token_urlsafe(24)
+        # THE EMAIL LOGIN PATH — the one people actually use — minted a
+        # session but sent a cookie with NO Max-Age, i.e. a session
+        # cookie the window discards on quit. That is why a stored
+        # session sat on disk next to a login prompt: the server
+        # remembered, the browser was never told to. It also wrote the
+        # session only to memory, so it did not survive a restart either.
+        user["_seen"] = time.time()
         SESSIONS[tok] = user
+        _sessions_save()
         cloud.track("login", token=user["token"],
                     source=path.rsplit("/", 1)[-1])
         body_out = json.dumps({"ok": True, "email": user["email"]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Set-Cookie",
-                         f"aethron_sess={tok}; Path=/; HttpOnly; SameSite=Lax")
+        _ck = f"aethron_sess={tok}; Path=/; HttpOnly; SameSite=Lax; Max-Age={30*86400}"
+        _clog(f"SET on login -> {_ck[:34]}… Max-Age={30*86400}")
+        self.send_header("Set-Cookie", _ck)
         self.send_header("Content-Length", str(len(body_out)))
         self.end_headers()
         self.wfile.write(body_out)
@@ -5412,7 +5468,6 @@ if __name__ == "__main__":
     port = int(sys.argv[1] if len(sys.argv) > 1 else (env_port or 8899))
     host = "0.0.0.0" if env_port else "127.0.0.1"
     PROJECTS.mkdir(parents=True, exist_ok=True)
-    _sessions_load()
     if os.environ.get("STUDIO_PASSWORD"):
         print("HTTP Basic auth: ON (user 'aethron')")
     elif env_port:
