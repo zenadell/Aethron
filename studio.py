@@ -236,6 +236,12 @@ PREVIEWS = {}   # project -> (port, Popen)
 RUN_CMDS = {"fetch", "inventory", "build", "verify", "probe",
             "localize"}
 
+# Framework port. Separate from RUN_CMDS because it carries an argument
+# and runs for MINUTES (it renders every page in a real browser, then
+# installs and builds a node project), so it needs its own longer leash.
+CONVERT_FRAMEWORKS = ("astro", "next", "vite",
+                      "react", "nextjs", "next.js")
+
 
 # Set by desktop.py: brings the app window to the front. Google sign-in
 # finishes in the SYSTEM browser, so without this the user is left staring
@@ -1466,6 +1472,12 @@ class Handler(BaseHTTPRequestHandler):
                     for flag in ("font", "color", "tracking"):
                         if body.get(flag):
                             argv += ["--" + flag, str(body[flag])]
+                elif cmd == "convert":
+                    fw = str(body.get("framework") or "astro")
+                    if fw not in CONVERT_FRAMEWORKS:
+                        return self.fail(f"framework must be one of "
+                                         f"{', '.join(CONVERT_FRAMEWORKS)}")
+                    argv = forge_argv("convert", str(d), "--framework", fw)
                 elif cmd in RUN_CMDS:
                     argv = forge_argv(cmd)
                 else:
@@ -4110,6 +4122,8 @@ function renderHeader(){
     ready?['Re-run everything','zap',"runAll()"]:null,
     ready?['Localize assets','home',"if(confirm('Download every remote asset into the project and rebuild? The site stops depending on the platform CDN.'))runStep('localize').then(ok=>ok!==false&&runStep('build'))"]:null,
     null,
+    ready?['Port to a framework','package',"portFramework()"]:null,
+    null,
     ['Download site.zip','download',"location='/api/download?project='+S.cur"],
     ['Dev handoff','package',"location='/api/download?full=1&project='+S.cur"],
     ['Save design to library','library',"saveToLibrary()"],
@@ -4210,7 +4224,9 @@ const LABELS={fetch:'Downloading the runtime…',
   inventory:'Finding every string, image and link…',
   build:'Rebuilding the site…',verify:'Checking the files…',
   probe:'Loading it in a browser…',localize:'Localising assets…',
-  ai:'Rewriting the copy…'};
+  ai:'Rewriting the copy…',
+  convert:'Porting to a framework — rendering every page, then grading '
+          +'the result against your site…'};
 async function watchJob(job,label){
   // A RUN NO LONGER YANKS YOU INTO THE LOG TAB. The conversation is the
   // surface; work reports INTO it. The log is still one click away for
@@ -4278,6 +4294,47 @@ async function checkZeroEffect(){
     S.zeroFx=zeros;
   }catch(e){S.zeroFx=[]}
   renderHeader();
+}
+/* THE FRAMEWORK PORT, reachable at last.
+
+   It existed for weeks as a script in the repo — no button, no tool the
+   agent could call, and not even shipped inside the app. A capability
+   the interface cannot reach is a capability the owner does not have.
+
+   The referee is the point: it renders BOTH builds and compares what a
+   reader actually sees, and REFUSES a port that is not the same site.
+   So this can honestly report failure, and does. */
+async function portFramework(){
+  const fw=prompt(
+    'Port this site to a framework you own outright.\n\n'
+   +'  next   — React (Next.js)\n'
+   +'  astro  — the measured default\n'
+   +'  vite   — plain JS\n\n'
+   +'The result runs with NO dependency on Framer or Webflow. Every '
+   +'page is rendered in a real browser, then a referee compares the '
+   +'port against the original and refuses it if they differ.\n\n'
+   +'Needs Node installed. Takes several minutes.',
+    'next');
+  if(!fw)return;
+  if(!['astro','next','vite','react'].includes(fw.trim().toLowerCase())){
+    alert('Pick one of: react (or next), astro, vite');return;
+  }
+  S.tab='logs';S.panel=true;renderTab();
+  try{
+    const {job}=await api('/api/run',
+      {project:S.cur,cmd:'convert',framework:fw.trim()});
+    const ok=await watchJob(job,'convert');
+    const log=S.log||'';
+    const line=(log.match(/^(PIXEL-PERFECT PORT READY|CONTENT IDENTICAL[^\n]*|NOT ACCEPTED[^\n]*)/m)||[])[0];
+    alert(ok===false
+      ? 'The port was REFUSED.\n\n'+(line||'See Logs for the verdict.')
+        +'\n\nThat refusal is the feature: a port that does not render '
+        +'the same as your site is not handed over. The Logs tab names '
+        +'exactly what differed.'
+      : 'Port accepted.\n\n'+(line||'')
+        +'\n\nIt is in the project folder as convert-'+fw.trim()+'/ — '
+        +'a real project you can open, edit and deploy anywhere.');
+  }catch(e){alert(e.message)}
 }
 async function agentHeal(){
   S.tab='logs';renderTab();

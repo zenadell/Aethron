@@ -174,6 +174,20 @@ def t_probe(a):
     return ("OK" if ok else "PROBLEMS") + "\n" + log
 
 
+def t_convert(a):
+    """Port a built migration into a framework project the owner owns."""
+    argv = ["convert", "--framework", str(a.get("framework") or "astro")]
+    if a.get("pages"):
+        argv += ["--pages", ",".join(a["pages"])]
+    if a.get("no_build"):
+        argv.append("--no-build")
+    # A port takes minutes: it renders every page in a real browser,
+    # then installs and builds a node project. The default tool timeout
+    # would kill it mid-flight and report a failure that never happened.
+    ok, log = run_forge(str(a["project"]), *argv, timeout=3600)
+    return ("PORT ACCEPTED" if ok else "PORT REFUSED") + "\n" + log
+
+
 def t_get_plan(a):
     f = pdir(str(a["project"])) / "project_plan.md"
     return f.read_text(encoding="utf-8") if f.exists() else "(no plan yet)"
@@ -582,6 +596,24 @@ TOOLS = [
     ("inventory", "Extract every editable string/image/link into the copy "
      "map. Auto-sets the old brand as a forbidden word for verify.",
      S(P, ["project"]), t_pipeline("inventory")),
+    ("convert_framework",
+     "Port a BUILT migration into a framework project (astro | next | "
+     "vite) that runs with no dependency on Framer or Webflow. 'next' "
+     "emits React. The port carries the original's own rendered DOM, "
+     "CSS and motion rather than recreating them, then a referee "
+     "renders BOTH builds and compares what a reader actually sees — a "
+     "port that is not the same site is REFUSED, and that refusal is "
+     "the point. Needs a headless browser, plus node/npm to build and "
+     "grade (without npm it emits the project and says so instead of "
+     "claiming success). Run build + verify first; takes minutes.",
+     S({"project": {"type": "string"},
+        "framework": {"type": "string", "enum": ["astro", "next", "vite"],
+                      "description": "next = React"},
+        "pages": {"type": "array", "items": {"type": "string"},
+                  "description": "optional subset, default every page"},
+        "no_build": {"type": "boolean",
+                     "description": "emit only; skips the grade"}},
+       ["project"]), t_convert),
     ("get_plan", "Read the project's migration plan (brand, tone, "
      "contacts).", S(P, ["project"]), t_get_plan),
     ("set_plan", "Save the migration plan. Include: brand name, domain, "

@@ -5086,7 +5086,83 @@ def _cmd_rebrand(args):
     return aethron_rebrand.cmd_rebrand(args)
 
 
+def cmd_convert(argv):
+    """Port a built migration to a framework project.
+
+    Lives in aethron_convert.py, but is dispatched from HERE so it
+    reaches the user the same way every other step does: the Studio runs
+    steps as `forge <cmd>` subprocesses, and inside the frozen app that
+    becomes `Aethron --forge <cmd>` in-process. A capability the app
+    cannot dispatch is a capability the owner does not have — the port
+    was CLI-only and not even shipped in the bundle until this.
+
+    Honest about its two external needs, because a check that cannot run
+    reports SKIPPED, never PASS:
+      * a headless browser, to read the original as it truly renders
+      * node + npm, to install and build the emitted project
+    """
+    # Check for help ANYWHERE, not just first: `convert <project> --help`
+    # is what a person types, and treating it as a project path starts a
+    # real multi-minute port instead of printing one line. (Found by
+    # doing exactly that.)
+    if not argv or {"-h", "--help"} & set(argv):
+        print("usage: forge convert <project> "
+              "[--framework react|astro|next|vite]"
+              "\n                            [--pages a.html,b.html] "
+              "[--no-build]")
+        return
+    import shutil as _sh
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import aethron_convert
+    except Exception as e:                       # pragma: no cover
+        die(f"the framework porter is unavailable in this build ({e})")
+
+    fw = "astro"
+    if "--framework" in argv:
+        fw = argv[argv.index("--framework") + 1]
+    # "react" is the word a person types; Next.js is the React emitter.
+    # Refusing the obvious name and printing a list is a small cruelty.
+    fw = {"react": "next", "nextjs": "next", "next.js": "next"}.get(
+        fw.strip().lower(), fw.strip().lower())
+    if fw not in aethron_convert.FRAMEWORKS:
+        die(f"--framework must be one of {aethron_convert.FRAMEWORKS}")
+    pages = None
+    if "--pages" in argv:
+        pages = argv[argv.index("--pages") + 1].split(",")
+
+    build = "--no-build" not in argv
+    if build and not _sh.which("npm"):
+        # SKIPPED, not a silent half-success: without npm we can emit the
+        # project but never grade it, and an ungraded port is exactly the
+        # thing the referee exists to refuse.
+        print("NOTE: node/npm not found — emitting the project WITHOUT "
+              "building or grading it.")
+        print("      Install Node (nodejs.org), then re-run to get a "
+              "verdict.")
+        build = False
+
+    res = aethron_convert.convert(Path(argv[0]).expanduser(), fw, pages,
+                                  build=build)
+    gaps = res.get("motion_gaps") or []
+    print()
+    if not res.get("ok"):
+        print("NOT ACCEPTED: " + str(res.get("dir") or res.get("out") or ""))
+    elif gaps:
+        print("CONTENT IDENTICAL, MOTION INCOMPLETE: "
+              + str(res.get("out") or ""))
+        for g in gaps[:12]:
+            print("   " + g)
+    else:
+        print("PIXEL-PERFECT PORT READY: " + str(res.get("out") or ""))
+    if res.get("verdict"):
+        print(res["verdict"])
+    if not res.get("ok"):
+        sys.exit(2)
+
+
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
+            "convert": cmd_convert,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "capture": cmd_capture,
             "serve": cmd_serve, "probe": cmd_probe,

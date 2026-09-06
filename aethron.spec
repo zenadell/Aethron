@@ -27,6 +27,14 @@ a = Analysis(
     datas=_datas,
     hiddenimports=[
         "forge", "studio", "aethron_cloud",
+        # THE PORTER. Absent from the bundle until 2026-09-06, so the
+        # shipped app could not convert at all — `forge convert` would
+        # have died on the import inside a frozen build while working
+        # perfectly in dev. aethron_convert pulls in the motion recorder
+        # and the source-map recovery, and PyInstaller cannot see them
+        # (they are imported inside functions).
+        "aethron_convert", "aethron_motion", "aethron_source",
+        "statistics",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
         "fontTools.pens.transformPen", "brotli",
         # native window; the pywebview PyInstaller hook pulls the pyobjc
