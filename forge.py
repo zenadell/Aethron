@@ -54,7 +54,16 @@ import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
 
-UA = {"User-Agent": "Mozilla/5.0 (TemplateForge/1.0)"}
+# ASK FOR THE SMALL VERSION. Measured on elyxir.framer.ai: the SSR page
+# is 423,551 bytes uncompressed and 62,345 gzipped — 6.8x. Without this
+# header every scrape pulled the big one, and on a slow link (7 KB/s,
+# measured) the connection died mid-transfer every single time: six
+# retries, each truncated near the same place, migration dead before it
+# started. curl could not fetch it whole either. Nothing was wrong with
+# the page or the retry logic; we were simply asking for 6.8x more bytes
+# than we needed over a link that could not carry them.
+UA = {"User-Agent": "Mozilla/5.0 (TemplateForge/1.0)",
+      "Accept-Encoding": "gzip"}
 CHUNK_NAME_RE = re.compile(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{6,12}\.mjs")
 
 # The editor bar the runtime lazily imports from the platform, and a
@@ -160,6 +169,23 @@ def _pristine_tampered(root: Path):
                   + [k for k in cur if k not in want])
 
 
+def _decompress(raw: bytes, encoding: str | None) -> bytes:
+    """Undo Content-Encoding. TOLERATES a truncated stream, because a
+    short body still holds most of its document and the caller decides
+    whether that is enough."""
+    if (encoding or "").strip().lower() != "gzip":
+        return raw
+    import gzip as _gz
+    import zlib as _zl
+    try:
+        return _gz.decompress(raw)
+    except Exception:
+        try:
+            return _zl.decompressobj(16 + _zl.MAX_WBITS).decompress(raw)
+        except Exception:
+            return raw
+
+
 def download(url: str, dest: Path, tries: int = 3) -> bool:
     """Fetch one asset. RETRIES: hosts like Vercel/Cloudflare throttle a
     burst of parallel requests, and a single dropped connection used to
@@ -171,7 +197,15 @@ def download(url: str, dest: Path, tries: int = 3) -> bool:
         try:
             req = urllib.request.Request(url, headers=UA)
             with urllib.request.urlopen(req, timeout=30) as r:
-                dest.write_bytes(r.read())
+                # DECOMPRESS OR THE FILE IS GARBAGE. We ask for gzip
+                # (a 6.8x saving that is the difference between a
+                # migration and a truncated one on a slow link), and
+                # urllib does NOT decode it for us. Writing the raw
+                # bytes produced 22 chunks of binary noise that still
+                # looked like plausible files — right names, plausible
+                # sizes, and `node --check` failing on every one.
+                dest.write_bytes(_decompress(r.read(),
+                                             r.headers.get("Content-Encoding")))
             return True
         except urllib.error.HTTPError as e:
             if e.code in (404, 410):
@@ -218,18 +252,41 @@ def _scrape_site(url: str, tmp: Path):
         judged the same way for both paths: a document that has no
         </html> is not a document, whatever the socket said."""
         import http.client
+        import gzip as _gz
+        import zlib as _zl
+
+        def _decode(raw, enc):
+            """Decompress, TOLERATING a truncated stream.
+
+            A short gzip body still holds most of its document, and the
+            </html> check below is what decides whether it is usable —
+            so refusing to decode a partial stream would throw away the
+            evidence needed to make that call."""
+            if (enc or "").lower() != "gzip":
+                return raw.decode("utf-8", "ignore")
+            try:
+                return _gz.decompress(raw).decode("utf-8", "ignore")
+            except Exception:
+                d = _zl.decompressobj(16 + _zl.MAX_WBITS)
+                try:
+                    return d.decompress(raw).decode("utf-8", "ignore")
+                except Exception:
+                    return ""
+
         last = None
         for attempt in range(tries):
             try:
                 req = urllib.request.Request(u, headers=UA)
                 with urllib.request.urlopen(req, timeout=90) as r:
-                    body = r.read().decode("utf-8", "ignore")
+                    enc = r.headers.get("Content-Encoding", "")
+                    body = _decode(r.read(), enc)
                 if "</html>" in body.lower() or not body.lstrip()[:1] == "<":
                     return body          # complete, or not html at all
                 last = RuntimeError("response ended before </html>")
             except http.client.IncompleteRead as e:
                 last = e
-                body = e.partial.decode("utf-8", "ignore")
+                body = _decode(e.partial, "gzip") or \
+                    e.partial.decode("utf-8", "ignore")
                 if "</html>" in body.lower():
                     print(f"  note: {u} sent a short body but the document "
                           f"is complete — using it")

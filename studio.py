@@ -4418,6 +4418,7 @@ function libCard(cd,reason){
      onclick="delLibrary('${esc(cd.id)}')">✕</button></div></div>`;
 }
 async function renderLibrary(c){
+  c.dataset.split='';        // this view replaces #content — #conv dies
   let cards=[];
   try{cards=await api('/api/library')}catch(e){}
   S.libCards=cards;
@@ -4485,6 +4486,7 @@ const wsBody=o=>Object.assign({},CODE.ws,o||{});
 const wsName=()=>CODE.ws.project||CODE.ws.workspace||'';
 
 async function renderCode(c){
+  c.dataset.split='';        // this view replaces #content — #conv dies
   if(!CODE.status)c.innerHTML='<div class="empty">opening the workspace…</div>';
   CODE.status=await api('/api/code/status?key='+encodeURIComponent(CODE.key));
   if(!CODE.status.available){
@@ -4638,6 +4640,7 @@ async function pollCode(){
    present, so PROJECT_RULES and the site/ + pristine/ write-deny come
    into force automatically. */
 function renderChatTab(c){
+  if(!c)return;              // never take the whole layout down with it
   const n=(S.info&&S.info.strings)||0, f=(S.info&&S.info.filled)||0;
   c.innerHTML=`<div class="empty"><div class="focal">
     <div id="welcome" ${CODE.events.length?'hidden':''}>
@@ -4769,7 +4772,15 @@ function renderTab(){
   // "see the work" and "talk about the work" feels wrong however it is
   // painted. The conversation is now permanent on the left; the work
   // opens beside it on the right and can be closed without leaving.
-  if(c.dataset.split!=='1'){
+  // TRUST THE DOM, NOT THE FLAG. This used to rebuild only when
+  // dataset.split said so — but renderCode and renderLibrary overwrite
+  // #content wholesale and left the flag set, so coming back to a
+  // project found split==='1' with no #conv in the document. $('conv')
+  // returned null, renderChatTab(null) threw, and EVERY line after it
+  // was skipped — including the three body.classList toggles that
+  // position the panes. That is why the interface came apart: not a
+  // styling bug, an exception halfway through the renderer.
+  if(c.dataset.split!=='1'||!document.getElementById('conv')){
     c.dataset.split='1';
     c.innerHTML=`<div class="conv" id="conv"></div>
                  <div class="work" id="work"><div class="wgrip" id="wgrip"></div><div class="workhd">
