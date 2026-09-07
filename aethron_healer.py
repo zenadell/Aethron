@@ -93,8 +93,13 @@ def collect_evidence(project: Path) -> dict:
                              if l.startswith(("FAIL", "NOTE", "VERDICT"))
                              or "missing" in l.lower())
     rc_p, out_p = _forge(project, "probe")
-    ev["probe_ok"] = rc_p == 0
-    ev["probe_skipped"] = "VERDICT: SKIPPED" in out_p
+    # AN EXIT CODE IS NOT A VERDICT. `probe` exits 0 when it reports
+    # SKIPPED, so reading rc alone made "nobody looked" indistinguishable
+    # from "it runs clean" — the same confusion, one level up from the
+    # `clean` line below. probe_ok now means it RAN and passed.
+    ev["probe_skipped"] = ("VERDICT: SKIPPED" in out_p
+                           or "UNVERIFIED" in out_p)
+    ev["probe_ok"] = rc_p == 0 and not ev["probe_skipped"]
     ev["probe"] = "\n".join(l for l in out_p.splitlines()
                             if l.startswith(("FAIL", "NOTE", "VERDICT", "──"))
                             or "       " in l)
@@ -109,12 +114,51 @@ def collect_evidence(project: Path) -> dict:
                             "at_risk": data.get("__at_risk__", [])[:25]}
         except Exception:
             pass
-    ev["clean"] = ev["verify_ok"] and (ev["probe_ok"] or ev["probe_skipped"])
+    # THE HEALER MAY NOT TRUST A CHECK THAT DID NOT EARN ITS VERDICT.
+    #
+    # This line used to read `probe_ok or probe_skipped`, so a probe
+    # that COULD NOT RUN counted as clean: no browser installed meant
+    # the runtime was never examined and the healer declared the site
+    # healed anyway. That is "nobody looked" being recorded as "it is
+    # fine", inside the one component whose entire job is deciding
+    # whether something is fixed.
+    #
+    # Now the verdicts are audited before they are believed. A skipped
+    # probe is UNPROVEN, which is neither success nor failure — and
+    # saying so is the whole point.
+    try:
+        import aethron_audit as _A
+        idx = project / "site" / "index.html"
+        verdicts = [_A.from_forge("verify", rc_v, out_v, artifact=idx),
+                    _A.from_forge("probe", rc_p, out_p, artifact=idx)]
+        t = _A.trust(verdicts)
+        ev["audit"] = [f.line() for f in t["findings"]]
+        ev["trusted"] = t["trustworthy"]
+        ev["downgraded"] = t["downgraded"]
+    except Exception as e:                      # auditor must never
+        ev["audit"] = [f"auditor unavailable: {e}"]   # break healing
+        ev["trusted"] = True
+        ev["downgraded"] = []
+
+    ev["proven"] = bool(ev["verify_ok"] and ev["probe_ok"]
+                        and ev.get("trusted", True))
+    ev["unproven"] = bool(ev["verify_ok"] and ev["probe_skipped"]
+                          and not ev["probe_ok"])
+    ev["clean"] = ev["proven"]
     return ev
 
 
 def evidence_text(ev: dict, heal_log: str = "") -> str:
     parts = []
+    # The audit goes FIRST. If an instrument is lying, every number
+    # below it is suspect, and reading them in that order is how you
+    # end up debugging the site instead of the thermometer.
+    if ev.get("audit"):
+        parts.append("THE CHECKS THEMSELVES:\n" + "\n".join(ev["audit"]))
+    if ev.get("unproven"):
+        parts.append("UNPROVEN: verify is clean, but the runtime was "
+                     "never examined (no headless browser). This is not "
+                     "a pass — nothing looked at the running page.")
     if heal_log:
         stuck = [l for l in heal_log.splitlines()
                  if l.startswith(("STUCK", "HEALED"))]
@@ -159,12 +203,23 @@ def heal(project, rounds=2, use_agent=True, on_event=None, cfg=None,
 
     ev = collect_evidence(project)
     if ev["clean"]:
-        note("done", "clean after deterministic repair — no agent needed"
-             + (" (runtime UNVERIFIED: no browser, so probe was skipped)"
-                if ev.get("probe_skipped") else ""))
+        note("done", "clean after deterministic repair — checks ran, "
+                     "passed, and were audited")
         return {"ok": True, "stage": "deterministic", "attempts": 0,
                 "evidence": ev, "log": "\n".join(log), "actions": [],
-                "runtime_verified": not ev.get("probe_skipped")}
+                "proven": True, "runtime_verified": True}
+    if ev.get("unproven"):
+        # NOT a failure to repair. A failure to VERIFY, which is a
+        # different thing and must not be reported as either success
+        # or breakage.
+        note("done", "nothing left that the checks can see — but the "
+                     "runtime was NEVER CHECKED (no browser), so this is "
+                     "UNPROVEN, not proven good")
+        return {"ok": False, "stage": "unproven", "attempts": 0,
+                "evidence": ev, "log": "\n".join(log), "actions": [],
+                "proven": False, "runtime_verified": False,
+                "why": "verify is clean but probe could not run — install "
+                       "Chrome so the runtime can actually be examined"}
     if not use_agent:
         return {"ok": False, "stage": "deterministic", "attempts": 0,
                 "evidence": ev, "log": "\n".join(log), "actions": []}

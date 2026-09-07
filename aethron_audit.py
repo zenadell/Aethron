@@ -393,6 +393,45 @@ def from_probe(report_path, artifact=None):
         artifact=artifact, at=p.stat().st_mtime)
 
 
+def from_forge(check, exit_code, output, artifact=None):
+    """A forge command's output -> Verdict, reading its VERDICT line.
+
+    The exit code alone is not the answer and never was: `probe` exits
+    0 when it reports SKIPPED, so a run with no browser installed
+    looked identical to a clean one. That is the difference between
+    'the site is fine' and 'nobody looked'."""
+    out = output or ""
+    m = re.search(r"^VERDICT:\s*(.+)$", out, re.M)
+    verdict = (m.group(1).strip() if m else "")
+    up = verdict.upper()
+    if not m:
+        status = SKIPPED          # no verdict line is not a pass
+    elif up.startswith("SKIPPED") or "UNVERIFIED" in up:
+        status = SKIPPED
+    elif exit_code == 0 and not up.startswith("FAIL"):
+        status = PASS
+    else:
+        status = FAIL
+    work = {}
+    for label, pat in (("pages", r"(\d+)\s+page\(s\)"),
+                       ("requests", r"(\d+)\s+runtime request"),
+                       ("chunks", r"(\d+)\s+chunk\(s\)")):
+        mm = re.search(pat, out)
+        if mm:
+            work[label] = int(mm.group(1))
+    if not work:
+        work = {"output_lines": len(out.splitlines())}
+    problems = re.findall(r"^(?:FAIL|PROBLEM)\s+(.{0,90})", out, re.M)
+    return Verdict(
+        check, status, work=work,
+        evidence={"problems": problems,
+                  "criteria_checked": len(re.findall(r"^(PASS|FAIL)\b",
+                                                     out, re.M)),
+                  "verdict_line": verdict},
+        instrument={"exit_code": exit_code, "output_bytes": len(out)},
+        artifact=artifact, raw=out[:4000])
+
+
 def from_process(check, exit_code, output, artifact=None,
                  through_pipe=False, verdict_re=r"VERDICT[: ]"):
     """A subprocess check -> Verdict, WITHOUT trusting the exit code."""

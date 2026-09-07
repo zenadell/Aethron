@@ -2561,8 +2561,30 @@ def convert(project, framework="astro", pages=None, on_event=None,
 
     anim = _ship_animation_source(project, dest, say)
 
+    # SHIPPING THE RUNTIME IS NOT WIRING IT — and this is the second
+    # time that distinction has cost a release. The first time the
+    # motion runtime was written to public/ and never REFERENCED, so
+    # 181 entrances sat inert. This time it was referenced correctly
+    # and there was NOTHING FOR IT TO DO: the entrance recorder
+    # returned zero, convert reported success, and the port shipped
+    # every element at its final pose with no motion at all. Nobody was
+    # told, because nothing had failed.
+    #
+    # An entrance count of zero is not proof there are no entrances; it
+    # is equally consistent with the recorder never having run. So it
+    # is reported as a PROBLEM rather than passed over in silence, and
+    # the caller is told which of the two it must check.
+    if total_ae == 0:
+        say("warn",
+            "NO ENTRANCE ANIMATIONS WERE RECOVERED. Either this design "
+            "genuinely has none, or the recorder did not run — those "
+            "look identical from here, and only one of them is fine. "
+            "The port will render every element at its final pose. "
+            "Check the original in a browser before shipping this.")
+
     result = {"ok": True, "dir": str(dest), "pages": list(docs),
-              "entrances": total_ae, "assets": n_assets, "animations": anim}
+              "entrances": total_ae, "assets": n_assets, "animations": anim,
+              "motion_recovered": total_ae > 0}
     if not build:
         return result
     say("stage", "npm install…")

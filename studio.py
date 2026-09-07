@@ -1880,13 +1880,19 @@ class Handler(BaseHTTPRequestHandler):
                             on_event=lambda k, ev: append(
                                 {"tool": "   ", "say": "   ",
                                  "error": "!! "}.get(k, "── ") + ev["text"]))
-                        if not res.get("ok"):
+                        if res.get("stage") == "unproven":
+                            append("\nNOT PROVEN — this is not a repair "
+                                   "failure:")
+                            append(res.get("why", ""))
+                        elif not res.get("ok"):
                             append("\nWHAT IS STILL BROKEN:")
                             append(aethron_healer.evidence_text(
                                 res.get("evidence") or {})[:2000])
                             append("\n(Undo reverts everything the agent "
                                    "did.)")
-                        return res.get("ok")
+                        # unproven is not success; the caller must not
+                        # read "nothing more to fix" as "verified good".
+                        return bool(res.get("ok"))
 
                     return self.send_json({"job": start_fn_job(
                         job, "$ agentic self-heal\n")})

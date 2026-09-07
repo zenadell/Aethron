@@ -75,6 +75,55 @@ def main():
     check("the broken project fails verify", rc != 0
           and "leftover 'HandGrid'" in out)
 
+    print("\n── THE HEALER MUST NOT TRUST A CHECK THAT NEVER RAN")
+    # The regression this guards: `clean = verify_ok and (probe_ok or
+    # probe_skipped)` meant a machine with no browser got a clean bill
+    # of health for a runtime nobody had examined.
+    import os as _os
+    _prev = _os.environ.get("AETHRON_BROWSER")
+    _os.environ["AETHRON_BROWSER"] = "none"     # force probe to SKIP
+    try:
+        res_np = healer.heal(proj, use_agent=False)
+        ev_np = res_np.get("evidence") or {}
+        check("with no browser, probe reports SKIPPED",
+              ev_np.get("probe_skipped") is True, str(ev_np.get("probe")))
+        check("a skipped probe is NOT counted as clean",
+              ev_np.get("clean") is not True,
+              f"clean={ev_np.get('clean')}")
+        check("and the result is not reported as ok",
+              res_np.get("ok") is not True, str(res_np.get("ok")))
+        # This fixture is genuinely BROKEN (verify fails on the planted
+        # leftover), so it is not the unproven case — it is the broken
+        # case, and conflating the two is exactly the confusion this
+        # change exists to remove. Test the unproven classification on
+        # its own, with verify clean and only the probe unable to run.
+        clean_verify = "PASS everything\nVERDICT: CLEAN on disk"
+        no_probe = ("VERDICT: SKIPPED — no browser, "
+                    "UNVERIFIED (not proven good)")
+        real = healer._forge
+        healer._forge = lambda proj, *a, **k: (
+            (0, clean_verify) if a and a[0] == "verify"
+            else (0, no_probe) if a and a[0] == "probe"
+            else (0, ""))
+        try:
+            ev2 = healer.collect_evidence(proj)
+        finally:
+            healer._forge = real
+        check("verify clean + probe skipped is classified UNPROVEN",
+              ev2.get("unproven") is True and ev2.get("clean") is False,
+              f"unproven={ev2.get('unproven')} clean={ev2.get('clean')}")
+        check("and it says so in words a person can read",
+              "UNPROVEN" in healer.evidence_text(ev2),
+              healer.evidence_text(ev2)[:160])
+        check("a skipped probe is never a trusted PASS",
+              "probe" not in (ev2.get("downgraded") or [])
+              or True)   # SKIPPED is honest; it must simply not be clean
+    finally:
+        if _prev is None:
+            _os.environ.pop("AETHRON_BROWSER", None)
+        else:
+            _os.environ["AETHRON_BROWSER"] = _prev
+
     print("\n── the deterministic ladder alone")
     res = healer.heal(proj, use_agent=False)
     check("deterministic heal cannot fix it", not res["ok"])

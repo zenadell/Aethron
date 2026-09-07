@@ -12,6 +12,7 @@ known good). Lives in the repo on purpose: the previous two copies of
 this file were written to a scratch directory and lost.
 """
 import json
+import re
 import os
 import subprocess
 import sys
@@ -162,16 +163,49 @@ def main():
     check("baseline is a READER-level fingerprint",
           fp["words"] > 50 and len(fp["headings"]) > 0)
     rc, out = probe("--page=index.html", "--against=site")
-    check("an identical build compares 100%", "100% identical" in out)
-    # This fixture has never been localized, so comparing it with itself
-    # is a faithful copy of an un-owned project: the CONTENT referee
-    # agrees completely and the OWNERSHIP gate refuses it anyway. Both
-    # halves are the point — exit 0 here would mean the gate that caught
-    # the Webflow port (100% identical while shipping 112 CDN refs) had
-    # stopped working.
-    check("ownership refuses an un-localized project",
-          rc == 1 and "NOT OWNED" in out, f"rc={rc}")
-    check("and says whose fault it is", "the ORIGINAL leaks" in out)
+    # NOT an exact 100%. Measured: a self-comparison of this page
+    # scores 99% on most runs and 100% occasionally, with UNCHANGED
+    # code — the page animates (counters, marquees), so two renders of
+    # the same build legitimately differ by a word or two. Asserting
+    # "100%" made this test pass or fail on animation timing, which is
+    # a test that is not measuring what it claims. The real invariant
+    # is that a build compared against ITSELF must clear the referee's
+    # own bar comfortably.
+    m = re.search(r"text (\d+)% identical", out)
+    pct = int(m.group(1)) if m else -1
+    check("a build compared against itself scores at least 98%",
+          pct >= 98, f"got {pct}% — out: {out[:120]}")
+    # THE GATE IS TESTED, NOT THE FIXTURE'S MOOD.
+    #
+    # This used to assert that comparing acme-demo with itself was
+    # REFUSED as un-owned, on the belief that the fixture had never
+    # been localized. It has: its served pages contain zero platform
+    # asset references (the 32 that grep finds live only in
+    # .forge-report.json, a metadata file nothing fetches). So the gate
+    # was correctly refusing nothing, and the test failed the product
+    # for being right.
+    #
+    # Concluding "nothing to refuse, therefore fine" would be the other
+    # error — a check that passes because it CANNOT fail. So plant a
+    # real CDN dependency and prove the gate catches it.
+    idx = PROJ / "site" / "index.html"
+    original = idx.read_bytes()
+    try:
+        idx.write_bytes(original.replace(
+            b"</body>",
+            b'<img src="https://framerusercontent.com/images/planted.png">'
+            b"</body>", 1))
+        rc_o, out_o = probe("--page=index.html", "--against=site")
+        check("a planted CDN dependency is REFUSED as not owned",
+              rc_o == 1 and "NOT OWNED" in out_o,
+              f"rc={rc_o} — the ownership gate did not fire")
+        check("and it names the host the page still depends on",
+              "framerusercontent.com" in out_o, out_o[-200:])
+    finally:
+        idx.write_bytes(original)
+    rc, out = probe("--page=index.html", "--against=site")
+    check("a genuinely owned project is NOT refused",
+          rc == 0 and "NOT OWNED" not in out, f"rc={rc}")
     check("the original's own runtime health is not counted as drift",
           "do not count against the comparison" in out
           or "runtime problem(s) of" not in out)
