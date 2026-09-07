@@ -5143,6 +5143,120 @@ def _cmd_rebrand(args):
     return aethron_rebrand.cmd_rebrand(args)
 
 
+def cmd_audit(argv):
+    """Audit the CHECKS, not the site.
+
+    Every hard bug in this project's history was a tool that ran,
+    returned cleanly, and was wrong. This reads the verdicts the other
+    commands produced and refuses the ones that cannot carry their own
+    weight: a PASS with no work, an exit code with no verdict, two
+    instruments contradicting each other, a measurement older than what
+    it measures, a comparison against a broken reference.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import aethron_audit as A
+    except Exception as e:
+        die(f"the auditor is unavailable in this build ({e})")
+    root = Path(argv[0]).expanduser() if argv and not argv[0].startswith("-") \
+        else Path.cwd()
+    if not (root / "forge.json").is_file():
+        die(f"no forge.json in {root} — run this inside a project")
+
+    vs = []
+    site = root / "site"
+
+    probe = site / ".forge-probe.json"
+    if probe.is_file():
+        vs.append(A.from_probe(probe, artifact=site / "index.html"))
+    else:
+        vs.append(A.Verdict("probe", A.SKIPPED,
+                            instrument={"why": "never run"}))
+
+    rep = site / ".forge-report.json"
+    if rep.is_file():
+        try:
+            d = json.loads(rep.read_text())
+            dead = [k for k in (d.get("__dead__") or [])]
+            risk = [k for k in (d.get("__at_risk__") or [])]
+            vs.append(A.Verdict(
+                "build.report", A.FAIL if (dead or risk) else A.PASS,
+                work={"pairs": len(d.get("pairs") or d) if isinstance(d, dict)
+                      else 0},
+                # criteria_checked is what it EXAMINED, never what it
+                # found. Counting findings made a clean build look
+                # unfalsifiable, which would have cried wolf on every
+                # good run — and a check that cries wolf gets ignored,
+                # which is how the probe nearly failed to be useful.
+                evidence={"problems": dead + risk,
+                          "criteria_checked": len(
+                              d.get("pairs") or d.get("fills") or [])
+                          or sum(1 for _ in (d if isinstance(d, dict)
+                                             else []))},
+                artifact=site / "index.html", at=rep.stat().st_mtime))
+        except Exception:
+            pass
+
+    cmf = root / "copy_map.json"
+    if cmf.is_file():
+        cm = json.loads(cmf.read_text(encoding="utf-8"))
+        st = cm.get("strings") or []
+        if st:
+            unfilled = sum(1 for e in st if not e.get("new"))
+            vs.append(A.Verdict(
+                "rebrand.entry_scan", A.PASS,
+                work={"entries": len(st)},
+                measures={"template_remaining":
+                          round(unfilled / len(st), 4)},
+                evidence={"criteria_checked": len(st)},
+                artifact=cmf, at=cmf.stat().st_mtime))
+
+    # the word-overlap measure verify uses for the same property
+    try:
+        import difflib as _dl
+        import html as _h
+        tot = same = 0
+        for f in sorted(site.glob("*.html")):
+            pr = root / "pristine" / f.name
+            if not pr.exists():
+                continue
+
+            def words(q):
+                t = q.read_text(encoding="utf-8", errors="ignore")
+                t = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", t)
+                t = re.sub(r"(?is)url\([^)]*\)", " ", t)
+                return _h.unescape(re.sub(r"<[^>]+>", " ", t)).split()
+            a, b = words(pr), words(f)
+            sm = _dl.SequenceMatcher(None, a, b)
+            same += sum(bl.size for bl in sm.get_matching_blocks())
+            tot += len(a)
+        if tot:
+            vs.append(A.Verdict(
+                "verify.word_overlap", A.PASS,
+                work={"pages": len(list(site.glob("*.html"))), "words": tot},
+                measures={"template_remaining": round(same / tot, 4)},
+                artifact=site / "index.html"))
+    except Exception:
+        pass
+
+    r = A.trust(vs)
+    print(f"── {len(vs)} verdict(s) audited")
+    for v in vs:
+        print(f"   {v.status:<8} {v.check:<24} work={v.work or '{}'}")
+    print()
+    if r["trustworthy"]:
+        print("VERDICT: the checks can be trusted — every PASS was earned")
+        return
+    for f in r["findings"]:
+        print(f.line())
+        print()
+    if r["downgraded"]:
+        print("DOWNGRADED (their PASS is not accepted): "
+              + ", ".join(r["downgraded"]))
+    print("VERDICT: some checks did not earn their result — see above")
+    sys.exit(2)
+
+
 def cmd_figma(argv):
     """Import a Figma design as a page — a new L0 SOURCE.
 
@@ -5262,6 +5376,7 @@ def cmd_convert(argv):
 
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "convert": cmd_convert, "figma": cmd_figma,
+            "audit": cmd_audit,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "capture": cmd_capture,
             "serve": cmd_serve, "probe": cmd_probe,

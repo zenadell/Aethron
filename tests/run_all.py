@@ -22,7 +22,8 @@ SUITES = [
                 "forge_mcp.py", "aethron_agent.py", "aethron_code.py",
                 "aethron_brain.py", "aethron_bridge.py", "aethron_cloud.py",
                 "aethron_healer.py", "desktop.py",
-                "aethron_figma.py", "aethron_figma_grade.py"], False),
+                "aethron_figma.py", "aethron_figma_grade.py",
+                "aethron_audit.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("self-update (in-place, never a second copy)",
@@ -33,6 +34,10 @@ SUITES = [
      [PY, "aethron_code.py", "--selftest"], True),
     ("key ring (free keys first, paid last)",
      [PY, "tests/keyring_battery.py"], False),
+    # The auditor is held to its own standard: this lies to it once
+    # per rule and proves it catches each.
+    ("audit (does it catch a lying instrument?)",
+     [PY, "aethron_audit.py", "--selftest"], False),
     ("figma battery (design import + the pixel referee)",
      [PY, "tests/figma_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",
