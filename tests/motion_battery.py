@@ -225,6 +225,34 @@ def main():
               "(convert first); the port side is UNVERIFIED")
         return 0 if all(c for _, c in results) else 1
 
+    # A VERDICT MUST NOT BE OLDER THAN WHAT IT JUDGES.
+    #
+    # This battery grades a dist/ it does not build. A fix to the
+    # converter was made, this suite was run, the same four checks
+    # failed, and the obvious reading was "the fix did not work" — but
+    # dist/ was two hours older than the change and the fix had never
+    # been in it. That is the STALE rule from aethron_audit, met in the
+    # wild by the person who wrote it. Measuring a stale artifact does
+    # not produce a weaker result; it produces a WRONG one, delivered
+    # with full confidence.
+    conv = ROOT / "aethron_convert.py"
+    if conv.is_file() and dist.stat().st_mtime < conv.stat().st_mtime:
+        import datetime as _dt
+
+        def _t(p):
+            return _dt.datetime.fromtimestamp(p).strftime("%H:%M:%S")
+        print(f"\nVERDICT: SKIPPED — the built port is STALE. dist/ was "
+              f"built at {_t(dist.stat().st_mtime)} but "
+              f"aethron_convert.py changed at "
+              f"{_t(conv.stat().st_mtime)}.\n"
+              f"          Grading it would report on code that is not in "
+              f"it. Re-run:\n"
+              f"          python3 forge.py convert {PROJ} "
+              f"--framework astro\n"
+              f"          The port side is UNVERIFIED — not proven good, "
+              f"and not proven bad either.")
+        return 0 if all(c for _, c in results) else 1
+
     scenario("the port, measured three times")
     runs = []
     for _ in range(3):

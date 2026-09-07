@@ -62,10 +62,26 @@ def anim_tag(doc) -> str:
     # The original engine runs FIRST — it owns every element carrying a
     # data-framer-appear-id. Our runtime then handles only what it does
     # not: recovered blur states and anything without a spec.
-    if doc.get("keep_runtime"):
-        return ""          # the original's code is already in the body
-    for src in (doc.get("engine") or []):
-        out += "\n<script>" + src + "</script>"
+    # CARRYING THE ENGINE IS NOT THE SAME AS THE ENGINE WORKING.
+    #
+    # This used to `return ""` here, on the reasoning that the original's
+    # code is already in the carried body so nothing else was needed.
+    # Measured on the shipped agero port: 381 elements parked at
+    # opacity:0.001 and NOTHING replaying them — the engine's own data
+    # tags were accumulated into `out` and then discarded by that early
+    # return, and MOTION_TAG (appended below) never reached the page
+    # either. The characters ended up visible but un-animated, which is
+    # how a build can be 100% identical on content and still have lost
+    # the motion the owner signed off as "100% identical".
+    #
+    # So: still do not re-inject the engine SOURCE (it really is in the
+    # body already, and running it twice would be worse) — but emit
+    # everything else. The runtime skips elements carrying a
+    # data-framer-appear-id, so the engine keeps what it owns and ours
+    # covers what it does not.
+    if not doc.get("keep_runtime"):
+        for src in (doc.get("engine") or []):
+            out += "\n<script>" + src + "</script>"
     tl = doc.get("timeline") or {}
     # NOT mutually exclusive with the engine: the engine owns elements
     # carrying data-framer-appear-id, the recording owns everything else,
@@ -2346,6 +2362,20 @@ def convert(project, framework="astro", pages=None, on_event=None,
             if got.get("dom"):
                 got["dom"] = re.sub(r'https?://127\.0\.0\.1:\d+', '',
                                     got["dom"])
+                # READ THE INSTRUMENT BEFORE REMOVING IT.
+                #
+                # The recorder writes what it measured into the page as
+                # <script id="__ae_entrance">, and strip_instrumentation
+                # deletes every __ae_* node because "the instrument is
+                # not the result" — which is right about the OUTPUT and
+                # fatal here: entrance_spec() reads that node 50 lines
+                # later, so it has been reading a DOM the reading was
+                # already deleted from, and returning {"anims": []}
+                # every time. The port then shipped elements parked and
+                # nothing to replay them.
+                #
+                # The instrument is not the result; its READING is.
+                got["entrance"] = motion.entrance_spec(got["dom"])
                 got["dom"] = strip_instrumentation(got["dom"])
                 if keep_runtime:
                     # only carry mode re-runs the platform's code, so
@@ -2374,7 +2404,13 @@ def convert(project, framework="astro", pages=None, on_event=None,
                 dom = re.sub(r'https?://127\.0\.0\.1:\d+', '', dom)
                 n_scripts = 0
                 dom, n_pre, n_link = strip_platform(dom, keep_preloads=True)
-                n_ae = 0
+                # Recover the parked poses HERE TOO. Skipping this was
+                # the other half of the same assumption: that the
+                # carried engine would replay them. It does not, and a
+                # port that ships 381 invisible-then-snapped elements
+                # has lost the entrance animation while reporting
+                # success on content alone.
+                dom, n_ae = recover_entrances(dom)
             else:
                 dom, n_scripts = strip_scripts(got["dom"])
                 dom, n_pre, n_link = strip_platform(dom)
@@ -2389,7 +2425,8 @@ def convert(project, framework="astro", pages=None, on_event=None,
             spec = extract_appear_spec(source_html)
             engine = extract_motion_engine(source_html)
             engine_data = extract_engine_data(source_html)
-            entrance = motion.entrance_spec(got["dom"])
+            # taken from the capture BEFORE the instrument was stripped
+            entrance = got.get("entrance") or {"anims": [], "meta": {}}
             docs[page] = {"head": head, "body": body, "battrs": battrs,
                           "lang": lang, "spec": spec, "timeline": timeline,
                           "entrance": entrance,
