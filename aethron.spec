@@ -34,6 +34,8 @@ a = Analysis(
         # and the source-map recovery, and PyInstaller cannot see them
         # (they are imported inside functions).
         "aethron_convert", "aethron_motion", "aethron_source",
+        # Figma: a design file is an L0 source like a live site is.
+        "aethron_figma", "aethron_figma_grade",
         "statistics",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
         "fontTools.pens.transformPen", "brotli",

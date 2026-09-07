@@ -5143,6 +5143,48 @@ def _cmd_rebrand(args):
     return aethron_rebrand.cmd_rebrand(args)
 
 
+def cmd_figma(argv):
+    """Import a Figma design as a page — a new L0 SOURCE.
+
+    Everything downstream is unchanged: this writes pages and assets,
+    then inventory / rebrand / build / verify / probe take over exactly
+    as they do for a scraped Framer or Webflow site. A source adapter
+    cannot regress the pipeline because it does not touch it.
+    """
+    if not argv or {"-h", "--help"} & set(argv):
+        print("usage: forge figma <figma-url> [--node 123:456] "
+              "[--out DIR]\n"
+              "       forge figma <url> --grade   (compare against "
+              "Figma's own render)")
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import aethron_figma
+    except Exception as e:
+        die(f"the Figma importer is unavailable in this build ({e})")
+    out = Path(argv[argv.index("--out") + 1]) if "--out" in argv \
+        else Path.cwd() / "figma-page"
+    node = argv[argv.index("--node") + 1] if "--node" in argv else None
+    r = aethron_figma.convert(argv[0], out, node)
+    print(json.dumps(r, indent=1))
+
+    if "--grade" in argv:
+        try:
+            import aethron_figma_grade as grader
+        except Exception as e:
+            print(f"NOTE: grader unavailable ({e}) — the page is "
+                  f"UNVERIFIED, not proven good")
+            return
+        truth = out / "figma_truth.png"
+        if not truth.is_file():
+            print("NOTE: no reference render on disk — "
+                  "UNVERIFIED, not proven good")
+            return
+        g = grader.grade(out, truth)
+        if g.get("ok") is False:
+            sys.exit(2)
+
+
 def cmd_convert(argv):
     """Port a built migration to a framework project.
 
@@ -5219,7 +5261,7 @@ def cmd_convert(argv):
 
 
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
-            "convert": cmd_convert,
+            "convert": cmd_convert, "figma": cmd_figma,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "capture": cmd_capture,
             "serve": cmd_serve, "probe": cmd_probe,

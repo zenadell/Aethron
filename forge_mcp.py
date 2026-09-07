@@ -188,6 +188,18 @@ def t_convert(a):
     return ("PORT ACCEPTED" if ok else "PORT REFUSED") + "\n" + log
 
 
+def t_figma_import(a):
+    """A Figma design becomes a page the owner owns."""
+    argv = ["figma", str(a["url"])]
+    if a.get("node"):
+        argv += ["--node", str(a["node"])]
+    argv += ["--out", str(pdir(str(a["project"])) / "figma")]
+    if a.get("grade"):
+        argv.append("--grade")
+    ok, log = run_forge(str(a["project"]), *argv, timeout=3600)
+    return ("IMPORTED" if ok else "PROBLEM") + "\n" + log
+
+
 def t_get_plan(a):
     f = pdir(str(a["project"])) / "project_plan.md"
     return f.read_text(encoding="utf-8") if f.exists() else "(no plan yet)"
@@ -596,6 +608,22 @@ TOOLS = [
     ("inventory", "Extract every editable string/image/link into the copy "
      "map. Auto-sets the old brand as a forbidden word for verify.",
      S(P, ["project"]), t_pipeline("inventory")),
+    ("figma_import",
+     "Import a FIGMA DESIGN as a page — a source, like a live Framer or "
+     "Webflow URL. NOT a screenshot-to-code guess: Figma's REST API "
+     "returns exact geometry, fills, effects and typography, so the "
+     "layout is copied, never inferred, and no vision model is "
+     "involved. Vectors and images are exported by Figma itself. Pass "
+     "grade=true to compare the result against Figma's OWN render, "
+     "pixel by pixel, and refuse it if it does not match. Needs a Figma "
+     "token (dev) or a connected Figma account (shipped).",
+     S({"project": {"type": "string"},
+        "url": {"type": "string", "description": "figma.com/design/... URL"},
+        "node": {"type": "string",
+                 "description": "optional frame id; default the largest frame"},
+        "grade": {"type": "boolean",
+                  "description": "pixel-compare against Figma's render"}},
+       ["project", "url"]), t_figma_import),
     ("convert_framework",
      "Port a BUILT migration into a framework project (astro | next | "
      "vite) that runs with no dependency on Framer or Webflow. 'next' "
