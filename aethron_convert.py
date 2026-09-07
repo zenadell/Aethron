@@ -2574,7 +2574,12 @@ def convert(project, framework="astro", pages=None, on_event=None,
     # is equally consistent with the recorder never having run. So it
     # is reported as a PROBLEM rather than passed over in silence, and
     # the caller is told which of the two it must check.
-    if total_ae == 0:
+    if total_ae == 0 and not keep_runtime:
+        # Only a problem on the path where entrance RECOVERY is the
+        # mechanism. With keep_runtime the original's own engine is
+        # carried instead, so zero recovered entrances is expected and
+        # warning about it would cry wolf on every port — which is how
+        # a check earns being ignored.
         say("warn",
             "NO ENTRANCE ANIMATIONS WERE RECOVERED. Either this design "
             "genuinely has none, or the recorder did not run — those "
