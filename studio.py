@@ -941,7 +941,11 @@ class Handler(BaseHTTPRequestHandler):
         if u.path in ("/login", "/api/auth/login", "/api/auth/signup",
                       "/api/auth/google", "/api/auth/google/start",
                       "/api/auth/google/poll", "/auth/callback",
-                      "/api/auth/session"):
+                      "/api/auth/session",
+                      # An error on the LOGIN page is still an error we
+                      # need to see; gating the report would hide
+                      # exactly the failures nobody can work around.
+                      "/api/clienterror"):
             return True
         s = self._session()
         if s:
@@ -1371,6 +1375,23 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path in ("/api/auth/login", "/api/auth/signup"):
                 return self.api_auth(u.path, body)
+            if u.path == "/api/clienterror":
+                # THE WINDOW HAS NO CONSOLE. A packaged desktop app
+                # gives the user no devtools and gives us no stderr, so
+                # a JavaScript error was previously invisible — it
+                # showed up only as a page that looked wrong. That is
+                # exactly how "the interface fell apart" kept arriving
+                # with no cause attached. Now it is written down.
+                #
+                # Handled BEFORE the login gate on purpose: an error on
+                # the login screen is the one nobody can work around.
+                try:
+                    _clog(f"JS  {str(body.get('msg',''))[:400]} | "
+                          f"project={body.get('project','')} | "
+                          f"{str(body.get('stack') or '')[:400]}")
+                except Exception:
+                    pass
+                return self.send_json({"ok": True})
             if u.path == "/api/auth/session":
                 # OAuth callback landed with an access token in the URL
                 # fragment; the callback page POSTs it here so we can
@@ -4758,6 +4779,75 @@ function renderChat(){
 }
 
 let RT=0; // render token: async renderers must not overwrite a newer tab
+/* A FAILURE BOUNDARY. Runs fn; if it throws, the error is REPORTED —
+   in the pane it belongs to and in the log — instead of silently
+   ending the render. An error the user can read is a bug report; an
+   error that deforms the layout is a mystery. */
+function guard(what, fn, host){
+  try{ return fn(); }
+  catch(e){
+    const msg=(e&&e.message)||String(e);
+    clientError(what+': '+msg, e&&e.stack);
+    if(host){
+      try{
+        host.innerHTML='<div class="pane"><h3>'+esc(what)
+          +' could not be drawn</h3>'
+          +'<div class="hint">'+esc(msg)+'</div>'
+          +'<div class="hint">The rest of Aethron is unaffected. '
+          +'This has been written to the log.</div></div>';
+      }catch(_){}
+    }
+    return null;
+  }
+}
+
+/* Errors used to be invisible: no console is open in a desktop window,
+   so a failure showed up only as a page that looked wrong. Now every
+   one of them is written where it can be read back. */
+function clientError(msg, stack){
+  try{
+    console.error(msg, stack||'');
+    fetch('/api/clienterror',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({msg:String(msg).slice(0,2000),
+                           stack:String(stack||'').slice(0,4000),
+                           where:location.hash||'',
+                           project:S&&S.cur||''})}).catch(()=>{});
+  }catch(_){}
+  try{ showErrBar(String(msg)); }catch(_){}
+}
+
+function showErrBar(msg){
+  let b=$('errbar');
+  if(!b){
+    b=document.createElement('div'); b.id='errbar';
+    b.style.cssText='position:fixed;left:50%;transform:translateX(-50%);'
+      +'bottom:18px;z-index:10000;max-width:min(720px,90vw);'
+      +'background:var(--panel);border:1px solid var(--line2);'
+      +'border-left:3px solid var(--acc);border-radius:var(--r-md);'
+      +'padding:10px 14px;font-size:12.5px;color:var(--tx);'
+      +'box-shadow:0 12px 34px rgba(0,0,0,.45);cursor:pointer';
+    b.onclick=()=>{openWork('logs');b.remove()};
+    document.body.appendChild(b);
+  }
+  b.innerHTML='<b>Something failed</b><div style="color:var(--dim);'
+    +'margin-top:3px">'+esc(msg).slice(0,220)
+    +'</div><div style="color:var(--lo);margin-top:4px">'
+    +'click to open the log</div>';
+  clearTimeout(b._t); b._t=setTimeout(()=>b.remove(), 14000);
+}
+
+// Nothing gets to fail quietly any more, including code no guard wraps.
+window.addEventListener('error', ev=>{
+  clientError(ev.message||'script error',
+              ev.error&&ev.error.stack||(ev.filename+':'+ev.lineno));
+});
+window.addEventListener('unhandledrejection', ev=>{
+  const r=ev.reason;
+  clientError('unhandled: '+((r&&r.message)||String(r)),
+              r&&r.stack||'');
+});
+
 function renderTab(){
   const c=$('content');
   if(S.view==='code')return renderCode(c);
@@ -4790,8 +4880,18 @@ function renderTab(){
                  <div class="workbody" id="workbody"></div></div>`;
   }
   const conv=$('conv'), work=$('workbody');
-  initGrip();
-  renderChatTab(conv);
+
+  // LAYOUT FIRST, AND UNCONDITIONALLY.
+  //
+  // These three classes are what position the panes. They used to sit
+  // BELOW the render calls, so any exception above them — a missing
+  // element, a bad panel, one undefined field — skipped all three and
+  // left the page with its content half-drawn and no layout at all.
+  // That is why "an error" and "the interface fell apart" kept being
+  // the same event: the renderer abandoned the layout on the way past.
+  //
+  // Nothing here can throw, so the page can no longer lose its shape,
+  // whatever fails afterwards.
   document.body.classList.toggle('split', !!S.panel);
   // WIDTH FOLLOWS WHAT IS IN THE PANE. A settings form is happy at 400px;
   // a website preview is not — squeezed to 38% with the edit dock open it
@@ -4799,15 +4899,21 @@ function renderTab(){
   // the whole work area and Done/Esc gives the conversation back.
   document.body.classList.toggle('wide', S.panel&&S.tab==='preview');
   document.body.classList.toggle('editing', !!(S.panel&&S.tab==='preview'&&S.editMode));
+
+  // Each part renders inside its own failure boundary. A broken panel
+  // is a broken PANEL — it says so, in place, and everything around it
+  // keeps working. Previously it took the whole screen with it.
+  guard('conversation', ()=>initGrip());
+  guard('conversation', ()=>renderChatTab(conv), conv);
   if(!S.panel)return;
   const NAMES={plan:'Settings',strings:'Strings',images:'Images',
                links:'Links',preview:'Preview',logs:'Logs'};
-  $('worktitle').textContent=NAMES[S.tab]||'';
-  if(S.tab==='plan')return renderPlan(work,t);
-  if(S.tab==='strings')return renderStrings(work);
-  if(S.tab==='images')return renderImages(work);
-  if(S.tab==='links')return renderLinks(work);
-  if(S.tab==='preview')return renderPreview(work,t);
+  const wt=$('worktitle'); if(wt)wt.textContent=NAMES[S.tab]||'';
+  if(S.tab==='plan')return guard('Settings',()=>renderPlan(work,t),work);
+  if(S.tab==='strings')return guard('Strings',()=>renderStrings(work),work);
+  if(S.tab==='images')return guard('Images',()=>renderImages(work),work);
+  if(S.tab==='links')return guard('Links',()=>renderLinks(work),work);
+  if(S.tab==='preview')return guard('Preview',()=>renderPreview(work,t),work);
   if(S.tab==='logs'){work.innerHTML=`<div id="logbox">${esc(S.log||'no output yet')}</div>`;
     $('logbox').scrollTop=1e9;return}
 }
