@@ -38,6 +38,10 @@ SUITES = [
     # per rule and proves it catches each.
     ("audit (does it catch a lying instrument?)",
      [PY, "aethron_audit.py", "--selftest"], False),
+    # Adversarial: tries to make the auditor ACCEPT a lie. Reports the
+    # holes it finds rather than asserting there are none.
+    ("adapt battery (can the auditor be fooled?)",
+     [PY, "tests/adapt_battery.py"], False),
     ("figma battery (design import + the pixel referee)",
      [PY, "tests/figma_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",

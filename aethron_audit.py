@@ -36,6 +36,24 @@ evidence that it did the work:
 PASS stops being a word a tool can simply emit. It becomes a claim with
 a burden of proof, and `audit()` refuses the ones that cannot carry it.
 
+KNOWN LIMIT, stated rather than hidden
+--------------------------------------
+tests/adapt_battery.py attacks these rules with verdicts crafted to
+slip past them. ELEVEN lies got through the first version and are now
+caught. ONE remains, and it is not fixable by rule:
+
+    Verdict(PASS, work={"files": 9}, evidence={"criteria_checked": 1})
+
+UNFALSIFIABLE only fires at zero criteria. One passes, and a check can
+always find exactly one trivial thing to look at. Whether a criterion
+is MEANINGFUL is not decidable from outside — nine files with one
+genuine criterion is a legitimate check — so a ratio heuristic would
+cry wolf on honest runs, and a warning that cries wolf gets ignored.
+
+It stays open, named, and printed by the battery. Quietly dropping the
+attack to reach a green number would be the exact failure this module
+exists to catch.
+
 WHAT THIS IS NOT
 ----------------
 It is not a model, and it does not guess. Every rule below is a
@@ -107,6 +125,67 @@ class Finding:
 # ─────────────────────────── the rules ───────────────────────────────
 # Each one is a real incident from this project, generalised.
 
+# Keys that measure the CLOCK, not the work. A hung process accrues
+# seconds while examining nothing, so time is never evidence of effort.
+TIME_KEYS = ("second", "ms", "millis", "duration", "elapsed", "time",
+             "took", "runtime")
+
+
+def _work_evidence(work):
+    """-> (positive_counts, why_not). What did this check actually do?
+
+    Hardened after an adversarial pass got ELEVEN lies past the first
+    version. Each clause below is one of them:
+      work={'files': 'many'}          a word is not a count
+      work={'files': 0, 'ok': 'yes'}  a string key hid an all-zero result
+      work={'files': -5}              impossible, and not zero
+      work={'seconds_elapsed': 12}    the clock is not the work
+    """
+    if not work:
+        return 0, "declared no work at all"
+    counts, bad, timeonly = 0, [], True
+    for k, v in work.items():
+        if not any(t in str(k).lower() for t in TIME_KEYS):
+            timeonly = False
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            bad.append(f"{k}={v!r} is not a number")
+            continue
+        if v != v or v in (float("inf"), float("-inf")):
+            bad.append(f"{k} is not a finite number")
+            continue
+        if v < 0:
+            bad.append(f"{k}={v:g} is negative, which counts nothing")
+            continue
+        counts += v
+    if bad:
+        return 0, "; ".join(bad[:3])
+    if timeonly:
+        return 0, ("only measures elapsed time — a process that hangs "
+                   "accrues seconds while examining nothing")
+    if counts <= 0:
+        return 0, "every count is zero"
+    return counts, ""
+
+
+def r_status(vs, ctx):
+    """A status the auditor does not recognise is audited by NOTHING.
+
+    'pass' (lowercase) and 'MOSTLY_OK' both slipped every rule in the
+    first version — a tool could define its way out of scrutiny simply
+    by spelling its own verdict."""
+    out = []
+    for v in vs:
+        if v.status not in (PASS, FAIL, SKIPPED):
+            out.append(Finding(
+                "UNKNOWN", v.check,
+                f"status {v.status!r} is not PASS, FAIL or SKIPPED, so "
+                f"no rule can judge it — an unrecognised verdict is "
+                f"audited by nothing",
+                "emit one of the three, exactly; a tool must not be "
+                "able to define its way out of being checked"))
+    return out
+
+
 def r_vacuous(vs, ctx):
     """PASS with no work done.
 
@@ -118,21 +197,15 @@ def r_vacuous(vs, ctx):
     for v in vs:
         if v.status != PASS:
             continue
-        if not v.work:
+        counts, why = _work_evidence(v.work)
+        if counts <= 0:
             out.append(Finding(
                 "VACUOUS", v.check,
-                "reported PASS but declared no work at all — there is no "
-                "evidence it examined anything",
-                "make the check report what it counted (files, pages, "
-                "pixels, requests); a PASS with no count is a SKIP"))
-        elif all((isinstance(n, (int, float)) and n == 0)
-                 for n in v.work.values()):
-            got = ", ".join(f"{k}=0" for k in v.work)
-            out.append(Finding(
-                "VACUOUS", v.check,
-                f"reported PASS having done nothing ({got})",
-                "this is SKIPPED, not PASS — report it honestly so the "
-                "gap is visible instead of assumed covered"))
+                f"reported PASS but {why} — there is no evidence it "
+                f"examined anything",
+                "report a POSITIVE COUNT of things actually examined "
+                "(files, pages, pixels, requests). A PASS that cannot "
+                "say what it counted is a SKIP."))
     return out
 
 
@@ -165,6 +238,38 @@ def r_silent(vs, ctx):
     return out
 
 
+def _norm_prop(name):
+    """template_remaining, templateRemaining and Template-Remaining are
+    one property. Two instruments must not escape comparison by
+    disagreeing about capitalisation."""
+    return re.sub(r"[^a-z0-9]", "", str(name).lower())
+
+
+def _as_number(val):
+    """-> float, or None if it is not a usable measurement.
+
+    Accepts '99%' and '0.55' because a tool reporting its number as
+    text is still reporting a number — the first version skipped every
+    string, so two instruments could contradict each other in words
+    and never be compared. Rejects NaN and infinities outright."""
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        f = float(val)
+    elif isinstance(val, str):
+        m = re.match(r"^\s*(-?\d+(?:\.\d+)?)\s*(%?)\s*$", val)
+        if not m:
+            return None
+        f = float(m.group(1))
+        if m.group(2):
+            f /= 100.0
+    else:
+        return None
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    return f
+
+
 def r_contradiction(vs, ctx):
     """Two instruments, one property, different answers.
 
@@ -176,8 +281,21 @@ def r_contradiction(vs, ctx):
     byprop = {}
     for v in vs:
         for prop, val in v.measures.items():
-            if isinstance(val, (int, float)):
-                byprop.setdefault(prop, []).append((v.check, float(val)))
+            num = _as_number(val)
+            if num is None:
+                if isinstance(val, float) and val != val:
+                    out.append(Finding(
+                        "IMPOSSIBLE", v.check,
+                        f"{prop!r} is NaN — not a measurement. NaN fails "
+                        f"every comparison silently, so it reads as "
+                        f"agreement with anything",
+                        "a check that cannot compute the number must "
+                        "report SKIPPED, not emit NaN"))
+                continue
+            # SAME QUANTITY, DIFFERENT SPELLING. An adversarial pass got
+            # 0.55 and 0.02 past this rule simply by naming one key
+            # template_remaining and the other templateRemaining.
+            byprop.setdefault(_norm_prop(prop), []).append((v.check, num))
     for prop, pairs in byprop.items():
         if len(pairs) < 2:
             continue
@@ -204,14 +322,28 @@ def r_impossible(vs, ctx):
     the physics it claims to measure."""
     out = []
     for v in vs:
-        for k, (val, lo, hi) in (v.evidence.get("__bounds__") or {}).items():
-            if val is None:
+        for k, bound in (v.evidence.get("__bounds__") or {}).items():
+            try:
+                val, lo, hi = bound
+            except Exception:
                 continue
-            if val < lo or val > hi:
+            num = _as_number(val)
+            if num is None:
+                # Declaring bounds and then reporting text is a way to
+                # look checked without being checked. (It also CRASHED
+                # the first version, which its own AUDITOR rule caught.)
                 out.append(Finding(
                     "IMPOSSIBLE", v.check,
-                    f"{k}={val:g} is outside the possible range "
-                    f"[{lo:g}, {hi:g}]",
+                    f"{k}={val!r} has declared bounds but is not a "
+                    f"number, so the bound tests nothing",
+                    "report the measurement as a number, or do not "
+                    "claim it is bounded"))
+                continue
+            if num < _as_number(lo) or num > _as_number(hi):
+                out.append(Finding(
+                    "IMPOSSIBLE", v.check,
+                    f"{k}={num:g} is outside the possible range "
+                    f"[{_as_number(lo):g}, {_as_number(hi):g}]",
                     "the instrument is broken, not the subject — fix the "
                     "measurement before believing any verdict from it"))
         ren = v.evidence.get("rendered_chars")
@@ -334,8 +466,28 @@ def r_unfalsifiable(vs, ctx):
     return out
 
 
-RULES = [r_vacuous, r_silent, r_contradiction, r_impossible,
-         r_stale, r_broken_baseline, r_inherited, r_unfalsifiable]
+def r_uncheckable(vs, ctx):
+    """A PASS that names no artifact cannot be tested for staleness.
+
+    Not a lie by itself — but omitting the field is how a verdict
+    becomes permanently unfalsifiable by the STALE rule, and that is
+    worth saying out loud rather than passing over."""
+    out = []
+    for v in vs:
+        if v.status == PASS and v.artifact is None:
+            out.append(Finding(
+                "UNCHECKABLE", v.check,
+                "passed without naming what it judged, so it can never "
+                "be caught measuring a stale artifact",
+                "record the artifact the verdict is about; a claim with "
+                "no subject cannot be checked against one",
+                severity="note"))
+    return out
+
+
+RULES = [r_vacuous, r_status, r_silent, r_contradiction, r_impossible,
+         r_stale, r_broken_baseline, r_inherited, r_unfalsifiable,
+         r_uncheckable]
 
 
 def audit(verdicts, ctx=None):
@@ -363,10 +515,19 @@ def trust(verdicts, ctx=None):
     SKIPPED, because 'not proven good' is the honest word for them."""
     findings = audit(verdicts, ctx)
     kill = {"VACUOUS", "SILENT", "UNFALSIFIABLE", "BASELINE", "STALE",
-            "MASKED", "IMPOSSIBLE"}
+            "MASKED", "IMPOSSIBLE", "UNKNOWN"}
     downgraded = sorted({f.check for f in findings if f.rule in kill})
-    return {"trustworthy": not findings,
+    # A NOTE IS INFORMATION, NOT A DISQUALIFICATION. trustworthy used to
+    # be `not findings`, so adding UNCHECKABLE — which fires on any PASS
+    # that names no artifact, i.e. most of them — instantly made every
+    # honest verdict untrustworthy. A rule that flags everything is a
+    # rule people learn to ignore, and this project has paid for that
+    # once already with the probe.
+    serious = [f for f in findings if f.severity != "note"]
+    return {"trustworthy": not serious,
             "findings": findings,
+            "serious": serious,
+            "notes": [f for f in findings if f.severity == "note"],
             "downgraded": downgraded}
 
 
@@ -460,7 +621,9 @@ def _selftest():
               + (f"   {detail}" if not cond and detail else ""))
 
     def rules_of(vs):
-        return {f.rule for f in audit(vs)}
+        """Serious findings only. Notes (UNCHECKABLE) are advice, and
+        counting them here would mean every clean case 'fails'."""
+        return {f.rule for f in audit(vs) if f.severity != "note"}
 
     print("── it catches a check that did nothing")
     c("PASS with no work is VACUOUS",

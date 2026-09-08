@@ -1773,6 +1773,60 @@ THE HARD PARTS, named now so they are not discovered late:
 DO NOT start this until the motion regression is closed and the
 self-heal work the owner asked for is finished.
 
+## I ATTACKED MY OWN AUDITOR AND IT LOST, 11 TO 1 — 2026-09-08
+The owner asked for the new work to be retested unprompted and harder.
+aethron_audit's selftest was 18/18 — which proves only that each rule
+fires on the example ITS AUTHOR IMAGINED. So tests/adapt_battery.py
+asks the opposite question: what does a lying instrument have to look
+like to get PAST it?
+
+FIRST RUN: 12 hostile verdicts, 1 caught, ELEVEN through.
+
+    work={"files": "many"}            a word is not a count
+    work={"files": 0, "status": "ok"} a string key hid an all-zero result
+    work={"files": -5}                impossible, and not zero
+    work={"seconds_elapsed": 12}      the clock is not the work
+    status "pass" (lowercase)         audited by NOTHING
+    status "MOSTLY_OK"                a tool defining its way out
+    template_remaining vs templateRemaining   never compared
+    measures {"identical": "99%"} vs "12%"    strings skipped
+    NaN                               fails every comparison silently
+    no artifact named                 can never be stale
+    bounds declared, value a string   CRASHED the rule
+
+The last one was caught only because the auditor is held to its own
+standard and reported its own crash. That guard earned its keep.
+
+ALL ELEVEN CLOSED: work must be a positive, finite, non-time COUNT;
+an unrecognised status is its own finding (UNKNOWN); measure names are
+normalised before comparison; numeric strings and percentages parse;
+NaN and infinities are IMPOSSIBLE; bounds with a non-numeric value are
+IMPOSSIBLE instead of a crash; a PASS naming no artifact is an
+UNCHECKABLE note.
+
+TWO FALSE GREENS IN MY OWN TESTS, both instructive:
+1. After the fixes the battery said 12/12. It was lying: the
+   trivial-criterion attack was "caught" by UNCHECKABLE — a rule with
+   nothing to do with it — because that verdict happened to name no
+   artifact. ONE RULE MASKING ANOTHER IS A FALSE GREEN. Every attack
+   now names a fresh artifact so only the rule under test can fire.
+   True score: 11 caught, 1 hole.
+2. Adding UNCHECKABLE broke three selftest checks, because
+   `trustworthy` was `not findings` and UNCHECKABLE fires on almost
+   every honest verdict. A rule that flags everything is a rule people
+   learn to ignore — the probe taught this once already. Notes are now
+   separated from disqualifying findings.
+
+THE ONE HOLE LEFT, open on purpose:
+    Verdict(PASS, work={"files": 9}, evidence={"criteria_checked": 1})
+UNFALSIFIABLE only fires at zero criteria, and whether a criterion is
+MEANINGFUL is not decidable from outside — nine files with one genuine
+criterion is a legitimate check. A ratio heuristic would cry wolf on
+honest runs. It stays named and printed rather than papered over.
+
+LESSON, general: a suite that only asserts things work will one day
+report a broken product as healthy. Write the adversarial half.
+
 ## Invariants (do not break)\n\n## Invariants (do not break)
 
 ## Invariants (do not break)
