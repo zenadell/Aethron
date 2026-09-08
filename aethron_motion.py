@@ -344,6 +344,54 @@ ENTRANCE_JS = r"""
   }
   function num(v) { return typeof v === 'number' ? Math.round(v * 100) / 100
                                                  : v; }
+
+  // A STAMPED ID NAMES AN ELEMENT IN A DOCUMENT NOBODY KEEPS.
+  //
+  // data-ae-id is written into the CAPTURE. A carried-runtime port
+  // ships the SSR html instead, so every id lookup returned null and
+  // 141 measured animations found nothing to play — the port shipped
+  // 496 parked elements and no motion at all.
+  //
+  // So record WHERE the element is as well as what it is called:
+  // the nearest ancestor carrying framer-* classes (which survive
+  // hydration and are how the rest of this tool addresses elements),
+  // plus a child-index path down from that anchor. Per-character
+  // spans carry no classes of their own, which is exactly why the
+  // class-only selectorOf used by the continuous pass is not enough
+  // here.
+  function classSel(el) {
+    var raw = el.className;
+    var cls = String(raw && raw.baseVal !== undefined ? raw.baseVal
+                                                      : (raw || ''));
+    var f = cls.split(/\s+/).filter(function (c) {
+      return /^framer-[A-Za-z0-9]{4,}$/.test(c);
+    });
+    if (f.length) return '.' + f.join('.');
+    var n = el.getAttribute && el.getAttribute('data-framer-name');
+    if (n) return '[data-framer-name="' + n.replace(/"/g, '\\"') + '"]';
+    return '';
+  }
+  function pathOf(el) {
+    var steps = [], node = el, guard = 0;
+    while (node && node.nodeType === 1 && guard++ < 12) {
+      var sel = classSel(node);
+      if (sel) {
+        // Only trust an anchor that is unambiguous in the document.
+        try {
+          if (document.querySelectorAll(sel).length === 1)
+            return steps.length ? sel + ' > ' + steps.join(' > ') : sel;
+        } catch (e) { }
+      }
+      var parent = node.parentElement;
+      if (!parent) break;
+      var i = 1, sib = node;
+      while ((sib = sib.previousElementSibling)) i++;
+      steps.unshift('*:nth-child(' + i + ')');
+      node = parent;
+    }
+    return '';
+  }
+
   function collect() {
     var list;
     try { list = document.getAnimations(); } catch (e) { return; }
@@ -396,7 +444,8 @@ ENTRANCE_JS = r"""
       } catch (e) { }
       if (own) (out.owned = out.owned || {})[own] = 1;
       out.anims.push({
-        id: id, props: props, duration: num(t.duration),
+        id: id, path: pathOf(eff.target),
+        props: props, duration: num(t.duration),
         delay: num(t.delay), easing: t.easing,
         iterations: t.iterations === Infinity ? 'infinite' : t.iterations,
         direction: t.direction, fill: t.fill, frames: frames,

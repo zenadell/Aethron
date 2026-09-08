@@ -1594,7 +1594,52 @@ data and no runtime of ours; and the keep_runtime capture branch set
 data-ae attributes 0 -> 496, `__ae_entrance` absent -> present, content
 unchanged at 100% identical / 26-26 headings / 152-152 images.
 
-## THE REAL BLOCKER: element identity does not survive keep_runtime
+## IDENTITY FIXED, ENTRANCE STILL WRONG — measured 2026-09-08
+The named blocker below is CLOSED. The runtime now reports on itself
+(<html data-ae-stats>), which turned a ten-minute regenerate-and-guess
+cycle into one number:
+
+    {"anims":141,"byId":0,"byPath":127,"lost":14,"noframes":0,
+     "held":27,"parked":49,"played":49,"engineFired":0}
+
+  byId 0      every stamped id still fails — the diagnosis was right
+  byPath 127  the structural-path fallback RESOLVES them
+  played 49   49 elements parked and animated
+  h1          all 10 characters carry data-ae-done: our runtime ran
+
+WHAT WAS ADDED: the recorder emits `path` per animation — nearest
+ancestor with framer-* classes (verified document-unique) plus an
+nth-child chain, since per-character spans carry no classes of their
+own and the class-only selectorOf used by the continuous pass cannot
+reach them. compress_entrance carries it as "p"; the runtime tries the
+id first and falls back to the path, accepting it only when it matches
+exactly one element.
+
+STILL RED, and honestly so. The animation RUNS but from a pose that is
+already visible. Dumped after load, a character reads
+
+    transform: translateY(10px); filter: blur(0px); opacity: 1;
+
+translateY(10px) is the PARKED transform while opacity is already 1 and
+blur already 0 — a mixed state, so a viewer sees no entrance. The
+battery's "nothing is visible at the start" is reporting exactly that
+and it is correct to fail.
+
+NEXT, and it is a narrow question now: parkRecorded saves `was` = the
+element's CURRENT inline style and then writes frame[0] over it;
+playRecorded restores `was` and animates. On a carried-runtime port the
+SSR html ALREADY carries Framer's parked pose inline, so `was` is
+itself a parked pose and the restore puts back a half-parked state
+while the engine has meanwhile set opacity to 1. Suspect the interaction
+between the carried inline parked styles and our park/restore pair.
+Read the actual values at each step before changing anything — three
+regenerate cycles were spent this session on hypotheses that measuring
+would have settled in one.
+
+DO NOT relax the battery to reach green. Green today would mean the
+suite stopped noticing an entrance a user does not see.
+
+## (closed) THE REAL BLOCKER: element identity does not survive keep_runtime
 ## — measured 2026-09-08, supersedes the "gates" diagnosis below
 The four motion checks are still red and the cause is now MEASURED,
 not inferred, and it is not the gates.

@@ -282,6 +282,10 @@ def compress_entrance(ent: dict) -> dict:
             index[key] = len(shapes)
             shapes.append(shape)
         out.append({"i": a["id"], "s": index[key], "d": a.get("delay") or 0,
+                    # p = where the element IS, not just what it was
+                    # called. The id names a node in the capture; a
+                    # carried-runtime port ships a different document.
+                    **({"p": a["path"]} if a.get("path") else {}),
                     **({"a": 1} if a.get("appear") else {})})
     return {"shapes": shapes, "anims": out, "meta": ent.get("meta") or {}}
 
@@ -963,25 +967,58 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
       try { entry.el.animate(a.frames, timingOf(a)); } catch (e) { }
     });
     entry.el.dataset.aeDone = '1';
+    try { STATS.played++; stat(); } catch (e) { }
   }
 
   // The recording ships as a shape table plus one row per element; a
   // staggered entrance is six curves, not two hundred copies of six.
   function expand(r) {
     var s = (REC.shapes || [])[r.s] || {};
-    return { id: r.i, delay: r.d || 0, appear: !!r.a, frames: s.frames || [],
+    return { id: r.i, path: r.p || '', delay: r.d || 0, appear: !!r.a,
+           frames: s.frames || [],
              duration: s.duration || 0, easing: s.easing,
              iterations: s.iterations, direction: s.direction };
   }
+  // THE RUNTIME REPORTS ON ITSELF.
+  //
+  // Diagnosing why motion did not play has cost several ten-minute
+  // regenerate cycles and a browser probe per question, because the
+  // runtime is an IIFE and says nothing. It now writes its own tally to
+  // <html data-ae-stats>, readable in devtools or by any test, which is
+  // the same principle the probe applies to the site: a number nobody
+  // can read is not a measurement.
+  var STATS = { anims: 0, byId: 0, byPath: 0, lost: 0, noframes: 0,
+                held: 0, parked: 0, played: 0, engineFired: 0 };
+  function stat() {
+    try {
+      STATS.engineFired = ENGINE_FIRED ? 1 : 0;
+      document.documentElement.dataset.aeStats = JSON.stringify(STATS);
+    } catch (e) { }
+  }
+
   (REC.anims || []).map(expand).forEach(function (a) {
+    STATS.anims++;
+    // ID FIRST, THEN WHERE IT IS. The stamped id exists only in the
+    // document the recorder ran against; a carried-runtime port ships
+    // the SSR html, so every lookup used to return null and the whole
+    // recording — 141 measured animations — played nothing.
     var el = document.querySelector('[data-ae-id="' + a.id + '"]');
-    if (!el || !a.frames.length) return;
+    if (el) STATS.byId++;
+    if (!el && a.path) {
+      try {
+        var hits = document.querySelectorAll(a.path);
+        if (hits.length === 1) { el = hits[0]; STATS.byPath++; }
+      } catch (e) { }
+    }
+    if (!el) { STATS.lost++; return; }
+    if (!a.frames.length) { STATS.noframes++; return; }
     // When the original engine came across it owns its own elements;
     // two systems animating one element fight over the same style.
     // That principle is right — but it is a LOAN, not a gift. Hold the
     // recording aside; if the engine turns out never to fire, we play
     // it ourselves rather than leave the entrance dead.
     if (ENGINE && a.appear) {
+      STATS.held++;
       (engineOwned[a.id] = engineOwned[a.id] || { el: el, list: [] })
         .list.push(a);
       return;
@@ -996,8 +1033,10 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
   });
   Object.keys(recorded).forEach(function (id) {
     parkRecorded(recorded[id]);
+    STATS.parked++;
     recPending.push(recorded[id]);
   });
+  stat();
 
   var traced = [];
   Object.keys(TL.entries || {}).forEach(function (id) {
