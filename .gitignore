@@ -22,7 +22,6 @@ build/
 dist/
 
 # local dev context (agent session memory + harness config) — not product code
-CLAUDE.md
 .claude/
 
 # baked cloud keys (per-developer, never committed)
@@ -35,3 +34,5 @@ aethron_keys.json
 # login sessions (holds access tokens — never commit)
 .sessions.json
 .aethron-release-key
+# AETHRON.md is TRACKED on purpose — it is the project's memory
+# and one careless overwrite already cost 105KB of it.
