@@ -302,6 +302,38 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
   // handles only the remainder: recovered blur/transform states that
   // belong to no spec.
   var ENGINE = (typeof animator !== 'undefined');
+
+  // PRESENCE IS NOT FUNCTION.
+  //
+  // ENGINE only asks whether Framer's appear engine OBJECT exists. In a
+  // carried-runtime port it does exist, and it does not animate: 496
+  // elements shipped parked, the engine revealed them instantly, and
+  // all three of our mechanisms had switched themselves off in
+  // deference to it. Measured: 0 animations across 10 characters.
+  //
+  // So watch for the engine actually doing something. Polling starts
+  // NOW rather than at wire time, because entrances are short-lived —
+  // the recorder learned the same lesson: look early and accumulate,
+  // or you see an empty stage and conclude the play was cancelled.
+  var ENGINE_FIRED = false;
+  var engineOwned = {};
+  if (ENGINE) {
+    (function watchEngine(started) {
+      try {
+        if (document.getAnimations) {
+          var live = document.getAnimations();
+          for (var i = 0; i < live.length; i++) {
+            var t = live[i].effect && live[i].effect.target;
+            if (t && t.hasAttribute && t.hasAttribute('data-framer-appear-id')) {
+              ENGINE_FIRED = true; break;
+            }
+          }
+        }
+      } catch (e) { }
+      if (!ENGINE_FIRED && Date.now() - started < 1200)
+        setTimeout(function () { watchEngine(started); }, 40);
+    })(Date.now());
+  }
   var specTag = document.getElementById('__ae_anim');
   var SPEC = specTag ? JSON.parse(specTag.textContent) : { anims: {}, breakpoints: [] };
   var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -946,7 +978,14 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     if (!el || !a.frames.length) return;
     // When the original engine came across it owns its own elements;
     // two systems animating one element fight over the same style.
-    if (ENGINE && a.appear) return;
+    // That principle is right — but it is a LOAN, not a gift. Hold the
+    // recording aside; if the engine turns out never to fire, we play
+    // it ourselves rather than leave the entrance dead.
+    if (ENGINE && a.appear) {
+      (engineOwned[a.id] = engineOwned[a.id] || { el: el, list: [] })
+        .list.push(a);
+      return;
+    }
     if (a.iterations === 'infinite') {
       // marquees do not wait for anything and never end
       try { el.animate(a.frames, timingOf(a)); } catch (e) { }
@@ -1041,6 +1080,33 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     pending.forEach(function (x) { io.observe(x.el); });
     traced.forEach(function (x) { if (!x.el.dataset.aeDone) io.observe(x.el); });
     generic.forEach(function (el) { if (!el.dataset.aeDone) io.observe(el); });
+
+    // ARBITRATION, NOT ANOTHER GATE.
+    //
+    // Everything above deferred to the carried engine. Now check
+    // whether that deference was earned. Two systems cannot fight over
+    // one element if the second only acts where the first did nothing —
+    // so this fires ONLY when the watcher never once saw the engine
+    // animate an appear element.
+    //
+    // The window is generous on purpose. Being late is a slightly
+    // doubled entrance; being early is a dead one, and a dead entrance
+    // is what shipped.
+    setTimeout(function () {
+      var ids = Object.keys(engineOwned);
+      if (!ids.length) return;
+      if (ENGINE_FIRED) return;          // it works — hands off
+      ids.forEach(function (id) {
+        var entry = engineOwned[id];
+        if (!entry.el || entry.el.dataset.aeDone) return;
+        try {
+          parkRecorded(entry);
+          var r = entry.el.getBoundingClientRect();
+          if (r.top < innerHeight && r.bottom > -1) playRecorded(entry);
+          else { recPending.push(entry); io.observe(entry.el); }
+        } catch (e) { }
+      });
+    }, 1300);
 
     // THE CONTENT GUARANTEE. Motion is second; content is first.
     // Whatever parks an element — our runtime, a recording, or the
