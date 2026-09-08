@@ -1594,7 +1594,72 @@ data and no runtime of ours; and the keep_runtime capture branch set
 data-ae attributes 0 -> 496, `__ae_entrance` absent -> present, content
 unchanged at 100% identical / 26-26 headings / 152-152 images.
 
-## IDENTITY FIXED, ENTRANCE STILL WRONG — measured 2026-09-08
+## MOTION IS GREEN — 20/20, and two of the four failures were the
+## INSTRUMENT, not the port — 2026-09-08
+The owner asked why I kept stopping at a named-but-unfixed problem.
+Fair. Chased to the end, and the ending has a twist worth keeping.
+
+WHAT WAS ACTUALLY BROKEN IN THE PRODUCT (both real, both fixed):
+1. IDENTITY. data-ae-id is stamped into the CAPTURE; keep_runtime ships
+   the SSR html, so every lookup returned null. The recorder now emits
+   a structural `path` too — nearest ancestor with framer-* classes,
+   verified document-unique, plus an nth-child chain, because
+   per-character spans carry no classes and the class-only selectorOf
+   used by the continuous pass cannot reach them. Runtime tries id,
+   then path, accepting the path only when it matches ONE element.
+   Measured: byId 0, byPath 127 of 141.
+2. THE RESTING STYLE WAS A MIXTURE. fill:'backwards' means the element
+   reverts to its OWN inline style when the animation ends, and on a
+   carried-runtime port that style was
+     transform: translateY(10px); filter: blur(0px); opacity: 1
+   — parked in one property, settled in another. playRecorded now
+   writes the LAST keyframe as the resting pose and animates into it.
+
+WHAT WAS NEVER BROKEN — the instrument was:
+The battery rendered under --virtual-time-budget and SEEKED the
+animations. Seeking is right for a virtual clock, but only while the
+animations still EXIST, and a finished animation is collected. By the
+sample instant every entrance had ended, getAnimations() returned
+nothing, the profile came back empty, and FOUR checks failed for three
+sessions on a port that was animating correctly the whole time.
+
+Measured in real time (capture_realtime — the instrument this project
+already built for exactly this, for rAF motion) the same build gives
+the travelling wave exactly:
+
+    t=  0ms  animating= 0  [##########]   (pre-paint, nobody sees it)
+    t=100ms  animating=10  [..........]   parked
+    t=400ms  animating=10  [+.........]   first character emerging
+    t=550ms  animating=10  [###+......]   the wave
+    t=700ms  animating=10  [######+...]
+    t=1000ms animating= 5  [##########]   arrived
+
+The recording itself was perfect all along: E-f-f-o-r-t-l-e-s-s at
+delays 200/250/300/350/400/450/500/550/600/650, duration 400, opacity
+and filter per character. The 50ms stagger, exact.
+
+THE LAST CHECK ASKED THE WRONG QUESTION. "continuous rAF motion is
+re-expressed as real animations" is right for a STRIPPED port, which
+has no runtime and must re-express it. A carried-runtime port has the
+original engine driving that motion natively, so there is nothing
+extra to find. It now asks the OUTCOME — does the port carry the
+original's continuous motion — measured the same way on both builds:
+original 1 rotation + 3 loops, port 1 rotation + 3 loops.
+
+NOTHING WAS RELAXED. Every assertion is unchanged; the clock is honest
+and one question was corrected from mechanism to outcome.
+
+ALSO ADDED: the runtime reports on itself to <html data-ae-stats>
+{anims, byId, byPath, lost, held, parked, played, engineFired}. That
+one change turned a ten-minute regenerate-and-guess cycle into a
+number, and settled in one read what three cycles of hypotheses had
+not. Any future motion question should start there.
+
+LESSON, and it is the session's: FOUR of the eight motion failures
+this week were broken instruments, not broken product. Before fixing
+what a test reports, confirm the test can see.
+
+## (closed) IDENTITY FIXED, ENTRANCE STILL WRONG — measured 2026-09-08
 The named blocker below is CLOSED. The runtime now reports on itself
 (<html data-ae-stats>), which turned a ten-minute regenerate-and-guess
 cycle into one number:

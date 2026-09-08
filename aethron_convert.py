@@ -959,10 +959,34 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     entry.el.style.transform = w.transform;
     entry.el.style.filter = w.filter;
   }
+  function settleRecorded(entry) {
+    // THE RESTING STYLE MUST BE THE ANIMATION'S END STATE.
+    //
+    // fill:'backwards' shows frame[0] during the delay and then, once
+    // the animation finishes, the element reverts to its OWN inline
+    // style. So whatever that style holds is what a viewer is left
+    // looking at — and on a carried-runtime port it is a MIXED pose:
+    // the SSR html ships Framer's parked transform inline, the carried
+    // engine sets opacity to 1 without animating, and the element ends
+    // up at
+    //     transform: translateY(10px); filter: blur(0px); opacity: 1
+    // — parked in one property, settled in another. Restoring that put
+    // the mixture back, so there was no entrance to see: the character
+    // was already visible and merely offset.
+    //
+    // The last keyframe IS the settled pose, measured from the
+    // original. Write it, and the element rests where the animation
+    // was going rather than wherever the page happened to leave it.
+    entry.list.forEach(function (a) {
+      var f = a.frames[a.frames.length - 1] || {};
+      if (f.opacity !== undefined) entry.el.style.opacity = f.opacity;
+      if (f.transform !== undefined) entry.el.style.transform = f.transform;
+      if (f.filter !== undefined) entry.el.style.filter = f.filter;
+    });
+  }
   function playRecorded(entry) {
-    // Put the carried values back first, or the animation would finish
-    // and revert straight into the parked pose it just came out of.
-    restoreRecorded(entry);
+    // Rest at the END pose, then animate INTO it from the start pose.
+    settleRecorded(entry);
     entry.list.forEach(function (a) {
       try { entry.el.animate(a.frames, timingOf(a)); } catch (e) { }
     });
@@ -1037,6 +1061,27 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     recPending.push(recorded[id]);
   });
   stat();
+
+  // RE-PARK, BECAUSE THE CARRIED ENGINE UN-PARKS WITHOUT ANIMATING.
+  //
+  // Measured in real time: at t=0 every character reads opacity 1, and
+  // only from t=100ms are they parked and animating. The SSR ships them
+  // parked at 0.001 — so something reveals them between parse and our
+  // first pass, and that something is the carried appear engine doing
+  // the one thing it still does: making elements visible without
+  // playing their entrance.
+  //
+  // A viewer therefore saw the finished text flash, vanish, and then
+  // animate in. Parking once is not enough when another system is
+  // un-parking behind you, so hold the parked pose across the first
+  // few frames until our own animation has taken over.
+  (function holdParked(n) {
+    if (n <= 0) return;
+    recPending.forEach(function (e) {
+      if (!e.el.dataset.aeDone) parkRecorded(e);
+    });
+    requestAnimationFrame(function () { holdParked(n - 1); });
+  })(6);
 
   var traced = [];
   Object.keys(TL.entries || {}).forEach(function (id) {
