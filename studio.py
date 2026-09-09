@@ -1146,6 +1146,61 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+            elif u.path == "/api/update/just-updated":
+                # DID THE APP JUST REPLACE ITSELF? The swap happens in
+                # the OLD process; the new one boots with no memory of
+                # it, so a successful self-update looks exactly like an
+                # ordinary launch and the user is left wondering whether
+                # anything happened. The updater leaves a note; this
+                # reads it ONCE and deletes it, so the banner shows on
+                # the first launch after an update and never again.
+                #
+                # TWO SIGNALS, because the first one CANNOT WORK on the
+                # update that introduces it. The marker is written by
+                # the updater — and the updater that runs is the OLD
+                # version's, which knows nothing about it. Relying on it
+                # alone would mean the banner never appears on the one
+                # update where it was asked for, and only from the next
+                # one onward. So there is also a version stamp written
+                # on every launch, and the transition itself is evidence:
+                # a HOME that has clearly been used before but carries no
+                # stamp is a HOME whose app was just replaced by one that
+                # keeps stamps. A genuinely fresh install has no history
+                # to mistake, and stamps itself silently on first run.
+                mark = HOME / ".last-update.json"
+                stampf = HOME / ".last-run.json"
+                ver = getattr(updater, "VERSION", "") if updater else ""
+                out, prev, had_stamp = {"updated": False}, "", False
+                try:
+                    if stampf.is_file():
+                        had_stamp = True
+                        prev = str(json.loads(stampf.read_text(
+                            encoding="utf-8")).get("version") or "")
+                except Exception:
+                    pass
+                try:
+                    if mark.is_file():                    # exact, when present
+                        d = json.loads(mark.read_text(encoding="utf-8"))
+                        out = {"updated": True,
+                               "version": str(d.get("version") or ver),
+                               "from": str(d.get("from") or prev)}
+                        mark.unlink()
+                    elif had_stamp and prev and prev != ver:
+                        out = {"updated": True, "version": ver, "from": prev}
+                    elif not had_stamp and any(
+                            (HOME / n).exists() for n in
+                            ("projects", "library", "aethron_config.json")):
+                        # used before, never stamped => just replaced
+                        out = {"updated": True, "version": ver, "from": ""}
+                except Exception:
+                    pass
+                try:
+                    HOME.mkdir(parents=True, exist_ok=True)
+                    stampf.write_text(json.dumps({"version": ver}),
+                                      encoding="utf-8")
+                except Exception:
+                    pass
+                self.send_json(out)
             elif u.path == "/api/update/check":
                 # Never blocks the UI on a network call it cannot
                 # control: a failed check reports why and the app
@@ -1441,7 +1496,7 @@ class Handler(BaseHTTPRequestHandler):
                             append(f"downloading {pct}%")
 
                     append("checking for a newer build")
-                    r = updater.update(progress=progress)
+                    r = updater.update(progress=progress, note=append)
                     if not r.get("ok"):
                         append(f"update failed: {r.get('why', 'unknown')}")
                         append("your current app is untouched")
@@ -4064,6 +4119,19 @@ function togglePanel(){
    what stops a second copy appearing) and relaunches. */
 let UPD=null;
 async function checkUpdate(){
+  /* Confirm the last update BEFORE asking about the next one. The
+     restart is the one moment the user is watching, and until now it
+     landed in silence — same window, same everything, no way to tell
+     the new build from the old one. */
+  try{
+    const done=await api('/api/update/just-updated');
+    if(done&&done.updated){
+      updPill('<b>Aethron updated</b><div style="color:var(--dim);'
+        +'margin-top:3px">now running '+esc(done.version||'')
+        +(done.from?' — was '+esc(done.from):'')+'</div>'+updBar(100));
+      setTimeout(()=>{ const p=$('updpill'); if(p)p.remove(); },7000);
+    }
+  }catch(e){}
   try{ UPD=await api('/api/update/check'); }catch(e){ return }
   if(UPD&&UPD.available)renderHeader();
 }
@@ -4083,9 +4151,34 @@ function updPill(html){
   return p;
 }
 function updBar(pct){
+  /* pct===null means WORKING, LENGTH UNKNOWN. Unpacking a 43MB bundle,
+     verifying its signature and swapping it are not instant and report
+     no percentage, so the honest bar for them is a moving stripe. The
+     alternatives are both lies: freeze at 100% (looks wedged, and the
+     first update read exactly that way) or drop back to 0% (looks like
+     the download was thrown away). */
+  if(pct===null){
+    if(!$('updkf')){ const s=document.createElement('style'); s.id='updkf';
+      s.textContent='@keyframes updslide{0%{left:-40%}100%{left:100%}}';
+      document.head.appendChild(s); }
+    return '<div style="height:4px;border-radius:3px;background:var(--field);'
+      +'margin-top:8px;overflow:hidden;position:relative"><div style="'
+      +'position:absolute;top:0;height:100%;width:40%;background:var(--acc);'
+      +'animation:updslide 1.1s var(--eo) infinite"></div></div>';
+  }
   return '<div style="height:4px;border-radius:3px;background:var(--field);'
     +'margin-top:8px;overflow:hidden"><div style="height:100%;width:'+pct
     +'%;background:var(--acc);transition:width .3s var(--eo)"></div></div>';
+}
+/* The updater names its phase; the bar shape follows from the name.
+   Anything unrecognised is treated as work-in-progress rather than as
+   0% — a new phase added later must never read as "nothing happened". */
+function updPct(line){
+  const m=line.match(/(\d+)%/);
+  if(m)return +m[1];
+  if(/restarting/i.test(line))return 100;
+  if(/checking for/i.test(line))return 0;
+  return null;
 }
 async function applyUpdate(){
   updPill('<b>Updating Aethron</b><div style="color:var(--dim);'
@@ -4102,10 +4195,9 @@ async function applyUpdate(){
         try{ j=await api('/api/job?id='+r.job); }
         catch(e){ break; }   // server exited under us = it restarted
         const line=(j.log||'').trim().split('\n').pop()||'';
-        const m=line.match(/(\d+)%/);
         updPill('<b>Updating Aethron</b><div style="color:var(--dim);'
           +'margin-top:3px">'+esc(line||'working…')+'</div>'
-          +updBar(m?+m[1]:0));
+          +updBar(updPct(line)));
       }while(!j.done);
     }
   }catch(e){

@@ -42,7 +42,7 @@ from pathlib import Path
 
 # Bump this when cutting a release; the tag on GitHub must match
 # (with or without a leading "v").
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 
 REPO = os.environ.get("AETHRON_UPDATE_REPO", "zenadell/Aethron")
 GITHUB_FEED = f"https://api.github.com/repos/{REPO}/releases/latest"
@@ -253,9 +253,21 @@ def _runnable(app: Path) -> bool:
     return False
 
 
-def stage(url, into: Path, timeout=180, progress=None) -> Path:
+def stage(url, into: Path, timeout=180, progress=None, note=None) -> Path:
     """Download + unzip into `into`. -> the extracted .app. Raises on
-    anything that would leave us with something unusable."""
+    anything that would leave us with something unusable.
+
+    `note(text)` names the phase. The download reports a percentage and
+    everything after it used to report NOTHING — so the bar sat at 100%
+    through the unpack, the signature check and the swap, which on a
+    43 MB bundle is a long silent stare at a finished-looking progress
+    bar. Those phases are not instant and the user is entitled to know
+    the app is still working rather than wedged.
+    """
+    def say(t):
+        if note:
+            note(t)
+
     into.mkdir(parents=True, exist_ok=True)
     zpath = into / "download.zip"
     req = urllib.request.Request(url, headers={
@@ -272,6 +284,7 @@ def stage(url, into: Path, timeout=180, progress=None) -> Path:
             got += len(chunk)
             if progress and total:
                 progress(got / total)
+    say("unpacking the download")
     _extract(zpath, into)
     zpath.unlink(missing_ok=True)
 
@@ -279,6 +292,7 @@ def stage(url, into: Path, timeout=180, progress=None) -> Path:
     if not apps:
         raise ValueError("the download did not contain a usable app")
     app = sorted(apps, key=lambda p: len(p.parts))[0]
+    say("checking the signature")
     if not _runnable(app):
         raise ValueError("the downloaded app is not launchable "
                          "(damaged signature) — keeping the current one")
@@ -334,8 +348,17 @@ def relaunch(app: Path):
         subprocess.Popen([str(app)], start_new_session=True)
 
 
-def update(progress=None) -> dict:
-    """check -> stage -> apply. -> {ok, version, path} | {ok:False, why}"""
+def update(progress=None, note=None) -> dict:
+    """check -> stage -> apply. -> {ok, version, path} | {ok:False, why}
+
+    `note(text)` names each phase so the caller can show what is
+    happening. Without it the whole install after the download is
+    silent — see stage()'s docstring for why that matters.
+    """
+    def say(t):
+        if note:
+            note(t)
+
     info = check()
     if not info.get("available"):
         return {"ok": False, "why": info.get("why", "no update available")}
@@ -344,8 +367,23 @@ def update(progress=None) -> dict:
         return {"ok": False, "why": "not running as a packaged app"}
     tmp = Path(tempfile.mkdtemp(prefix="aethron-update-"))
     try:
-        newapp = stage(info["url"], tmp, progress=progress)
+        newapp = stage(info["url"], tmp, progress=progress, note=note)
+        say("installing the new version")
         installed = apply(newapp, cur)
+        # WHAT JUST HAPPENED, LEFT WHERE THE NEXT PROCESS CAN READ IT.
+        # apply() runs in the OLD app and the new one starts with no
+        # memory of having been updated, so without this the restart is
+        # indistinguishable from an ordinary launch. Written to the
+        # writable data dir, never into the bundle (which is replaced).
+        try:
+            home = Path(os.environ.get("AETHRON_HOME", "")).expanduser()
+            if str(home):
+                home.mkdir(parents=True, exist_ok=True)
+                (home / ".last-update.json").write_text(json.dumps({
+                    "version": info["latest"], "from": VERSION}),
+                    encoding="utf-8")
+        except Exception:
+            pass                      # a missing banner is not a failure
         return {"ok": True, "version": info["latest"],
                 "path": str(installed)}
     except Exception as e:
