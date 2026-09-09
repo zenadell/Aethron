@@ -46,6 +46,12 @@ SUITES = [
      [PY, "tests/figma_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
+    # Adversarial: builds sites that are obviously broken to a human and
+    # asks whether the probe hands them over as healthy. It did, eight
+    # times out of nine, because it measured the HTML string instead of
+    # the screen.
+    ("probe adversary (can a blank page pass as healthy?)",
+     [PY, "tests/probe_adversary.py"], True),
     ("motion battery (does the PORT actually move)",
      [PY, "tests/motion_battery.py"], True),
     ("healer battery (deterministic -> agent -> checks decide)",
@@ -67,7 +73,7 @@ LIMIT = 900
 
 def main():
     quick = "--quick" in sys.argv
-    rows, failed = [], 0
+    rows, failed, unproven = [], 0, 0
     for name, cmd, slow in SUITES:
         if quick and slow:
             rows.append((name, "skipped", 0))
@@ -85,8 +91,27 @@ def main():
             ok = False
         dt = time.time() - t
         tail = out.strip().splitlines()
+        # A SUITE THAT DID NOT RUN IS NOT A SUITE THAT PASSED.
+        #
+        # The rule is written in this repo's invariants and the HARNESS
+        # was breaking it: the motion battery reported
+        # "VERDICT: SKIPPED — the built port is STALE" and exited 0,
+        # because refusing to grade stale output is correct behaviour,
+        # not an error. This table then printed PASS and the last line
+        # said ALL GREEN, so twelve checks that never executed read as
+        # twelve checks that succeeded. Exit code is not a verdict; the
+        # verdict is a verdict.
+        skipped = any(l.strip().startswith(("VERDICT: SKIPPED", "SKIPPED"))
+                      for l in tail)
         summary = next((l for l in reversed(tail) if "green" in l
                         or "ok" in l.lower() or "FAIL" in l), "")
+        if skipped:
+            why = next((l.strip() for l in tail
+                        if "SKIPPED" in l), "reason not given")
+            note = why.split("SKIPPED", 1)[-1].lstrip(" —-:")
+            rows.append((name, ("SKIP  " + note)[:78], dt))
+            unproven += 1
+            continue
         failed += not ok
         rows.append((name, ("PASS  " + summary.strip())[:78] if ok
                      else ("FAIL  " + "\n".join(tail[-12:]))[:1200], dt))
@@ -94,7 +119,13 @@ def main():
     for name, res, dt in rows:
         print(f"{name:52} {dt:5.1f}s  {res}")
     print("=" * 70)
-    print("ALL GREEN" if not failed else f"{failed} suite(s) failed")
+    if failed:
+        print(f"{failed} suite(s) failed")
+    elif unproven:
+        print(f"NOT ALL GREEN — {unproven} suite(s) SKIPPED and are "
+              f"UNVERIFIED (not proven good, not proven bad)")
+    else:
+        print("ALL GREEN")
     return 1 if failed else 0
 
 

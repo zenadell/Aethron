@@ -52,6 +52,136 @@ WATCHED = ("transform", "opacity", "filter", "backdropFilter", "color",
            "clipPath", "borderRadius", "width", "height", "left", "top",
            "letterSpacing", "strokeDashoffset", "maskPosition")
 
+# ── what a READER can actually see ───────────────────────────────────
+#
+# The probe's text measurement is a regex over the dumped HTML, so it
+# counts characters that are in the document whether or not any of them
+# reach a human eye. Every one of these renders a blank screen and used
+# to pass as healthy:
+#
+#     body{opacity:0}                     transparent
+#     h1,p{display:none}                  present, not laid out
+#     h1,p{position:absolute;left:-9e4px} laid out, off screen
+#     <div hidden>…lots of text…</div>    a full count from a hidden node
+#
+# So ask the browser instead. This walks the text nodes and keeps only
+# the ones with a painted box on the page, then reports what it kept.
+#
+# THE HAZARD, and it is the one this project keeps walking into: Framer
+# parks entrance elements at opacity 0.001 until the appear engine runs,
+# and under --virtual-time-budget that engine may never run. A naive
+# "is it painted?" check would therefore condemn every healthy Framer
+# site. So the script also counts what is PARKED — elements that are
+# invisible but carry an appear id or a live animation — and the caller
+# treats a page whose invisibility is entirely explained by pending
+# motion as unproven rather than broken. An instrument that cries wolf
+# gets ignored, which costs more than the check was ever worth.
+VISIBLE_JS = r"""
+(function () {
+ function measure() {
+  function box(el) {
+    try { var r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0 ? r : null; } catch (e) { return null; }
+  }
+  // On screen at all: the document scrolls, so judge against the page,
+  // not the viewport. left:-99999px is out; below the fold is not.
+  function onPage(r) {
+    var W = Math.max(document.documentElement.scrollWidth, 1);
+    var H = Math.max(document.documentElement.scrollHeight, 1);
+    var x = r.left + window.scrollX, y = r.top + window.scrollY;
+    return x + r.width > 0 && x < W + 200 && y + r.height > 0 && y < H + 200;
+  }
+  var parked = 0;
+  // Does this page animate things IN at all? Measured once, for the
+  // whole document, because the parking style and the appear id are not
+  // on the same element: agero's blog parks 164 nodes at opacity 0.001
+  // while carrying 9 appear ids on their ancestors. Asking each hidden
+  // element whether IT is the animated one credited 306 chars of 863
+  // and failed a page that is perfectly healthy.
+  var hasAppear = false;
+  try {
+    hasAppear = !!document.querySelector(
+      '[data-framer-appear-id],[data-ae],[data-framer-appear-animation]');
+  } catch (e) {}
+  function hidden(el) {
+    // Walks up: opacity and visibility inherit their EFFECT even when
+    // the property does not, so a transparent ancestor hides its whole
+    // subtree however opaque the child declares itself.
+    var n = el, pend = false;
+    while (n && n.nodeType === 1) {
+      var s;
+      try { s = getComputedStyle(n); } catch (e) { return {hide: false}; }
+      if (!s) break;
+      if (s.display === 'none' || s.visibility === 'hidden' ||
+          s.visibility === 'collapse') return {hide: true, pending: false};
+      if (parseFloat(s.opacity) < 0.05) {
+        // parked by motion, or genuinely invisible?
+        var live = false;
+        try { live = n.getAnimations && n.getAnimations().length > 0; }
+        catch (e) {}
+        if (live || hasAppear || n.hasAttribute('data-framer-appear-id') ||
+            n.hasAttribute('data-ae')) pend = true;
+        return {hide: true, pending: pend};
+      }
+      n = n.parentElement;
+    }
+    return {hide: false, pending: false};
+  }
+  var seen = 0, painted = 0;
+  try {
+    var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    var t;
+    while ((t = w.nextNode())) {
+      var s = (t.nodeValue || '').replace(/\s+/g, ' ').trim();
+      if (!s) continue;
+      var el = t.parentElement;
+      if (!el) continue;
+      var tag = el.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' ||
+          tag === 'TEMPLATE' || tag === 'TITLE') continue;
+      seen += s.length;
+      var h = hidden(el);
+      if (h.hide) { if (h.pending) parked += s.length; continue; }
+      var r = box(el);
+      if (!r || !onPage(r)) continue;
+      painted += s.length;
+    }
+  } catch (e) {}
+  // Images: declared vs actually decoded. An <img> inside a transparent
+  // parent still loads, so this is not confused by parked motion — it
+  // is the honest way to see a dead CDN the request log never records,
+  // because the browser fetched it from someone else's server.
+  var imgs = 0, ok = 0, broke = [];
+  try {
+    var list = document.images || [];
+    for (var i = 0; i < list.length; i++) {
+      var im = list[i];
+      if (!im.getAttribute('src')) continue;
+      imgs++;
+      if (im.complete && im.naturalWidth > 0) ok++;
+      else if (broke.length < 8) broke.push(im.currentSrc || im.src);
+    }
+  } catch (e) {}
+  var out = {text_seen: seen, text_painted: painted, text_parked: parked,
+             appear: hasAppear,
+             images: imgs, images_loaded: ok, images_broken: broke};
+  try {
+    var n = document.createElement('script');
+    n.type = 'application/json';
+    n.id = '__ae_visible';
+    n.textContent = JSON.stringify(out);
+    document.documentElement.appendChild(n);
+  } catch (e) {}
+ }
+ // It rides in before </body>, which is mid-parse: images are still
+ // arriving and layout is not final, so measuring there would report a
+ // healthy page as empty. Wait for load, then one beat more.
+ if (document.readyState === 'complete') setTimeout(measure, 60);
+ else window.addEventListener('load', function () { setTimeout(measure, 60); });
+})();
+"""
+
+
 CAPTURE_JS = """
 (function () {
   var W = %(watched)s;
@@ -127,13 +257,20 @@ CAPTURE_JS = """
 """
 
 
-def _injecting_handler(site: Path, platform: str, script: str):
+def _injecting_handler(site: Path, platform: str, script: str,
+                       on_request=None):
     """Serve the site with the capture script injected before </body>.
 
     Headless Chrome's --dump-dom cannot run our own JS, but it WILL run
     the page's. So the measurement rides in with the page and leaves its
-    results in a DOM node, which the dump then hands back."""
-    base = forge._site_handler(site, platform, quiet=True)
+    results in a DOM node, which the dump then hands back.
+
+    `on_request` is forwarded because the probe needs BOTH readings from
+    one page load: what the browser asked us for (its request log) and
+    what the page could see of itself. Injecting used to cost the caller
+    the request log, which is the one signal no screenshot provides."""
+    base = forge._site_handler(site, platform, on_request=on_request,
+                               quiet=True)
 
     class H(base):
         def send_head(self):

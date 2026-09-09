@@ -1937,7 +1937,203 @@ honest runs. It stays named and printed rather than papered over.
 LESSON, general: a suite that only asserts things work will one day
 report a broken product as healthy. Write the adversarial half.
 
-## Invariants (do not break)\n\n## Invariants (do not break)
+## "ARE YOU SURE?" — NO. THE SHIPPED APP HAD NONE OF IT — 2026-09-08
+The owner asked whether everything tested today works "in all
+ramification". The honest answer was no, and the first proof took one
+command: `/Applications/Aethron.app` was built Sep 6 and its command
+list had no `audit` and no `figma` at all. Every green this week was
+green in DEV. A user launching Aethron would have got none of it.
+That is the project's own STALE rule, met in the wild for the second
+time. Rebuilt; the bundle now carries all 14 modules, 81 symlinks,
+valid signature, and `audit`/`figma` in the frozen command surface.
+
+TWO FALSE ALARMS I RAISED AND WITHDREW, both worth remembering as
+method rather than as facts:
+1. "Five modules are missing from hiddenimports." They are not.
+   PyInstaller walks bytecode and DOES find function-level imports —
+   proved by reading the old bundle's PYZ, which contained
+   aethron_healer/agent/bridge/rebrand though none are declared.
+2. "grep says the bundle contains nothing." The PYZ is zlib-compressed,
+   so grep can never find a module name in it — the same instrument
+   reported `aethron_convert` ABSENT while it was demonstrably there.
+   A negative result from an instrument that cannot see is not
+   evidence. Use PyInstaller's own CArchiveReader/ZlibArchiveReader.
+
+THE NEXT EMITTER HAD NEVER COMPILED, FOR ANY FRAMER TEMPLATE
+`forge convert <project> --framework react` ran eleven pages of perfect
+capture (366 entrances recovered on one page alone), then died. Framer
+names the root of every page `Page`, and the emitter adopted the
+authored section name as the React identifier verbatim:
+
+    import Page from '../components/about/01-Page';
+    export default function Page() {          // ← conflicts
+
+Type error, build fails, every time. `astro` survived only by luck —
+a .astro file declares no `Page` function — while sharing the same
+flaw for duplicate names, reserved words and non-identifiers.
+Fixed in one place: `comp_ident(i, sec)` DERIVES the identifier
+(`Sec01Page`) instead of adopting it, keeping the authored name for the
+file and the comment. Adopting a name from the template means the
+template gets to decide whether the port compiles.
+
+AND NOBODY COULD SEE IT, WHICH IS THE REAL BUG. convert() put the
+toolchain's error in res["log"] and cmd_convert printed only
+"NOT ACCEPTED: <dir>". Ten minutes of work reported as a shrug. It now
+prints the stage and the last 25 lines of what npm actually said. This
+is the third reporting-blindness bug in this file's history; the
+pattern is always the same — the diagnosis was collected and then not
+shown.
+
+WHAT THE COMPILING NEXT PORT THEN REVEALED — and it was announced as
+"PIXEL-PERFECT PORT READY":
+
+    text 93% identical, headings 26/26, images 65/153
+
+Sixty-five of a hundred and fifty-three. The referee's verdict was
+`sim >= 0.90 and not missing and not leaks` — images were COUNTED,
+printed, and never judged, so more than half the pictures could vanish
+without touching the grade. Fixed: a port rendering under 90% of the
+original's images now FAILS with the count named. The bar is 90%
+because it has to pass a genuinely faithful port, and the measured one
+does — astro renders 152 of 153 on this same template.
+
+WHERE THE 88 IMAGES GO, measured not guessed: both emitters put 120
+`<img>` in their source AND 120 in their built HTML. Astro then renders
+152 (the runtime adds more); Next renders 65 — fewer than it shipped.
+So the emitter is fine and React is DISCARDING nodes during hydration.
+Not chased further this session. `astro` remains the proven target
+(100% identical, 26/26, 152/153); `next`/`react` now compiles and is
+correctly REFUSED by the referee instead of being advertised.
+
+## I ATTACKED THE PROBE AND IT LOST, 8 TO 1 — 2026-09-08
+Same method as the auditor, aimed at the check everything else rests
+on. tests/probe_adversary.py builds sites a human would call obviously
+broken and asks whether the probe hands them over as healthy.
+
+FIRST RUN: 9 hostile sites, ONE caught, EIGHT through.
+
+    body{opacity:0}                       CLEAN
+    h1,p{display:none}                    CLEAN
+    white text on white                   CLEAN
+    position:absolute;left:-99999px       CLEAN
+    a hidden div supplying the whole count CLEAN
+    every <img> dead on a third-party CDN CLEAN
+    window.onerror swallowing the failure CLEAN
+
+ONE CAUSE for five of them: `_visible_text` is a REGEX OVER THE DUMPED
+HTML. It counts characters that are in the document whether or not any
+of them reach an eye. The probe's own name for itself — the thing that
+knows what a BROWSER does — was never true of its main measurement.
+
+THE FIX: ask the browser. `aethron_motion.VISIBLE_JS` rides in on the
+existing `_injecting_handler` (which now forwards `on_request`, so the
+request log survives injection), walks the text nodes, keeps only those
+with a painted box on the page, and reports painted vs present plus
+images declared vs actually decoded. 8 holes -> 3, and the dead-CDN
+case is now caught by the only signal that can see it: an image on
+someone else's server never appears in OUR request log, but the browser
+still knows it failed to decode.
+
+THE FALSE POSITIVE THAT ALMOST SHIPPED, and it is the recurring one:
+the first version FAILED agero's blog.html — 863 chars present, 7
+painted. The page is healthy. Framer parks entrance elements at
+opacity 0.001 and under `--virtual-time-budget` the appear engine never
+runs, so a paint check condemns every animated Framer page. Worse, my
+first parked-detection asked each hidden element whether IT carried the
+appear id: blog.html parks 164 nodes while carrying 9 appear ids on
+their ancestors, so it credited 306 chars of 863 and failed anyway.
+Now the document is asked ONCE whether it animates content in, and a
+page whose invisibility is explained by pending motion is reported
+UNPROVEN, not broken.
+
+    A CHECK THAT CANNOT RUN REPORTS SKIPPED, NEVER PASS — and this is
+    the other half of that rule, which was never written down: it must
+    not report FAIL either. Unproven is not broken.
+
+THREE HOLES LEFT, NAMED IN THE SUITE rather than papered over, each
+with the reason it stays: white-on-white (contrast is a different
+discipline and the obvious rule fails real designs constantly);
+"all images gone" (the plain probe has no baseline — a page with no
+images is not damaged; `probe --against` owns that comparison and
+already refuses ports over it); swallowed console errors (every
+production error reporter returns true from window.onerror; the paint
+measurement and the request log are the signals that do not depend on
+the page's cooperation). The battery FAILS on any hole that is not
+one of these three — that is the regression contract.
+
+STILL OPEN, and named rather than discovered later: `probe --against`
+(the port referee) compares RENDERED TEXT between two builds and both
+sides are measured the blind way, so a port that ships its text
+invisible would still grade 100% identical. Extending the paint
+measurement to the comparison is the obvious next step and is not
+free — under the virtual clock BOTH builds' entrances are unplayed, so
+a naive painted-vs-painted diff would be noise. The honest version
+needs the real-time capture the project already owns
+(`capture_realtime`), applied to both sides.
+
+## THE ENTRANCE WAS A FLASH, AND 20/20 HAD BEEN LUCK — 2026-09-08
+Regenerating the port dropped the motion battery to 18/20 on two checks
+that had been green: "nothing is visible at the start" and "opacity
+never travels backwards". Stable across runs, so not flakiness. The
+profile said it plainly:
+
+    frame 0  [##########]  opacity 1 on all ten characters
+    frame 1  [..........]  0.001 — parked
+    frame 3  [++........]  the wave begins
+
+The port stores each parked pose in `data-ae` and applies it in JS,
+and the runtime ships as `<script defer>` at the END of the body.
+Defer means after parsing, which is normally after the first paint —
+so the browser painted the finished heading, the runtime then HID it,
+and the entrance played from a state the reader had already seen. A
+flash of the answer before the animation that reveals it.
+
+This was never a regression. It has always been possible and the
+double-rAF usually beat the paint; the 20/20 in the previous session
+was that race going the right way. A check that only passes when the
+machine is fast is not a passing check.
+
+NOT FIXED BY BAKING THE POSE INTO THE INLINE STYLE. That kills the
+flash and creates something far worse: if the runtime never runs, the
+content is invisible permanently. That guarantee is deliberate and is
+not traded away.
+
+WHAT SHIPPED: `PARK_TAG`, an inline script in the HEAD, installs
+`[data-ae]{opacity:0!important}` before the first paint; `wire()`
+removes it once every element carries its own parked pose (while it is
+up, its !important would outrank the animation about to run); and a
+4-second timer removes it regardless, so if the runtime never arrives
+the failure mode is the flash we started with — never a blank page.
+Added in convert() rather than in each emitter, and only for pages that
+actually carry `data-ae`: a page with nothing to park has nothing to
+hide, and installing a blank-screen rule for no reason is a risk taken
+for nothing.
+
+Astro regrades 100% identical, 26/26 headings, 152/153 images, and the
+motion battery is 20/20 — earned this time rather than raced. That
+"everything has arrived by the end" still passes is also the proof the
+blanket comes off: opacity could not reach 1 with the rule still up.
+
+## AND THE HARNESS ITSELF WAS DOING IT — 2026-09-08
+tests/run_all.py printed `motion battery … PASS` for a run whose own
+last line read:
+
+    VERDICT: SKIPPED — the built port is STALE. dist/ was built at
+    15:57:55 but aethron_convert.py changed at 21:32:03.
+
+Refusing to grade stale output is correct, so the suite exits 0; the
+harness turned that 0 into PASS and then into ALL GREEN. Twelve checks
+that never executed were reported as twelve checks that succeeded —
+in the runner for a project whose central invariant is that a check
+which cannot run reports SKIPPED, never PASS. aethron_healer.py:96 had
+already written the rule down ("AN EXIT CODE IS NOT A VERDICT") and the
+runner was the one place not obeying it.
+
+run_all now reads the verdict rather than the exit code: SKIPPED suites
+print SKIP with their reason and the footer says NOT ALL GREEN — n
+suite(s) UNVERIFIED. Exit status is unchanged (a skip is not a
+failure), because the point is not to punish the skip, it is to stop
+the word GREEN from covering it.
 
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every

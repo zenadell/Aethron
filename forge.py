@@ -3959,6 +3959,25 @@ def _visible_text(html: str) -> str:
     return re.sub(r"\s+", " ", html_mod.unescape(t)).strip()
 
 
+def _visible_reading(dom: str):
+    """The page's own report of what it painted, or None if absent.
+
+    None is not zero and must never be read as one: a missing reading
+    means the measurement did not run (no injection, a page that threw
+    before load, a handler that fell back), and a check that cannot run
+    reports SKIPPED, never PASS — and never FAIL either.
+    """
+    m = re.search(r'<script[^>]+id="__ae_visible"[^>]*>(.*?)</script>',
+                  dom or "", re.S)
+    if not m:
+        return None
+    try:
+        d = json.loads(m.group(1))
+    except Exception:
+        return None
+    return d if isinstance(d, dict) else None
+
+
 def _console_messages(log: str) -> list:
     """[(message, source_url)] from Chrome's stderr, de-duplicated."""
     out, seen = [], set()
@@ -4274,7 +4293,19 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
                        and _normalise_live(h.lower()) not in body_n]
             imgs = len(re.findall(r"<img\b", got["dom"]))
             leaks = _platform_refs(got["dom"])
-            ok = sim >= 0.90 and not missing and not leaks
+            # IMAGES WERE COUNTED AND NEVER JUDGED. The Next emitter
+            # rendered 65 of the original's 153 and the tool announced
+            # "PIXEL-PERFECT PORT READY", because the verdict was text,
+            # headings and ownership only. More than half the pictures
+            # missing is not a rounding error and no reader would call
+            # that page the same page.
+            #
+            # The bar is 90% because it has to tolerate a genuinely
+            # faithful port, and the measured one does: astro renders
+            # 152 of 153 on this same template. 65 is damage.
+            n_mine = int(mine.get("images", 0) or 0)
+            lost_imgs = n_mine >= 10 and imgs < 0.9 * n_mine
+            ok = sim >= 0.90 and not missing and not leaks and not lost_imgs
             print(("PASS " if ok else "FAIL ")
                   + f"{page or '/'}: text {int(sim * 100)}% identical, "
                     f"headings {len(h_theirs)}/{len(h_mine)}, "
@@ -4283,6 +4314,10 @@ def _compare_against(root: Path, target: str, results: list, budget: int):
                      if animated else ""))
             if missing:
                 print(f"       missing heading(s): {missing[:3]}")
+            if lost_imgs:
+                print(f"       {n_mine - imgs} of {n_mine} image(s) are "
+                      f"NOT RENDERED by this build — the text can match "
+                      f"while the page looks nothing like the original.")
             if sim < 0.90:
                 # SHOW WHERE THEY DIVERGE. The referee computes the score
                 # from both texts and then prints only the number, so
@@ -4377,8 +4412,21 @@ def cmd_probe(args):
         with lock:
             requests.append((path, status))
 
-    H = _site_handler(site, cfg.get("platform", "static"),
-                      on_request=record, quiet=True)
+    # Serve the site with a reader's-eye measurement riding along. It
+    # answers the question a character count cannot: is any of this text
+    # actually PAINTED? Eight deliberately broken sites — transparent,
+    # display:none, shoved off screen, images all dead — passed as
+    # CLEAN before this, because the old measurement read the HTML
+    # string and the HTML was perfect in every one of them.
+    try:
+        import aethron_motion as _motion
+        H = _motion._injecting_handler(site, cfg.get("platform", "static"),
+                                       _motion.VISIBLE_JS, on_request=record)
+    except Exception:
+        # The probe still works without it; it just sees less. Say so
+        # rather than pretend, when the reading turns out to be missing.
+        H = _site_handler(site, cfg.get("platform", "static"),
+                          on_request=record, quiet=True)
     srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -4409,6 +4457,7 @@ def cmd_probe(args):
             with lock:
                 reqs = list(requests)
             dom_text = _visible_text(got["dom"])
+            vis = _visible_reading(got["dom"])
             # A favicon the SITE asks for is the site's problem; one only
             # the browser asks for is not. The question is whether the
             # page references THAT PATH — not whether it links some icon.
@@ -4474,6 +4523,13 @@ def cmd_probe(args):
                      console_errors=hard[:20], console_notes=soft[:10],
                      runtime="ok" if got["dom"] else "failed",
                      error=got["error"])
+            # Carried into the report, not just printed: the healer and
+            # the studio read this file, and "the text is present but
+            # nothing is painted" is exactly the kind of evidence an
+            # agent needs and can never recover from a PASS/FAIL line.
+            # None means the measurement did not run — kept distinct
+            # from zero, which would read as "nothing was visible".
+            r["visible"] = vis
 
             if got["error"] or not got["dom"]:
                 print(f"FAIL could not render: {got['error'] or 'empty DOM'}")
@@ -4489,6 +4545,60 @@ def cmd_probe(args):
             # little that is: webflow-demo's about.html is 116 chars in
             # the source and 116 on screen, and was failed for "the page
             # ships but shows nothing" while showing all of it.
+            # ── IS ANY OF IT PAINTED? ─────────────────────────────────
+            # Runs before the character checks because a page that is in
+            # the DOM and not on the screen would otherwise be praised
+            # for the size of its text.
+            if vis is not None:
+                seen_t = int(vis.get("text_seen") or 0)
+                paint_t = int(vis.get("text_painted") or 0)
+                park_t = int(vis.get("text_parked") or 0)
+                n_img = int(vis.get("images") or 0)
+                n_ok = int(vis.get("images_loaded") or 0)
+                if seen_t >= 200 and paint_t < 120:
+                    if park_t >= 0.5 * seen_t or vis.get("appear"):
+                        # Framer parks entrances at opacity 0.001 and the
+                        # headless virtual clock may never let the appear
+                        # engine run, so the page reads as invisible while
+                        # being perfectly healthy — measured on agero's
+                        # blog.html, 164 nodes parked at 0.001.
+                        #
+                        # UNPROVEN IS NOT BROKEN. The rule this project
+                        # already lives by — a check that cannot run
+                        # reports SKIPPED, never PASS — cuts both ways:
+                        # it must not report FAIL either.
+                        print(f"NOTE visibility UNPROVEN: {paint_t} of "
+                              f"{seen_t} chars painted, but this page "
+                              f"animates content in and the entrance had "
+                              f"not played when measured. Not evidence of "
+                              f"damage; open the page to be sure.")
+                        notes += 1
+                    else:
+                        print(f"FAIL the text is in the DOM but NOT ON "
+                              f"SCREEN: {seen_t} chars present, {paint_t} "
+                              f"painted — a reader sees a blank page "
+                              f"(transparent, display:none, or positioned "
+                              f"out of the document)")
+                        fails += 1
+                if n_img and n_ok == 0:
+                    print(f"FAIL every image is broken: {n_img} declared, "
+                          f"0 decoded"
+                          + (f" — e.g. {vis['images_broken'][0]}"
+                             if vis.get("images_broken") else ""))
+                    fails += 1
+                elif n_img and n_ok < n_img:
+                    miss = n_img - n_ok
+                    print(f"{'FAIL' if miss > 0.25 * n_img else 'NOTE'} "
+                          f"{miss} of {n_img} image(s) did not load"
+                          + (f" — e.g. {vis['images_broken'][0]}"
+                             if vis.get("images_broken") else "")
+                          + " (a third-party host the request log never "
+                            "sees)")
+                    if miss > 0.25 * n_img:
+                        fails += 1
+                    else:
+                        notes += 1
+
             faithful = ssr and len(dom_text) >= 0.9 * len(ssr)
             if len(dom_text) < 120 and not faithful:
                 print(f"FAIL renders BLANK ({len(dom_text)} chars of text "
@@ -5361,6 +5471,20 @@ def cmd_convert(argv):
     print()
     if not res.get("ok"):
         print("NOT ACCEPTED: " + str(res.get("dir") or res.get("out") or ""))
+        # SAY WHY. convert() already collected the toolchain's own words
+        # into res["log"] and nothing printed them, so a failed install
+        # or a build that would not compile reached the owner as a single
+        # line naming a directory — ten minutes of work reported as a
+        # shrug. The Next emitter shipped a guaranteed type error for
+        # every Framer template and this is why nobody could see it.
+        stage = res.get("stage")
+        if stage:
+            print(f"       it failed at: {stage}")
+        log = (res.get("log") or "").strip()
+        if log:
+            print("       what the toolchain said:")
+            for ln in log.splitlines()[-25:]:
+                print("       | " + ln)
     elif gaps:
         print("CONTENT IDENTICAL, MOTION INCOMPLETE: "
               + str(res.get("out") or ""))

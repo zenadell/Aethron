@@ -1291,10 +1291,56 @@ MOTION_JS = r"""// Aethron motion — replayed from the original's OWN animation
     // element at once.
     if (scrollTracks.length)
       addEventListener('resize', applyScroll, { passive: true });
+
+    // THE BLANKET COMES OFF LAST. The head script hid every [data-ae]
+    // element before the first paint so the page could not flash its
+    // finished state; by here each one carries its own parked pose, so
+    // the blanket has nothing left to do and must go — while it is up,
+    // its !important would outrank the animation we are about to run.
+    var blanket = document.getElementById('__ae_park');
+    if (blanket && blanket.parentNode) blanket.parentNode.removeChild(blanket);
   }
   requestAnimationFrame(function () { requestAnimationFrame(wire); });
   setTimeout(wire, 150);
 })();
+"""
+
+# PARKED BEFORE THE FIRST PAINT, OR THE ENTRANCE IS A FLASH.
+#
+# The port stores each element's parked pose in `data-ae` and applies it
+# in JS, and the runtime ships as `<script defer>` at the end of the
+# body. Defer means after parsing, which is usually after the first
+# paint — so the browser paints the heading FULLY VISIBLE, the runtime
+# then hides it, and the entrance plays from a state the reader has
+# already seen. Measured on agero: the first painted frame reads
+# opacity 1 across all ten characters, then 0.001, then the wave.
+#
+# Baking the pose into the inline style instead would fix the flash and
+# break something worse: if the runtime never runs, the content is
+# invisible for good. That guarantee is deliberate and is not being
+# traded away.
+#
+# So: hide them with a rule installed BEFORE the first paint, and take
+# the rule away the moment each element has its own parked pose. If the
+# runtime never arrives, a timer removes the rule anyway — the failure
+# mode is the flash we started with, never a blank page.
+PARK_TAG = """
+<script>
+(function () {
+  try {
+    var d = document, s = d.createElement('style');
+    s.id = '__ae_park';
+    s.textContent = '[data-ae]{opacity:0!important}';
+    (d.head || d.documentElement).appendChild(s);
+    // CONTENT GUARANTEE: nothing this script does may outlive the
+    // runtime that is supposed to undo it.
+    setTimeout(function () {
+      var n = d.getElementById('__ae_park');
+      if (n && n.parentNode) n.parentNode.removeChild(n);
+    }, 4000);
+  } catch (e) {}
+})();
+</script>
 """
 # An animation's PARKED START, never the design.
 #
@@ -2026,6 +2072,34 @@ def to_jsx(html: str) -> str:
 
 # ─────────────────────────── emitters ────────────────────────────────
 
+def comp_ident(i: int, sec: str) -> str:
+    """A component identifier that CANNOT collide.
+
+    The authored section name is kept for the file name and the comment,
+    because a human navigating the port wants to read `01-Hero.tsx`. The
+    IDENTIFIER, though, is derived rather than adopted: the index makes
+    it unique within the page (two sections may legitimately share a
+    name), the `Sec` prefix keeps it clear of JS reserved words and of
+    the identifiers the emitted files define themselves, and the
+    sanitising makes it valid whatever the designer typed in Framer —
+    spaces, digits, hyphens and non-ASCII all appear in real
+    `data-framer-name` values.
+
+    That collision is not exotic. `Page` is what Framer calls the root
+    of EVERY page, so `import Page` sat beside
+    `export default function Page()` in every Next port ever emitted:
+    a build that could not compile, reported to the user as one line
+    naming a directory.
+
+    Deriving is the whole point. Adopting a name from the template means
+    the template gets to decide whether the port compiles.
+    """
+    base = re.sub(r"[^A-Za-z0-9]+", " ", sec or "").title().replace(" ", "")
+    if not base:
+        base = "Section"
+    return f"Sec{i:02d}{base}"
+
+
 def emit_astro(dest: Path, pages: dict, name: str):
     """Astro is a superset of HTML and `set:html` writes markup out
     verbatim, so the built page is what we carried in — but split into
@@ -2061,12 +2135,13 @@ def emit_astro(dest: Path, pages: dict, name: str):
         imports, uses = [], []
         for i, (sec, html) in enumerate(parts, 1):
             comp = f"{i:02d}-{sec}"
+            ident = comp_ident(i, sec)
             _w(dest / f"src/components/{r}/{comp}.astro",
                f"---\n// {sec} — from {page}. Edit this markup directly.\n"
                f"---\n" + astro_markup(clean_urls(html)) + "\n")
-            imports.append(f"import {sec} from "
+            imports.append(f"import {ident} from "
                            f"'../components/{r}/{comp}.astro';")
-            uses.append(f"    <{sec} />")
+            uses.append(f"    <{ident} />")
         nl = chr(10)
         _w(dest / f"src/pages/{r}.astro", f"""---
 // {page} — {len(parts)} section(s), each its own component.
@@ -2162,16 +2237,17 @@ def emit_next(dest: Path, pages: dict, name: str):
         imports = []
         for i, (sec, html) in enumerate(parts, 1):
             comp = f"{i:02d}-{sec}"
+            ident = comp_ident(i, sec)
             _w(dest / f"app/components/{r}/{comp}.tsx",
                f"// {sec} — carried from the original build, as JSX.\n"
-               f"export default function {sec}() {{\n  return (<>\n"
+               f"export default function {ident}() {{\n  return (<>\n"
                f"{to_jsx(html)}\n  </>);\n}}\n")
-            imports.append(f"import {sec} from "
+            imports.append(f"import {ident} from "
                            f"'../components/{r}/{comp}';"
                            if r != "index" else
-                           f"import {sec} from './components/{r}/{comp}';")
+                           f"import {ident} from './components/{r}/{comp}';")
             shell = shell.replace(f"<ae-slot-{i}></ae-slot-{i}>",
-                                  f"<{sec} />")
+                                  f"<{ident} />")
         nl = chr(10)
         page_dir = "app" if r == "index" else f"app/{r}"
         _w(dest / f"{page_dir}/page.tsx", f"""// {page} — {len(parts)} section(s), each its own component.
@@ -2714,6 +2790,15 @@ def convert(project, framework="astro", pages=None, on_event=None,
             else:
                 say("page", f"  no wheel-driven motion "
                             f"({wh.get('reason')})")
+
+    # Park before the first paint. Done here rather than in each emitter
+    # so all three inherit it from one place, and only for pages that
+    # actually carry recovered entrance poses — a page with nothing to
+    # park has nothing to hide, and installing the rule anyway would be
+    # a blank-screen risk taken for no reason at all.
+    for _pg, _doc in docs.items():
+        if "data-ae=" in (_doc.get("body") or ""):
+            _doc["head"] = (_doc.get("head") or "") + PARK_TAG
 
     say("stage", f"emitting {framework}")
     EMITTERS[framework](dest, docs, cfg.get("name", "site"))
