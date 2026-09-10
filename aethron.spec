@@ -27,6 +27,13 @@ a = Analysis(
     datas=_datas,
     hiddenimports=[
         "forge", "studio", "aethron_cloud",
+        # THE AGENT'S TOOLS. Spawned as a SUBPROCESS entry point
+        # (`Aethron --mcp`), not merely imported, so it must be in the
+        # archive or the migration agent starts with no mcp__aethron__*
+        # tools at all — which is exactly what shipped: a console agent
+        # instructed to call create_project/fetch/inventory, holding
+        # none of them, offering to hand-rewrite the site instead.
+        "forge_mcp",
         # THE PORTER. Absent from the bundle until 2026-09-06, so the
         # shipped app could not convert at all — `forge convert` would
         # have died on the import inside a frozen build while working

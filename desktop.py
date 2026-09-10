@@ -79,9 +79,40 @@ def run_forge_mode(args):
     sys.exit(0)
 
 
+def run_mcp_mode():
+    """`Aethron --mcp` — BE the MCP server, over stdio.
+
+    THE BUG THIS EXISTS FOR. The coding agent is handed Aethron's own
+    tools through an --mcp-config that spawns `sys.executable
+    <path>/forge_mcp.py`. In development that path is a real file. In the
+    packaged app forge_mcp.py is inside the compiled archive, not on
+    disk, so `FORGE_MCP.exists()` was False, no --mcp-config was passed,
+    and the migration agent shipped to users with ZERO mcp__aethron__
+    tools — while its own system prompt told it to call create_project,
+    fetch, inventory and build.
+
+    It could not, so it did the only thing left: fetched the page with
+    curl and offered to rewrite the site by hand. That is the approach
+    this project measured and rejected (75% of the text, a design that
+    merely resembles the original). The model was not off-thesis; it was
+    unequipped.
+
+    Worse, --strict-mcp-config is only passed alongside --mcp-config, so
+    the same gap let the user's personal MCP servers into a session that
+    is supposed to be reproducible.
+
+    Same trick as --forge: one binary, two roles.
+    """
+    import forge_mcp
+    forge_mcp.main()
+    sys.exit(0)
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--forge":
         run_forge_mode(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "--mcp":
+        run_mcp_mode()
 
     home = Path(os.environ.get("AETHRON_HOME") or data_home())
     os.environ["AETHRON_HOME"] = str(home)

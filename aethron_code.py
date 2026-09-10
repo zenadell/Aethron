@@ -115,7 +115,7 @@ WHAT YOU CAN DO (all via mcp__aethron__*):
                    home page and same-host subpages) or a local export
   fetch            pull the runtime: chunks, CMS binaries, icons
   inventory        extract every string, image and link into copy_map
-  localize         download CDN assets so the site depends on nobody
+  localize_assets  download CDN assets so the site depends on nobody
   set_plan         record the brand brief
   get_content      read entries (paged, only_unfilled, filter)
   set_content_bulk write the new copy — guarded: byte budgets and
@@ -127,10 +127,22 @@ WHAT YOU CAN DO (all via mcp__aethron__*):
   generate_logo, replace_image_slots, remove_element, serve_preview, undo
 
 THE ORDER THAT WORKS:
-  create_project -> fetch -> inventory -> localize -> set_plan
+  create_project -> fetch -> inventory -> localize_assets -> set_plan
   -> get_content/set_content_bulk -> build -> verify -> probe
 
 HOW TO BEHAVE:
+0. YOU MIGRATE THE REAL SITE. YOU NEVER REBUILD IT.
+   Never offer to "recreate a similar design", rewrite the page in
+   Tailwind/React/plain HTML, or reproduce it from a description. That
+   was measured on this project and rejected: it reached 75% of the
+   text, cost real money per page, and produced a design that merely
+   RESEMBLES the original. The person paid for THIS template — carrying
+   its own markup, CSS and animation is the entire product.
+   If they want another framework, that is `convert_framework`, which
+   CARRIES the built site rather than rewriting it, and a referee
+   refuses the result unless it renders the same.
+   Fetching a page with curl or WebFetch to "have a look" is not
+   migrating it. create_project takes the URL and does it properly.
 1. Do the work, do not narrate a plan and stop. If the person gives you
    a URL and a brand, start.
 2. ONE question at a time, and only when the answer changes what you
@@ -412,10 +424,16 @@ class CodeSession:
         mcp = self._mcp_config()
         if mcp:
             argv += ["--mcp-config", mcp]
-            if self.cfg.get("isolate"):
-                # the user's personal MCP servers are not part of the
-                # product's contract — keep the session reproducible
-                argv.append("--strict-mcp-config")
+        if self.cfg.get("isolate"):
+            # The user's personal MCP servers are not part of the
+            # product's contract — keep the session reproducible.
+            #
+            # This used to sit INSIDE `if mcp:`, so the one failure that
+            # dropped our tools also silently opened the door to theirs:
+            # the shipped app ran the migration agent with no Aethron
+            # tools and the user's own servers loaded instead. Isolation
+            # is its own decision and must not ride on another one.
+            argv.append("--strict-mcp-config")
         env = self._env()
         self.proc = subprocess.Popen(
             argv, cwd=str(self.workspace), env=env,
@@ -451,12 +469,24 @@ class CodeSession:
         the physics: even a general coding agent edits template content
         through the guarded pipeline (byte budgets, snapshots, verify)
         instead of hand-editing generated files."""
-        if not self.cfg.get("aethron_tools") or not FORGE_MCP.exists():
+        if not self.cfg.get("aethron_tools"):
+            return ""
+        # HOW THE SERVER IS SPAWNED DEPENDS ON WHERE WE LIVE.
+        #   dev    -> python3 forge_mcp.py      (a real file on disk)
+        #   frozen -> Aethron --mcp             (the file is in the PYZ)
+        # Testing only for the FILE shipped the desktop app with no
+        # Aethron tools at all: the migration agent had a system prompt
+        # full of mcp__aethron__* calls and no way to make one.
+        if getattr(sys, "frozen", False):
+            command, args = sys.executable, ["--mcp"]
+        elif FORGE_MCP.exists():
+            command, args = sys.executable, [str(FORGE_MCP)]
+        else:
             return ""
         self._tmp = tempfile.mkdtemp(prefix="aethron-code-")
         f = Path(self._tmp) / "mcp.json"
         f.write_text(json.dumps({"mcpServers": {"aethron": {
-            "command": sys.executable, "args": [str(FORGE_MCP)],
+            "command": command, "args": args,
             "env": {"AETHRON_HOME": str(self.home or ROOT)}}}}),
             encoding="utf-8")
         return str(f)
