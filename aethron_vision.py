@@ -412,6 +412,84 @@ def background(shot: Shot):
 
 # ─────────────────────────── layout ──────────────────────────────────
 
+def rules(shot: Shot, mask, field, min_frac=0.20, margin=5):
+    """Hairline rules — the grid a design is built on.
+
+    The owner saw these before the tool could: a line top-to-bottom and
+    another left-to-right, crossing. Nothing looked for them, so the
+    rebuild had no cross.
+
+    NOT DETECTED BY BRIGHTNESS, AND NOT BY THE INK MASK. These rules
+    FADE — the same rule sits 3 from the ground at the top of the page
+    and 44 away lower down where a glow lights it — so a fixed
+    threshold finds one end and loses the other. Measured at y=306: 342
+    ink pixels spread over x231-875, but the longest unbroken stretch
+    was 142, because the line kept dipping under the threshold.
+
+    What is true along a rule at every point, faint or bright, is that
+    it is brighter than the rows immediately ABOVE AND BELOW it. That
+    is local, survives fading, and a column of text cannot fake it for
+    a third of the page.
+    """
+    w, h = shot.w, shot.h
+    px = shot.px
+
+    def lum(x, y):
+        i = (y * w + x) * 4
+        return px[i] + px[i + 1] + px[i + 2]
+
+    out = []
+    step = 2
+    for y in range(3, h - 3):
+        n = ok = 0
+        for x in range(0, w, step):
+            n += 1
+            here = lum(x, y)
+            if (here - lum(x, y - 3) > margin * 3
+                    and here - lum(x, y + 3) > margin * 3):
+                ok += 1
+        if n and ok / n >= min_frac:
+            out.append({"axis": "horizontal", "at": y, "extent": ok * step,
+                        "color": _line_color(shot, mask, field, y, True)})
+    for x in range(3, w - 3):
+        n = ok = 0
+        for y in range(0, h, step):
+            n += 1
+            here = lum(x, y)
+            if (here - lum(x - 3, y) > margin * 3
+                    and here - lum(x + 3, y) > margin * 3):
+                ok += 1
+        if n and ok / n >= min_frac:
+            out.append({"axis": "vertical", "at": x, "extent": ok * step,
+                        "color": _line_color(shot, mask, field, x, False)})
+    # A 1px rule antialiases across two or three lines; report the rule,
+    # not every line it touched. Keep the strongest of a cluster.
+    out.sort(key=lambda r: (r["axis"], r["at"]))
+    merged = []
+    for r in out:
+        if (merged and merged[-1]["axis"] == r["axis"]
+                and r["at"] - merged[-1]["at"] <= 5):
+            if r["extent"] > merged[-1]["extent"]:
+                merged[-1] = r
+            continue
+        merged.append(r)
+    return merged
+
+
+def _line_color(shot: Shot, mask, field, at, horizontal):
+    """The rule's own colour, taken where it is most distinct."""
+    best, col = -1, None
+    rng = range(0, shot.w) if horizontal else range(0, shot.h)
+    for k in rng:
+        x, y = (k, at) if horizontal else (at, k)
+        if not mask[y * shot.w + x]:
+            continue
+        d = _dist(shot.rgb(x, y), field.at(x, y))
+        if d > best:
+            best, col = d, shot.rgb(x, y)
+    return "#%02X%02X%02X" % col if col else None
+
+
 def _ink_rows(shot: Shot, bg):
     """Per row: how many pixels differ from the background."""
     out = []
@@ -871,12 +949,168 @@ def measure(path, deep=True) -> dict:
     for b in bs[:40]:
         b["columns"] = columns(shot, bgrgb, b["top"], b["bottom"])
         b["text"] = text_rows(shot, bgrgb, b, mask, field)
+    rep["rules"] = rules(shot, mask, field)
     rep["bands"] = bs
     # A slab carved out of a ramp is not a card. Dropped here rather
     # than inside boxes(), so the detector stays one simple idea.
     rep["boxes"] = [b for b in boxes(shot, bgrgb, step=step, field=field)
                     if not _in_any(grads, b["x"], b["y"], b["w"], b["h"])][:40]
     return rep
+
+
+# ─────────────────────────── the audit ───────────────────────────────
+
+def _align(ta, tb, gap=18):
+    """Pair text runs IN ORDER, so a match can never cross another.
+
+    Nearest-neighbour matching looked reasonable and was not: one run
+    slightly out of place stole its neighbour's partner, and every
+    comparison after it compared the wrong two things. The audit then
+    reported a nav line against a heading and advised "multiply this
+    font-size by 0.400" — advice that would have made the rebuild worse
+    while sounding exact.
+
+    Both lists run down the page, so the true pairing is monotonic.
+    A standard alignment enforces that; unmatched runs on either side
+    are reported as missing or extra rather than forced into a pair.
+    """
+    n, m = len(ta), len(tb)
+    INF = float("inf")
+    cost = [[INF] * (m + 1) for _ in range(n + 1)]
+    back = [[None] * (m + 1) for _ in range(n + 1)]
+    cost[0][0] = 0
+    for i in range(n + 1):
+        for j in range(m + 1):
+            if cost[i][j] == INF:
+                continue
+            if i < n and j < m:
+                d = abs(ta[i]["top"] - tb[j]["top"])
+                la, lb = ta[i].get("left"), tb[j].get("left")
+                if la is not None and lb is not None:
+                    d += abs(la - lb) * 0.35
+                c = cost[i][j] + d
+                if c < cost[i + 1][j + 1]:
+                    cost[i + 1][j + 1], back[i + 1][j + 1] = c, (i, j, "m")
+            if i < n and cost[i][j] + gap < cost[i + 1][j]:
+                cost[i + 1][j], back[i + 1][j] = cost[i][j] + gap, (i, j, "a")
+            if j < m and cost[i][j] + gap < cost[i][j + 1]:
+                cost[i][j + 1], back[i][j + 1] = cost[i][j] + gap, (i, j, "b")
+    out, i, j = [], n, m
+    while (i, j) != (0, 0):
+        pi, pj, k = back[i][j]
+        if k == "m":
+            out.append((ta[pi], tb[pj]))
+        elif k == "a":
+            out.append((ta[pi], None))
+        else:
+            out.append((None, tb[pj]))
+        i, j = pi, pj
+    return list(reversed(out))
+
+
+def audit(original, rebuild, tol=2) -> list:
+    """Measure BOTH images and report every property that disagrees.
+
+    This is `verify` for pixels. A percentage tells you a rebuild is
+    wrong; it never tells you WHAT is wrong, so a person ends up
+    comparing screenshots by eye and reporting "the button is too big" —
+    which is exactly the judgement this project is trying to take out of
+    the loop. The referee already knows the answer numerically; it just
+    was not asked.
+
+    Every finding names the element, the expected number, the number
+    that was built, and the fix. Nothing is inferred that can be
+    measured, and a property that cannot be matched is reported as
+    UNMATCHED rather than silently skipped — an element the rebuild
+    never drew is the most important thing to say, and the easiest to
+    lose by only comparing pairs that happen to line up.
+    """
+    a, b = measure(original), measure(rebuild)
+    out = []
+
+    def add(kind, what, want, got, fix):
+        out.append({"kind": kind, "element": what, "expected": want,
+                    "got": got, "fix": fix})
+
+    if a["background"]["hex"] != b["background"]["hex"]:
+        add("colour", "page background", a["background"]["hex"],
+            b["background"]["hex"], "set the page background to the measured value")
+
+    ta = [t for bd in a.get("bands", []) for t in bd.get("text", [])]
+    tb = [t for bd in b.get("bands", []) for t in bd.get("text", [])]
+    for pair in _align(ta, tb):
+        t, u = pair
+        if u is None:
+            add("missing", f"text at y{t['top']}", "a text run", "nothing",
+                "the rebuild draws no text near this row")
+            continue
+        if t is None:
+            add("extra", f"text at y{u['top']}", "nothing", "a text run",
+                "the original has no text here")
+            continue
+        if abs(u["top"] - t["top"]) > tol:
+            add("position", f"text at y{t['top']}", f"top {t['top']}",
+                f"top {u['top']}", f"move it {u['top'] - t['top']:+d}px vertically")
+        ha, hb = t.get("ink_height"), u.get("ink_height")
+        if ha and hb and abs(ha - hb) > tol:
+            scale = ha / hb
+            add("text size", f"text at y{t['top']}",
+                f"ink {ha}px", f"ink {hb}px",
+                f"multiply this font-size by {scale:.3f}")
+        if t.get("left") is not None and u.get("left") is not None:
+            if abs(t["left"] - u["left"]) > tol + 1:
+                add("position", f"text at y{t['top']}", f"left {t['left']}",
+                    f"left {u['left']}",
+                    f"move it {u['left'] - t['left']:+d}px horizontally")
+            wa = t["right"] - t["left"]
+            wb = u["right"] - u["left"]
+            if wa > 0 and abs(wa - wb) > max(3, wa * 0.04):
+                add("text width", f"text at y{t['top']}", f"{wa}px wide",
+                    f"{wb}px wide",
+                    "tracking or font-size is off, or the wrong typeface")
+        if t.get("color") and u.get("color") and t["color"] != u["color"]:
+            ca = tuple(int(t["color"][i:i + 2], 16) for i in (1, 3, 5))
+            cb = tuple(int(u["color"][i:i + 2], 16) for i in (1, 3, 5))
+            if _dist(ca, cb) > MERGE:
+                add("colour", f"text at y{t['top']}", t["color"], u["color"],
+                    "use the measured colour")
+
+    for box in a.get("boxes", []):
+        cand = [c for c in b.get("boxes", [])
+                if abs(c["x"] - box["x"]) < 40 and abs(c["y"] - box["y"]) < 40]
+        name = f"{box['fill']} region at ({box['x']},{box['y']})"
+        if not cand:
+            add("missing", name, f"{box['w']}x{box['h']}", "nothing",
+                "the rebuild has no element here")
+            continue
+        c = min(cand, key=lambda c: abs(c["w"] - box["w"]) + abs(c["h"] - box["h"]))
+        if abs(c["w"] - box["w"]) > tol or abs(c["h"] - box["h"]) > tol:
+            add("size", name, f"{box['w']}x{box['h']}", f"{c['w']}x{c['h']}",
+                f"resize by {box['w'] - c['w']:+d}px wide, "
+                f"{box['h'] - c['h']:+d}px tall")
+        if abs(c["radius"] - box["radius"]) > tol:
+            add("radius", name, f"{box['radius']}px", f"{c['radius']}px",
+                f"set border-radius to {box['radius']}px")
+
+    ra, rb = a.get("rules", []), b.get("rules", [])
+    for r in ra:
+        near = [s for s in rb if s["axis"] == r["axis"]
+                and abs(s["at"] - r["at"]) <= 3]
+        if not near:
+            add("missing", f"{r['axis']} rule at {r['at']}",
+                f"a {r['axis']} line ({r['color']})", "nothing",
+                f"draw a 1px {r['axis']} rule at {r['at']} in {r['color']}")
+    for s in rb:
+        if not [r for r in ra if r["axis"] == s["axis"]
+                and abs(s["at"] - r["at"]) <= 3]:
+            add("extra", f"{s['axis']} rule at {s['at']}", "nothing",
+                f"a {s['axis']} line", "the original has no rule here — remove it")
+
+    if len(a.get("gradients", [])) != len(b.get("gradients", [])):
+        add("gradient", "smooth ramps", f"{len(a.get('gradients', []))}",
+            f"{len(b.get('gradients', []))}",
+            "carry the original's colour field rather than fitting one")
+    return out
 
 
 # ─────────────────────────── selftest ────────────────────────────────
@@ -985,6 +1219,32 @@ def _selftest() -> int:
         check("  ...the bound is tight enough to be useful",
               hi - lo <= 24, f"range {lo}-{hi} is too loose to help")
 
+    print("\n── THE AUDIT: does it catch damage it was not told about?")
+    bad = tmp / "bad"
+    bad.mkdir()
+    # Three deliberate defects, of the three kinds a rebuild gets wrong:
+    # a box moved and resized, a radius flattened, and type enlarged.
+    (bad / "index.html").write_text(
+        TRUTH_HTML
+        .replace("left:120px;top:80px;width:400px;height:240px",
+                 "left:150px;top:80px;width:360px;height:240px")
+        .replace("border-radius:24px", "border-radius:2px")
+        .replace("font-size:48px", "font-size:64px"))
+    bad_png = bad / "bad.png"
+    if G.shoot(bad / "index.html", 800, 600, bad_png):
+        f = audit(shot_png, bad_png)
+        kinds = {x["kind"] for x in f}
+        check("it reports the resized card", "size" in kinds, str(kinds))
+        check("it reports the flattened radius", "radius" in kinds, str(kinds))
+        check("it reports the enlarged type", "text size" in kinds, str(kinds))
+        sz = [x for x in f if x["kind"] == "text size"]
+        check("  ...with the correction to apply, not just a complaint",
+              bool(sz) and "multiply" in sz[0]["fix"], str(sz[:1]))
+        clean = audit(shot_png, shot_png)
+        serious = [x for x in clean if x["kind"] != "extra"]
+        check("an identical page produces no findings", not serious,
+              f"{len(serious)}: {[x['kind'] for x in serious[:4]]}")
+
     print("\n── honesty")
     check("the report says what a still cannot contain",
           any("animation" in s for s in rep["not_in_a_still"]))
@@ -996,11 +1256,31 @@ def _selftest() -> int:
 
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
-        print("usage: aethron_vision.py <image.png|jpg> [--json]")
+        print("usage: aethron_vision.py <image> [--json]")
+        print("       aethron_vision.py <original> --against <rebuild>"
+              "   what is wrong, and by how much")
         print("       aethron_vision.py --selftest")
         return 0
     if argv[0] == "--selftest":
         return _selftest()
+    if "--against" in argv:
+        # THE CHECKER. A percentage says a rebuild is wrong; this says
+        # WHAT is wrong, with the number to change. It is written to be
+        # read by an agent as a work list, not admired by a person.
+        other = argv[argv.index("--against") + 1]
+        found = audit(argv[0], other)
+        if "--json" in argv:
+            print(json.dumps(found, indent=1))
+            return 0
+        if not found:
+            print("no measurable difference")
+            return 0
+        print(f"{len(found)} difference(s) — original vs rebuild\n")
+        for x in found:
+            print(f"  [{x['kind']}] {x['element']}")
+            print(f"      want {x['expected']}   got {x['got']}")
+            print(f"      -> {x['fix']}")
+        return 1
     rep = measure(argv[0])
     if "--json" in argv:
         print(json.dumps(rep, indent=1))

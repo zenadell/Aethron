@@ -183,6 +183,13 @@ def t_measure_screenshot(a):
     except Exception as e:                       # pragma: no cover
         return f"FAILED the measurement pass is unavailable ({e})"
     try:
+        if a.get("against"):
+            # THE WORK LIST. A percentage says a rebuild is wrong; this
+            # says which element, by how much, and what to change. It is
+            # the same shape as verify -> heal, for pixels.
+            found = aethron_vision.audit(str(a["image"]), str(a["against"]))
+            return (_j.dumps(found, indent=1)[:60000] if found
+                    else "NO MEASURABLE DIFFERENCE")
         rep = aethron_vision.measure(str(a["image"]))
     except SystemExit as e:
         return f"FAILED {e}"
@@ -736,7 +743,14 @@ TOOLS = [
      {"type": "object", "properties": {
         "image": {"type": "string", "description":
                   "path to a PNG/JPG screenshot (a pasted image is "
-                  "saved under uploads/ and its path given to you)"}},
+                  "saved under uploads/ and its path given to you)"},
+        "against": {"type": "string", "description":
+                    "OPTIONAL screenshot of your rebuild. With this, the "
+                    "tool measures BOTH and returns every property that "
+                    "disagrees — element, expected number, built number, "
+                    "and the change to make. Screenshot your rebuild and "
+                    "pass it here after every attempt; that loop is what "
+                    "takes a rebuild from roughly right to identical."}},
       "required": ["image"]}, t_measure_screenshot),
     ("generate_backend", "Generate backend/app.py (content API + site "
      "server; copy_map is the database) + AGENT_GUIDE.md for handoff.",

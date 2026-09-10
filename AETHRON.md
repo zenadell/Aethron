@@ -2309,8 +2309,59 @@ join instead of before, general overlap merging, polarity percentiles.
 A fallback keeps the detector from finding FEWER things than before.
 This needs a redesign, not a sixth patch.
 
+## THE OWNER LOOKED CLOSER, AND THE TOOL LEARNED TO CHECK ITSELF
+## — 2026-09-10
+Shown the 95.6% rebuild, the owner named three defects by eye and then
+made the point that matters: he does not want them hand-fixed, he wants
+"an agent that will be able to check all of this" so it generalises to
+any screenshot. He was right on all three, exactly:
+
+    button   measured 115x26 radius ~3   built 145x34 radius 17
+             ("a block button slightly curved... yours has a reduce of
+              at least twenty pixel, and is a lot bigger")
+    rules    a line runs left-to-right AND top-to-bottom, a CROSS.
+             The rebuild had verticals only.
+    type     ink 14px against 35px built.
+
+`aethron_vision.audit(original, rebuild)` now measures BOTH images and
+reports every property that disagrees — element, expected number, built
+number, and the change to make. It found all three unaided.
+`forge vision <a> --against <b>`, and MCP `measure_screenshot` gained an
+`against` argument, so the loop is rebuild -> screenshot -> audit ->
+apply -> repeat. That is verify -> heal, for pixels.
+
+RULES WERE THE HARD PART, AND THE LESSON IS GENERAL. They FADE: the
+same rule sits 3 from the ground at the top of the page and 44 away
+lower down where a glow lights it, so no fixed threshold finds both
+ends. Measured at y=306: 342 ink pixels spread over x231-875 but the
+longest unbroken stretch was 142, because the line kept dipping under
+the threshold — a continuity test rejected a real rule. What IS true
+everywhere along a rule, faint or bright, is that it is brighter than
+the lines immediately either side. Local contrast, not brightness.
+min_frac swept: 0.30 finds the horizontal only, 0.14 starts calling
+headings rules, 0.20 gives exactly h306 + v254 + v769 — the cross.
+
+AND THE AUDITOR WAS CAUGHT GIVING EXACT-SOUNDING BAD ADVICE. Text runs
+were paired by nearest row, so one run slightly out of place stole its
+neighbour's partner and every comparison after it compared the wrong
+two things: it reported a nav line against a heading and advised
+"multiply this font-size by 0.400", which would have made the rebuild
+worse while sounding precise. Both lists run down the page, so the
+pairing must be MONOTONIC; a proper alignment now forbids crossings and
+reports unmatched runs as missing or extra instead of forcing a pair.
+
+TESTED ADVERSARIALLY, like the rest of this project: a known page is
+damaged three ways — card moved and resized, radius flattened, type
+enlarged — and the audit must catch each, must hand back the correction
+rather than a complaint, and must produce NO findings on an identical
+page. A checker that fires on everything is one people learn to ignore.
+
+Result: 95.61% -> 95.68% identical, structural 2.63% -> 2.38%.
+
 STILL OPEN: text sitting ON a gradient is now read correctly, but
-regions above the detected ramp are still edge residue rather than UI.
+regions above the detected ramp are still edge residue rather than UI;
+and assembling an element from the strips its own label splits it into
+remains unsolved at six attempts.
 
 ## PASTE THE SCREENSHOT, DO NOT FILE IT — 2026-09-10
 The owner, on being asked for a file path: "most users go with
