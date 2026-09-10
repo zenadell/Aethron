@@ -1430,6 +1430,46 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if u.path in ("/api/auth/login", "/api/auth/signup"):
                 return self.api_auth(u.path, body)
+            if u.path == "/api/image":
+                # PASTE, DON'T FILE. A screenshot lives on the clipboard
+                # for about four seconds; telling someone to save it,
+                # find it, and type its path is how a feature goes
+                # unused. The browser hands us the bytes — take them.
+                #
+                # The NAME is ours, never the client's: it is the sha1 of
+                # the content, so a crafted filename cannot escape the
+                # directory and the same image pasted twice is stored
+                # once.
+                raw = body.get("data") or ""
+                if "," in raw[:64]:            # data:image/png;base64,…
+                    head, raw = raw.split(",", 1)
+                else:
+                    head = ""
+                try:
+                    blob = base64.b64decode(raw, validate=True)
+                except Exception:
+                    return self.fail("that paste was not an image")
+                if not blob:
+                    return self.fail("that paste was empty")
+                if len(blob) > 24 * 1024 * 1024:
+                    return self.fail(f"image is {len(blob) // 1048576}MB — "
+                                     f"24MB is the limit")
+                kind = {b"\x89PNG": "png", b"\xff\xd8\xff": "jpg",
+                        b"GIF8": "gif", b"RIFF": "webp"}
+                ext = next((v for k, v in kind.items()
+                            if blob.startswith(k)), "")
+                if not ext:
+                    return self.fail("that file is not a PNG, JPG, GIF or "
+                                     "WEBP")
+                import hashlib
+                name = hashlib.sha1(blob).hexdigest()[:16] + "." + ext
+                d = HOME / "uploads"
+                d.mkdir(parents=True, exist_ok=True)
+                p = d / name
+                if not p.exists():
+                    p.write_bytes(blob)
+                return self.send_json({"path": str(p), "name": name,
+                                       "bytes": len(blob)})
             if u.path == "/api/clienterror":
                 # THE WINDOW HAS NO CONSOLE. A packaged desktop app
                 # gives the user no devtools and gives us no stderr, so
@@ -4728,6 +4768,68 @@ async function stopCode(){
   try{await api('/api/code/stop',{key:CODE.key})}catch(e){}
   clearInterval(CODE.poll);CODE.poll=0;CODE.key='';renderTab();
 }
+/* PASTE A SCREENSHOT STRAIGHT IN.
+   A screenshot lives on the clipboard for a few seconds. Asking someone
+   to save it, find it and type its path is how a feature goes unused —
+   most people take a shot and paste, they never file it. The browser is
+   already holding the bytes, so take them, store them once by content
+   hash, and put the resulting path in the message where the agent can
+   act on it.
+   Wired on DOCUMENT, not on the elements: the composers are re-rendered
+   whenever the view changes, and per-element listeners would silently
+   stop working after the first navigation. */
+const IMG_TAS=['npurl','chatta'];
+function imgNote(ta,msg,busy){
+  const row=ta.closest('.startrow')||ta.parentElement;
+  let n=row.parentElement.querySelector('.imgnote');
+  if(!n){ n=document.createElement('div'); n.className='imgnote';
+    n.style.cssText='font-size:12px;color:var(--dim);margin-top:6px;'
+      +'display:flex;align-items:center;gap:7px';
+    row.parentElement.insertBefore(n,row.nextSibling); }
+  n.textContent=(busy?'· ':'')+msg;
+  return n;
+}
+async function attachImage(file,ta){
+  if(!file)return;
+  imgNote(ta,'reading '+(file.name||'pasted image')+'…',true);
+  try{
+    const b64=await new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.onload=()=>res(String(r.result)); r.onerror=()=>rej(new Error('unreadable'));
+      r.readAsDataURL(file);
+    });
+    const r=await api('/api/image',{data:b64});
+    const cur=ta.value.trim();
+    ta.value=(cur?cur+'\n':'')+r.path;
+    growTa(ta); ta.focus();
+    imgNote(ta,'attached '+r.name+' ('+Math.round(r.bytes/1024)+' KB) — '
+      +'its path is in the message');
+  }catch(e){ imgNote(ta,'could not attach that image: '+e.message); }
+}
+function activeImgTa(t){
+  if(t&&t.id&&IMG_TAS.indexOf(t.id)>=0)return t;
+  for(const id of IMG_TAS){ const e=$(id); if(e&&e.offsetParent!==null)return e; }
+  return null;
+}
+document.addEventListener('paste',ev=>{
+  const ta=activeImgTa(ev.target); if(!ta)return;
+  const items=(ev.clipboardData&&ev.clipboardData.items)||[];
+  for(let i=0;i<items.length;i++){
+    if(items[i].kind==='file'&&/^image\//.test(items[i].type)){
+      ev.preventDefault(); attachImage(items[i].getAsFile(),ta); return;
+    }
+  }
+});
+document.addEventListener('dragover',ev=>{
+  if(ev.dataTransfer&&Array.prototype.indexOf.call(
+      ev.dataTransfer.types||[],'Files')>=0&&activeImgTa(ev.target))
+    ev.preventDefault();
+});
+document.addEventListener('drop',ev=>{
+  const ta=activeImgTa(ev.target); if(!ta)return;
+  const f=(ev.dataTransfer&&ev.dataTransfer.files||[])[0];
+  if(f&&/^image\//.test(f.type)){ ev.preventDefault(); attachImage(f,ta); }
+});
 async function sendCode(){
   const ta=$('chatta'),text=ta.value.trim();
   if(!text)return;

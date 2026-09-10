@@ -2214,8 +2214,76 @@ screenshot is of a live site, do not do screenshot-to-code at all —
 scrape it and the answer is 100%, not 99%. The best screenshot-to-code
 is usually not screenshot-to-code.
 
-NEXT, in order: (1) an MCP tool so the agent gets measurements instead
-of guessing; (2) generation that ASSEMBLES measured values rather than
+## THE OWNER'S SCREENSHOT BROKE IT, EXACTLY ONCE — 2026-09-10
+Predictions were written BEFORE the test, which is the only way a test
+of your own instrument means anything:
+
+  PREDICTED WRONG (in the product's favour): "the background will
+  probably be wrong" — a dark hero with a huge orange bloom, rounded
+  corners and light space outside them. It read #0B0B0B correctly. The
+  border-ring rule survived a case it was not designed for.
+
+  PREDICTED RIGHT, and worse than predicted: the gradient. EIGHT of the
+  top ten "colours" were samples of the bloom and ALL eight regions were
+  slabs of it. #FFFFFF — the heading, the button — did not appear at
+  all. A ramp is thousands of almost-colours, so ranking by area does
+  not merely add noise, it EVICTS the design.
+
+FIXED, three bugs deep:
+1. `gradients()` finds ramps on row means and takes their pixels out of
+   the flat palette. Result: #0B0B0B 78.7%, #161618 13.7%, #FFFFFF 1.8%
+   and the real greys — the actual design — with regions 40 -> 12.
+2. The run scanner said `0 < delta <= SMOOTH`, so a PLATEAU inside a
+   ramp ended the run. One glow came back as two short pieces and the
+   rest leaked through as "solid regions". Only a JUMP ends a ramp;
+   nearby pieces are also stitched, since a logo strip crossing a glow
+   splits the run without ending the gradient under it. One gradient,
+   y412-728, correct.
+3. The bloom is RADIAL. Only axis-aligned linear ramps are fitted, and
+   when the rows inside a run are not themselves uniform the report
+   says "NOT FITTED — these are its ends, not stops" instead of
+   emitting confident CSS that would be wrong.
+
+AND THE INSTRUMENT WAS CAUGHT LYING, which matters more than any of it.
+Text rows only break where ink stops entirely, so a subheading, a
+button and a quote stacked tightly came back as ONE 248px "row" — and
+dividing that by cap height produced "font_size_estimate: 344px". No
+page has ever contained that. A run taller than MAX_LINE is now a
+BLOCK with NO size and a note saying why. Fabricating a number is the
+precise failure this module exists to prevent; it does not get an
+exemption for being our own code.
+
+STILL OPEN AND NAMED: regions above the detected ramp are still edge
+residue rather than UI, so the button is not found as a box on this
+image; and text sitting ON a gradient takes the gradient's colour
+(#481912 where it should be white). Both are real, both are the same
+root cause — the ramp's true top edge is higher than the row-mean scan
+declares.
+
+## PASTE THE SCREENSHOT, DO NOT FILE IT — 2026-09-10
+The owner, on being asked for a file path: "most users go with
+screenshot without saving it". Correct, and it would have made the
+whole feature academic — a screenshot lives on the clipboard for about
+four seconds and asking someone to save it, find it and type its path
+is how a feature goes unused. (Measured in this very session: the
+pasted image was nowhere on disk, and the clipboard by then held only
+HTML.)
+`POST /api/image` takes base64 straight from the browser, which fits
+the existing JSON-body handler with no multipart parsing. THE NAME IS
+OURS, NEVER THE CLIENT'S: sha1 of the content, so a crafted filename
+cannot escape the directory and the same image pasted twice is stored
+once. Magic-byte check, 24MB cap, honest refusals.
+Listeners are on DOCUMENT, not on the elements: the composers are
+re-rendered on every view change and per-element handlers would stop
+working silently after the first navigation.
+
+MCP TOOL #29 `measure_screenshot`, added in the same breath, because
+handing the agent a path and no way to read it would have repeated
+today's other bug exactly — a prompt full of instructions and none of
+the tools. Its description carries the 7.89% figure and the rule:
+decide what things MEAN, take every NUMBER from here.
+
+NEXT, in order: (1) ~~an MCP tool so the agent gets measurements~~ DONE; (2) generation that ASSEMBLES measured values rather than
 inventing them; (3) close the loop with the referee we already own —
 `aethron_figma_grade` shoots the built page and diffs it against the
 original, so generation iterates against a pixel diff instead of

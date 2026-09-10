@@ -174,6 +174,23 @@ def t_probe(a):
     return ("OK" if ok else "PROBLEMS") + "\n" + log
 
 
+def t_measure_screenshot(a):
+    """Hand the agent numbers, so it never has to guess at pixels."""
+    import json as _j
+    sys.path.insert(0, str(ROOT))
+    try:
+        import aethron_vision
+    except Exception as e:                       # pragma: no cover
+        return f"FAILED the measurement pass is unavailable ({e})"
+    try:
+        rep = aethron_vision.measure(str(a["image"]))
+    except SystemExit as e:
+        return f"FAILED {e}"
+    except Exception as e:
+        return f"FAILED {type(e).__name__}: {e}"
+    return _j.dumps(rep, indent=1)[:60000]
+
+
 def t_convert(a):
     """Port a built migration into a framework project the owner owns."""
     argv = ["convert", "--framework", str(a.get("framework") or "astro")]
@@ -705,6 +722,22 @@ TOOLS = [
         "index.html (default: home + 5 more)"},
         "all": {"type": "boolean", "description": "probe every page"}},
        ["project"]), t_probe),
+    ("measure_screenshot", "MEASURE a screenshot before writing any code "
+     "from it. Returns the exact background and palette, gradients, "
+     "content bands and their gaps, the column grid, solid regions with "
+     "fill and measured corner radius, and text rows with colour and "
+     "height. USE THIS INSTEAD OF READING VALUES OFF THE IMAGE: asked "
+     "for a font size that breaks the surrounding pattern, vision "
+     "models are right 7.89% of the time, and a confident wrong number "
+     "is worse than none. Decide what things MEAN; take every number "
+     "from here. A still contains no animation, no hover state and no "
+     "other breakpoint — the report says so, and for motion you need a "
+     "screen recording or the live URL.",
+     {"type": "object", "properties": {
+        "image": {"type": "string", "description":
+                  "path to a PNG/JPG screenshot (a pasted image is "
+                  "saved under uploads/ and its path given to you)"}},
+      "required": ["image"]}, t_measure_screenshot),
     ("generate_backend", "Generate backend/app.py (content API + site "
      "server; copy_map is the database) + AGENT_GUIDE.md for handoff.",
      S(P, ["project"]), t_pipeline("backend")),

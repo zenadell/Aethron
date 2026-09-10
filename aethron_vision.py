@@ -61,6 +61,8 @@ INK = 24
 # Smaller than this is noise, not a component of the design.
 MIN_RUN = 8
 MIN_BOX = 12
+# Taller than this is not one line of type, whatever the ink says.
+MAX_LINE = 120
 
 
 class Shot:
@@ -112,7 +114,7 @@ def _dist(a, b):
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]), abs(a[2] - b[2]))
 
 
-def palette(shot: Shot, top=12, step=1):
+def palette(shot: Shot, top=12, step=1, skip=None):
     """The design's real colours, most-used first.
 
     Antialiasing invents thousands of intermediate colours that no
@@ -124,8 +126,16 @@ def palette(shot: Shot, top=12, step=1):
     """
     c = Counter()
     px, w = shot.px, shot.w
+    skip = skip or []
     for y in range(0, shot.h, step):
         row = y * w * 4
+        # A ramp is one design decision, not ten thousand colours. Its
+        # pixels are reported as a gradient and must not also compete
+        # for the palette — unfiltered, a single hero glow took eight of
+        # the top ten slots and pushed the real tokens out entirely.
+        if any(r["box"]["y"] <= y < r["box"]["y"] + r["box"]["h"]
+               for r in skip):
+            continue
         for x in range(0, w, step):
             i = row + x * 4
             if px[i + 3] < 128:            # transparent pixels are not colour
@@ -146,6 +156,104 @@ def palette(shot: Shot, top=12, step=1):
     total = sum(n for _, n in kept) or 1
     return [{"hex": "#%02X%02X%02X" % rgb, "rgb": list(rgb),
              "share": round(n / total, 4)} for rgb, n in kept[:top]]
+
+
+SMOOTH = 14      # per-step colour change that still reads as one ramp
+RAMP = 40        # total change before a run is a gradient, not noise
+
+
+def gradients(shot: Shot, step=4):
+    """Find smooth ramps, because a flat-colour palette cannot hold one.
+
+    MEASURED, on a real hero with an orange bloom: eight of the top ten
+    "colours" were samples of the gradient and all eight detected
+    regions were slabs of it. The white heading and the button did not
+    appear at all. A ramp is thousands of almost-colours, so ranking by
+    area buries the handful of real tokens underneath it.
+
+    So a ramp is identified as ONE object and taken out of the flat
+    palette. Runs are found on row means (and column means) where each
+    step changes a little, consistently, and the run as a whole changes
+    a lot.
+
+    HONESTY: only an axis-aligned linear ramp is fitted. If the rows
+    inside a run are not themselves uniform, the ramp is radial or
+    multi-axis, and this says so rather than reporting stops that would
+    be confidently wrong.
+    """
+    w, h = shot.w, shot.h
+    xs = list(range(0, w, max(1, w // 48)))
+
+    def row_mean(y):
+        r = g = b = 0
+        for x in xs:
+            c = shot.rgb(x, y)
+            r += c[0]; g += c[1]; b += c[2]
+        n = len(xs)
+        return (r // n, g // n, b // n)
+
+    ys = list(range(0, h, step))
+    means = [row_mean(y) for y in ys]
+    out, i = [], 0
+    while i < len(means) - 1:
+        j = i
+        # `0 < delta` used to end the run here, which broke a ramp at
+        # every plateau — a long glow came back as two short pieces and
+        # the rest of it leaked through as "solid regions". A flat
+        # stretch inside a ramp is still the ramp; only a JUMP ends it.
+        while (j < len(means) - 1
+               and _dist(means[j], means[j + 1]) <= SMOOTH):
+            j += 1
+        if j > i and _dist(means[i], means[j]) >= RAMP:
+            top, bot = ys[i], ys[j]
+            # is each row inside the run flat across its width?
+            spread = 0
+            for y in (ys[i], ys[(i + j) // 2], ys[j]):
+                row = [shot.rgb(x, y) for x in xs]
+                spread = max(spread, max(_dist(row[0], c) for c in row))
+            g = {"box": {"x": 0, "y": top, "w": w, "h": bot - top + 1},
+                 "from": "#%02X%02X%02X" % means[i],
+                 "to": "#%02X%02X%02X" % means[j]}
+            if spread <= SMOOTH * 2:
+                g["axis"] = "vertical"
+                g["css"] = (f"linear-gradient(180deg, {g['from']} 0%, "
+                            f"{g['to']} 100%)")
+            else:
+                g["axis"] = "not linear"
+                g["note"] = ("colour also changes across each row — this "
+                             "is radial or multi-axis and is NOT fitted; "
+                             "the two colours are its ends, not stops")
+            out.append(g)
+            i = j
+        else:
+            i = j + 1 if j > i else i + 1
+    # Stitch pieces separated by a short interruption — a logo strip or
+    # a line of text crossing a glow splits the run without ending the
+    # gradient underneath it.
+    merged = []
+    for g in out:
+        if merged:
+            prev = merged[-1]["box"]
+            if g["box"]["y"] - (prev["y"] + prev["h"]) <= 56:
+                prev["h"] = g["box"]["y"] + g["box"]["h"] - prev["y"]
+                merged[-1]["to"] = g["to"]
+                if merged[-1]["axis"] == "vertical" and g["axis"] != "vertical":
+                    merged[-1]["axis"] = g["axis"]
+                    merged[-1].pop("css", None)
+                    merged[-1]["note"] = g.get("note", "")
+                continue
+        merged.append(g)
+    return merged
+
+
+def _in_any(regions, x, y, w=1, h=1):
+    cx, cy = x + w // 2, y + h // 2
+    for r in regions:
+        b = r["box"] if "box" in r else r
+        if (b["x"] <= cx < b["x"] + b["w"]
+                and b["y"] <= cy < b["y"] + b["h"]):
+            return True
+    return False
 
 
 def background(shot: Shot):
@@ -449,9 +557,26 @@ def text_rows(shot: Shot, bg, band):
         elif not texty and run_start is not None:
             hgt = y - run_start
             if hgt >= 5:
-                out.append({"top": run_start, "height": hgt,
-                            "color": _ink_color(shot, bg, run_start, y - 1),
-                            "font_size_estimate": round(hgt / 0.72)})
+                item = {"top": run_start, "height": hgt,
+                        "color": _ink_color(shot, bg, run_start, y - 1)}
+                # A LINE HAS A SIZE. A COLUMN OF LINES DOES NOT.
+                # Rows only break where ink stops entirely, so a
+                # subheading, a button and a quote stacked with tight
+                # spacing came back as ONE 248px "row" — and dividing
+                # that by cap height produced "344px", a number no page
+                # has ever contained. Fabricating it would be the exact
+                # failure this module exists to avoid, so a tall run is
+                # reported as a block with NO size rather than a line
+                # with a false one.
+                if hgt <= MAX_LINE:
+                    item["kind"] = "line"
+                    item["font_size_estimate"] = round(hgt / 0.72)
+                else:
+                    item["kind"] = "block"
+                    item["note"] = ("several lines with no blank row "
+                                    "between them — no single font size "
+                                    "applies, so none is reported")
+                out.append(item)
             run_start = None
     return out
 
@@ -480,10 +605,12 @@ def measure(path, deep=True) -> dict:
     bg = background(shot)
     bgrgb = tuple(bg["rgb"])
     step = 1 if shot.w * shot.h <= 1_600_000 else 2
+    grads = gradients(shot)
     rep = {
         "image": str(path), "width": shot.w, "height": shot.h,
         "background": bg,
-        "palette": palette(shot, step=step),
+        "gradients": grads,
+        "palette": palette(shot, step=step, skip=grads),
         "measured": ["background", "palette", "bands", "boxes", "radius"],
         "not_in_a_still": [
             "animation, easing and duration — one frame carries none",
@@ -499,7 +626,10 @@ def measure(path, deep=True) -> dict:
         b["columns"] = columns(shot, bgrgb, b["top"], b["bottom"])
         b["text"] = text_rows(shot, bgrgb, b)
     rep["bands"] = bs
-    rep["boxes"] = boxes(shot, bgrgb, step=step)[:40]
+    # A slab carved out of a ramp is not a card. Dropped here rather
+    # than inside boxes(), so the detector stays one simple idea.
+    rep["boxes"] = [b for b in boxes(shot, bgrgb, step=step)
+                    if not _in_any(grads, b["x"], b["y"], b["w"], b["h"])][:40]
     return rep
 
 
@@ -631,6 +761,16 @@ def main(argv):
     print("\npalette (measured, most-used first)")
     for p in rep["palette"][:10]:
         print(f"   {p['hex']}   {p['share'] * 100:5.1f}%")
+    if rep.get("gradients"):
+        print(f"\n{len(rep['gradients'])} gradient(s)")
+        for g in rep["gradients"]:
+            b = g["box"]
+            print(f"   y {b['y']}-{b['y'] + b['h'] - 1}  {g['from']} -> "
+                  f"{g['to']}  [{g['axis']}]")
+            if g.get("css"):
+                print(f"      {g['css']}")
+            if g.get("note"):
+                print(f"      NOT FITTED: {g['note']}")
     print(f"\n{len(rep.get('bands', []))} band(s) of content")
     for b in rep.get("bands", [])[:8]:
         print(f"   y {b['top']:>4}-{b['bottom']:<4} h{b['height']:<4} "
