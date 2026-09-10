@@ -2521,6 +2521,66 @@ last run. Every candidate re-renders and re-diffs the whole page when
 only one element moved. Region-scoped scoring is the obvious fix and is
 not done.
 
+## THE 95.6% WAS HIDING A VISIBLY WRONG PAGE — 2026-09-11
+The owner looked at the weak-model build and said the placements were
+wrong. They were, and the score said 95.6%. He was reading the picture;
+I was reading a number that could not see the problem.
+
+WHY THE NUMBER LIED. "Pixels identical" counts the whole canvas, and
+this page is mostly dark ground and gradient — both of which the carry
+pass reproduces exactly. Text is a small share of the pixels, so items
+in visibly wrong places barely move the total.
+
+    whole-page identical .... 95.6%   flattering, and useless here
+    content-only exact ...... 22.6%   too harsh: antialiased glyph
+                                      edges never match, and a GOOD
+                                      build scores 30.1% by it
+    INK OVERLAP (IoU) ....... 41.4%   the honest one
+
+`ink_iou()` compares the two ink MASKS: is the ink in the same place,
+regardless of glyph shape. On this page — frontier build 49.3%, weak
+model 41.4%, weak model unaided 16.3%. Use it to judge PLACEMENT and
+the referee's identical score to judge the finished look; neither alone
+is enough, and the identical score alone is misleading on any page with
+a large flat or gradient area.
+
+THE SPECIFIC DEFECT, found by reading the generated CSS: a caption was
+written `left: 0` with NO `top` at all, so it sat in normal flow —
+enormous, against the left edge. Three rounds of measured corrections
+could not touch it, because every pass matched elements by their `top:`
+and this element had none. An element that opts out of positioning is
+invisible to a corrector that assumes positioning.
+
+FOUR ATTEMPTS TO FIX PLACEMENT, ALL WORSE THAN LEAVING IT ALONE:
+  place_pass, absolute moves from aligned runs .... 41.4% (no change;
+      every move rejected by its own guard)
+  locate_elements, isolate each element and diff .. defeated: hiding
+      siblings makes normal-flow elements MOVE, so the diff measures
+      the shift as well as the element
+  emit_page, the TOOL writes the page and the model
+      only reads the words ......................... 22.3% overlap.
+      The reading was perfect — 12 of 12 runs — but a run is not a
+      line: tightly-led paragraphs measure as ONE run, so its full ink
+      height became the font size and a 13px paragraph rendered at
+      39px. Dividing by an estimated line count recovered some of it
+      (0.9263 -> 0.9424) and it is still the worst of the three.
+  hard positioning constraints in the prompt ....... 19.5% overlap.
+      Over-constraining degrades this model, exactly as the earlier
+      absolute-spec attempt did (60.4% against a free 78.9%).
+
+So the shipped pipeline stands: model builds freely, carry_pass lays
+the ground and the raster, snap_pass and fit_font refine. 0.9556
+identical / 41.4% overlap, against a frontier 0.9592 / 49.3%.
+
+WHAT EVERY FAILURE HAS IN COMMON, and therefore what to build next:
+they all guess WHICH element corresponds to which measured run, from
+order and geometry. That mapping is the whole problem. Text would
+settle it exactly — match by the words, not by position — and this Mac
+has Vision.framework and pyobjc already, needing only
+pyobjc-framework-Vision (Apple-only, small) or a bundled Swift helper.
+That is a dependency decision for the owner, since this project is
+stdlib-only by design; it is not a technical unknown.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

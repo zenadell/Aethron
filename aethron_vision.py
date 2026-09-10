@@ -1243,6 +1243,298 @@ def fit_font(html: str, render_fn, region=None, verbose=False):
     return best_html, best
 
 
+def ink_iou(a_png, b_png, b_mask=None, b_shot=None):
+    """How much of the ink lands in the same PLACE. 0..1.
+
+    THE PERCENTAGE THAT MISLED US. "Pixels identical" counts the whole
+    canvas, and a page like this is mostly dark ground and gradient —
+    both of which the carry pass gets exactly right. So a rebuild whose
+    text was visibly in the wrong places still scored 95.6%, and the
+    owner spotted by eye what the number was hiding.
+
+    Content-only exact matching overcorrects: antialiased glyph edges
+    almost never match to tolerance even when perfectly placed, which
+    scored a good build at 30%.
+
+    Overlap of the two INK MASKS asks the question that actually
+    matters — is the ink where it should be — and does not care whether
+    the letters have the same shape. Use it to judge PLACEMENT; use the
+    referee's identical score to judge the finished look.
+    """
+    if b_mask is None:
+        b_shot = load(b_png)
+        f = Field(b_shot, dark=True)
+        m = ink_mask(b_shot, f)
+        f.refine(m)
+        b_mask = ink_mask(b_shot, f)
+        b_field = f
+    a = load(a_png)
+    # judged against the ORIGINAL's ground, so a candidate cannot score
+    # well by shifting what counts as background
+    fa = Field(a, dark=True)
+    fa.refine(ink_mask(a, fa))
+    ma = ink_mask(a, fa)
+    inter = union = 0
+    for i in range(len(b_mask)):
+        x, y = ma[i], b_mask[i]
+        if x or y:
+            union += 1
+            if x and y:
+                inter += 1
+    return inter / max(union, 1)
+
+
+def locate_elements(html: str, render_fn, verbose=False):
+    """Render each text element ALONE to learn exactly where it lands.
+
+    Every earlier pass tried to work out which ink belonged to which
+    element by lining up measured runs in order, and every earlier pass
+    was defeated by the same thing: the two images do not segment alike,
+    so the pairing slips. It also could not see an element at all unless
+    it already had a `top:` — which is precisely how a caption written
+    with `left:0` and no `top` stayed in normal flow, enormous and
+    jammed against the left edge, through three rounds of "correction".
+
+    ISOLATION BY DIFFERENCE, not by ink. The first version hid the other
+    text and measured whatever ink remained, and every element came back
+    as the whole canvas: a carried gradient and a carried logo strip are
+    still on the page and still register. So render once with ALL text
+    hidden, then once per element, and take the pixels that CHANGED.
+    Those pixels are that element and nothing else.
+    """
+    body_at = html.find("<body")
+    body = html[body_at:] if body_at >= 0 else html
+    # never treat CSS as content: the first version matched a rule out
+    # of the <style> block and solemnly reported its position
+    scrubbed = re.sub(r"(?is)<(style|script)\b.*?</\1>", "", body)
+    els, seen = [], set()
+    for m in re.finditer(r"<(\w+)([^>]*)>([^<]{2,})</\1>", scrubbed):
+        text = m.group(3).strip()
+        if not text or m.group(0) in seen:
+            continue
+        seen.add(m.group(0))
+        els.append({"whole": m.group(0), "tag": m.group(1),
+                    "attrs": m.group(2), "text": text})
+    if not els:
+        return []
+
+    def hide(h, items):
+        for it in items:
+            h = h.replace(it["whole"],
+                          it["whole"].replace(
+                              f"<{it['tag']}{it['attrs']}>",
+                              f"<{it['tag']}{it['attrs']} hidden>", 1), 1)
+        return h
+
+    base_png, _ = render_fn(hide(html, els))
+    base = load(base_png)
+    out = []
+    for e in els:
+        png, _ = render_fn(hide(html, [x for x in els if x is not e]))
+        shot = load(png)
+        xs, ys = [], []
+        for y in range(shot.h):
+            for x in range(shot.w):
+                if _dist(shot.rgb(x, y), base.rgb(x, y)) > 16:
+                    xs.append(x)
+                    ys.append(y)
+        box = ({"left": min(xs), "right": max(xs), "top": min(ys),
+                "bottom": max(ys), "w": max(xs) - min(xs) + 1,
+                "h": max(ys) - min(ys) + 1} if xs else None)
+        out.append({**e, "box": box})
+        if verbose:
+            print(f"   {e['text'][:32]:<34} "
+                  + (f"x{box['left']}-{box['right']} y{box['top']}"
+                     f"-{box['bottom']}" if box else "DRAWS NOTHING"))
+    return out
+
+
+def emit_page(rep, texts, field_b64="", carried=(), font="Inter"):
+    """The TOOL writes the page. The model only says what the words are.
+
+    THIS IS THE INVERSION THAT MAKES A WEAK MODEL SUFFICIENT. Asking a
+    model to place elements from a list of numbers failed in every form
+    it was tried: it wrote a caption with `left:0` and no `top` at all,
+    so the caption sat in normal flow, enormous, against the left edge —
+    and three rounds of measured corrections could not reach it, because
+    a pass that edits `top:` cannot fix an element that has none.
+
+    Reading words off a picture is the one job a small model does
+    reliably; deciding pixels is the one it cannot do at all. So the
+    split is made absolute here. Every position, size, colour and
+    alignment below is measured. `texts` is a list of strings, one per
+    measured run, in reading order, and that is the model's ENTIRE
+    contribution. A wrong word is then a wrong word — it cannot become
+    a wrecked layout.
+    """
+    w, h = rep["width"], rep["height"]
+    runs = [t for b in rep.get("bands", []) for t in b.get("text", [])
+            if t.get("left") is not None]
+    out = [f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={
+    font.replace(' ', '+')}:wght@300;400;500;600;700&display=swap">
+<style>*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:{w}px;height:{h}px;overflow:hidden}}
+body{{background:{rep['background']['hex']};position:relative;
+ font-family:'{font}',-apple-system,Helvetica,Arial,sans-serif;
+ -webkit-font-smoothing:antialiased}}
+.e{{position:absolute;white-space:nowrap}}
+.r{{position:absolute}}</style></head><body>"""]
+    if field_b64:
+        out.append(f'<div class="r" style="left:0;top:0;width:{w}px;'
+                   f'height:{h}px;z-index:0;background-size:100% 100%;'
+                   f'background-image:url(data:image/png;base64,'
+                   f'{field_b64})"></div>')
+    for r in rep.get("rules", []):
+        if r["axis"] == "horizontal":
+            out.append(f'<div class="r" style="left:0;top:{r["at"]}px;'
+                       f'width:{w}px;height:1px;z-index:1;'
+                       f'background:{r["color"]}"></div>')
+        else:
+            out.append(f'<div class="r" style="left:{r["at"]}px;top:0;'
+                       f'width:1px;height:{h}px;z-index:1;'
+                       f'background:{r["color"]}"></div>')
+    for b in rep.get("boxes", [])[:20]:
+        out.append(f'<div class="r" style="left:{b["x"]}px;top:{b["y"]}px;'
+                   f'width:{b["w"]}px;height:{b["h"]}px;z-index:2;'
+                   f'background:{b["fill"]};'
+                   f'border-radius:{b["radius"]}px"></div>')
+    for i, r in enumerate(runs):
+        words = texts[i] if i < len(texts) else ""
+        if not words:
+            continue
+        segs = r.get("segments") or []
+        lo, hi = r.get("font_size_range") or [12, 18]
+        size = (lo + hi) / 2
+        # A RUN IS NOT ALWAYS A LINE. Ink stops between lines only if a
+        # blank row separates them, so tightly-led paragraphs measure as
+        # ONE run — and taking its full ink height as a font size gave a
+        # 13px paragraph a 39px face, which is worse than any guess a
+        # model would have made. Estimate how many lines the words need
+        # in the measured width, and divide.
+        width = max(1, r["right"] - r["left"] + 1)
+        if len(segs) <= 1 and words:
+            for _ in range(3):
+                per_char = size * 0.5
+                lines = max(1, round(len(words) * per_char / width))
+                want = (r.get("ink_height") or size) / (0.82 * lines)
+                if abs(want - size) < 0.4:
+                    size = want
+                    break
+                size = want
+            size = max(7.0, min(size, hi))
+        # A run made of several separated items is several elements at
+        # their own measured x, not one string with guessed gaps.
+        parts = words.split("\\t") if "\\t" in words else [words]
+        if len(segs) > 1 and len(parts) == len(segs):
+            for s, txt in zip(segs, parts):
+                out.append(
+                    f'<div class="e" style="left:{s["left"]}px;'
+                    f'top:{r["top"]}px;font-size:{size:.1f}px;'
+                    f'color:{r["color"]};z-index:4;line-height:1">'
+                    f'{txt}</div>')
+        else:
+            width = r["right"] - r["left"] + 1
+            out.append(
+                f'<div class="e" style="left:{r["left"]}px;'
+                f'top:{r["top"]}px;width:{width}px;font-size:{size:.1f}px;'
+                f'color:{r["color"]};z-index:4;line-height:1;'
+                f'white-space:normal;text-align:center">{words}</div>')
+    for c in carried:
+        out.append(f'<img alt="" class="r" style="left:{c["x"]}px;'
+                   f'top:{c["y"]}px;width:{c["w"]}px;height:{c["h"]}px;'
+                   f'z-index:5;{c.get("style", "")}" '
+                   f'src="data:image/png;base64,{c["b64"]}">')
+    out.append("</body></html>")
+    return "".join(out)
+
+
+def place_pass(html: str, original, render_fn, score_fn, rounds=2,
+               verbose=False):
+    """Put each element where it MEASURES, in one move, not by nudging.
+
+    snap_pass searches a few pixels either way, which is right for a
+    near-miss and useless for a gross one: a caption that belongs
+    centred under a button and was placed at the far left is hundreds of
+    pixels out, and no amount of +/-6px finds it.
+
+    So this computes the WHOLE delta. Both documents run down the page,
+    so the runs are aligned monotonically and each element is moved to
+    its partner's measured position outright. Every move is scored on
+    INK OVERLAP and kept only if it improves — a mapping that slips
+    produces a worse overlap and is discarded, so a wrong pairing costs
+    a render rather than the page.
+    """
+    a = measure(original)
+    orig_runs = [t for bd in a.get("bands", []) for t in bd.get("text", [])
+                 if t.get("left") is not None]
+    b_shot = load(original)
+    bf = Field(b_shot, dark=True)
+    bf.refine(ink_mask(b_shot, bf))
+    b_mask = ink_mask(b_shot, bf)
+
+    best_html = html
+    png, _ = render_fn(best_html)
+    best = ink_iou(png, original, b_mask=b_mask)
+    if verbose:
+        print(f"    ink overlap at start {best * 100:.1f}%")
+
+    for rnd in range(rounds):
+        png, _ = render_fn(best_html)
+        mine = [t for bd in measure(png).get("bands", [])
+                for t in bd.get("text", []) if t.get("left") is not None]
+        els = []
+        for m in re.finditer(
+                r'<(\w+)([^>]*style="([^"]*top:\s*[-\d.]+px[^"]*)"[^>]*)>'
+                r'(.*?)</\1>', best_html, re.S):
+            if re.sub(r"<[^>]+>", "", m.group(4)).strip():
+                els.append(m.group(3))
+        pairs = [(o, r) for o, r in _align(orig_runs, mine) if o and r]
+        if not pairs or not els:
+            break
+        pairs.sort(key=lambda p: p[1]["top"])
+
+        def elt_top(s):
+            m = re.search(r"top:\s*([-\d.]+)px", s)
+            return float(m.group(1)) if m else 1e9
+
+        els.sort(key=elt_top)
+        moved = 0
+        for (o, r), style in zip(pairs, els):
+            if style not in best_html:
+                continue
+            dt = o["top"] - r["top"]
+            dl = o["left"] - r["left"]
+            if abs(dt) < 2 and abs(dl) < 2:
+                continue
+            ns = style
+            if abs(dt) >= 2:
+                ns = re.sub(r"top:\s*([-\d.]+)px",
+                            lambda m: f"top:{float(m.group(1)) + dt:.0f}px",
+                            ns, count=1)
+            if abs(dl) >= 2 and "left:" in ns:
+                ns = re.sub(r"left:\s*([-\d.]+)px",
+                            lambda m: f"left:{float(m.group(1)) + dl:.0f}px",
+                            ns, count=1)
+            if ns == style:
+                continue
+            cand = best_html.replace(style, ns, 1)
+            cpng, _ = render_fn(cand)
+            sc = ink_iou(cpng, original, b_mask=b_mask)
+            if sc > best + 0.001:
+                best_html, best = cand, sc
+                moved += 1
+                if verbose:
+                    print(f"      moved {dl:+.0f},{dt:+.0f} -> "
+                          f"overlap {best * 100:.1f}%")
+        if verbose:
+            print(f"    round {rnd + 1}: {moved} moved, overlap "
+                  f"{best * 100:.1f}%")
+        if not moved:
+            break
+    return best_html, best
+
+
 # ─────────────────────────── the audit ───────────────────────────────
 
 def _align(ta, tb, gap=18):
