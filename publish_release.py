@@ -75,17 +75,56 @@ def _service_key() -> str:
     return ""
 
 
-def _req(method, url, key, data=None, ctype=None, extra=None):
+# A RELEASE IS A 42 MB UPLOAD ON A 100 KB/s LINK — SEVEN MINUTES AT
+# BEST. The old 600s ceiling left barely a minute of slack and a real
+# publish died on "The write operation timed out" partway through the
+# asset. Nobody was endangered (the feed is written LAST, so it still
+# pointed at the previous release), but the release simply did not
+# happen and the owner's bandwidth was spent for nothing.
+#
+# The owner's connection is the DESIGN CONDITION here, not an anomaly;
+# it is measured and recorded elsewhere in this project. So: a ceiling
+# with real headroom, and a retry, because one dropped write should not
+# cost the whole upload again by hand.
+UPLOAD_TIMEOUT = int(os.environ.get("AETHRON_UPLOAD_TIMEOUT") or 2700)
+UPLOAD_TRIES = 3
+
+# Response headers from the last _req. The resumable protocol carries
+# its state THERE, not in the body: Location names the upload, and
+# Upload-Offset is the server's own count of what it holds — the only
+# number that can be trusted after a connection drops.
+_LAST_HEADERS = {}
+
+
+def _req(method, url, key, data=None, ctype=None, extra=None, tries=None):
     h = {"Authorization": f"Bearer {key}", "apikey": key}
     if ctype:
         h["Content-Type"] = ctype
     h.update(extra or {})
-    r = urllib.request.Request(url, data=data, headers=h, method=method)
-    try:
-        with urllib.request.urlopen(r, timeout=600) as resp:
-            return resp.status, resp.read().decode("utf8", "replace")
-    except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf8", "replace")
+    # Only bodies are worth retrying; a GET that fails will be reported
+    # by its caller. Retrying is safe because every upload here is an
+    # idempotent PUT/POST to a fixed object path — a half-written object
+    # is replaced, never appended to.
+    attempts = tries if tries is not None else (UPLOAD_TRIES if data else 1)
+    last = None
+    for i in range(1, attempts + 1):
+        r = urllib.request.Request(url, data=data, headers=h, method=method)
+        _LAST_HEADERS.clear()
+        try:
+            with urllib.request.urlopen(r, timeout=UPLOAD_TIMEOUT) as resp:
+                _LAST_HEADERS.update({k.lower(): v
+                                      for k, v in resp.headers.items()})
+                return resp.status, resp.read().decode("utf8", "replace")
+        except urllib.error.HTTPError as e:
+            _LAST_HEADERS.update({k.lower(): v for k, v in e.headers.items()}
+                                 if e.headers else {})
+            return e.code, e.read().decode("utf8", "replace")
+        except Exception as e:                     # timeout, reset, DNS
+            last = e
+            if i < attempts:
+                print(f"  upload attempt {i} failed ({type(e).__name__}: "
+                      f"{e}) — retrying")
+    return 0, f"{type(last).__name__}: {last}"
 
 
 def ensure_bucket(base, key, bucket="releases") -> str:
@@ -107,10 +146,82 @@ def ensure_bucket(base, key, bucket="releases") -> str:
     return f"could not create bucket ({code}) {body[:200]}"
 
 
+# Supabase's resumable endpoint speaks TUS and requires 6 MB chunks
+# (every part but the last).
+CHUNK = 6 * 1024 * 1024
+
+
+def _tus_upload(base, key, bucket, name, blob: bytes, ctype) -> str:
+    """Upload in resumable chunks, picking up where a drop left off.
+
+    WHY, MEASURED: a 43 MB single POST on the owner's link failed three
+    times running — once as a write timeout, then an SSL EOF, then a
+    connection reset. A longer deadline cannot help a connection that is
+    being severed, and every retry re-sent all 43 MB from zero, roughly
+    seven minutes of a 100 KB/s link spent to arrive nowhere.
+
+    TUS turns that into a 6 MB loss: HEAD asks the server how much it
+    actually has, and the next PATCH continues from exactly there. The
+    offset comes from the SERVER, never from what we believe we sent —
+    a reset mid-chunk means the two disagree, and the server is right.
+    """
+    import base64
+    meta = ",".join(f"{k} {base64.b64encode(v.encode()).decode()}" for k, v in
+                    (("bucketName", bucket), ("objectName", name),
+                     ("contentType", ctype), ("cacheControl", "60")))
+    code, body = _req(
+        "POST", f"{base}/storage/v1/upload/resumable", key, b"", None,
+        {"Tus-Resumable": "1.0.0", "Upload-Length": str(len(blob)),
+         "Upload-Metadata": meta, "x-upsert": "true"}, tries=3)
+    if code not in (200, 201):
+        raise SystemExit(f"could not start a resumable upload "
+                         f"({code}): {body[:300]}")
+    loc = _LAST_HEADERS.get("location") or ""
+    if not loc:
+        raise SystemExit("resumable upload started but returned no Location")
+    if loc.startswith("/"):
+        loc = base + loc
+
+    offset, stall = 0, 0
+    while offset < len(blob):
+        end = min(offset + CHUNK, len(blob))
+        code, body = _req(
+            "PATCH", loc, key, blob[offset:end],
+            "application/offset+octet-stream",
+            {"Tus-Resumable": "1.0.0", "Upload-Offset": str(offset)},
+            tries=1)
+        if code in (200, 204):
+            offset = int(_LAST_HEADERS.get("upload-offset") or end)
+            stall = 0
+            print(f"    {offset/1e6:5.1f} / {len(blob)/1e6:.1f} MB")
+            continue
+        # Dropped. Ask the server what it really has and resume there.
+        hcode, _ = _req("HEAD", loc, key, None, None,
+                        {"Tus-Resumable": "1.0.0"}, tries=2)
+        if hcode not in (200, 204):
+            raise SystemExit(f"upload of {name} failed and could not be "
+                             f"resumed ({code}/{hcode}): {body[:200]}")
+        server_has = int(_LAST_HEADERS.get("upload-offset") or 0)
+        if server_has <= offset:
+            stall += 1
+            if stall >= 6:
+                raise SystemExit(
+                    f"upload of {name} stopped making progress at "
+                    f"{server_has/1e6:.1f} MB — the connection is dropping "
+                    f"every chunk. Try again on a steadier link.")
+        else:
+            stall = 0
+        offset = server_has
+        print(f"    resumed at {offset/1e6:.1f} MB")
+    return f"{base}/storage/v1/object/public/{bucket}/{name}"
+
+
 def upload(base, key, bucket, name, blob: bytes, ctype=None) -> str:
     """Overwrite-safe upload. Returns the public URL, raises on failure."""
     ctype = ctype or (mimetypes.guess_type(name)[0]
                       or "application/octet-stream")
+    if len(blob) > CHUNK:
+        return _tus_upload(base, key, bucket, name, blob, ctype)
     code, body = _req("POST", f"{base}/storage/v1/object/{bucket}/{name}",
                       key, blob, ctype, {"x-upsert": "true",
                                          "Cache-Control": "max-age=60"})
