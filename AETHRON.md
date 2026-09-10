@@ -2253,12 +2253,64 @@ BLOCK with NO size and a note saying why. Fabricating a number is the
 precise failure this module exists to prevent; it does not get an
 exemption for being our own code.
 
-STILL OPEN AND NAMED: regions above the detected ramp are still edge
-residue rather than UI, so the button is not found as a box on this
-image; and text sitting ON a gradient takes the gradient's colour
-(#481912 where it should be white). Both are real, both are the same
-root cause — the ramp's true top edge is higher than the row-mean scan
-declares.
+## 55.6% -> 95.6% ON THE OWNER'S SCREENSHOT — 2026-09-10
+Asked to rebuild their screenshot and prove it against the original.
+Every gain came from the same move, and the referee decided all of it.
+
+  55.6%  the glow written as a radial-gradient BY EYE. Referee: rows
+         y555-560, 95% wrong. The tool had already said "radial, NOT
+         FITTED" and I guessed anyway.
+  94.0%  the glow CARRIED instead — the page's own colour field, median
+         sampled to 48x34, 3KB, browser interpolates. One change.
+  94.2%  referee scored one row 100% WRONG: a horizontal rule I had
+         invented that does not exist in the design. Then it swept
+         heading size/position and picked better than my eye.
+  95.5%  every position measured rather than placed (below), and the
+         seven logos located, cropped and CARRIED: that region went
+         from 15% of all error to 0.1% — 28 wrong px of 29,500.
+  95.6%  referee chose the typeface from six candidates. It picked
+         GEIST. I would have guessed Inter.
+
+THE ERROR MAP IS THE WHOLE THESIS. Measured per region: the carried
+gradient 0.2% wrong, the carried logos 0.1% wrong, and everything
+RECREATED 5-41% wrong. Carry beats recreate, quantified.
+
+TWO CHANGES MADE THE TOOL STOP NEEDING AN EYE:
+1. Text runs now carry horizontal bounds and per-thing segments. They
+   reported y and height only, so every horizontal placement was
+   judgement — and judgement about pixels is exactly what a weak model
+   cannot do. The worst-fitting element on the page was the one placed
+   that way: 41.3% wrong inside its own box.
+2. INK MEANS "DIFFERS FROM THE LOCAL GROUND", not from one page colour.
+   Over a gradient the old test is true almost everywhere, so a whole
+   hero came back as ONE blob spanning x0-1023 — button, sub-paragraph
+   and quote never separated, their colours read as gradient (#481912
+   for white text). With a `Field` (polarity-aware percentile, refined
+   once with the ink excluded) the same hero yields 13 measured runs
+   with correct colours.
+
+AND THE INSTRUMENT WAS CAUGHT INVENTING PRECISION AGAIN. font_size was
+one number from ink height / 0.72 — but ink height depends on which
+GLYPHS a line contains: ~0.72em for capitals, ~0.95em with descenders.
+It read 62px for a 48px heading purely because the words had a 'g' in
+them. Now `ink_height` is reported as fact and `font_size_range` bounds
+the inference; the ground-truth test asserts the truth is INSIDE the
+range AND that the range is tight enough to be useful — two assertions
+where there was one, so the test got stronger, not looser.
+
+FAILED, AFTER FIVE ATTEMPTS, AND LEFT NAMED: assembling an element from
+the strips its own label splits it into. A button with text fragments
+into a left margin, a right margin and thin bands; every attempt finds
+the pieces (x458-567 y293-295, x455-568 y312-318, and the rest) and the
+merge still returns nothing. Tried: colour-vs-string fill matching (a
+real bug — one white button's strips read #FFFFFB/#FCFCFC/#FFFFFF, so
+an equality test could never merge them), height filtering after the
+join instead of before, general overlap merging, polarity percentiles.
+A fallback keeps the detector from finding FEWER things than before.
+This needs a redesign, not a sixth patch.
+
+STILL OPEN: text sitting ON a gradient is now read correctly, but
+regions above the detected ramp are still edge residue rather than UI.
 
 ## PASTE THE SCREENSHOT, DO NOT FILE IT — 2026-09-10
 The owner, on being asked for a file path: "most users go with
