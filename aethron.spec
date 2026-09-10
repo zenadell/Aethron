@@ -41,6 +41,9 @@ a = Analysis(
         # and the source-map recovery, and PyInstaller cannot see them
         # (they are imported inside functions).
         "aethron_convert", "aethron_motion", "aethron_source",
+        # Measurement pass for screenshots, imported inside cmd_vision.
+        # Listed the same day the MCP server taught this lesson twice.
+        "aethron_vision",
         # Figma: a design file is an L0 source like a live site is.
         "aethron_figma", "aethron_figma_grade",
         "statistics",

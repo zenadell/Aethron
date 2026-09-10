@@ -2135,6 +2135,94 @@ suite(s) UNVERIFIED. Exit status is unchanged (a skip is not a
 failure), because the point is not to punish the skip, it is to stop
 the word GREEN from covering it.
 
+## MEASURE THE SCREENSHOT, DO NOT ASK A MODEL TO LOOK AT IT
+## — `aethron_vision.py`, 2026-09-10
+The owner asked for screenshot-to-code at 99%, "including the animation,
+the colour, the blur, the opacity — everything", and asked whether it is
+even possible. It half is, and the half that is not is worth stating
+first because no amount of engineering moves it.
+
+WHY EYEBALLING FAILS, WITH A NUMBER. A 2026 benchmark perturbed one
+card's width or one text's font-size so the value broke the repeated
+pattern, then asked multimodal models to recover it:
+
+    card width   21.17% correct
+    font size     7.89% correct
+
+They name it PATTERN COMPLETION BIAS: the model is not reading pixels,
+it is completing a pattern from training, so anything slightly unusual
+comes back as the usual thing, confidently. A better model still
+guesses. The owner's "98% of the time it's terrible" is measured fact.
+
+THE ANSWER IS THE ONE THIS PROJECT ALREADY LIVES BY. A PNG is not a
+picture, it is an array of exact integers, and almost everything a
+design system cares about is a number sitting in it that nobody reads.
+So: the tool establishes physics, the model decides meaning — the same
+division that makes copy_map work. `aethron_vision.py` contains no
+model and never asks for a value it can compute:
+
+    background   from the BORDER ring, not the whole image — the
+                 commonest colour overall is whatever fills the most
+                 area, which on a dark hero is the hero
+    palette      exact colours, antialiasing folded into the colour it
+                 came from (fold most-frequent-first, or a real colour
+                 gets absorbed into a fringe)
+    bands        runs of rows carrying ink; the GAPS are reported too,
+                 because the vertical rhythm is a design decision
+    columns      the same profile per band = the column grid
+    boxes        solid fills grown from row runs, with fill and radius
+    radius       measured: the first row whose fill reaches the box edge
+    text         rows of small broken ink, with measured height and
+                 colour. The font-size is labelled an ESTIMATE, because
+                 cap height varies by typeface and the module does not
+                 pretend otherwise.
+
+PROVEN AGAINST GROUND TRUTH, which is the only honest way to test an
+instrument: a page whose values we set (card at 120,80 400x240 #B9FF66
+radius 24; a square pill; 48px #2A5CE0 text), rendered, screenshotted,
+measured blind. All recovered.
+
+TWO BUGS THE GROUND TRUTH CAUGHT, both the same shape — trusting the
+first reading instead of the representative one:
+1. A box is seeded from the first row that matches, and on a ROUNDED
+   card that row is the corner, every pixel antialiased against the
+   page. The card read #BCFF6D for a designer's #B9FF66 — a blend, off
+   by a hair in every channel, and it would have propagated into the
+   generated CSS. Fill now comes from the mode of the INTERIOR;
+   antialiasing lives at edges, the middle of a fill is the fill.
+2. On the real Phisio template one card came back as THREE strips
+   (y=193 h36, y=279 h18, y=314 h111) — the bands of fill between its
+   own heading and paragraph. Strips are not something to generate code
+   from. `_rejoin` merges same-fill, same-edge strips when the space
+   BETWEEN them is not page background, because that space is the
+   card's content; if the gap IS background they are two cards and stay
+   apart. Measured, not a spacing guess. Result: one 274x232 card,
+   radius 10.
+
+Real template, 1440x900, ~3s, pure stdlib: exact brand colours out
+(#C56E5E, #232323, #09093D, #FC6213), bands, columns, cards with radii.
+
+WHAT A STILL CANNOT CONTAIN, and the report says so in its own output:
+animation, easing and duration; hover and focus; other breakpoints;
+anything scrolled out of shot. One frame carries NO motion — not a hard
+problem, an absent one. The research agrees: vision models are
+"structurally unable to judge interaction states, motion, or anything
+below the captured frame."
+THE WAY THROUGH, and it is ours already: ask for a screen RECORDING and
+frame differencing gives what moved, when, and its easing; or, if the
+screenshot is of a live site, do not do screenshot-to-code at all —
+scrape it and the answer is 100%, not 99%. The best screenshot-to-code
+is usually not screenshot-to-code.
+
+NEXT, in order: (1) an MCP tool so the agent gets measurements instead
+of guessing; (2) generation that ASSEMBLES measured values rather than
+inventing them; (3) close the loop with the referee we already own —
+`aethron_figma_grade` shoots the built page and diffs it against the
+original, so generation iterates against a pixel diff instead of
+stopping at its first attempt. Research calls that VisRefiner and
+reports real gains; nobody ships it, and we already built both halves
+for Figma.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

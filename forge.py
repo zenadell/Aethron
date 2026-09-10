@@ -5367,6 +5367,30 @@ def cmd_audit(argv):
     sys.exit(2)
 
 
+def cmd_vision(argv):
+    """Measure a screenshot before any model is allowed to guess at it.
+
+    The point is the division of labour this project already runs on:
+    the tool establishes physics, the model decides meaning. Asked to
+    read a font size that breaks the surrounding pattern, multimodal
+    models score 7.89%; a measurement of the ink's height either reads
+    it or fails loudly. So every number a generator would otherwise
+    hallucinate — colours, bounds, radii, spacing, type size — comes
+    from here first.
+    """
+    if not argv or {"-h", "--help"} & set(argv):
+        print("usage: forge vision <screenshot.png|jpg> [--json]")
+        print("       Measures colours, bands, columns, solid regions,")
+        print("       corner radii and text size. No model involved.")
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import aethron_vision
+    except Exception as e:                       # pragma: no cover
+        die(f"the measurement pass is unavailable in this build ({e})")
+    sys.exit(aethron_vision.main(argv))
+
+
 def cmd_figma(argv):
     """Import a Figma design as a page — a new L0 SOURCE.
 
@@ -5500,6 +5524,7 @@ def cmd_convert(argv):
 
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "convert": cmd_convert, "figma": cmd_figma,
+            "vision": cmd_vision,
             "audit": cmd_audit,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "capture": cmd_capture,

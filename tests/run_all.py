@@ -44,6 +44,11 @@ SUITES = [
      [PY, "tests/adapt_battery.py"], False),
     ("figma battery (design import + the pixel referee)",
      [PY, "tests/figma_battery.py"], True),
+    # Measures a page whose values WE set, so every number has a right
+    # answer. Vision models score 7.89% on font size when it breaks the
+    # expected pattern; a measurement either reads it or is broken.
+    ("vision (measure a screenshot against ground truth)",
+     [PY, "aethron_vision.py", "--selftest"], True),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and
