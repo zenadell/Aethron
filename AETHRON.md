@@ -2414,6 +2414,55 @@ stopping at its first attempt. Research calls that VisRefiner and
 reports real gains; nobody ships it, and we already built both halves
 for Figma.
 
+## THE WEAK-MODEL TEST, ANSWERED — 2026-09-10
+The owner's standing question: can a cheap model drive this as well as
+a strong one? Tested with gemini-3.6-flash on the SAME screenshot a
+frontier model had scored 0.9592 on, same measurements, same prompt.
+Six calls, ~$0.035 total.
+
+    gemini alone .......................... 53.05%
+    + referee tuning its type sizes ....... 53.66%
+    + carry_pass() ........................ 94.46%
+    frontier model, by hand, an afternoon . 95.92%
+
+WITHIN 1.5 POINTS, FOR THREE CENTS. And the reason is the finding, not
+the number.
+
+THE STRUCTURE WAS NEVER THE PROBLEM. Error per region on the unaided
+build: nav 4.2% wrong, hero+heading 7.4% — as good as anyone's. The
+whole gap was two MECHANICAL jobs it was asked to do by hand:
+    the bloom ............ 100.0% wrong  ->  0.4% after carry_pass
+    trusted-by + logos ....  88.2% wrong  ->  4.9%
+Applying a colour field and reproducing raster logos are the TOOL's
+work. `carry_pass(html, original, regions)` lays the page's own ground
+behind everything at exactly canvas size and crops the raster regions
+out of the original — what a developer does when they export an asset.
+
+AND IT MUST NEVER BE ASKED TO REVISE. Three separate correction
+strategies, all WORSE than the first build:
+    first build ............................. 78.9%   (other screenshot)
+    apply the findings list ................. 41.2%
+    rebuild from an absolute spec ........... 60.4%
+    shown both renders + filtered findings .. 37.8%
+It deleted hairline rules that were correct, invented EMPTY text divs,
+and moved a heading that was already right. The cause is ours: findings
+say "text at y224 -> move it +10px", naming a run in the ORIGINAL that
+the builder cannot map to its own markup. The audit speaks to a human
+who can see both files, not to the thing holding the code.
+
+SO THE SHAPE IS SETTLED, and it is the opposite of the usual advice:
+THE MODEL BUILDS ONCE, THE TOOL REFINES. Deterministic refinement
+(coordinate descent over the type scale, judged by the referee) gained
+little here — 0.9% on one build, 0.6% on another — but never once
+damaged a page. That is the property that matters when nobody is
+watching. A model's revision is a coin flip; a sweep that keeps only
+what scores better cannot lose.
+
+OPEN, from this test: findings should name elements the BUILDER can
+identify (its own ids, or the text they contain), not coordinates in
+the original. That would make the correction loop usable by a weak
+model, which today it is not.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
