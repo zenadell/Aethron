@@ -2358,6 +2358,26 @@ page. A checker that fires on everything is one people learn to ignore.
 
 Result: 95.61% -> 95.68% identical, structural 2.63% -> 2.38%.
 
+THEN THE REFEREE SET THE TYPE — 95.92%, structural 2.17%.
+The owner pointed at the difference map: the paragraphs appeared TWICE,
+offset. Same words, different line breaks, so every line landed wrong
+and showed as two copies. Diagnosed by measurement, not by looking:
+the original's last paragraph line is 156px inside a 337px column and
+the rebuild's was 237px — same container, more words per line in the
+original, therefore SMALLER type.
+
+Fitted by coordinate descent with the referee as the judge, no eye in
+the loop. It moved EVERY knob down: body 13 -> 11.5px, quote 12 ->
+10.5px, caption 12 -> 10.5px, nav 13 -> 11.5px, logo 20 -> 15px,
+brand 12 -> 11px, heading already right. Last line now 151px against
+156px — the wrap matches and the doubling is gone.
+
+Line-height was swept too and came back ALREADY BEST. So the "merged
+runs" the audit reports (the original's lines touch, the rebuild's do
+not) cost no pixels: a measurement artifact of the run detector, not a
+visual defect. Recorded as a null result rather than dressed up as a
+change.
+
 STILL OPEN: text sitting ON a gradient is now read correctly, but
 regions above the detected ramp are still edge residue rather than UI;
 and assembling an element from the strips its own label splits it into
