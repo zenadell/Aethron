@@ -2463,6 +2463,64 @@ identify (its own ids, or the text they contain), not coordinates in
 the original. That would make the correction loop usable by a weak
 model, which today it is not.
 
+## THREE DETERMINISTIC PASSES CLOSED THE WEAK-MODEL GAP TO 0.36
+## — 2026-09-10
+The owner cannot afford a frontier model and needs a cheap one at ~98%.
+Same screenshot, same measurements, gemini-3.6-flash:
+
+    gemini alone ..................... 53.05%
+    + carry_pass() ................... 94.46%   the ground and the raster
+    + snap_pass() .................... 95.06%   every element nudged to fit
+    + fit_font() ..................... 95.34%   the referee picks the face
+    + box snapping in snap_pass ...... 95.56%
+    frontier model, by hand .......... 95.92%
+
+0.36 POINTS APART, at about three cents. Every pass after the first is
+deterministic and none of them can lose: each candidate is rendered and
+kept only if the referee scores it higher.
+
+snap_pass: THE OBVIOUS VERSION DOES NOT WORK. Measure both, pair the
+runs, apply the difference — built, and it scored 0.9387 against
+0.9446, correctly thrown away by its own guard. The two images do not
+SEGMENT the same way: a paragraph whose lines touch is one run in the
+original and three in the rebuild, so the pairing slips and every delta
+after it is nonsense. It searches instead — a few pixels either way, a
+few percent of size, referee decides. Boxes are the exception and are
+written in exactly, because a filled box IS found the same way in both;
+until they were, the button sat 41.4% wrong inside its own region
+through every round, since the pass only touched elements carrying text.
+
+fit_font: A SWEEP WHOSE OPTIONS ARE ALL THE SAME OPTION LOOKS LIKE A
+WORKING SWEEP. Twelve typefaces all scored 0.9518 to four decimals —
+the tell that nothing was changing. The regex was
+`font-family:[^;}"']+`, whose character class EXCLUDES quotes while the
+replacement INSERTS them, so from the second candidate on it matched
+only "font-family:" and produced
+    font-family:'Geist',sans-serif'Inter',sans-serif
+— malformed, silently ignored, every candidate falling back to the same
+face. Fixed, they separate properly: Inter 0.9475, Manrope 0.9534
+(winner), Sora 0.9462. Monospace declarations are now left alone; a
+page that asks for mono means it.
+
+MEASURED AND WORTH KEEPING: the referee is DETERMINISTIC — the same
+file rendered five times scores identically to four decimals, with a
+fresh browser profile each time. So a 0.2% gain is a real gain, not
+noise. One unexplained reading remains (a pass reported 0.9492 opening
+a file that renders 0.9534 before and after); the final figure was
+re-verified five times independently and is reproducible.
+
+HONEST CEILING: ~96% is where this sits, not 98%, and the reason is
+that the remaining error is almost entirely GLYPHS — heading 30.8% of
+what is left, paragraph 18.2%, quote 17.7%. Without the original font
+FILE the letterforms differ everywhere, and no amount of nudging a
+correctly-placed word fixes a differently-shaped letter. 98% needs the
+real font, which means the URL or the font file, not the screenshot.
+
+TOO SLOW TO SHIP AS IS: 289 renders for one snap pass, 2021s for the
+last run. Every candidate re-renders and re-diffs the whole page when
+only one element moved. Region-scoped scoring is the obvious fix and is
+not done.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

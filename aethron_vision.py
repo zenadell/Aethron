@@ -1033,6 +1033,216 @@ def carry_pass(html: str, original, regions=None, rep=None) -> str:
     return html
 
 
+def snap_pass(html: str, original, render_fn, rounds=2, verbose=False):
+    """Move every text element to where it belongs, without a model.
+
+    THE CORRECTION LOOP BELONGS HERE, NOT IN A PROMPT. Handed its own
+    mistakes as a list, gemini-3.6-flash made the page worse three times
+    out of three — deleting rules that were right, inventing empty text
+    divs, moving a heading that was already correct — because a finding
+    like "text at y224, move it +10px" names a run in the ORIGINAL and
+    the builder cannot tell which of its own divs that is.
+
+    WHY THIS DOES NOT COMPUTE THE DELTA DIRECTLY. The obvious version
+    measures both images, pairs the runs and applies the difference. It
+    was built, and it does not work: the two images do not SEGMENT the
+    same way. A paragraph whose lines touch is one run in the original
+    and three in the rebuild, so the pairing slips and every delta after
+    it is nonsense. Measured, that version scored 0.9387 against 0.9446
+    and was correctly thrown away by the guard below.
+
+    So it searches instead. Each text element is nudged a few pixels and
+    a few percent, and the referee says whether that helped. Slower, and
+    it cannot be fooled by a segmentation that disagrees.
+
+    NOTHING HERE CAN MAKE A PAGE WORSE: every candidate is rendered and
+    kept only if it scores higher. A model's revision is a coin flip;
+    a sweep that discards anything worse cannot lose.
+
+    `render_fn(html) -> (png_path, identical_score)`.
+    """
+    _, best = render_fn(html)
+    best_html = html
+    if verbose:
+        print(f"    start {best:.4f}")
+
+    # BOXES FIRST, AND EXACTLY. Text has to be searched because the two
+    # images segment it differently, but a filled box is found the same
+    # way in both — so its geometry is not a guess, it is a number, and
+    # it can be written straight in. Skipped until now because the pass
+    # only touched elements carrying text: the button stayed 41.4% wrong
+    # inside its own region through every round.
+    a_boxes = measure(original).get("boxes", [])
+    if a_boxes:
+        png, _ = render_fn(best_html)
+        mine_boxes = measure(png).get("boxes", [])
+        cand = re.findall(
+            r'style="([^"]*width:\s*[\d.]+px[^"]*height:\s*[\d.]+px[^"]*)"',
+            best_html)
+        for style in cand:
+            def num(prop, st=style):
+                m = re.search(rf"{prop}:\s*([\d.]+)px", st)
+                return float(m.group(1)) if m else None
+            x, y, w, h = (num("left"), num("top"), num("width"), num("height"))
+            if None in (x, y, w, h) or w < MIN_BOX or h < MIN_BOX:
+                continue
+            near = [b for b in a_boxes
+                    if abs(b["x"] - x) < 60 and abs(b["y"] - y) < 60]
+            if not near:
+                continue
+            t = min(near, key=lambda b: abs(b["x"] - x) + abs(b["y"] - y))
+            ns = style
+            for prop, val in (("left", t["x"]), ("top", t["y"]),
+                              ("width", t["w"]), ("height", t["h"])):
+                ns = re.sub(rf"{prop}:\s*[\d.]+px", f"{prop}:{val}px",
+                            ns, count=1)
+            if "border-radius" in ns:
+                ns = re.sub(r"border-radius:\s*[\d.]+px",
+                            f"border-radius:{t['radius']}px", ns, count=1)
+            if ns == style:
+                continue
+            _, sc = render_fn(best_html.replace(style, ns, 1))
+            if sc > best:
+                best_html = best_html.replace(style, ns, 1)
+                best = sc
+                if verbose:
+                    print(f"    box at ({x:.0f},{y:.0f}) -> "
+                          f"{t['w']}x{t['h']} r{t['radius']}  {best:.4f}")
+
+    for rnd in range(rounds):
+        # only elements that CARRY TEXT — a page like this has dozens of
+        # hairline rule divs and a handful of text divs, and attributing
+        # a heading's correction to a rule moves nothing.
+        els = []
+        for m in re.finditer(
+                r'<(\w+)([^>]*style="([^"]*top:\s*[\d.]+px[^"]*)"[^>]*)>'
+                r'(.*?)</\1>', best_html, re.S):
+            inner = re.sub(r"<[^>]+>", "", m.group(4)).strip()
+            if inner:
+                els.append(m.group(3))
+        if not els:
+            break
+        moved = 0
+        for style in els:
+            if style not in best_html:
+                continue                      # edited already this round
+            cand = []
+            for d in (-6, -3, -1, 1, 3, 6):
+                cand.append(("top", d))
+            if "left:" in style:
+                for d in (-6, -3, 3, 6):
+                    cand.append(("left", d))
+            if "font-size:" in style:
+                for k in (0.88, 0.94, 1.06, 1.12):
+                    cand.append(("font", k))
+            local_best, local_style = best, style
+            for kind, v in cand:
+                if kind == "font":
+                    ns = re.sub(r"font-size:\s*([\d.]+)px",
+                                lambda m: f"font-size:{float(m.group(1)) * v:.1f}px",
+                                style, count=1)
+                else:
+                    ns = re.sub(rf"{kind}:\s*([\d.]+)px",
+                                lambda m: f"{kind}:{float(m.group(1)) + v:.1f}px",
+                                style, count=1)
+                if ns == style:
+                    continue
+                _, sc = render_fn(best_html.replace(style, ns, 1))
+                if sc > local_best + 0.0002:
+                    local_best, local_style = sc, ns
+            if local_style is not style:
+                best_html = best_html.replace(style, local_style, 1)
+                best = local_best
+                moved += 1
+        if verbose:
+            print(f"    round {rnd + 1}: {moved} element(s) improved -> {best:.4f}")
+        if not moved:
+            break
+    return best_html, best
+
+
+# Grotesques a 2020s marketing page is actually likely to use. The list
+# is deliberately narrow: every extra candidate is a page render, and
+# families that look nothing alike cannot win.
+FONT_CANDIDATES = [
+    ("Inter", "Inter:wght@400;500;600;700"),
+    ("Geist", "Geist:wght@400;500;600;700"),
+    ("Manrope", "Manrope:wght@400;500;600;700"),
+    ("DM Sans", "DM+Sans:wght@400;500;700"),
+    ("Figtree", "Figtree:wght@400;500;600;700"),
+    ("Plus Jakarta Sans", "Plus+Jakarta+Sans:wght@400;500;600;700"),
+    ("Outfit", "Outfit:wght@400;500;600;700"),
+    ("Sora", "Sora:wght@400;500;600;700"),
+    ("Space Grotesk", "Space+Grotesk:wght@400;500;700"),
+    ("Onest", "Onest:wght@400;500;600;700"),
+    ("Schibsted Grotesk", "Schibsted+Grotesk:wght@400;500;700"),
+    ("General Sans", "General+Sans:wght@400;500;600"),
+]
+
+
+def fit_font(html: str, render_fn, region=None, verbose=False):
+    """Let the referee choose the typeface, the weight and the tracking.
+
+    On a text-heavy page the typeface IS the ceiling: once colours and
+    positions are right, what remains is the shape of the letters, and
+    no amount of nudging a correct position fixes a wrong glyph. Picking
+    it by eye is exactly the judgement this project keeps removing —
+    when swept properly the first time, the winner was Geist, where a
+    frontier model would have said Inter.
+
+    Weight and letter-spacing are swept too, and often matter more than
+    the family: a 500 rendered at 600 is wrong in every glyph at once.
+
+    `region` scores only part of the page (x0, y0, x1, y1), so a
+    candidate can be judged on the heading it is supposed to match
+    rather than diluted across a page that is mostly background.
+    """
+    def score(h):
+        return render_fn(h, region)[1] if region else render_fn(h)[1]
+
+    best_html, best = html, score(html)
+    if verbose:
+        print(f"    start {best:.4f}")
+
+    for name, spec in FONT_CANDIDATES:
+        h = best_html
+        h = re.sub(r'<link[^>]*fonts\.googleapis[^>]*>', "", h)
+        link = ('<link rel="stylesheet" href="https://fonts.googleapis.com'
+                f'/css2?family={spec}&display=swap">')
+        if "<head>" in h:
+            h = h.replace("<head>", "<head>" + link, 1)
+        else:
+            h = link + h
+        # THE CHARACTER CLASS MUST ADMIT QUOTES. It excluded them while
+        # the replacement INSERTED them, so on the second candidate the
+        # pattern matched only "font-family:" and produced
+        #   font-family:'Geist',sans-serif'Inter',sans-serif
+        # — malformed, silently ignored by the browser, every candidate
+        # falling back to the same face and scoring identically to four
+        # decimal places. A sweep whose options are all the same option
+        # looks like a working sweep.
+        # Monospace is left alone: a page that sets it means it.
+        h = re.sub(r"font-family:\s*(?![^;}]*monospace)[^;}]+",
+                   f"font-family:'{name}',sans-serif", h)
+        sc = score(h)
+        if verbose:
+            print(f"      {name:<20} {sc:.4f}")
+        if sc > best + 0.0002:
+            best_html, best = h, sc
+    for prop, vals in (("letter-spacing", ("-.03em", "-.02em", "-.01em", "0")),
+                       ("font-weight", ("450", "500", "550", "600"))):
+        for v in vals:
+            h = re.sub(rf"{prop}:[^;}}\"']+", f"{prop}:{v}", best_html)
+            if h == best_html:
+                continue
+            sc = score(h)
+            if sc > best + 0.0002:
+                if verbose:
+                    print(f"      {prop}:{v} -> {sc:.4f}")
+                best_html, best = h, sc
+    return best_html, best
+
+
 # ─────────────────────────── the audit ───────────────────────────────
 
 def _align(ta, tb, gap=18):
