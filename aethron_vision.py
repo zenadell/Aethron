@@ -2400,25 +2400,6 @@ a.t:focus-visible,button:focus-visible{{outline:2px solid currentColor;outline-o
             btn[tuple(a["box"])] = a["label"]
     navs = {a["label"] for a in aff if a["kind"] == "navlink"}
     out.append(chrome_html(rep, w, h, skip=set(btn)))
-    # THE BOX TREE, AS REAL ELEMENTS. Every rectangle the edge pass
-    # recovered, with the fill read off its own interior as CSS —
-    # flat where it is flat, a gradient where it is a gradient. These
-    # are the cards, chips, pills and inputs the colour detector could
-    # not see at all, and each one drawn here is one less thing the
-    # carried plate has to fake. Painted largest first so the nesting
-    # comes out right, and under the type.
-    try:
-        import aethron_boxes as _B
-        tree = _B.styled(shot, _B.rectangles(shot))
-    except Exception:
-        tree = []
-    for i, bx in enumerate(tree):
-        out.append(f'<div class="r" data-ae-id="b{i:02d}" '
-                   f'style="left:{bx["x"]}px;top:{bx["y"]}px;'
-                   f'width:{bx["w"]}px;height:{bx["h"]}px;z-index:3;'
-                   f'background:{bx["css"]};'
-                   f'border-radius:{bx["radius"]}px"></div>')
-
     def inside_carried(ln):
         # A carried region is a photograph of that part of the page; the
         # words in it are already there. Drawing them again on top is
