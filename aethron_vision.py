@@ -1349,6 +1349,230 @@ def locate_elements(html: str, render_fn, verbose=False):
     return out
 
 
+OCR_SRC = ROOT / "aethron_ocr.swift"
+OCR_BIN = ROOT / ".aethron_ocr"
+
+
+def ocr(image, timeout=120):
+    """The words and their exact boxes, from the OCR already in macOS.
+
+    THE MISSING FACT. Every placement failure in this project came from
+    guessing which element corresponds to which measured run, using
+    order and geometry, and every attempt to be cleverer about the guess
+    failed: absolute moves, isolating elements, inverting the emitter,
+    hard-constraining the prompt — 41.4%, defeated, 22.3%, 19.5%.
+
+    Text settles it exactly. And OCR gives something the ink measurement
+    cannot: ONE BOX PER LINE. A tightly-led paragraph measures as a
+    single 32px-tall run, which is why the emitter gave a 13px paragraph
+    a 39px face; Vision returns its three lines separately, each with
+    its own height.
+
+    Compiled once with the swiftc already on the machine, so the Python
+    side stays stdlib-only — no pip install, no network, no key. Returns
+    None if it cannot build or run, and the caller must then say so
+    rather than pretend it read anything.
+    """
+    if not OCR_SRC.exists():
+        return None
+    if not OCR_BIN.exists() or OCR_BIN.stat().st_mtime < OCR_SRC.stat().st_mtime:
+        sw = shutil.which("swiftc")
+        if not sw:
+            return None
+        r = subprocess.run([sw, "-O", str(OCR_SRC), "-o", str(OCR_BIN)],
+                           capture_output=True, text=True, timeout=600)
+        if r.returncode or not OCR_BIN.exists():
+            return None
+    try:
+        r = subprocess.run([str(OCR_BIN), str(image)], capture_output=True,
+                           text=True, timeout=timeout)
+    except Exception:
+        return None
+    if r.returncode:
+        return None
+    out = []
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            out.append(json.loads(line))
+        except Exception:
+            continue
+    return out
+
+
+def emit_from_ocr(image, font="Inter", carried=(), rep=None, ocr_lines=None):
+    """Build the whole page from what was READ and what was MEASURED.
+
+    No model anywhere in this function. OCR supplies the words and where
+    each line sits; the measurement supplies the ground, the rules, the
+    filled boxes and every colour. That removes the last place a model
+    could put something in the wrong place.
+
+    Font size comes from the LINE's own box height rather than a run's,
+    which is the whole reason this can work where emit_page could not.
+    """
+    rep = rep or measure(image)
+    lines = ocr_lines if ocr_lines is not None else ocr(image)
+    if lines is None:
+        return None
+    shot = load(image)
+    dark = sum(rep["background"]["rgb"]) < 384
+    field = Field(shot, dark=dark)
+    field.refine(ink_mask(shot, field))
+    mask = ink_mask(shot, field)
+    import base64
+    fb = base64.b64encode(field.png_bytes()).decode()
+    w, h = rep["width"], rep["height"]
+
+    out = [f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={
+    font.replace(' ', '+')}:wght@300;400;500;600;700&display=swap">
+<style>*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:{w}px;height:{h}px;overflow:hidden}}
+body{{background:{rep['background']['hex']};position:relative;
+ font-family:'{font}',-apple-system,Helvetica,Arial,sans-serif;
+ -webkit-font-smoothing:antialiased}}
+.t{{position:absolute;white-space:nowrap;line-height:1}}
+.r{{position:absolute}}</style></head><body>
+<div class="r" style="left:0;top:0;width:{w}px;height:{h}px;z-index:0;
+ background-size:100% 100%;
+ background-image:url(data:image/png;base64,{fb})"></div>"""]
+    for r in rep.get("rules", []):
+        if r["axis"] == "horizontal":
+            out.append(f'<div class="r" style="left:0;top:{r["at"]}px;'
+                       f'width:{w}px;height:1px;z-index:1;'
+                       f'background:{r["color"]}"></div>')
+        else:
+            out.append(f'<div class="r" style="left:{r["at"]}px;top:0;'
+                       f'width:1px;height:{h}px;z-index:1;'
+                       f'background:{r["color"]}"></div>')
+    for b in rep.get("boxes", [])[:20]:
+        out.append(f'<div class="r" style="left:{b["x"]}px;top:{b["y"]}px;'
+                   f'width:{b["w"]}px;height:{b["h"]}px;z-index:2;'
+                   f'background:{b["fill"]};'
+                   f'border-radius:{b["radius"]}px"></div>')
+    def inside_carried(ln):
+        # A carried region is a photograph of that part of the page; the
+        # words in it are already there. Drawing them again on top is
+        # how a logo strip became "VIVUVIYOIIII"VIVUCINUU".
+        cy = ln["y"] + ln["h"] / 2
+        cx = ln["x"] + ln["w"] / 2
+        for c in carried:
+            if (c["x"] - 4 <= cx <= c["x"] + c["w"] + 4
+                    and c["y"] - 4 <= cy <= c["y"] + c["h"] + 4):
+                return True
+        return False
+
+    for ln in lines:
+        txt = (ln.get("text") or "").strip()
+        if not txt or ln.get("confidence", 1) < 0.3 or inside_carried(ln):
+            continue
+        bh = max(6, int(ln["h"]))
+        # START SMALL ON PURPOSE. The box bounds one line's ink, and the
+        # face that produced it is usually close to that height — but
+        # guess high and neighbouring lines OVERLAP, which is not merely
+        # ugly: the overlap makes the render unreadable to OCR, the line
+        # then matches nothing, and the correction pass that would have
+        # fixed the size never fires. Measured: h/0.74 rendered a 37px
+        # heading at 51px and its two lines came back from OCR as one
+        # smear, "Than& tart, yvayuse rmanage".
+        # Undersized text stays legible, stays matchable, and is scaled
+        # up by the correction in one round.
+        size = bh * 0.88
+        colour = _ink_color(shot, mask, field, ln["y"],
+                            ln["y"] + bh) or "#FFFFFF"
+        esc = (txt.replace("&", "&amp;").replace("<", "&lt;")
+                  .replace(">", "&gt;"))
+        out.append(f'<div class="t" style="left:{ln["x"]}px;'
+                   f'top:{ln["y"]}px;font-size:{size:.1f}px;'
+                   f'color:{colour};z-index:4">{esc}</div>')
+    for c in carried:
+        out.append(f'<img alt="" class="r" style="left:{c["x"]}px;'
+                   f'top:{c["y"]}px;width:{c["w"]}px;height:{c["h"]}px;'
+                   f'z-index:5;{c.get("style", "")}" '
+                   f'src="data:image/png;base64,{c["b64"]}">')
+    out.append("</body></html>")
+    return "".join(out)
+
+
+def refine_with_ocr(html, image, render_fn, rounds=4, verbose=False):
+    """Correct every line by reading BOTH pages and matching the words.
+
+    This is the mapping that was missing all along. Earlier passes had
+    to infer which element produced which ink from order and geometry,
+    and every version of that inference was beaten by something —
+    paragraphs that measure as one run, elements that opt out of
+    positioning, siblings that move when their neighbours are hidden.
+
+    Reading both images removes the inference. "Get started for free" in
+    the original and "Get started for free" in the render are the same
+    thing because they are the same STRING; the correction is then plain
+    arithmetic on two boxes.
+
+    It also fixes the offset that made the first OCR build worse than
+    guessing: OCR reports where the INK begins, CSS `top` positions the
+    BOX, and the gap between them depends on the face and the size. So
+    do not compute it — render, read back where the ink actually landed,
+    and move by the difference.
+    """
+    want = ocr(image)
+    if want is None:
+        return html, None
+    best_html = html
+    for rnd in range(rounds):
+        png, _ = render_fn(best_html)
+        got = ocr(png)
+        if not got:
+            break
+        by_text = {}
+        for g in got:
+            by_text.setdefault(g["text"].strip(), []).append(g)
+        moved = 0
+        new_html = best_html
+        for wln in want:
+            key = wln["text"].strip()
+            cands = by_text.get(key)
+            if not cands:
+                continue
+            g = min(cands, key=lambda c: abs(c["y"] - wln["y"]))
+            dx, dy = wln["x"] - g["x"], wln["y"] - g["y"]
+            scale = wln["h"] / max(1, g["h"])
+            esc = (key.replace("&", "&amp;").replace("<", "&lt;")
+                      .replace(">", "&gt;"))
+            m = re.search(r'<div class="t" style="([^"]*)">'
+                          + re.escape(esc) + r"</div>", new_html)
+            if not m:
+                continue
+            style = m.group(1)
+            ns = style
+            if abs(dy) >= 1:
+                ns = re.sub(r"top:\s*([-\d.]+)px",
+                            lambda z: f"top:{float(z.group(1)) + dy:.1f}px",
+                            ns, count=1)
+            if abs(dx) >= 1:
+                ns = re.sub(r"left:\s*([-\d.]+)px",
+                            lambda z: f"left:{float(z.group(1)) + dx:.1f}px",
+                            ns, count=1)
+            if abs(scale - 1) > 0.04:
+                k = max(0.6, min(1.6, scale))
+                ns = re.sub(r"font-size:\s*([\d.]+)px",
+                            lambda z: f"font-size:{float(z.group(1)) * k:.1f}px",
+                            ns, count=1)
+            if ns != style:
+                new_html = new_html.replace(f'style="{style}"',
+                                            f'style="{ns}"', 1)
+                moved += 1
+        if verbose:
+            print(f"    round {rnd + 1}: matched by text, corrected {moved} "
+                  f"line(s) of {len(want)}")
+        if not moved:
+            break
+        best_html = new_html
+    return best_html, want
+
+
 def emit_page(rep, texts, field_b64="", carried=(), font="Inter"):
     """The TOOL writes the page. The model only says what the words are.
 

@@ -2581,6 +2581,63 @@ pyobjc-framework-Vision (Apple-only, small) or a bundled Swift helper.
 That is a dependency decision for the owner, since this project is
 stdlib-only by design; it is not a technical unknown.
 
+## OCR SETTLED THE MAPPING, AND THE MODEL BECAME OPTIONAL — 2026-09-11
+Told not to wait for permission, so: built the thing every previous
+failure pointed at.
+
+EVERY placement failure traced to one missing fact — WHICH element
+corresponds to which measured run. Four ways of inferring it from order
+and geometry all lost (41.4% no-change, defeated, 22.3%, 19.5%). Text
+settles it exactly, and macOS has done on-device OCR since 10.15.
+
+`aethron_ocr.swift` — about 60 lines, compiled once by the swiftc
+already on the machine and cached as `.aethron_ocr`. No pip install, no
+network, no key; the Python side stays stdlib-only. Returns None if it
+cannot build or run, and the caller says so rather than pretending.
+
+WHAT OCR GIVES THAT INK MEASUREMENT CANNOT: ONE BOX PER LINE. A
+tightly-led paragraph measures as a single 32px-tall run — which is
+exactly why emit_page gave a 13px paragraph a 39px face — while Vision
+returns its three lines separately, each with its own height. It also
+put "antwire" at x482 y365 at confidence 1.000, the element that had
+defeated three rounds of correction because it was written `left:0`
+with no `top` and no pass could see it.
+
+THE RESULT: A PIPELINE WITH NO MODEL IN IT AT ALL.
+    emit_from_ocr()    words and per-line boxes from OCR; ground,
+                       rules, filled boxes and every colour from the
+                       measurement
+    refine_with_ocr()  OCR BOTH pages and match lines BY THEIR TEXT —
+                       "Get started for free" is the same thing in both
+                       because it is the same string — then correct
+                       position and size by plain arithmetic
+
+    no model at all ........ 0.9564 identical / 38.7% ink overlap
+    weak model + tool chain  0.9556 / 41.4%
+    frontier model by hand   0.9592 / 49.3%
+
+Ten minutes, zero cost, and it matches what a paid model achieves. The
+model's contribution to this page turns out to be almost nothing beyond
+what reading and measuring already provide.
+
+THE CHICKEN-AND-EGG THAT COST THE FIRST TWO ATTEMPTS. OCR reports where
+the INK begins; CSS `top` positions the BOX. Sizing from the box height
+as h/0.74 rendered a 37px heading at 51px, its two lines overlapped,
+and OCR read the smear as "Than& tart, yvayuse rmanage" — so the line
+matched nothing, so the correction that would have fixed the size never
+fired. START SMALL (h*0.88): undersized text stays legible, stays
+matchable, and is scaled up in one round. 20.4% -> 34.7% overlap from
+that single change. Lines falling inside a carried region are skipped
+too; drawing them again is how a logo strip became
+"VIVUVIYOIIII"VIVUCINUU".
+
+STILL NOT 98%, AND HERE IS WHY. The remaining error is glyph SHAPE. The
+page is ~96% identical and the leftovers are heading, paragraph and
+quote edges — the letterforms of a face we do not have. A sweep over
+twelve Google families moves it by tenths of a percent because none of
+them IS the original. 98% needs the font FILE, which means the URL, and
+when there is a URL the migration path already gives 100%.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

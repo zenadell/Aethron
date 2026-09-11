@@ -36,3 +36,4 @@ aethron_keys.json
 .aethron-release-key
 # AETHRON.md is TRACKED on purpose — it is the project's memory
 # and one careless overwrite already cost 105KB of it.
+.aethron_ocr
