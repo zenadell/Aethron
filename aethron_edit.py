@@ -131,12 +131,48 @@ def _kind(attrs, style):
 
 
 def _parse(style):
-    out = {}
-    for part in style.split(";"):
-        if ":" in part:
-            k, v = part.split(":", 1)
-            out[k.strip()] = v.strip()
+    """A style attribute into properties — WITHOUT splitting inside ().
+
+    Splitting on a plain ";" tears a data URI in half, because
+    `url(data:image/png;base64,...)` carries one, and it tears a
+    `linear-gradient(...)` apart at any rgb() it contains. The first
+    version did exactly that and the carried background came back as
+    the property `background-image: url(data:image/png` with the image
+    itself parsed as a second, nonsense declaration.
+
+    Depth-aware splitting is the whole fix: a separator only separates
+    at the top level.
+    """
+    out, buf, depth = {}, [], 0
+    for ch in str(style) + ";":
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        if ch == ";" and depth == 0:
+            part = "".join(buf).strip()
+            buf = []
+            if not part:
+                continue
+            k, v = _cut(part)
+            if k:
+                out[k] = v
+            continue
+        buf.append(ch)
     return out
+
+
+def _cut(part):
+    """Split one declaration at its OWN colon, not a URL's scheme colon."""
+    depth = 0
+    for i, ch in enumerate(part):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == ":" and depth == 0:
+            return part[:i].strip(), part[i + 1:].strip()
+    return None, None
 
 
 def _num(v):

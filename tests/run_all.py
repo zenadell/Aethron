@@ -24,7 +24,7 @@ SUITES = [
                 "aethron_healer.py", "desktop.py",
                 "aethron_figma.py", "aethron_figma_grade.py",
                 "aethron_audit.py", "aethron_vision.py",
-                "aethron_edit.py"], False),
+                "aethron_edit.py", "aethron_screen.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("self-update (in-place, never a second copy)",
@@ -55,6 +55,8 @@ SUITES = [
     # and proves an ALLOWED edit that damages the page is caught too.
     ("edit (can a model change the page without breaking it?)",
      [PY, "aethron_edit.py", "--selftest"], False),
+    ("screen (one page, six frameworks, one description)",
+     [PY, "aethron_screen.py", "--selftest"], False),
     ("edit battery (is collateral damage actually noticed?)",
      [PY, "tests/edit_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",

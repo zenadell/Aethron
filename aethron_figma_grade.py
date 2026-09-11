@@ -172,8 +172,14 @@ def find_browser():
     return None
 
 
-def shoot(html: Path, w, h, out: Path, browser=None, wait_max=90):
-    """Screenshot our page at the designed size."""
+def shoot(html: Path, w, h, out: Path, browser=None, wait_max=90, url=None):
+    """Screenshot our page at the designed size.
+
+    `url` shoots a running server instead of a local file. A framework
+    build references its assets from the SITE ROOT, and file:// has no
+    root — graded from disk, every such port renders unstyled and gets
+    condemned for a defect that exists only in the way it was opened.
+    """
     b = browser or find_browser()
     if not b:
         return None
@@ -187,7 +193,7 @@ def shoot(html: Path, w, h, out: Path, browser=None, wait_max=90):
            # Fonts must be loaded before the shutter, or we grade a
            # page mid-swap and blame the converter for it.
            "--virtual-time-budget=8000",
-           html.resolve().as_uri()]
+           url or html.resolve().as_uri()]
     # CHROME DOES NOT RELIABLY EXIT after taking its screenshot — this
     # project already documented the same behaviour for --dump-dom, and
     # it cost the full 300s timeout on the first run here. The file is

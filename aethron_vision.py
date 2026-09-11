@@ -1001,7 +1001,8 @@ def _shape_radius(b, ink):
     return b["radius"]
 
 
-def rule_paint(shot: Shot, field: "Field", axis, at, sample=4, margin=5):
+def rule_paint(shot: Shot, field: "Field", axis, at, sample=4, margin=5,
+               mask=None):
     """A rule's colour ALONG ITS LENGTH, read rather than chosen.
 
     One flat hex drawn edge to edge is what made the rebuilt page's
@@ -1052,10 +1053,31 @@ def rule_paint(shot: Shot, field: "Field", axis, at, sample=4, margin=5):
         # approximated. The on/off test survives solely to say how much
         # of the line is really lit, which is what tells a rule from a
         # row of type.
-        r, g, b = shot.rgb(x, y)
-        stops.append(f"rgb({r},{g},{b}) {k / max(1, n - 1) * 100:.1f}%")
+        # READ THE RULE WHERE NOTHING IS ON TOP OF IT. A hairline runs
+        # under the page's type, and sampling it there reads the GLYPH,
+        # not the rule — so the line was emitted carrying the
+        # original's own letter pixels and rendered as a white streak
+        # across every text row it crossed. On the owner's second
+        # screenshot that put a strikethrough through the paragraph,
+        # the headline and three buttons at once, and it looked like a
+        # phantom rule when the rule was real and only its COLOUR was
+        # wrong. Where the line is covered, its colour is unknowable
+        # here; carry the nearest reading instead of inventing one.
+        stops.append(None if (mask is not None and mask[y * shot.w + x])
+                     else shot.rgb(x, y))
+    known = [i for i, c in enumerate(stops) if c is not None]
+    if not known:
+        return {"css": None, "present": present * sample,
+                "longest": longest * sample}
+    for i, c in enumerate(stops):
+        if c is None:
+            j = min(known, key=lambda q: abs(q - i))
+            stops[i] = stops[j]
     side = "to right" if axis == "horizontal" else "to bottom"
-    return {"css": f"linear-gradient({side},{','.join(stops)})",
+    text = ",".join(f"rgb({c[0]},{c[1]},{c[2]}) "
+                    f"{i * sample / max(1, n - 1) * 100:.1f}%"
+                    for i, c in enumerate(stops))
+    return {"css": f"linear-gradient({side},{text})",
             "present": present * sample, "longest": longest * sample}
 
 
@@ -1360,7 +1382,15 @@ def mask_radius(shot: Shot, field: "Field", x, y, w, h, thresh=INK):
     mx, my = x + w // 2, y + h // 2
     if _dist(shot.rgb(mx, my), field.at(mx, my)) <= thresh:
         return None                       # empty crop, not a masked one
-    return "50%" if abs(w - h) <= max(2, 0.10 * max(w, h)) else f"{min(w, h) // 2}px"
+    # ONLY A SQUARE CROP CAN BE PROVED ROUND. On a wide one the corner
+    # test proves nothing: a 457x35 strip of logos has background in all
+    # four corners because the logos do not reach them, and the first
+    # version duly rounded that strip into a stadium with 17px ends.
+    # Evidence of a mask requires the content to fill the box, which is
+    # exactly what being square-ish stands in for.
+    if abs(w - h) > max(2, 0.10 * max(w, h)):
+        return None
+    return "50%"
 
 
 # ─────────────────────────── text ────────────────────────────────────
@@ -1541,7 +1571,7 @@ def measure(path, deep=True) -> dict:
         b["text"] = text_rows(shot, bgrgb, b, mask, field)
     rep["rules"] = rules(shot, mask, field)
     for r in rep["rules"]:
-        r.update(rule_paint(shot, field, r["axis"], r["at"]))
+        r.update(rule_paint(shot, field, r["axis"], r["at"], mask=mask))
     # A LINE OF TYPE CAN LOOK LIKE A RULE and one did: the heading row
     # is brighter than the rows above and below it along 20% of the
     # page, which is exactly what rules() asks for, so a phantom
@@ -2453,7 +2483,12 @@ def refine_with_ocr(html, image, render_fn, rounds=4, verbose=False):
                 xk *= float(prev.group(1)) if prev else 1.0
                 xk = max(0.55, min(1.8, xk))
                 if abs(xk - 1) > 0.02:
+                    # Drop the WHOLE previous pair, not just the
+                    # transform: leaving the orphan origin behind piled
+                    # up `transform-origin` three deep on one element by
+                    # the fourth round.
                     ns = re.sub(r";?transform:scaleX\([\d.]+\)", "", ns)
+                    ns = re.sub(r";?transform-origin:left top", "", ns)
                     ns += (f";transform:scaleX({xk:.3f});"
                            f"transform-origin:left top")
             if ns != style:

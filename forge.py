@@ -5413,8 +5413,13 @@ def cmd_screenshot(argv):
     """
     if not argv or {"-h", "--help"} & set(argv):
         print("usage: forge screenshot <image> <outdir> [--no-fit]")
+        print("                        [--framework html|astro|next|"
+              "react|vue|svelte]")
         print("       Rebuilds the screenshot as one HTML file and")
         print("       checks every line of it. No model, no API key.")
+        print("       With --framework, also emits a real project in")
+        print("       that framework and pixel-grades it against the")
+        print("       page it came from.")
         return
     if len(argv) < 2:
         die("need a screenshot and an output directory")
@@ -5430,6 +5435,35 @@ def cmd_screenshot(argv):
         return
     print(f"\n{v['page']}")
     print("VERDICT: " + v["verdict"])
+    if "--framework" in argv:
+        import aethron_screen
+        fw = argv[argv.index("--framework") + 1]
+        if fw not in aethron_screen.EMITTERS:
+            die(f"--framework must be one of "
+                f"{sorted(aethron_screen.EMITTERS)}")
+        out = Path(argv[1])
+        page = Path(v["page"])
+        ir = aethron_screen.page_ir(page.read_text(), out.name)
+        dest = out / fw
+        aethron_screen.EMITTERS[fw](ir, dest)
+        print(f"\n{fw}: {len(ir['elements'])} element(s) in "
+              f"{len(ir['sections'])} section(s), "
+              f"{len(ir['assets'])} asset(s) -> {dest}")
+        b = aethron_screen.build(dest, fw)
+        if b["ok"] is None:
+            print("VERDICT: SKIPPED — " + b["log"])
+            return
+        if not b["ok"]:
+            print(f"the {fw} project failed at {b['stage']}:")
+            print("\n".join(b["log"].splitlines()[-25:]))
+            sys.exit(1)
+        g = aethron_screen.grade(dest, fw, page.with_suffix(".png"),
+                                 ir["canvas"])
+        if g["ok"] is None:
+            print("VERDICT: SKIPPED — " + g["why"])
+            return
+        print(("PASS " if g["ok"] else "FAIL ") + g["why"])
+        sys.exit(0 if g["ok"] else 1)
     sys.exit(0 if v["verdict"] == "PASS" else 1)
 
 
