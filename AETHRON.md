@@ -2638,6 +2638,40 @@ twelve Google families moves it by tenths of a percent because none of
 them IS the original. 98% needs the font FILE, which means the URL, and
 when there is a URL the migration path already gives 100%.
 
+## A CHECKLIST, BECAUSE A PERCENTAGE COULD NOT FAIL THE PAGE
+## — 2026-09-11
+The owner, twice, looking at a build scored 95.6%: the placements are
+wrong, "isn't there something that check all of these?" There was not.
+Every instrument reported a NUMBER, and a number on a page that is
+mostly ground and gradient cannot fail on the parts that matter.
+
+`verify_rebuild()` reads BOTH pages and checks every line of the
+original by its own words: present, in the right place (4px), at the
+right size (15%). Not an average — a checklist, with nothing to infer
+and nothing to average away. `forge vision <original> --check <render>`.
+
+WHAT IT SAID IMMEDIATELY, about the build that scored 95.6%:
+
+    FAIL — 6 of 21 lines correct
+    MISSING    Wezzi®, Features, Docs, Pricing, Company — the whole nav
+    WRONG SIZE the heading at 50px of ink where the original has 38
+    MISPLACED  "Get started for free" at y413, 113px below its place
+
+Six lines out of twenty-one. The percentage had called that 95.6%
+because the gradient underneath it was perfect.
+
+The no-model OCR build scores 16 of 21 on the same checklist, and its
+remaining faults are small — a line 12px out, ink 10px where 12 was
+wanted. Same page, same measurements, and four times as much of it
+actually correct.
+
+MATCH ON SIMILARITY, NOT ON AN EQUAL STRING. The first version demanded
+the exact text and reported six correct lines as MISSING, because a
+rebuild set in a different face reads back as "Dacs" for "Docs" and
+"effective*" for "effective\"". A checker that cries wolf is one people
+stop reading — the probe taught this once already, and it had to be
+learned again here.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

@@ -1497,6 +1497,86 @@ body{{background:{rep['background']['hex']};position:relative;
     return "".join(out)
 
 
+def verify_rebuild(original, rebuild_png, tol=4, size_tol=0.15):
+    """Is every line THERE, in the right PLACE, at the right SIZE?
+
+    THE CHECK THE SCORE COULD NOT DO. "95.6% identical" was reported for
+    a page with a caption rendered enormous in the wrong place, a button
+    hundreds of pixels low and text piled on top of other text — because
+    the canvas is mostly ground and gradient and those were right. A
+    percentage cannot fail a page that is wrong in the places that
+    matter; a checklist can.
+
+    Reading both pages makes it a checklist. Every line of the original
+    is looked for by its own words: missing, misplaced, resized, or
+    correct. There is nothing to infer and nothing to average away.
+    """
+    want = ocr(original)
+    got = ocr(rebuild_png)
+    if want is None or got is None:
+        return {"verdict": "SKIPPED", "why": "no OCR available — "
+                "UNVERIFIED, not proven good", "findings": []}
+    # MATCH ON SIMILARITY, NOT ON AN EQUAL STRING. The rebuild is set in
+    # a different face, so OCR reads its "Docs" as "Dacs" and its
+    # "effective\"" as "effective*". Demanding an exact string reported
+    # six such lines as MISSING when they were present and correctly
+    # placed — a checker that cries wolf is one people stop reading.
+    import difflib
+    findings, ok = [], 0
+    used = set()
+    for w in want:
+        key = w["text"].strip()
+        if not key:
+            continue
+        cands = []
+        for i, g in enumerate(got):
+            if i in used:
+                continue
+            t = g["text"].strip()
+            if not t:
+                continue
+            r = difflib.SequenceMatcher(None, key.lower(), t.lower()).ratio()
+            if r >= 0.72:
+                cands.append((r, i, g))
+        if cands:
+            cands.sort(key=lambda c: (-c[0], abs(c[2]["y"] - w["y"])))
+            used.add(cands[0][1])
+            cands = [cands[0][2]]
+        if not cands:
+            findings.append({"kind": "MISSING", "text": key[:48],
+                             "want": f"at ({w['x']},{w['y']})",
+                             "got": "not on the page at all"})
+            continue
+        g = cands[0]
+        dx, dy = g["x"] - w["x"], g["y"] - w["y"]
+        bad = False
+        if abs(dx) > tol or abs(dy) > tol:
+            findings.append({"kind": "MISPLACED", "text": key[:48],
+                             "want": f"({w['x']},{w['y']})",
+                             "got": f"({g['x']},{g['y']})",
+                             "fix": f"move it {-dx:+d},{-dy:+d}"})
+            bad = True
+        if w["h"] and abs(g["h"] - w["h"]) / w["h"] > size_tol:
+            findings.append({"kind": "WRONG SIZE", "text": key[:48],
+                             "want": f"{w['h']}px of ink",
+                             "got": f"{g['h']}px",
+                             "fix": f"scale the font by "
+                                    f"{w['h'] / max(1, g['h']):.2f}"})
+            bad = True
+        ok += not bad
+    extra = [g for i, g in enumerate(got)
+             if i not in used and g["text"].strip()]
+    for e in extra[:8]:
+        findings.append({"kind": "NOT IN THE ORIGINAL",
+                         "text": e["text"][:48],
+                         "want": "nothing here",
+                         "got": f"at ({e['x']},{e['y']})"})
+    n = len([w for w in want if w["text"].strip()])
+    return {"verdict": "PASS" if not findings else "FAIL",
+            "lines_expected": n, "lines_correct": ok,
+            "findings": findings}
+
+
 def refine_with_ocr(html, image, render_fn, rounds=4, verbose=False):
     """Correct every line by reading BOTH pages and matching the words.
 
@@ -2064,6 +2144,22 @@ def main(argv):
         return 0
     if argv[0] == "--selftest":
         return _selftest()
+    if "--check" in argv:
+        # THE CHECKLIST, NOT THE PERCENTAGE. Reports every line of the
+        # original that is missing, misplaced or the wrong size in the
+        # rebuild — the things a whole-page score averages away.
+        other = argv[argv.index("--check") + 1]
+        r = verify_rebuild(argv[0], other)
+        if r["verdict"] == "SKIPPED":
+            print("VERDICT: SKIPPED — " + r["why"])
+            return 0
+        print(f"{r['lines_correct']}/{r['lines_expected']} lines correct")
+        for f in r["findings"]:
+            print(f"  [{f['kind']}] {f['text']!r}")
+            print(f"      want {f['want']}   got {f['got']}"
+                  + (f"   -> {f['fix']}" if f.get("fix") else ""))
+        print("VERDICT: " + r["verdict"])
+        return 0 if r["verdict"] == "PASS" else 1
     if "--against" in argv:
         # THE CHECKER. A percentage says a rebuild is wrong; this says
         # WHAT is wrong, with the number to change. It is written to be
