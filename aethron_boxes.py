@@ -227,6 +227,156 @@ def nest(boxes, pad=3):
     return roots
 
 
+# ────────────────────────── each box's own fill ──────────────────────
+
+def fill_css(shot, b, samples=7):
+    """Read a box's background AS CSS, from its own interior.
+
+    THIS IS WHAT RETIRES THE CARRIED PLATE. The old pipeline had two
+    categories — "an element", painted as one flat colour, and
+    "everything else", photographed and stretched. A real page has no
+    such split: a card is a gradient, a pill is a gradient, the hero
+    panel is a gradient with a glow on it. Given the box, the gradient
+    is simply readable, and a gradient that is read is CSS rather than
+    a picture.
+
+    Flat first, then a linear ramp along whichever axis actually
+    varies. Returns (css, quality) where quality is how well the fit
+    reproduces the interior — the caller emits nothing it cannot
+    reproduce, rather than painting a wrong colour confidently.
+    """
+    x, y, w, h = b["x"], b["y"], b["w"], b["h"]
+    ix, iy = max(1, w // 8), max(1, h // 8)
+    x0, x1 = x + ix, max(x + ix + 1, x + w - ix)
+    y0, y1 = y + iy, max(y + iy + 1, y + h - iy)
+
+    def mean(ax0, ay0, ax1, ay1):
+        r = g = bl = n = 0
+        for yy in range(ay0, min(ay1, shot.h), max(1, (ay1 - ay0) // 6)):
+            for xx in range(ax0, min(ax1, shot.w),
+                            max(1, (ax1 - ax0) // 6)):
+                c = shot.rgb(xx, yy)
+                r += c[0]; g += c[1]; bl += c[2]; n += 1
+        return (r // n, g // n, bl // n) if n else (0, 0, 0)
+
+    cols = [mean(x0 + (x1 - x0) * i // samples, y0,
+                 x0 + (x1 - x0) * (i + 1) // samples, y1)
+            for i in range(samples)]
+    rows = [mean(x0, y0 + (y1 - y0) * i // samples,
+                 x1, y0 + (y1 - y0) * (i + 1) // samples)
+            for i in range(samples)]
+    spread = lambda v: max(max(abs(a[k] - c[k]) for k in range(3))
+                           for a in v for c in v)
+    sx, sy = spread(cols), spread(rows)
+    flat = mean(x0, y0, x1, y1)
+
+    if max(sx, sy) <= V.MERGE:
+        css = "#%02X%02X%02X" % flat
+        stops = [flat] * samples
+    elif sx >= sy:
+        stops, css = cols, _ramp("to right", cols)
+    else:
+        stops, css = rows, _ramp("to bottom", rows)
+
+    # quality: how far the fit is from the real interior, worst case
+    want = cols if (sx >= sy and max(sx, sy) > V.MERGE) else (
+        rows if max(sx, sy) > V.MERGE else [flat] * samples)
+    err = max(max(abs(a[k] - c[k]) for k in range(3))
+              for a, c in zip(stops, want)) if stops else 255
+    return css, max(0.0, 1.0 - err / 96.0)
+
+
+def _ramp(side, stops):
+    return (f"linear-gradient({side},"
+            + ",".join(f"rgb({c[0]},{c[1]},{c[2]}) "
+                       f"{i / (len(stops) - 1) * 100:.0f}%"
+                       for i, c in enumerate(stops)) + ")")
+
+
+def radius_of(shot, b, cap=64):
+    """The corner radius, measured from the BOUNDARY.
+
+    `corner_radius` looks for where the box's own FILL reaches its edge,
+    which needs a flat fill — so on a gradient pill it finds nothing and
+    reports 0, and every rounded control on the owner's page came back
+    square. The boundary does not care about the fill: walk down the
+    left edge and find where the element starts differing from what
+    surrounds it. The inset shrinks to zero exactly at the radius.
+    """
+    x, y, w, h = b["x"], b["y"], b["w"], b["h"]
+    outside = _around(shot, x, y, w, h)
+    limit = min(cap, w // 2, h // 2)
+    if limit < 2:
+        return 0
+    last = 0
+    for dy in range(limit):
+        yy = y + dy
+        if yy >= shot.h:
+            break
+        inset = None
+        for dx in range(limit + 2):
+            xx = x + dx
+            if xx >= shot.w:
+                break
+            if V._dist(shot.rgb(xx, yy), outside) > V.INK:
+                inset = dx
+                break
+        if inset is None:
+            continue                  # a row still entirely outside
+        if inset >= 2:
+            last = dy + 1
+        elif last:
+            break                     # the corner has closed
+    return last
+
+
+def _around(shot, x, y, w, h, pad=4):
+    """The commonest colour in a ring just outside the box."""
+    from collections import Counter
+    c = Counter()
+    x0, y0 = max(0, x - pad), max(0, y - pad)
+    x1, y1 = min(shot.w - 1, x + w + pad), min(shot.h - 1, y + h + pad)
+    for xx in range(x0, x1 + 1, max(1, (x1 - x0) // 40)):
+        for yy in (y0, y1):
+            c[shot.rgb(xx, yy)] += 1
+    for yy in range(y0, y1 + 1, max(1, (y1 - y0) // 40)):
+        for xx in (x0, x1):
+            c[shot.rgb(xx, yy)] += 1
+    return c.most_common(1)[0][0] if c else (0, 0, 0)
+
+
+def styled(shot, boxes, min_quality=0.55):
+    """Boxes with their CSS, dropping any the fit cannot reproduce.
+
+    MEASURED WARNING — DO NOT OVERLAY THESE ON THE CARRIED PLATE. Doing
+    exactly that dropped the owner's page from 0.97266 to 0.88103
+    identical. Two reasons, and both are about integration rather than
+    detection:
+
+      * at th=16 the recovered set includes the page's own faint GRID
+        CELLS, whose interiors really are smooth gradients and so fit
+        perfectly — they are true rectangles and false elements;
+      * a seven-stop linear fit is COARSER than the plate it is painted
+        over, so even a correct box degrades the area it covers.
+
+    The sweep that chose th=16 measured RECALL and never precision,
+    which is how 74 rectangles looked like a win. The box tree is for
+    REPLACING the plate, not for drawing on top of it: once a box owns
+    its own area there is nothing underneath to degrade, and a grid
+    cell that is drawn in place of the background it was cut from costs
+    nothing. Until the plate is gone, these are measurements, not
+    output.
+    """
+    out = []
+    for b in boxes:
+        css, q = fill_css(shot, b)
+        if q < min_quality:
+            continue
+        out.append(dict(b, css=css, quality=round(q, 2),
+                        radius=radius_of(shot, b)))
+    return out
+
+
 def depth_of(roots):
     def d(n):
         return 1 + max([d(c) for c in n["children"]] or [0])
