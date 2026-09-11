@@ -2980,6 +2980,81 @@ salvage landed, then delete.
 And the salvaged emitter had been WRITTEN but never built or graded —
 its claim was worth nothing until it was rendered by hand. It passed.
 
+## "WE ARE NOT REPAINTING SOMETHING" — THE OBJECTIVE WAS WRONG
+## — 2026-09-11
+The owner's correction, and it invalidates the scoreboard rather than a
+number on it:
+
+    "We are not repainting something. We're rebuilding something into a
+     website, a really interactive and functional website."
+
+EVERY CHECK IN THIS PROJECT OPTIMISED FAITHFULNESS TO A SCREENSHOT. But
+a screenshot is a LOSSY PHOTOGRAPH of a website, so a rebuild that
+matches it perfectly has faithfully reproduced its JPEG artefacts, its
+soft small type, and — the part no pixel referee can see — its total
+absence of behaviour. The dense page scored 50 of 50 on content while
+shipping SEVEN affordances and ZERO interactive elements. A 100% pixel
+score is compatible with a page that does nothing at all.
+
+The owner's own examples: the text inside "My balance", the "See
+details" link. Our rebuild reproduces them blurry BECAUSE THE ORIGINAL
+IS BLURRY — screenshots lose quality — when what a client needs is
+crisp text and a real button. The original is EVIDENCE OF what the page
+said, not the page.
+
+`aethron_web.py` measures it. Nothing in it is a pixel score:
+    text that is real text        selectable, searchable, translatable
+    page that is a photograph     carried crops as a share of canvas
+    things a person would use     buttons + nav links, measured
+    things they actually can      real <button>/<a> in the output
+    semantic elements             vs bare <div>
+    focusable                     can anyone reach it without a mouse
+
+`affordances()` reads them from the pixels and is deliberately
+conservative. A BUTTON is a filled box with a corner radius holding
+exactly ONE short line — which is what a button is in every design
+system there has ever been, and both halves are already measured. A NAV
+LINK is a short line in the top band level with at least one other:
+one word at the top is a logo, four in a row is a menu.
+
+FIRST VERDICT ON WHAT WE WERE SHIPPING (dense page):
+    text that is real text .... 21 of 51
+    photograph ................ 7.6% (30 crops)
+    would use / actually can .. 7 / 0
+    semantic .................. 0 (of 45 divs)
+    focusable ................. 0
+
+FIRST FIX, and the pixels did not move: a measured button is now
+emitted as a real `<button>` with its label inside it, positioned by
+the measured OFFSET between box and line, and a nav item as an `<a>`.
+Wezzi went 0/7 -> 7/7 interactive, 0 -> 7 focusable, 0 -> 7 semantic,
+at 99.775% identical to the pre-semantic build and still PASS 22/22 on
+content.
+
+TWO BUGS THE SELFTEST CAUGHT IN THE CHECKER ITSELF, both the same
+shape — an instrument that punishes the thing it is steering towards:
+1. It counted text only inside the rebuild's own `class="t"` divs, so a
+   page written PROPERLY — <h1>, <p>, <button>, <a> — scored ZERO lines
+   of real text and was reported as a photograph.
+2. It listed every expected affordance under "not interactive, and
+   should be" even when each had just been given a real <button>. A
+   report that makes a fixed thing look broken is one people stop
+   believing.
+
+STILL OPEN, and this is the owner's larger point rather than a bug:
+  * INPUTS, dropdowns, toggles and icon-only controls are not detected.
+    Their affordance is carried by an icon or by hover, which is
+    semantics, and semantics is where a model belongs.
+  * The affordance count is a FLOOR, not the truth. On the dense page
+    it finds 7 because the fill detector finds 6 boxes — the circular
+    field/detection bug means most of that dashboard's real buttons are
+    never seen at all.
+  * RESTORATION is not attempted. Where the original's type is degraded
+    the rebuild still reproduces the degradation instead of reading
+    through it and setting crisp type.
+  * There is still no LAYOUT: absolute divs cannot reflow, group, or be
+    responsive.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

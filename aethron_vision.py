@@ -1222,6 +1222,72 @@ def raster_regions(shot: Shot, field: "Field", lines, fills=(), cell=4,
     return out
 
 
+def affordances(shot, rep, lines, nav_band=0.16, label_max=28):
+    """The things on this page a person would expect to be able to USE.
+
+    Read from the pixels, not guessed, and deliberately conservative —
+    a checklist that cries wolf is one people stop reading.
+
+    A BUTTON IS THE EASY CASE AND THE IMPORTANT ONE: a filled box, with
+    a corner radius, holding exactly one short line of text. That is
+    what a button IS, in every design system there has ever been, and
+    the measurement pass already finds the box and the line.
+
+    A NAV LINK is a short line of text in the top band, sitting on the
+    same baseline as at least one other short line. One word at the top
+    of a page is a logo; four in a row at the same height is a menu.
+
+    What this does NOT claim to find: inputs, dropdowns, toggles,
+    anything whose affordance is carried by an icon or by hover alone.
+    Those need semantics, and semantics is where a model belongs — this
+    is the floor, not the ceiling.
+    """
+    out = []
+    h = shot.h
+    named = [ln for ln in (lines or []) if ln.get("confidence", 1) >= 0.6]
+
+    def lines_in(b, pad=3):
+        got = []
+        for ln in named:
+            cx, cy = ln["x"] + ln["w"] / 2, ln["y"] + ln["h"] / 2
+            if (b["x"] - pad <= cx <= b["x"] + b["w"] + pad
+                    and b["y"] - pad <= cy <= b["y"] + b["h"] + pad):
+                got.append(ln)
+        return got
+
+    claimed = set()
+    for b in rep.get("boxes", []):
+        inside = lines_in(b)
+        if len(inside) == 1 and len(inside[0]["text"].strip()) <= label_max:
+            out.append({"kind": "button", "box": [b["x"], b["y"], b["w"],
+                                                  b["h"]],
+                        "label": inside[0]["text"].strip(),
+                        "evidence": f"a {b['w']}x{b['h']} fill at "
+                                    f"radius {b['radius']} holding one "
+                                    f"short line"})
+            claimed.add(inside[0]["text"].strip())
+        elif len(inside) >= 2:
+            out.append({"kind": "card", "box": [b["x"], b["y"], b["w"],
+                                                b["h"]],
+                        "label": inside[0]["text"].strip(),
+                        "evidence": f"a fill holding {len(inside)} lines"})
+
+    top = [ln for ln in named
+           if ln["y"] < h * nav_band
+           and len(ln["text"].strip()) <= label_max
+           and ln["text"].strip() not in claimed]
+    for ln in top:
+        peers = [o for o in top
+                 if o is not ln and abs(o["y"] - ln["y"]) <= max(4, ln["h"])]
+        if peers:
+            out.append({"kind": "navlink",
+                        "box": [ln["x"], ln["y"], ln["w"], ln["h"]],
+                        "label": ln["text"].strip(),
+                        "evidence": f"top band, level with "
+                                    f"{len(peers)} other short line(s)"})
+    return out
+
+
 def carry_failures(html, original, rebuild_png, pad=2, carried=()):
     """Whatever could not be SET as type gets CARRIED as pixels.
 
@@ -1322,7 +1388,7 @@ def _ink_on(shot: Shot, ln, fill_hex):
     return "#%02X%02X%02X" % c.most_common(1)[0][0]
 
 
-def chrome_html(rep, w, h, limit=20):
+def chrome_html(rep, w, h, limit=20, skip=()):
     """The rules and the filled elements, as measured, for any emitter.
 
     One copy, because two emitters drifted apart here once already.
@@ -1352,6 +1418,8 @@ def chrome_html(rep, w, h, limit=20):
                        f'width:1px;height:{h}px;z-index:1;'
                        f'background:{paint}"></div>')
     for i, b in enumerate(rep.get("boxes", [])[:limit]):
+        if (b["x"], b["y"], b["w"], b["h"]) in skip:
+            continue          # emitted as a real <button> with its label
         rad = b["radius"]
         rad = rad if isinstance(rad, str) else f"{rad}px"
         out.append(f'<div class="r" data-ae-id="f{i:02d}" '
@@ -2101,12 +2169,27 @@ body{{background:{rep['background']['hex']};position:relative;
  font-family:'{font}',-apple-system,Helvetica,Arial,sans-serif;
  -webkit-font-smoothing:antialiased}}
 .t{{position:absolute;white-space:nowrap;line-height:1}}
-.r{{position:absolute}}</style></head><body>
+.r{{position:absolute}}
+button{{position:absolute}}button>.t{{position:absolute}}
+a.t:focus-visible,button:focus-visible{{outline:2px solid currentColor;outline-offset:2px}}</style></head><body>
 <div class="r" data-ae-id="ground" style="left:0;top:0;width:{w}px;
  height:{h}px;z-index:0;background-size:100% 100%;
  background-image:url(data:image/png;base64,{fb})"></div>"""]
-    out.append(chrome_html(rep, w, h))
     fills = rep.get("boxes", [])[:20]
+    # WHAT A PERSON WOULD EXPECT TO BE ABLE TO USE. The owner's point,
+    # and it is the one a pixel referee can never make: a button
+    # rebuilt as a <div> that merely LOOKS like a button has no hover,
+    # no focus, no keyboard, no cursor, and is not a button to anyone
+    # using a screen reader. Measured on their second screenshot, the
+    # rebuild scored 50 of 50 on content and shipped SEVEN affordances
+    # and ZERO interactive elements.
+    aff = affordances(shot, rep, lines)
+    btn = {}
+    for a in aff:
+        if a["kind"] == "button":
+            btn[tuple(a["box"])] = a["label"]
+    navs = {a["label"] for a in aff if a["kind"] == "navlink"}
+    out.append(chrome_html(rep, w, h, skip=set(btn)))
 
     def inside_carried(ln):
         # A carried region is a photograph of that part of the page; the
@@ -2151,7 +2234,37 @@ body{{background:{rep['background']['hex']};position:relative;
                                 ln["y"] + bh) or "#FFFFFF"
         esc = (txt.replace("&", "&amp;").replace("<", "&lt;")
                   .replace(">", "&gt;"))
-        out.append(f'<div class="t" data-ae-id="t{len(out):02d}" '
+        eid = f"t{len(out):02d}"
+        host_box = next((k for k, v in btn.items() if v == txt), None)
+        if host_box:
+            # THE BOX AND ITS LABEL ARE ONE THING. The fill is the
+            # button, so emit it as a <button> and put the label inside
+            # it — positioned by the measured OFFSET between them, so
+            # the pixels do not move a hair while the element stops
+            # being a lie.
+            bx, by, bw_, bh_ = host_box
+            fill = next(f for f in fills
+                        if (f["x"], f["y"], f["w"], f["h"]) == host_box)
+            rad = fill["radius"]
+            rad = rad if isinstance(rad, str) else f"{rad}px"
+            out.append(
+                f'<button type="button" data-ae-id="{eid}" '
+                f'style="position:absolute;left:{bx}px;top:{by}px;'
+                f'width:{bw_}px;height:{bh_}px;z-index:2;'
+                f'background:{fill["fill"]};border:0;border-radius:{rad};'
+                f'padding:0;margin:0;font:inherit;cursor:pointer;'
+                f'color:{colour}">'
+                f'<span class="t" style="left:{ln["x"] - bx}px;'
+                f'top:{ln["y"] - by}px;font-size:{size:.1f}px;'
+                f'color:{colour}">{esc}</span></button>')
+            continue
+        if txt in navs:
+            out.append(f'<a href="#" class="t" data-ae-id="{eid}" '
+                       f'style="left:{ln["x"]}px;top:{ln["y"]}px;'
+                       f'font-size:{size:.1f}px;color:{colour};'
+                       f'z-index:4;text-decoration:none">{esc}</a>')
+            continue
+        out.append(f'<div class="t" data-ae-id="{eid}" '
                    f'style="left:{ln["x"]}px;'
                    f'top:{ln["y"]}px;font-size:{size:.1f}px;'
                    f'color:{colour};z-index:4">{esc}</div>')
@@ -2563,7 +2676,9 @@ body{{background:{rep['background']['hex']};position:relative;
  font-family:'{font}',-apple-system,Helvetica,Arial,sans-serif;
  -webkit-font-smoothing:antialiased}}
 .e{{position:absolute;white-space:nowrap}}
-.r{{position:absolute}}</style></head><body>"""]
+.r{{position:absolute}}
+button{{position:absolute}}button>.t{{position:absolute}}
+a.t:focus-visible,button:focus-visible{{outline:2px solid currentColor;outline-offset:2px}}</style></head><body>"""]
     if field_b64:
         out.append(f'<div class="r" style="left:0;top:0;width:{w}px;'
                    f'height:{h}px;z-index:0;background-size:100% 100%;'

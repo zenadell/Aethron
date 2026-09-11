@@ -5435,6 +5435,17 @@ def cmd_screenshot(argv):
         return
     print(f"\n{v['page']}")
     print("VERDICT: " + v["verdict"])
+    # THE SECOND VERDICT, AND IT ASKS A DIFFERENT QUESTION. The first
+    # says the pixels match. This one says whether what matched them is
+    # a website — clickable, selectable, structured — or a picture of
+    # one. A page can score 50 of 50 on content and still be inert.
+    try:
+        import aethron_web
+        wr = aethron_web.audit_page(Path(v["page"]).read_text(), argv[0])
+        print()
+        aethron_web.report(wr)
+    except Exception as e:                       # pragma: no cover
+        print(f"(the website audit could not run: {e})")
     if "--framework" in argv:
         import aethron_screen
         fw = argv[argv.index("--framework") + 1]
