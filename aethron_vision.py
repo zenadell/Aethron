@@ -2044,7 +2044,8 @@ def ocr(image, timeout=120):
     return out
 
 
-def emit_from_ocr(image, font="Inter", carried=(), rep=None, ocr_lines=None):
+def emit_from_ocr(image, font="Inter", carried=(), rep=None,
+                  ocr_lines=None, ground_cell=4):
     """Build the whole page from what was READ and what was MEASURED.
 
     No model anywhere in this function. OCR supplies the words and where
@@ -2065,7 +2066,30 @@ def emit_from_ocr(image, font="Inter", carried=(), rep=None, ocr_lines=None):
     field.refine(ink_mask(shot, field))
     mask = ink_mask(shot, field)
     import base64
-    fb = base64.b64encode(field.png_bytes()).decode()
+    # TWO FIELDS, BECAUSE THEY ANSWER TWO DIFFERENT QUESTIONS — and
+    # conflating them is what the owner saw as blur.
+    #
+    # DETECTION wants a COARSE field. Its job is to say what is ink and
+    # what is ground, and a fine field absorbs whole elements into the
+    # "ground" (a cell inside a card is all card, so the percentile has
+    # nothing else to pick) — after which the element is not ink, is
+    # never found, and is never reproduced.
+    #
+    # RENDERING wants a FINE one. The emitted background is the
+    # FALLBACK layer: it paints everything no other pass claimed, so on
+    # a page whose hero holds a screenshot-of-a-dashboard it is drawing
+    # real content. At 8px cells that content arrives as a 150x112
+    # thumbnail stretched over the canvas, which is exactly right for a
+    # glow and exactly wrong for a dashboard.
+    #
+    # Measured on that page: mean error off-ink 2.76 at 8px, 1.94 at
+    # 4px, 1.52 at 2px, for 12.6 KB / 43 KB / 149 KB. 4px is the
+    # default because it halves the error for a file still smaller than
+    # one photograph; `ground_cell` trades sharpness against weight.
+    ground = Field(shot, gw=max(16, round(shot.w / ground_cell)),
+                   gh=max(12, round(shot.h / ground_cell)), dark=dark)
+    ground.refine(mask)
+    fb = base64.b64encode(ground.png_bytes()).decode()
     w, h = rep["width"], rep["height"]
 
     out = [f"""<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -2161,7 +2185,8 @@ def _pixels_match(a: "Shot", b: "Shot", x, y, w, h, tol=INK, need=0.90):
     return (n and ok / n >= need), (ok / n if n else 0.0)
 
 
-def rebuild(image, outdir, font="Inter", rounds=7, fit=True, verbose=True):
+def rebuild(image, outdir, font="Inter", rounds=7, fit=True,
+            verbose=True, ground_cell=4):
     """A screenshot in, a page out, and not one model anywhere.
 
     The whole chain in one call, in the order that each stage earns:
@@ -2225,7 +2250,7 @@ def rebuild(image, outdir, font="Inter", rounds=7, fit=True, verbose=True):
     say(f"  {len(carried)} region(s) carried as pixels")
 
     html = emit_from_ocr(image, font=font, carried=carried, rep=rep,
-                         ocr_lines=lines)
+                         ocr_lines=lines, ground_cell=ground_cell)
     n = [0]
 
     def draw(h_, region=None):

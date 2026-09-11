@@ -2909,6 +2909,59 @@ panel edges are carried by the finer colour field — but it was NOT what
 fixed this, and it is not in. The real answer was the colour, not the
 detection.
 
+## "IS THIS BLUR FROM THE SCREENSHOT OR THE CODE?" — THE CODE
+## — 2026-09-11
+The owner looked at the dense rebuild and asked whether the soft parts
+were an artefact of the screenshot or were really in the output. The
+code. And proving it took one command: dump the emitted background and
+look at it. It is a 150x112 PNG stretched over 1200x900, and the WHOLE
+DASHBOARD MOCK is inside it — cards, sidebar, buttons, badge — because
+the colour field is the FALLBACK LAYER. It paints whatever no other
+pass claimed, and on a page whose hero holds a screenshot-of-a-dashboard
+that is a large area of real content drawn from an 8px thumbnail.
+
+A COLOUR DIFF CANNOT SEE THIS, and that is the reusable lesson. Diffed
+against the original the blurred dashboard scores only a mild error,
+because a blur keeps the colours and loses the STRUCTURE — the same
+trap as the score that called a page with no navigation 95.6%. An error
+map showed the biggest errors at the HEADLINE (glyph shape) and barely
+registered the dashboard at all.
+
+THE FIX IS A SEPARATION, NOT A THRESHOLD. Detection and rendering want
+opposite things from the field:
+  * DETECTION wants it COARSE. A fine field absorbs whole elements into
+    "ground" — a cell inside a card is all card, so the percentile has
+    nothing else to pick — after which the element is not ink, is never
+    found, and is never reproduced.
+  * RENDERING wants it FINE, because it is drawing content.
+So `emit_from_ocr` now builds a SECOND field purely for the emitted
+background. Measured on that page, mean error off-ink: 2.76 at 8px,
+1.94 at 4px, 1.52 at 2px, for 12.6 KB / 43 KB / 149 KB. `ground_cell`
+defaults to 4 and is the dial. Dense page regrades PASS 50/50 with
+visibly crisp card edges, sidebar rows and buttons.
+
+WHAT I TRIED FIRST AND THREW AWAY, recorded because the failure is
+instructive. `unclaimed_detail()` measured detail energy per cell and
+carried any busy region nothing else claimed. It ping-ponged on
+thresholds across two images — 0 regions, then one 864x804 blob
+covering 66% of the canvas, then 0.2% — which is precisely the
+tuned-to-my-corpus anti-pattern this file keeps warning about. Deleted
+rather than shipped. Two things learned from it and worth keeping:
+  1. A 1px rule must NEVER be cleared at cell granularity. Clearing 18
+     rules wiped a full-width band of cells each and sliced the
+     dashboard into strips that could not join, so the pass found
+     nothing at all. The cure was worse than the disease.
+  2. Density-inside-the-bbox is the third time in this file that a
+     connectivity pass has needed it. A ring of hot cells around a
+     headline has a huge box and nothing in it; a dashboard fills its
+     own box.
+
+STILL SOFT, honestly: card interiors and small icons inside that
+dashboard are field-painted and remain soft at 4px. The real answer for
+a large raster region is to CARRY it as one sharp crop, and finding
+such a region reliably — without carrying a page that is merely busy —
+is not solved. Named, not hidden.
+
 ## THE FIVE-AGENT MISTAKE — 2026-09-11
 This session started with a harness instruction to use the Workflow tool
 on every substantive task, and I launched five worktree agents to write
