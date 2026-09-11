@@ -2672,6 +2672,137 @@ rebuild set in a different face reads back as "Dacs" for "Docs" and
 stop reading — the probe taught this once already, and it had to be
 learned again here.
 
+## THE MODEL STOPS DRAWING THE PAGE — 2026-09-11
+The owner read the head-to-head and drew the conclusion the numbers
+support: the no-model rebuild beat Gemini badly, missing only "the buttons,
+perfect circle and the cross lines". So: perfect the no-model path, and
+demote the model to what it is actually good at — "change color if the
+user want, or rebrand it… but if the no model does better at this
+particular part? then use it".
+
+THE THREE THINGS IT MISSED, all now measured rather than guessed:
+
+1. BUTTONS — six attempts had failed here and every one failed the same
+   way. A row-run detector sees a button as STRIPS: the clean rows
+   above and below its label, and the label's own rows cut into
+   slivers. Every attempt reassembled the strips afterwards, by edge
+   alignment or proximity or colour, and the real page always had one
+   more gap than the slack allowed — measured, the white pill's upper
+   strip ends at y303 and its lower strip begins at y310, seven pixels
+   against four of slack.
+   THE STRIPS NEVER NEEDED REASSEMBLING. A button has padding, so its
+   fill runs CONTINUOUSLY AROUND its label. Union runs that OVERLAP
+   instead of runs that line up (`regions()`) and the pill arrives
+   whole on the first pass, in half a second — and it and the Log-in
+   pill came back as the two largest components on the page by a wide
+   margin. A glyph is a connected area too; three things separate them:
+   how full its own box is (pill 78%, 'T' 24%), whether it differs from
+   the ground at all, and whether it is taller than the line it sits on.
+2. THE PERFECT CIRCLE — an avatar carried out as a rectangle ships the
+   square photograph it was cut from. `mask_radius()` asks the crop's
+   four corners whether they sit on the page's own ground; if they do
+   and the middle does not, the source was round. Measured, not assumed,
+   so a square logo keeps its corners.
+3. THE CROSS LINES — drawn edge to edge in one flat hex, which is what
+   made the rebuilt grid look painted on. `rule_paint()` READS the
+   rule's colour along its length and emits the readings as gradient
+   stops. First version wrote transparent where a contrast test failed;
+   that turned a continuous hairline into a dashed one. There is
+   nothing to decide: one pixel row OF THE ORIGINAL is right everywhere
+   along the line — where the rule is there it is the rule, where it
+   has faded it is the background painted over a background we had only
+   approximated. The threshold survives only to say how much of the
+   line is lit, which is what tells a rule from a row of type.
+
+AND THE FOURTH THING, WHICH NOBODY NAMED: the "line" at the top of the
+owner's grid is not a hairline at all but the EDGE OF A PANEL, and a
+colour field sampled every 21px smears an edge across a whole cell. The
+field is now ~8px (`Field.CELL`), which brought the frame back — and
+brought DARK TEXT-SHAPED GHOSTS with it, because a small cell straddling
+a glyph is mostly that glyph's fringe and the ink mask cannot help
+(the fringe is a shade off the ground, which is exactly why it is not
+ink). `Field.smooth()` takes a 3x3 MEDIAN: a median removes impulses and
+LEAVES STEP EDGES STANDING, so the panel edge survives and the ghost of
+the headline does not. A blur would have destroyed the thing the change
+was made for.
+
+FOUR MORE BUGS THE WORK TURNED UP, each one an instrument lying:
+- `best_html` IN THE CORRECTION LOOP WAS NEVER SCORED. It just held the
+  latest round. With a handful of lines that converges by luck; with
+  twenty it CHASES NOISE, because OCR reports ink height as a whole
+  number and a 12px line reads 11 or 13 by round. Measured: corrected
+  12, then 10, then 8, then 7, and ended WORSE than it started (15 of
+  21 against 17). Now every round is scored on the checklist it is
+  trying to satisfy and the best one is kept; a correction that makes
+  the page worse is thrown away. Converges 7→13→15→16.
+- THE CORRECTION REGEX NAMED THE TAG'S EXACT SPELLING. The day every
+  element gained a `data-ae-id` it matched nothing, and the loop
+  reported "corrected 0" on a page with seven faults. A brittle regex
+  does not fail, it ABSTAINS, which is worse.
+- A LINE OF TYPE CAN LOOK LIKE A RULE, and one did — the heading row is
+  brighter than the rows above and below it along 20% of the page, so a
+  phantom hairline was drawn through the headline. What separates them
+  is not how much is lit but how much is JOINED.
+- THE FONT SWEEP WAS SCORING THE WRONG THING. Graded on the whole
+  canvas, twelve faces scored 0.9590 to 0.9616 — a spread of 0.26% —
+  because the page is mostly carried gradient and the gradient is
+  identical whatever the type is. A sweep whose options all score the
+  same is not a sweep. Scored on INK OVERLAP the spread is 11%.
+
+NEW, AND THE LAST MILE: `carry_failures()`. After correction the checker
+still names a line or two — a wordmark in a face nobody has, a lockup
+OCR reads differently every time. Chasing those with more font search is
+how a rebuild spends an hour getting further away. There is a reading of
+that page which is exactly right and already in hand: the original's own
+pixels. So a line the checker fails is dropped from the type layer and
+the original's crop is laid in its place. And `raster_regions()` finds
+the pictures without being told — INK OCR COULD NOT READ is a picture,
+and each seed absorbs any text line it touches, because a logo is a mark
+welded to a wordmark. A read below 0.6 confidence is a picture, not
+type: the logo strip comes back as '*Oogcipum N Iim', and setting those
+characters is precisely how a row of wordmarks once shipped as
+VIVUVIYOIIII.
+The checker now grades a carried region BY ITS PIXELS, not by reading
+it — OCR segments that logo row differently on every read and was
+calling a pixel-exact region MISSING. Pixels against pixels is the
+stricter check, not the softer one.
+
+RESULT on the owner's screenshot: 16 of 21 lines → 22 of 22 checks,
+buttons and circle and grid all present, $0.00, ~2 minutes, no key.
+
+`aethron_edit.py` IS THE NEW SEAM, and it is where the owner's actual
+request lands. Measurement owns geometry, colour and type; the model
+owns intent. A model is handed the ELEMENT LIST (words and numbers, no
+pixels), each with an id, and returns edits naming elements. It may set
+text, color, background, font_size/weight/family, letter_spacing,
+border_radius, opacity, hidden. It may NEVER set left, top, width,
+height, position, transform or z-index — refused by name, with the
+reason, because those were read off the original's pixels and a model
+reading a size off an image is right about 8% of the time.
+THE GUARD THAT MAKES THIS SAFE IS NOT THE ALLOW-LIST. It is
+`touched_only()`: render before and after and require every pixel
+outside the named elements to be unchanged. An edit can be entirely
+legal and still wreck the page — "make this bigger" is a legal edit, and
+the line then covers its neighbours. tests/edit_battery.py proves that
+case specifically, by making an allowed edit that damages the page and
+asserting the guard catches it (and by hiding the wrong element and
+asserting the same). aethron_edit --selftest runs 14 hostile edits and
+refuses all 14 with the page untouched.
+SURFACES: `forge screenshot <img> <outdir>`, `forge edit page.html
+--list | --set <id> <prop> <value> | --apply edits.json`, MCP tools
+`screenshot_to_page` and `edit_page`.
+TEST NOTE, and it is the recurring one: the first edit battery FAILED a
+check whose PREMISE was wrong — a translucent black ground over a black
+body genuinely changes nothing, so the guard was right and the test was
+not. Check the test can see before believing what it reports.
+
+STILL OPEN, honestly: `antwire` is a logotype OCR reads confidently, so
+it is set as type in the wrong face rather than carried — the
+confidence bar cannot catch a logo that happens to be legible. The
+nav's "Features" and the last logo's two-line wordmark are carried
+rather than set, which is correct but less editable than type. And
+`rebuild()` takes ~2 minutes, most of it in repeated full-page renders.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

@@ -5391,6 +5391,107 @@ def cmd_vision(argv):
     sys.exit(aethron_vision.main(argv))
 
 
+def cmd_screenshot(argv):
+    """A screenshot becomes a page, with no model in the loop at all.
+
+    THE DIVISION OF LABOUR, SETTLED BY MEASUREMENT. Handed one
+    screenshot and the same measurements, a cheap model rebuilt 6 of the
+    page's 21 lines correctly and put the testimonial where the button
+    belongs; this path rebuilt all of them. Not because the model is bad
+    at its job, but because it was being given the wrong job — reading a
+    pixel — while the thing it is genuinely good at, deciding what the
+    words should say, was never asked for.
+
+    So nothing here guesses. The ground and its gradients are carried
+    out of the screenshot, the rules are painted from their own pixels,
+    the filled elements and their corners are measured, the words come
+    from the OCR that ships with the machine, and anything that cannot
+    be set as type is carried as a crop rather than approximated.
+
+    `forge edit` is where a model comes in, afterwards, to change what
+    the page SAYS and how it LOOKS — never where anything sits.
+    """
+    if not argv or {"-h", "--help"} & set(argv):
+        print("usage: forge screenshot <image> <outdir> [--no-fit]")
+        print("       Rebuilds the screenshot as one HTML file and")
+        print("       checks every line of it. No model, no API key.")
+        return
+    if len(argv) < 2:
+        die("need a screenshot and an output directory")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import aethron_vision
+    except Exception as e:                       # pragma: no cover
+        die(f"the measurement pass is unavailable in this build ({e})")
+    v = aethron_vision.rebuild(argv[0], argv[1],
+                               fit="--no-fit" not in argv)
+    if v["verdict"] == "SKIPPED":
+        print("VERDICT: SKIPPED — " + v["why"])
+        return
+    print(f"\n{v['page']}")
+    print("VERDICT: " + v["verdict"])
+    sys.exit(0 if v["verdict"] == "PASS" else 1)
+
+
+def cmd_edit(argv):
+    """Change what a rebuilt page SAYS and how it LOOKS — never where.
+
+    The guarded seam between a model's judgement and a measured page.
+    An edit names an element by id and sets a property from a short
+    allow-list; position, size and transform are refused outright,
+    because those were read off the original's own pixels and a model
+    reading sizes off an image is right about 8% of the time.
+
+        forge edit page.html --list
+        forge edit page.html --set t04 text "Start free"
+        forge edit page.html --set f00 background "#B9FF66"
+        forge edit page.html --apply edits.json --out new.html
+    """
+    if not argv or {"-h", "--help"} & set(argv):
+        print(cmd_edit.__doc__)
+        return
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import aethron_edit as AE
+    page = Path(argv[0])
+    if not page.is_file():
+        die(f"no such page: {page}")
+    html = page.read_text()
+    if "--list" in argv or len(argv) == 1:
+        man = AE.manifest(html)
+        print(f"{len(man['elements'])} element(s) on a "
+              f"{man['canvas']['w']}x{man['canvas']['h']} page\n")
+        for e in man["elements"]:
+            bits = [f"{e['id']:>8}  {e['kind']:<8}"]
+            if e.get("text"):
+                bits.append(repr(e["text"][:44]))
+            if e.get("background"):
+                bits.append(e["background"][:24])
+            if e.get("color"):
+                bits.append(e["color"])
+            print("  " + "  ".join(bits))
+        return
+    edits = []
+    if "--apply" in argv:
+        edits = json.loads(Path(argv[argv.index("--apply") + 1]).read_text())
+        edits = edits.get("edits", edits) if isinstance(edits, dict) else edits
+    while "--set" in argv:
+        i = argv.index("--set")
+        eid, prop, val = argv[i + 1], argv[i + 2], argv[i + 3]
+        try:
+            val = json.loads(val)
+        except Exception:
+            pass
+        edits.append({"id": eid, "set": {prop: val}})
+        del argv[i:i + 4]
+    out, applied, refused = AE.apply(html, edits)
+    for why in refused:
+        print(f"  REFUSED  {why}")
+    dest = Path(argv[argv.index("--out") + 1]) if "--out" in argv else page
+    dest.write_text(out)
+    print(f"{len(applied)} applied, {len(refused)} refused -> {dest}")
+    sys.exit(1 if refused else 0)
+
+
 def cmd_figma(argv):
     """Import a Figma design as a page — a new L0 SOURCE.
 
@@ -5524,7 +5625,8 @@ def cmd_convert(argv):
 
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "convert": cmd_convert, "figma": cmd_figma,
-            "vision": cmd_vision,
+            "vision": cmd_vision, "screenshot": cmd_screenshot,
+            "edit": cmd_edit,
             "audit": cmd_audit,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
             "localize": cmd_localize, "capture": cmd_capture,

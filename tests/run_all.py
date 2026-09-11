@@ -23,7 +23,8 @@ SUITES = [
                 "aethron_brain.py", "aethron_bridge.py", "aethron_cloud.py",
                 "aethron_healer.py", "desktop.py",
                 "aethron_figma.py", "aethron_figma_grade.py",
-                "aethron_audit.py"], False),
+                "aethron_audit.py", "aethron_vision.py",
+                "aethron_edit.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("self-update (in-place, never a second copy)",
@@ -49,6 +50,13 @@ SUITES = [
     # expected pattern; a measurement either reads it or is broken.
     ("vision (measure a screenshot against ground truth)",
      [PY, "aethron_vision.py", "--selftest"], True),
+    # The seam where a model is allowed near a measured page. Its own
+    # selftest proves the allow-list refuses a bad edit; this renders,
+    # and proves an ALLOWED edit that damages the page is caught too.
+    ("edit (can a model change the page without breaking it?)",
+     [PY, "aethron_edit.py", "--selftest"], False),
+    ("edit battery (is collateral damage actually noticed?)",
+     [PY, "tests/edit_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and

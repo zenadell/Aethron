@@ -198,6 +198,64 @@ def t_measure_screenshot(a):
     return _j.dumps(rep, indent=1)[:60000]
 
 
+def t_screenshot_to_page(a):
+    """A screenshot becomes a page, and no model writes a coordinate.
+
+    THE JOB SPLIT THIS TOOL EXISTS TO ENFORCE. Given a screenshot and
+    every measurement taken from it, a cheap model rebuilt 6 of the
+    page's 21 lines correctly; this path rebuilt all 21, for nothing,
+    in two minutes. Do not attempt the rebuild yourself and do not
+    "improve" what comes back — call `edit_page` to change what the
+    page SAYS or how it LOOKS, which is the part you are good at.
+    """
+    import json as _j
+    sys.path.insert(0, str(ROOT))
+    try:
+        import aethron_vision
+    except Exception as e:                       # pragma: no cover
+        return f"FAILED the measurement pass is unavailable ({e})"
+    out = a.get("outdir") or str(HOME / "rebuilds" / Path(str(a["image"])).stem)
+    try:
+        v = aethron_vision.rebuild(str(a["image"]), out,
+                                   fit=a.get("fit", True), verbose=False)
+    except SystemExit as e:
+        return f"FAILED {e}"
+    except Exception as e:
+        return f"FAILED {type(e).__name__}: {e}"
+    if v.get("verdict") == "SKIPPED":
+        return "SKIPPED " + v.get("why", "") + " — UNVERIFIED, not good"
+    head = (f"{v['verdict']}: {v.get('lines_correct')} of "
+            f"{v.get('lines_expected')} checks correct\npage: {v['page']}\n")
+    return head + _j.dumps(v.get("findings", []), indent=1)[:40000]
+
+
+def t_edit_page(a):
+    """Change what a rebuilt page says and how it looks — never where.
+
+    You may set text, colour, background, font size/weight/family,
+    letter-spacing, corner radius, opacity and hidden. You may NOT set
+    left, top, width, height, position, transform or z-index: those were
+    measured from the original's pixels and are not yours. An edit that
+    names one of them is refused with that reason, so read the refusal
+    rather than trying a synonym.
+    """
+    import json as _j
+    sys.path.insert(0, str(ROOT))
+    import aethron_edit as AE
+    page = Path(str(a["page"]))
+    if not page.is_file():
+        return f"FAILED no such page: {page}"
+    html = page.read_text()
+    if a.get("list") or not a.get("edits"):
+        return _j.dumps(AE.manifest(html), indent=1)[:60000]
+    out, applied, refused = AE.apply(html, a["edits"])
+    dest = Path(a.get("out") or page)
+    dest.write_text(out)
+    lines = [f"{len(applied)} applied, {len(refused)} refused -> {dest}"]
+    lines += [f"REFUSED  {w}" for w in refused]
+    return "\n".join(lines)
+
+
 def t_convert(a):
     """Port a built migration into a framework project the owner owns."""
     argv = ["convert", "--framework", str(a.get("framework") or "astro")]
@@ -752,6 +810,39 @@ TOOLS = [
                     "pass it here after every attempt; that loop is what "
                     "takes a rebuild from roughly right to identical."}},
       "required": ["image"]}, t_measure_screenshot),
+    ("screenshot_to_page", "SCREENSHOT -> PAGE, no model and no key: "
+     "measures the ground, gradients, rules, filled elements and corner "
+     "radii, reads the words with the machine's own OCR, carries "
+     "whatever cannot be set as type, chooses the typeface by a pixel "
+     "referee, then CHECKS every line and reports a checklist. Use this "
+     "instead of writing the HTML yourself — measured head to head, a "
+     "model given the same measurements got 6 of 21 lines right where "
+     "this got 21. Then use edit_page for the wording and the colours.",
+     {"type": "object", "properties": {
+        "image": {"type": "string", "description":
+                  "path to a PNG/JPG screenshot"},
+        "outdir": {"type": "string", "description":
+                   "OPTIONAL where to write page.html and its report"},
+        "fit": {"type": "boolean", "description":
+                "OPTIONAL sweep twelve typefaces and keep the one whose "
+                "ink lands on the original's ink (default true)"}},
+      "required": ["image"]}, t_screenshot_to_page),
+    ("edit_page", "Change what a rebuilt page SAYS and how it LOOKS. "
+     "Call with no `edits` to get the element list (ids, kinds, words, "
+     "colours) — then name elements by id. Allowed: text, color, "
+     "background, font_size, font_weight, font_family, letter_spacing, "
+     "border_radius, opacity, hidden. REFUSED: left, top, width, "
+     "height, position, transform, z-index — those were measured from "
+     "the original's pixels and a model reading a size off an image is "
+     "right about 8% of the time.",
+     {"type": "object", "properties": {
+        "page": {"type": "string", "description": "path to page.html"},
+        "edits": {"type": "array", "description":
+                  "[{\"id\": \"t04\", \"set\": {\"text\": \"Start free\"}}]",
+                  "items": {"type": "object"}},
+        "out": {"type": "string", "description":
+                "OPTIONAL write here instead of in place"}},
+      "required": ["page"]}, t_edit_page),
     ("generate_backend", "Generate backend/app.py (content API + site "
      "server; copy_map is the database) + AGENT_GUIDE.md for handoff.",
      S(P, ["project"]), t_pipeline("backend")),
