@@ -342,6 +342,28 @@ class Field:
             out.append(int(a * (1 - ty) + b * ty))
         return tuple(out)
 
+    def plate_bytes(self):
+        """The ground plate as the smallest honest file.
+
+        A FULL-RESOLUTION PLATE IS A JPEG, because that is what it is: a
+        photograph of the page with its type lifted out. At 1px cells
+        the PNG is 536 KB and the JPEG 97 KB for the same picture, and
+        a hero background on a real website is a JPEG for exactly this
+        reason. Small plates stay PNG — at 300x225 the PNG is already
+        43 KB and lossless.
+        """
+        png = self.png_bytes()
+        if self.gw * self.gh < 200_000 or not shutil.which("sips"):
+            return png, "png"
+        d = Path(tempfile.mkdtemp(prefix="ae-plate-"))
+        (d / "p.png").write_bytes(png)
+        r = subprocess.run([shutil.which("sips"), "-s", "format", "jpeg",
+                            "-s", "formatOptions", "78", str(d / "p.png"),
+                            "--out", str(d / "p.jpg")], capture_output=True)
+        if r.returncode or not (d / "p.jpg").is_file():
+            return png, "png"
+        return (d / "p.jpg").read_bytes(), "jpeg"
+
     def png_bytes(self):
         """The field as a tiny image — what a port embeds and carries."""
         px = bytearray()
@@ -352,6 +374,102 @@ class Field:
         tmp = Path(tempfile.mkdtemp(prefix="ae-field-")) / "f.png"
         G.write_png(tmp, self.gw, self.gh, px)
         return tmp.read_bytes()
+
+
+def ground_plate(shot: Shot, lift, rounds=60):
+    """The page with its type LIFTED OUT and the holes grown shut.
+
+    WHY Field CANNOT DO THIS AT FULL RESOLUTION, and it failed silently
+    for a whole cycle: `Field.refine` re-estimates a cell only when the
+    cell holds at least four non-ink samples, and a ONE-PIXEL cell
+    holds exactly one. So at 1px the guard is never true, every cell
+    keeps its first estimate — the original pixel — and the plate is
+    the original image, text and all. The rebuilt heading came back
+    with a grey ghost of itself behind the type, and the ghost WAS the
+    original's own letters, still sitting in the background.
+
+    A full-resolution plate is not a downsample, so it needs the other
+    operation: inpainting. Grow the hole shut from its edge, one ring
+    per pass, averaging the neighbours already known. Smooth ground
+    closes perfectly; the rest closes plausibly, and either way nothing
+    of the type survives to be drawn twice.
+    """
+    px = bytearray(shot.px)
+    w, h = shot.w, shot.h
+    hole = bytearray(lift)
+    todo = [i for i in range(w * h) if hole[i]]
+    for _ in range(rounds):
+        if not todo:
+            break
+        done, wait = [], []
+        for i in todo:
+            y, x = divmod(i, w)
+            r = g = b = n = 0
+            if x and not hole[i - 1]:
+                j = (i - 1) * 4
+                r += px[j]; g += px[j + 1]; b += px[j + 2]; n += 1
+            if x + 1 < w and not hole[i + 1]:
+                j = (i + 1) * 4
+                r += px[j]; g += px[j + 1]; b += px[j + 2]; n += 1
+            if y and not hole[i - w]:
+                j = (i - w) * 4
+                r += px[j]; g += px[j + 1]; b += px[j + 2]; n += 1
+            if y + 1 < h and not hole[i + w]:
+                j = (i + w) * 4
+                r += px[j]; g += px[j + 1]; b += px[j + 2]; n += 1
+            if n:
+                j = i * 4
+                px[j] = r // n; px[j + 1] = g // n; px[j + 2] = b // n
+                done.append(i)
+            else:
+                wait.append(i)
+        if not done:
+            break                     # nothing reachable; stop honestly
+        for i in done:
+            hole[i] = 0
+        todo = wait
+    return px
+
+
+def dilate(mask, w, h, r=3):
+    """Grow a mask by r pixels, separably.
+
+    THE HALO IS NOT INK, AND IT IS STILL THE TYPE. A glyph on a dark
+    page carries a soft glow that sits below the ink threshold, so the
+    ground plate keeps it — invisible at 8px cells, where it is
+    averaged away, and glaring at 1px, where it survives exactly and
+    the re-set type lands on top of a shadow of itself. The owner's
+    headline came back doubled.
+
+    Two 1-D passes rather than a box scan: r=3 over 1200x900 is six
+    million operations that way and fifty million the other.
+    """
+    out = bytearray(mask)
+    for y in range(h):
+        row = y * w
+        run = 0
+        for x in range(w):
+            run = r if mask[row + x] else run - 1
+            if run > 0:
+                out[row + x] = 1
+        run = 0
+        for x in range(w - 1, -1, -1):
+            run = r if mask[row + x] else run - 1
+            if run > 0:
+                out[row + x] = 1
+    final = bytearray(out)
+    for x in range(w):
+        run = 0
+        for y in range(h):
+            run = r if out[y * w + x] else run - 1
+            if run > 0:
+                final[y * w + x] = 1
+        run = 0
+        for y in range(h - 1, -1, -1):
+            run = r if out[y * w + x] else run - 1
+            if run > 0:
+                final[y * w + x] = 1
+    return final
 
 
 def ink_mask(shot: Shot, field: "Field"):
@@ -872,7 +990,7 @@ def _row_runs(shot: Shot, y, tol=MERGE):
 
 
 def regions(shot: Shot, field: "Field", lines=(), min_w=12, min_h=10,
-            min_fill=0.60, tol=MERGE):
+            min_fill=0.60, tol=MERGE, mask_=None):
     """Buttons, chips and cards — found WHOLE, in one pass.
 
     SIX ATTEMPTS DIED HERE AND ALL OF THEM THE SAME WAY. A row-run
@@ -903,6 +1021,8 @@ def regions(shot: Shot, field: "Field", lines=(), min_w=12, min_h=10,
     through.
     """
     w, h = shot.w, shot.h
+    if mask_ is None:
+        mask_ = ink_mask(shot, field)
     rows = [_row_runs(shot, y, tol) for y in range(h)]
     par = []
     ids = []
@@ -957,8 +1077,21 @@ def regions(shot: Shot, field: "Field", lines=(), min_w=12, min_h=10,
         rgb = interior_colour(shot, x0, y0, bw, bh) or cols.most_common(1)[0][0]
         # THE GROUND IS NOT AN ELEMENT. A smooth ramp breaks into many
         # runs and unions into large components that are perfectly
-        # "filled" — and they are the page itself. A region has to
-        # differ from the ground measured underneath it.
+        # "filled" — and they are the page itself.
+        #
+        # THIS TEST IS CIRCULAR AND IT IS KNOWN TO BE. The field is a
+        # percentile per cell, so every cell inside a 200x70 card is
+        # entirely card and the field adopts the card's own colour; the
+        # card then "matches the ground" and is rejected here. Measured:
+        # three large cards missed while the 18px circles beside them
+        # were found. Asking the NEIGHBOURS instead breaks the circle
+        # and finds them — but it also admits the page's own panel, and
+        # no flatness test can tell those apart, because real buttons
+        # are GRADIENTS: measured, want-in scores 0.711 / 0.307 / 0.154
+        # against want-out 0.411 / 0.462. Fully overlapping.
+        # The answer is not a better threshold, it is to emit a panel as
+        # a panel WITH its gradient instead of rejecting it. See the
+        # note in AETHRON.md; do not re-attempt this with a threshold.
         cx, cy = x0 + bw // 2, y0 + bh // 2
         if _dist(rgb, field.at(cx, cy)) <= INK:
             continue
@@ -973,6 +1106,35 @@ def regions(shot: Shot, field: "Field", lines=(), min_w=12, min_h=10,
         b["radius"] = _shape_radius(b, b.pop("ink"))
     out.sort(key=lambda b: -(b["w"] * b["h"]))
     return out
+
+
+def _around(shot: Shot, x, y, w, h, pad=5):
+    """The commonest colour in a ring just outside a box — what the
+    element sits ON, read where the element is not."""
+    c = Counter()
+    x0, y0 = max(0, x - pad), max(0, y - pad)
+    x1, y1 = min(shot.w - 1, x + w + pad), min(shot.h - 1, y + h + pad)
+    for xx in range(x0, x1 + 1, max(1, (x1 - x0) // 40)):
+        for yy in (y0, y1):
+            c[shot.rgb(xx, yy)] += 1
+    for yy in range(y0, y1 + 1, max(1, (y1 - y0) // 40)):
+        for xx in (x0, x1):
+            c[shot.rgb(xx, yy)] += 1
+    return c.most_common(1)[0][0] if c else (0, 0, 0)
+
+
+def _uniform(shot: Shot, mask, x, y, w, h, rgb):
+    """What share of a box's NON-INK inside really is its fill colour?"""
+    ix, iy = max(1, w // 10), max(1, h // 10)
+    hit = tot = 0
+    for yy in range(y + iy, min(y + h - iy, shot.h), max(1, h // 40)):
+        row = yy * shot.w
+        for xx in range(x + ix, min(x + w - ix, shot.w), max(1, w // 40)):
+            if mask[row + xx]:
+                continue                      # that is the label
+            tot += 1
+            hit += _dist(shot.rgb(xx, yy), rgb) <= MERGE
+    return hit / tot if tot else 0.0
 
 
 def _is_glyph(x, y, w, h, lines):
@@ -1657,7 +1819,7 @@ def measure(path, deep=True) -> dict:
     # pass as the fallback honours the rule this file has broken twice:
     # never ship a detector that finds FEWER things than the one before
     # it. Either way a slab carved out of a ramp is not a card.
-    found = regions(shot, field)
+    found = regions(shot, field, mask_=mask)
     if not found:
         found = boxes(shot, bgrgb, step=step, field=field)
     rep["boxes"] = [b for b in found
@@ -1705,7 +1867,7 @@ def carry_pass(html: str, original, regions=None, rep=None) -> str:
     w, h = rep["width"], rep["height"]
     ground = (f'<div style="position:absolute;left:0;top:0;width:{w}px;'
               f'height:{h}px;z-index:0;background-size:100% 100%;'
-              f'background-image:url(data:image/png;base64,{fb})"></div>')
+              f'background-image:url(data:image/{kind};base64,{fb})"></div>')
 
     carried = []
     for r in (regions or []):
@@ -2113,7 +2275,7 @@ def ocr(image, timeout=120):
 
 
 def emit_from_ocr(image, font="Inter", carried=(), rep=None,
-                  ocr_lines=None, ground_cell=4):
+                  ocr_lines=None, ground_cell=1):
     """Build the whole page from what was READ and what was MEASURED.
 
     No model anywhere in this function. OCR supplies the words and where
@@ -2157,7 +2319,55 @@ def emit_from_ocr(image, font="Inter", carried=(), rep=None,
     ground = Field(shot, gw=max(16, round(shot.w / ground_cell)),
                    gh=max(12, round(shot.h / ground_cell)), dark=dark)
     ground.refine(mask)
-    fb = base64.b64encode(ground.png_bytes()).decode()
+    # ONLY LIFT WHAT WILL BE REDRAWN, AND SCALE IT TO ITS OWN SIZE.
+    # Three failures bracket this. A flat dilation leaves a 40px
+    # headline's halo behind, so it ghosts. Lifting each line's whole
+    # BOX takes the button fill underneath with it, and since those
+    # buttons are not detected nothing redraws them — they vanish.
+    # And lifting the WHOLE ink mask takes the page's own bright glow,
+    # which is ink by any local measure and is redrawn by nobody: the
+    # light beam came back with chewed, ragged edges.
+    #
+    # So: lift the glyphs of the lines we are about to set, and only
+    # those, by a radius taken from the line they belong to. A halo
+    # scales with its type; a button's fill and a glow do not.
+    lift = bytearray(shot.w * shot.h)
+    buckets = {}
+    for ln in lines:
+        if ln.get("confidence", 1) < 0.6:
+            continue
+        r = 3 if ln["h"] < 20 else 8
+        m = buckets.setdefault(r, bytearray(shot.w * shot.h))
+        for yy in range(max(0, ln["y"] - 1),
+                        min(shot.h, ln["y"] + ln["h"] + 1)):
+            row = yy * shot.w
+            for xx in range(max(0, ln["x"] - 1),
+                            min(shot.w, ln["x"] + ln["w"] + 1)):
+                if mask[row + xx]:
+                    m[row + xx] = 1
+    for r, m in buckets.items():
+        grown = dilate(m, shot.w, shot.h, r)
+        for i, v in enumerate(grown):
+            if v:
+                lift[i] = 1
+    if ground_cell <= 1:
+        # Full resolution: inpaint, do not downsample. See ground_plate.
+        import subprocess as _sp
+        pl = Path(tempfile.mkdtemp(prefix="ae-plate-"))
+        G.write_png(pl / "p.png", shot.w, shot.h,
+                    ground_plate(shot, lift))
+        kind = "png"
+        if shutil.which("sips"):
+            r_ = _sp.run([shutil.which("sips"), "-s", "format", "jpeg",
+                          "-s", "formatOptions", "78", str(pl / "p.png"),
+                          "--out", str(pl / "p.jpg")], capture_output=True)
+            if not r_.returncode and (pl / "p.jpg").is_file():
+                kind = "jpeg"
+        plate = (pl / ("p.jpg" if kind == "jpeg" else "p.png")).read_bytes()
+    else:
+        ground.refine(lift)
+        plate, kind = ground.plate_bytes()
+    fb = base64.b64encode(plate).decode()
     w, h = rep["width"], rep["height"]
 
     out = [f"""<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -2174,7 +2384,7 @@ button{{position:absolute}}button>.t{{position:absolute}}
 a.t:focus-visible,button:focus-visible{{outline:2px solid currentColor;outline-offset:2px}}</style></head><body>
 <div class="r" data-ae-id="ground" style="left:0;top:0;width:{w}px;
  height:{h}px;z-index:0;background-size:100% 100%;
- background-image:url(data:image/png;base64,{fb})"></div>"""]
+ background-image:url(data:image/{kind};base64,{fb})"></div>"""]
     fills = rep.get("boxes", [])[:20]
     # WHAT A PERSON WOULD EXPECT TO BE ABLE TO USE. The owner's point,
     # and it is the one a pixel referee can never make: a button
@@ -2299,7 +2509,7 @@ def _pixels_match(a: "Shot", b: "Shot", x, y, w, h, tol=INK, need=0.90):
 
 
 def rebuild(image, outdir, font="Inter", rounds=7, fit=True,
-            verbose=True, ground_cell=4):
+            verbose=True, ground_cell=1):
     """A screenshot in, a page out, and not one model anywhere.
 
     The whole chain in one call, in the order that each stage earns:
