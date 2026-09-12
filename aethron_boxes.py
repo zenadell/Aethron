@@ -229,7 +229,7 @@ def nest(boxes, pad=3):
 
 # ────────────────────────── each box's own fill ──────────────────────
 
-def fill_css(shot, b, samples=7):
+def fill_css(shot, b, samples=7, mask=None):
     """Read a box's background AS CSS, from its own interior.
 
     THIS IS WHAT RETIRES THE CARRIED PLATE. The old pipeline had two
@@ -271,19 +271,56 @@ def fill_css(shot, b, samples=7):
     flat = mean(x0, y0, x1, y1)
 
     if max(sx, sy) <= V.MERGE:
-        css = "#%02X%02X%02X" % flat
-        stops = [flat] * samples
+        css, stops, axis = "#%02X%02X%02X" % flat, [flat] * samples, "flat"
     elif sx >= sy:
-        stops, css = cols, _ramp("to right", cols)
+        stops, css, axis = cols, _ramp("to right", cols), "x"
     else:
-        stops, css = rows, _ramp("to bottom", rows)
+        stops, css, axis = rows, _ramp("to bottom", rows), "y"
 
-    # quality: how far the fit is from the real interior, worst case
-    want = cols if (sx >= sy and max(sx, sy) > V.MERGE) else (
-        rows if max(sx, sy) > V.MERGE else [flat] * samples)
-    err = max(max(abs(a[k] - c[k]) for k in range(3))
-              for a, c in zip(stops, want)) if stops else 255
-    return css, max(0.0, 1.0 - err / 96.0)
+    # QUALITY, MEASURED AGAINST THE PIXELS — NOT AGAINST ITSELF.
+    #
+    # The first version compared `stops` with `want`, and `want` WAS
+    # `stops`. The error was therefore always zero and every box came
+    # back at quality 1.0, including a 287x230 slab of the page's light
+    # bloom whose fit sampled ALONG one axis and AVERAGED ACROSS the
+    # other: the bright vertical beam running through it averaged to a
+    # dark brown, the fit declared itself perfect, and drawing it
+    # painted a black rectangle over the glow. That is the same failure
+    # as every other one this week — an instrument reporting on itself.
+    #
+    # A fit is good if it reproduces the ACTUAL interior. Evaluating it
+    # the way CSS will paint it also catches the case the axis model
+    # cannot express at all: a box that varies in BOTH directions has
+    # no linear ramp, and its error says so.
+    n_ = err = 0
+    for yy in range(y0, min(y1, shot.h), max(1, (y1 - y0) // 9)):
+        for xx in range(x0, min(x1, shot.w), max(1, (x1 - x0) // 9)):
+            if axis == "flat" or len(stops) < 2:
+                f = stops[0]
+            else:
+                t = ((xx - x) / max(1, w - 1) if axis == "x"
+                     else (yy - y) / max(1, h - 1))
+                t = min(1.0, max(0.0, t)) * (len(stops) - 1)
+                i_ = min(len(stops) - 2, int(t))
+                fr = t - i_
+                a_, c_ = stops[i_], stops[i_ + 1]
+                f = tuple(int(a_[k] + (c_[k] - a_[k]) * fr) for k in range(3))
+            # JUDGE THE FILL WHERE THERE IS NO CONTENT ON IT.
+            # Measured against every interior pixel the test INVERTS:
+            # a slab of the page's glow scores 0.890 because it really
+            # is a smooth ramp, while the orange balance card scores
+            # 0.577 — punished for having a label, an icon and a badge
+            # sitting on it. A card's FILL is what is being fitted, and
+            # a card's fill is what shows between its contents.
+            # The glow has no content to exclude, so it keeps its own
+            # error and drops below the cards as it should.
+            if mask is not None and mask[yy * shot.w + xx]:
+                continue
+            real = shot.rgb(xx, yy)
+            err += max(abs(f[k] - real[k]) for k in range(3))
+            n_ += 1
+    err = err / n_ if n_ else 255
+    return css, max(0.0, 1.0 - err / 96.0), stops, axis
 
 
 def _ramp(side, stops):
@@ -345,7 +382,7 @@ def _around(shot, x, y, w, h, pad=4):
     return c.most_common(1)[0][0] if c else (0, 0, 0)
 
 
-def styled(shot, boxes, min_quality=0.55):
+def styled(shot, boxes, min_quality=0.55, mask=None):
     """Boxes with their CSS, dropping any the fit cannot reproduce.
 
     MEASURED WARNING — DO NOT OVERLAY THESE ON THE CARRIED PLATE. Doing
@@ -369,12 +406,189 @@ def styled(shot, boxes, min_quality=0.55):
     """
     out = []
     for b in boxes:
-        css, q = fill_css(shot, b)
+        css, q, stops, axis = fill_css(shot, b, mask=mask)
         if q < min_quality:
             continue
         out.append(dict(b, css=css, quality=round(q, 2),
+                        stops=stops, axis=axis,
                         radius=radius_of(shot, b)))
     return out
+
+
+def fit_at(b, x, y):
+    """The fitted fill's colour at one pixel, the way CSS paints it."""
+    stops, axis = b["stops"], b["axis"]
+    n = len(stops)
+    if axis == "flat" or n < 2:
+        return stops[0]
+    t = ((x - b["x"]) / max(1, b["w"] - 1) if axis == "x"
+         else (y - b["y"]) / max(1, b["h"] - 1))
+    t = min(1.0, max(0.0, t)) * (n - 1)
+    i = min(n - 2, int(t))
+    f = t - i
+    a, c = stops[i], stops[i + 1]
+    return tuple(int(a[k] + (c[k] - a[k]) * f) for k in range(3))
+
+
+def worth_drawing(shot, plate, b, step=3):
+    """Is the FITTED box closer to the original here than the plate is?
+
+    THE GUARD THE FIRST ATTEMPT LACKED, and the reason it cost 9 points.
+    Recall was swept and precision never measured, so the page's own
+    faint GRID CELLS came through — true rectangles, false elements,
+    each fitting its own smooth interior perfectly and each one painted
+    coarser than the plate it covered.
+
+    Asking which is closer settles both cases without a threshold and
+    without a taxonomy. A card wins: its edges are crisp and its
+    gradient is real. A grid cell loses: the plate already had that
+    patch of background, pixel for pixel. Nothing can regress, because
+    nothing is drawn unless it is an improvement.
+    """
+    w = shot.w
+    e_fit = e_plate = n = 0
+    for y in range(b["y"], min(b["y"] + b["h"], shot.h), step):
+        row = y * w
+        for x in range(b["x"], min(b["x"] + b["w"], shot.w), step):
+            i = (row + x) * 4
+            o = (shot.px[i], shot.px[i + 1], shot.px[i + 2])
+            f = fit_at(b, x, y)
+            e_fit += max(abs(f[k] - o[k]) for k in range(3))
+            e_plate += max(abs(plate[i + k] - o[k]) for k in range(3))
+            n += 1
+    if not n:
+        return False, 0, 0
+    return e_fit <= e_plate, e_fit / n, e_plate / n
+
+
+def stands_out(shot, b, tol=None):
+    """Is this rectangle an ELEMENT, or just a line on the page's grid?
+
+    THE FILTER BOTH EARLIER ATTEMPTS NEEDED, and the reason each failed.
+    Drawing every recovered rectangle cost 9 points, because this page's
+    faint GRID is made of true rectangles that are not elements — each
+    one fits its own smooth interior perfectly and then paints over the
+    background coarser than the background was. Gating on "does the fit
+    beat the carried plate" kept 3 of 74, which is the opposite error:
+    nothing fitted ever beats a photograph at matching a photograph, so
+    that contest always chooses the screenshot and never the code.
+
+    Neither question was the right one. AN ELEMENT DIFFERS FROM WHAT IS
+    AROUND IT — a card, a button, a panel all do, by construction,
+    because that is what makes them visible as objects. A grid cell does
+    not: the pixels just outside it are the same background as the
+    pixels just inside. That is decidable from the image alone, needs no
+    plate to compare against, and does not care whether the fill is flat
+    or a gradient.
+    """
+    import aethron_vision as V
+    tol = V.INK if tol is None else tol
+    inside = b.get("stops", [None])[len(b.get("stops", [1])) // 2]
+    if inside is None:
+        inside = V.interior_colour(shot, b["x"], b["y"], b["w"], b["h"])
+    if inside is None:
+        return False
+    return V._dist(inside, _around(shot, b["x"], b["y"], b["w"],
+                                   b["h"])) > tol
+
+
+def sharp_edges(shot, b, near=2, far=9, need=0.55, sides=3):
+    """Is this rectangle bounded by STEPS, or by a ramp passing through?
+
+    `stands_out` was not enough and the reason is the same one that has
+    bitten every detector in this project: INSIDE A GRADIENT EVERYTHING
+    DIFFERS FROM EVERYTHING. It kept 67 of 74, and the largest keepers
+    were slabs of the page's own light bloom — real rectangles to the
+    edge finder, because a bright glow changes fast enough to trip a
+    step threshold.
+
+    What separates them is HOW the change is spread. A card's edge is a
+    STEP: all of the difference happens within a pixel or two. A
+    gradient is a RAMP: the change over +-2px is a small fraction of the
+    change over +-9px. So compare the two, per edge, along its length.
+    Three sides of four must be steps — three, not four, because a card
+    sitting flush against a panel genuinely has one invisible side.
+    """
+    px, w, h = shot.px, shot.w, shot.h
+
+    def L(x, y):
+        x = max(0, min(w - 1, x)); y = max(0, min(h - 1, y))
+        i = (y * w + x) * 4
+        return px[i] + px[i + 1] + px[i + 2]
+
+    def step_share(pts, horizontal):
+        ok = n = 0
+        for x, y in pts:
+            if horizontal:
+                a, b_, c = L(x, y - near), L(x, y + near), L(x, y - far)
+                d = L(x, y + far)
+            else:
+                a, b_, c = L(x - near, y), L(x + near, y), L(x - far, y)
+                d = L(x + far, y)
+            wide = abs(d - c)
+            if wide < 24:
+                continue
+            n += 1
+            ok += abs(b_ - a) >= wide * need
+        return ok / n if n else 0.0
+
+    x0, y0, x1, y1 = b["x"], b["y"], b["x"] + b["w"], b["y"] + b["h"]
+    xs = range(x0 + 4, x1 - 3, max(1, b["w"] // 24))
+    ys = range(y0 + 3, y1 - 2, max(1, b["h"] // 24))
+    scores = [
+        step_share([(x, y0) for x in xs], True),
+        step_share([(x, y1) for x in xs], True),
+        step_share([(x0, y) for y in ys], False),
+        step_share([(x1, y) for y in ys], False),
+    ]
+    return sum(1 for s in scores if s >= 0.5) >= sides
+
+
+def closed_boundary(shot, b, pad=3, floor=18):
+    """Does the WHOLE boundary separate this box from its surroundings?
+
+    THE TEST THE OTHER THREE WERE MISSING, and the failure that named
+    it: a 287x230 "element" whose four edges came from FOUR UNRELATED
+    OBJECTS — the hero panel's top edge, a grid line below, and the two
+    steep sides of the page's light beam. Every individual edge was a
+    real step, so `sharp_edges` passed it; its interior really is a
+    smooth ramp, so `fill_css` gave it 0.89; and it differs from its
+    surroundings, so `stands_out` passed it too. Drawn, it painted a
+    black rectangle across the glow.
+
+    An OBJECT is not four edges that happen to form a rectangle. It is
+    a region whose boundary separates it from what is outside it — all
+    the way round, and IN THE SAME DIRECTION. A card is lighter than
+    its surroundings on all four sides, or darker on all four. A slab
+    cut out of a beam is brighter on the left and right and IDENTICAL
+    above and below, because there is nothing there to be a boundary.
+    """
+    px, w, h = shot.px, shot.w, shot.h
+
+    def band(x0, y0, x1, y1):
+        tot = n = 0
+        for y in range(max(0, y0), min(h, y1)):
+            row = y * w
+            for x in range(max(0, x0), min(w, x1)):
+                i = (row + x) * 4
+                tot += px[i] + px[i + 1] + px[i + 2]
+                n += 1
+        return tot / n if n else 0.0
+
+    x, y, bw, bh = b["x"], b["y"], b["w"], b["h"]
+    sides = [
+        band(x, y + pad, x + bw, y + pad * 3)
+        - band(x, y - pad * 3, x + bw, y - pad),              # top
+        band(x, y + bh - pad * 3, x + bw, y + bh - pad)
+        - band(x, y + bh + pad, x + bw, y + bh + pad * 3),    # bottom
+        band(x + pad, y, x + pad * 3, y + bh)
+        - band(x - pad * 3, y, x - pad, y + bh),              # left
+        band(x + bw - pad * 3, y, x + bw - pad, y + bh)
+        - band(x + bw + pad, y, x + bw + pad * 3, y + bh),    # right
+    ]
+    if any(abs(d) < floor for d in sides):
+        return False
+    return all(d > 0 for d in sides) or all(d < 0 for d in sides)
 
 
 def depth_of(roots):

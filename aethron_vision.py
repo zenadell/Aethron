@@ -2274,6 +2274,17 @@ def ocr(image, timeout=120):
     return out
 
 
+def _bg_css(rep):
+    """The page's own background AS CSS: the ground plus its fitted ramps.
+
+    Layered the way a designer writes it. A ramp the measurement
+    reported NOT FITTED is left out rather than guessed at — an honest
+    flat ground beats a confident wrong gradient.
+    """
+    layers = [g["css"] for g in rep.get("gradients", []) if g.get("css")]
+    return ",".join(layers + [rep["background"]["hex"]])
+
+
 def emit_from_ocr(image, font="Inter", carried=(), rep=None,
                   ocr_lines=None, ground_cell=1):
     """Build the whole page from what was READ and what was MEASURED.
@@ -2316,9 +2327,11 @@ def emit_from_ocr(image, font="Inter", carried=(), rep=None,
     # 4px, 1.52 at 2px, for 12.6 KB / 43 KB / 149 KB. 4px is the
     # default because it halves the error for a file still smaller than
     # one photograph; `ground_cell` trades sharpness against weight.
-    ground = Field(shot, gw=max(16, round(shot.w / ground_cell)),
-                   gh=max(12, round(shot.h / ground_cell)), dark=dark)
-    ground.refine(mask)
+    ground = None
+    if ground_cell:
+        ground = Field(shot, gw=max(16, round(shot.w / ground_cell)),
+                       gh=max(12, round(shot.h / ground_cell)), dark=dark)
+        ground.refine(mask)
     # ONLY LIFT WHAT WILL BE REDRAWN, AND SCALE IT TO ITS OWN SIZE.
     # Three failures bracket this. A flat dilation leaves a 40px
     # headline's halo behind, so it ghosts. Lifting each line's whole
@@ -2350,12 +2363,69 @@ def emit_from_ocr(image, font="Inter", carried=(), rep=None,
         for i, v in enumerate(grown):
             if v:
                 lift[i] = 1
-    if ground_cell <= 1:
+    # THE BOX TREE, DRAWN ONLY WHERE IT BEATS THE PLATE.
+    # Every rectangle the edge pass recovered, with its fill read off
+    # its own interior as CSS. Each one is kept only if the fitted
+    # gradient sits CLOSER to the original than the carried plate does
+    # over that same rectangle — so a card wins on its crisp edges and
+    # real gradient, a faint grid cell loses to the plate that already
+    # had that patch of background, and nothing can regress. The first
+    # attempt had no such guard and cost 9 points of fidelity.
+    # WHICH RECTANGLES ARE ELEMENTS — computed for EVERY mode, because
+    # the point of drawing them is the same with a plate as without:
+    # a card rendered as real CSS is crisp, editable and restylable
+    # where the plate's version of it is a soft photograph.
+    #
+    # Two tests, because each alone failed. An element DIFFERS FROM
+    # WHAT IS AROUND IT, which drops the page's own faint grid — true
+    # rectangles whose insides and outsides are the same background.
+    # And it is bounded by STEPS rather than by a ramp passing through,
+    # which drops the slabs of the light bloom that a step threshold
+    # reads as rectangles. Measured: 74 candidates -> 67 -> 28.
+    boxes_css = []
+    try:
+        import aethron_boxes as _B
+        _grads = rep.get("gradients", [])
+        for _b in _B.styled(shot, _B.rectangles(shot), mask=mask):
+            if not (_B.stands_out(shot, _b) and _B.sharp_edges(shot, _b)
+                    and _B.closed_boundary(shot, _b)):
+                continue
+            # A SLAB CARVED OUT OF A RAMP IS NOT A CARD, and this is the
+            # third pass in this file to need that sentence. Two of the
+            # 28 survivors were rectangles of the page's own light
+            # bloom, and drawing one of them painted a flat dark panel
+            # across the top-right of the glow — 26 boxes right, one
+            # box visibly wrong, four points of fidelity. `gradients()`
+            # already knows where the ramps are.
+            if _in_any(_grads, _b["x"], _b["y"], _b["w"], _b["h"]):
+                continue
+            boxes_css.append(_b)
+    except Exception:
+        boxes_css = []
+    fb, kind = "", "png"
+    if ground_cell == 0:
+        # NO PLATE AT ALL — the page is code.
+        #
+        # THE GUARD PROVED THE WHOLE CONTEST WAS THE WRONG ONE. Drawing
+        # a fitted box only when it beat the carried plate kept 3 of
+        # 74 — of course it did: the plate IS the original's pixels,
+        # and nothing fitted can beat a photograph at matching a
+        # photograph. Judged that way code always loses, and the tool
+        # will always choose the screenshot.
+        #
+        # But the deliverable is a WEBSITE, so the screenshot is a
+        # SPECIFICATION, not an asset. Here every recovered rectangle
+        # is drawn as CSS, the background is the measured ground plus
+        # whatever ramps could be FITTED, and the only images that ship
+        # are genuine photographs and logos. It costs pixel score. It
+        # is the thing that was actually asked for.
+        pass
+    elif ground_cell <= 1:
         # Full resolution: inpaint, do not downsample. See ground_plate.
         import subprocess as _sp
         pl = Path(tempfile.mkdtemp(prefix="ae-plate-"))
-        G.write_png(pl / "p.png", shot.w, shot.h,
-                    ground_plate(shot, lift))
+        _plate_px = ground_plate(shot, lift)
+        G.write_png(pl / "p.png", shot.w, shot.h, _plate_px)
         kind = "png"
         if shutil.which("sips"):
             r_ = _sp.run([shutil.which("sips"), "-s", "format", "jpeg",
@@ -2364,12 +2434,18 @@ def emit_from_ocr(image, font="Inter", carried=(), rep=None,
             if not r_.returncode and (pl / "p.jpg").is_file():
                 kind = "jpeg"
         plate = (pl / ("p.jpg" if kind == "jpeg" else "p.png")).read_bytes()
+        # The element gate ran above; worth_drawing's plate contest is
+        # deliberately NOT used — it keeps 3 of 74, because nothing
+        # fitted ever beats a photograph at matching a photograph.
     else:
         ground.refine(lift)
         plate, kind = ground.plate_bytes()
-    fb = base64.b64encode(plate).decode()
+    if ground_cell:
+        fb = base64.b64encode(plate).decode()
     w, h = rep["width"], rep["height"]
 
+    bgdecl = (f"background-image:url(data:image/{kind};base64,{fb})"
+              if fb else f"background:{_bg_css(rep)}")
     out = [f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={
     font.replace(' ', '+')}:wght@300;400;500;600;700&display=swap">
@@ -2383,8 +2459,7 @@ body{{background:{rep['background']['hex']};position:relative;
 button{{position:absolute}}button>.t{{position:absolute}}
 a.t:focus-visible,button:focus-visible{{outline:2px solid currentColor;outline-offset:2px}}</style></head><body>
 <div class="r" data-ae-id="ground" style="left:0;top:0;width:{w}px;
- height:{h}px;z-index:0;background-size:100% 100%;
- background-image:url(data:image/{kind};base64,{fb})"></div>"""]
+ height:{h}px;z-index:0;background-size:100% 100%;{bgdecl}"></div>"""]
     fills = rep.get("boxes", [])[:20]
     # WHAT A PERSON WOULD EXPECT TO BE ABLE TO USE. The owner's point,
     # and it is the one a pixel referee can never make: a button
@@ -2400,6 +2475,12 @@ a.t:focus-visible,button:focus-visible{{outline:2px solid currentColor;outline-o
             btn[tuple(a["box"])] = a["label"]
     navs = {a["label"] for a in aff if a["kind"] == "navlink"}
     out.append(chrome_html(rep, w, h, skip=set(btn)))
+    for _i, _bx in enumerate(boxes_css):
+        out.append(f'<div class="r" data-ae-id="b{_i:02d}" '
+                   f'style="left:{_bx["x"]}px;top:{_bx["y"]}px;'
+                   f'width:{_bx["w"]}px;height:{_bx["h"]}px;z-index:3;'
+                   f'background:{_bx["css"]};'
+                   f'border-radius:{_bx["radius"]}px"></div>')
     def inside_carried(ln):
         # A carried region is a photograph of that part of the page; the
         # words in it are already there. Drawing them again on top is
@@ -2580,6 +2661,15 @@ def rebuild(image, outdir, font="Inter", rounds=7, fit=True,
         hp, pp = outdir / f"_{n[0]}.html", outdir / f"_{n[0]}.png"
         hp.write_text(h_)
         GR.shoot(hp, w, h, pp)
+        if not pp.is_file() or not pp.stat().st_size:
+            # A RENDER THAT DID NOT HAPPEN IS A ZERO, NOT A CRASH.
+            # One transient browser failure inside the typeface sweep
+            # took down a ten-minute rebuild: shoot() returned nothing,
+            # ink_iou was handed a path that does not exist, and the
+            # whole pipeline exited on "no such image". A candidate
+            # that cannot be rendered simply cannot win.
+            say(f"  (render {n[0]} produced nothing — scoring it 0)")
+            return pp, 0.0
         return pp, ink_iou(pp, image)
 
     if fit:
