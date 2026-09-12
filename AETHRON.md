@@ -3055,6 +3055,130 @@ STILL OPEN, and this is the owner's larger point rather than a bug:
   * There is still no LAYOUT: absolute divs cannot reflow, group, or be
     responsive.
 
+## "SHOULDN'T IT KNOW A DISTANCE?" IT KNOWS EVERY DISTANCE
+## — `aethron_flow.py`, 2026-09-12
+The owner, looking at a generated page floating in the browser as a
+frozen canvas: "shouldn't it be intelligent enough to know that it is
+supposed to make it an entire screen website and make it responsive?
+shouldn't it be intelligent enough to know a distance?"
+
+It knows every distance — it MEASURED them. Which is why this needed no
+model at all, and is the reason it shipped while the Gemini credits were
+exhausted. Responsiveness is not taste, it is a set of relationships
+already in hand:
+
+    two elements whose vertical spans overlap ...... are a ROW
+    the span from the leftmost to the rightmost .... is the COLUMN
+    the space between two bands .................... is a MARGIN
+    consecutive lines at one size and one left ..... are a PARAGRAPH
+
+THE PASS THAT MAKES FLOW POSSIBLE AT ALL is `paragraphs()`, and it is
+not the container or the media query. A rebuilt page is a list of
+LINES, because that is what a screenshot contains: OCR returns one box
+per line, the emitter writes one absolutely positioned div per box, and
+each carries `white-space:nowrap` because each IS one measured line. A
+line cannot reflow — it has nowhere to go and no siblings to push. Put
+back into the paragraph it was cut from (same size, same left edge, a
+vertical step matching the leading — the `_rejoin` test again), the
+browser re-wraps it for free at any width.
+
+BOTH VERDICTS OR IT IS NOT A PASS. Each half alone is trivially easy and
+completely worthless, and BOTH were shipped separately on the way here:
+the first version scored a perfect 0 spills at phone width while landing
+0 of 21 lines at the design width — a flawless reflow of a page that was
+no longer the design; the version before it was the frozen canvas the
+owner was complaining about. `prove()` renders at the DESIGN WIDTH and
+checks every line by its own words, then renders at PHONE WIDTH and
+asks whether anything hangs off the edge.
+
+    wezzi       PASS  17/21 lines land at 1024px (95.08% identical),
+                      nothing spills at 500px, 7/7 clickable, 21 semantic
+    fintrixity  FAIL  29/54 lines at 1200px (93.29%), nothing spills
+
+Fintrixity fails HONESTLY and is shipped failing: it reflows and its
+hero is right, but half of it is a dense dashboard mock — really a
+picture of an application — whose elements overlap in ways the
+row-and-band model does not recover. Named, not averaged away.
+
+THE SHARED-CODE BUG UNDERNEATH, and it is the bigger find. The semantic
+pass (0/7 -> 7/7 interactive, celebrated two entries above) emits a
+measured button as a real `<button>` with its label in a nested span,
+and a nav item as an `<a>`. `manifest()` matched `<(div|img)` and closed
+on `</div>`. Measured on the Wezzi rebuild: 27 elements in the file, 20
+in the manifest, THE SEVEN MISSING ONES BEING THE ENTIRE NAVIGATION AND
+BOTH BUTTONS. manifest() is what `page_ir` reads, so all six framework
+emitters had been silently shipping a page with no nav and no buttons;
+and it is what a model is handed by aethron_edit, so "rebrand the call
+to action" named an element that, as far as the tool was concerned, did
+not exist. `_tag_of` carried the identical assumption in a second place,
+so fixing one changed nothing. A capability can be added and break every
+consumer of the thing it improved.
+
+SIX MORE, every one found by measuring rather than reasoning:
+1. `_overflows` used a plain `subprocess.run`, and CHROME DOES NOT EXIT
+   AFTER --dump-dom — documented in this file since the probe was built.
+   It hung its full timeout, threw, and returned None on every round of
+   every run; the caller printed "reflows cleanly" for None. The
+   responsiveness check had NEVER RUN, and reported PASS when it could
+   not run. Both halves of the project's oldest invariant, broken in
+   eight lines of my own new code.
+2. `measure()` sniffed the viewport from the page's own
+   `html,body{width:...}` rule — correct for an absolute rebuild, absent
+   by design from a FLOWED page — so it fell back to 1200, centred a
+   1024px container, and reported all 26 elements 88px to the right.
+   Twenty-six elements "wrong" by one number is the signature of an
+   instrument, not a page.
+3. FLEX-BASIS IS MEASURED ALONG THE MAIN AXIS, so the 640px rule's
+   `flex-direction:column` turned every cell's measured WIDTH into a
+   HEIGHT: a 435px-wide heading became a 435px-TALL cell and the phone
+   layout ran to 3,178px of mostly empty page. Wrapping alone already
+   stacks them, and keeps the basis meaning what it says. 3,178 -> 544.
+4. `paragraphs()` returned only what it had merged, deleting every
+   picture and every filled box — 65 elements in, 17 out — and nothing
+   about the reflow noticed. A pass named for one job must not quietly
+   decide the fate of everything else.
+5. All 18 rules were filtered out of the flow (correctly — a 1px line
+   spanning the canvas is not a row) and then never emitted again. The
+   dense page's whole grid, gone, with the measurement sitting in the
+   list. They now live in a proportional backdrop layer.
+6. `max-width:{col}` with the measured side padding starved the
+   container to 98px of content under border-box, and every line of the
+   page broke after one word. The column is what is LEFT INSIDE the
+   margins, not the width of the box that holds them.
+
+TWO INSTRUMENTS ADDED RATHER THAN INFERRED, both the move this project
+keeps relearning — stop inferring what the browser can be asked:
+  * `measure()` reads every element's real box from the browser that
+    drew it. A character-count width estimate is fine for "does this sit
+    beside that?" and disastrous for anything CUMULATIVE: stepping from
+    each nav item's estimated right edge drifted 50px by the fourth item
+    and wrapped the Log-in button onto a second line, which then pushed
+    every band below it down the page. The estimate is not wrong by a
+    constant, so it cannot be corrected — only replaced.
+  * `_flow()` has the page report its own overflow to `<html
+    data-ae-flow>`, listing the elements actually hanging off the edge.
+    Same move as `data-ae-stats`, and it turned "it looks frozen" into
+    "58 divs, every one exactly 1200px wide, scrollWidth 1200 in a 500px
+    viewport".
+
+AN OVERLAP IS A MEASUREMENT. Absolute layout lets two elements share a
+space and these pages do it constantly (a carried logo crop at x404 with
+its own text at x406). Clamping the flow offset at zero laid them side
+by side, which is what finally wrapped the nav. A negative margin is how
+flow says "these overlap", and with it every one of the 27 elements
+landed within 4px of where the design put it.
+
+SURFACE: `forge screenshot <img> <out> --responsive`, and
+`aethron_flow.py <page.html> <out.html>` directly.
+tests/flow_battery.py (18 checks) is wired into run_all — suite now 20
+suites, ALL GREEN.
+
+STILL OPEN, honestly: the dense page's dashboard region (25 of 54 lines
+still misplaced, all of them inside it); a carried raster crop stays a
+crop and does not reflow, so a page that is mostly carried pixels gains
+little; and the carried ground is laid at `background-size:100% auto`,
+so below the design width it covers only the top of a taller page.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
