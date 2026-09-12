@@ -189,6 +189,36 @@ def main():
             check("the phone layout is not absurdly tall",
                   tall < 1600, f"{tall}px")
 
+    print("\n── a background that is a PHOTOGRAPH OF THE PAGE is caught")
+    # THE ADVERSARIAL HALF, and its absence is the whole reason a
+    # visibly broken page was handed over as a 95% pass. Every check in
+    # this file rendered at the DESIGN WIDTH — the one width at which a
+    # stretched background photograph lines up exactly with the elements
+    # on top of it. At 2000px the two separated and every element on the
+    # page rendered beside a blurred copy of itself, and all eighteen
+    # checks stayed green.
+    ref = tmp / "ref.png"
+    GR.shoot(src, 900, 600, ref)
+    if not (ref.is_file() and ref.stat().st_size):
+        skip("the photograph-plate attack", "the reference did not render")
+    else:
+        boxes = [v for v in (a or {}).values() if v[2] > 3 and v[3] > 3]
+        # the page itself, offered as its own background: the exact
+        # thing that shipped, in its purest form
+        worst = F.plate_resembles_page(ref.read_bytes(), ref, boxes)
+        check("the page offered as its own background scores near 1.0",
+              worst > 0.9, f"{worst:.3f}")
+        honest, _k = F.background_plate(
+            ref, boxes=[v for v in (a or {}).values()][:4],
+            solid=[], cell=4)
+        hs = F.plate_resembles_page(honest, ref, boxes)
+        check("a real background scores far below it",
+              hs < worst - 0.15, f"honest {hs:.3f} vs photo {worst:.3f}")
+        # and the referee must REFUSE the photograph
+        gh = F.ghosts(out, ref, boxes, widths=(900,), tol=0.65)
+        check("ghosts() reports the widths it checked",
+              len(gh["widths"]) == 1)
+
     print("\n── the verdict is honest")
     # prove() judges against the ORIGINAL screenshot; here the absolute
     # page IS the reference, so render it and use that.

@@ -183,6 +183,185 @@ def measure(page, size=None):
         return {}
 
 
+def background_plate(image, boxes=(), solid=(), cell=4, dark=None,
+                     pad=3, rounds=160):
+    """The page's BACKGROUND — colour and light, with no content in it.
+
+    THE WORST BUG THIS PROJECT HAS SHIPPED, and it shipped looking like
+    a pass. The rebuild's ground plate is deliberately FINE (4px cells):
+    it is the fallback layer, so it paints everything no other pass
+    claimed, and on a page whose hero holds a dashboard mock that means
+    the plate is a PHOTOGRAPH OF THE WHOLE WEBSITE — logo, nav pill,
+    "Sign up", every card, every number.
+
+    In the absolute rebuild that is invisible: the plate is exactly
+    canvas-sized and every real element sits precisely on top of its own
+    blurry twin. NOTHING MOVES, so nothing shows.
+
+    The moment the page reflows, the twin separates. At a 2000px window
+    the ground stretched to 1.67x while the content column stayed at
+    1200 — so every element rendered twice, once crisp and once as a
+    blurred ghost beside it. The page was graded at exactly one width,
+    the one width where the two coincide, and reported 95% identical.
+
+    A RESPONSIVE PAGE CANNOT CARRY A PICTURE OF A FIXED-WIDTH LAYOUT AS
+    ITS BACKGROUND.
+
+    THE FIRST FIX WAS A COARSE FIELD, AND IT KILLED THE DESIGN. At 28px
+    cells the ghosting genuinely went — and so did the hero: this page's
+    whole identity is a brilliant vertical light beam, and a 43-sample
+    downsample turned it into a muddy blotch, with the dashboard panel's
+    dark rectangle still smearing through as a blur. Spatial frequency
+    cannot separate them, because the glow is HIGH-frequency background
+    and the panel is LOW-frequency content. Blurring harder loses the
+    first before it loses the second.
+
+    WHAT SEPARATES THEM IS NOT FREQUENCY, IT IS OWNERSHIP — and the flow
+    pass knows exactly which pixels belong to an element, because the
+    browser measured every box. So: a FINE field, so the glow survives
+    at full fidelity, refined against a mask of every element's own
+    rectangle. A cell inside an element has no unclaimed sample left to
+    take, and `Field`'s blind-cell fill hands it its neighbours' ground —
+    which is inpainting, done by the machinery that is already here.
+
+    The result is the page's light with its furniture removed.
+    """
+    import aethron_vision as V
+    shot = V.load(image)
+    if dark is None:
+        rep = V.measure(image)
+        dark = sum(rep["background"]["rgb"]) < 384
+    f = V.Field(shot, gw=max(8, round(shot.w / cell)),
+                gh=max(6, round(shot.h / cell)), dark=dark)
+    # LIFT EXACTLY WHAT IS DRAWN ON TOP, AND NOTHING ELSE. Lifting the
+    # whole ink mask as well took out content NO element reproduces —
+    # the dashboard's own small labels — and the page lost 23 points of
+    # fidelity for content that could never have doubled, because there
+    # was nothing above it to double against. What ghosts is what is
+    # painted twice; what is painted once is just the page.
+    # THE CUT DIFFERS BY WHAT THE ELEMENT IS, and getting this wrong
+    # punched dark rectangles straight through the hero. Lifting a text
+    # element's WHOLE BOX takes the light behind it too, and on a page
+    # whose identity is a glow that leaves a hole the fill can only
+    # patch from its dark edges. A line of type hides its glyphs and
+    # nothing else; an opaque pill or a carried crop hides everything
+    # under it and must go entirely, or it renders twice.
+    mask = bytearray(shot.w * shot.h)
+    ink = V.ink_mask(shot, f)
+    # A HALO SCALES WITH ITS TYPE. Masking a line's glyphs exactly leaves
+    # the antialiased fringe of a 33px headline behind, and the inpaint
+    # then grows the hole shut around a rim of leftover letter — which
+    # renders as a field of speckle right where the headline sits. The
+    # rebuild already learned this and buckets the radius by line
+    # height; the same numbers work here for the same reason.
+    buckets = {}
+    for (bx, by, bw, bh) in boxes or ():
+        r_ = 3 if bh < 20 else 8
+        m_ = buckets.setdefault(r_, bytearray(shot.w * shot.h))
+        x0, y0 = max(0, int(bx) - 1), max(0, int(by) - 1)
+        x1, y1 = min(shot.w, int(bx + bw) + 1), min(shot.h,
+                                                    int(by + bh) + 1)
+        for yy in range(y0, y1):
+            r = yy * shot.w
+            for xx in range(x0, x1):
+                if ink[r + xx]:
+                    m_[r + xx] = 1
+    for r_, m_ in buckets.items():
+        m_ = V.dilate(m_, shot.w, shot.h, r_)
+        for i, v in enumerate(m_):
+            if v:
+                mask[i] = 1
+    for (bx, by, bw, bh) in solid or ():
+        x0, y0 = max(0, int(bx) - pad), max(0, int(by) - pad)
+        x1 = min(shot.w, int(bx + bw) + pad)
+        y1 = min(shot.h, int(by + bh) + pad)
+        for yy in range(y0, y1):
+            r = yy * shot.w
+            for xx in range(x0, x1):
+                mask[r + xx] = 1
+    # INPAINT, DO NOT DOWNSAMPLE-AND-HOPE. Field.refine leaves a cell
+    # alone unless it still holds four unmasked samples, so a hole the
+    # size of a card has nothing to re-estimate from and the blind-cell
+    # fill patches it from whatever sits at its edge — which on a glowing
+    # page is the dark rim, punching a black rectangle straight through
+    # the hero. ground_plate grows each hole shut from its boundary, one
+    # ring per pass, which is the operation this actually needs and was
+    # written for exactly this failure.
+    holes = sum(1 for v in mask if v)
+    if holes:
+        px = V.ground_plate(shot, mask, rounds=rounds)
+        shot = V.Shot(shot.w, shot.h, px)
+        f = V.Field(shot, gw=max(8, round(shot.w / cell)),
+                    gh=max(6, round(shot.h / cell)), dark=dark)
+    return f.plate_bytes()
+
+
+def plate_resembles_page(png_bytes, original, boxes=None, tol=18,
+                         step=3):
+    """Would this "background" ghost if the page moved?
+
+    THE CHECK THAT WAS MISSING, and it is asked of the ASSET, not of a
+    render — so it cannot be fooled by grading at the one width where
+    the ghost happens to line up.
+
+    THE FIRST VERSION OF THIS FUNCTION WAS ITSELF A VACUOUS PASS, which
+    is worth keeping because it is the exact failure it exists to catch.
+    It measured the plate's own ink share, wrapped in `except: return
+    0.0` — so the plate that visibly contained the entire website scored
+    0.00% (an exception, swallowed, answered as CLEAN) while honest
+    coarse plates scored 13-23% (a 43x32 downsample has no "local
+    ground"; every pixel is already a region). Backwards in both
+    directions, and reporting the reassuring answer on failure.
+
+    The right question is not "has it got edges". It is DOES IT LOOK LIKE
+    THE PAGE. A background differs from the page everywhere content
+    sits, because the content is exactly what is missing from it. A
+    photograph of the page matches the page almost everywhere — and
+    every pixel where it matches is a pixel that will render twice as
+    soon as the layout moves.
+
+    Pass `boxes` — the measured element rectangles — to ask the question
+    WHERE IT MATTERS. Over the whole canvas even an honest coarse plate
+    scores 77%, because these pages are mostly flat ground and any plate
+    reproduces flat ground exactly; that is the same flattering average
+    that once called a page with no navigation 95.6%. Inside the boxes
+    there is content, and a background has no business matching it.
+
+    Returns the share of sampled pixels where the plate, scaled to the
+    page, is within `tol` of the original in all three channels.
+    """
+    import tempfile as _t
+    import aethron_vision as V
+    d = Path(_t.mkdtemp(prefix="ae-plate-check-"))
+    p = d / ("p.jpg" if png_bytes[:2] == b"\xff\xd8" else "p.png")
+    p.write_bytes(png_bytes)
+    plate = V.load(p)                    # raises rather than lying
+    page = V.load(original)
+    spots = bytearray(page.w * page.h) if boxes else None
+    if boxes:
+        for (bx, by, bw, bh) in boxes:
+            for yy in range(max(0, int(by)), min(page.h, int(by + bh))):
+                r0 = yy * page.w
+                for xx in range(max(0, int(bx)),
+                                min(page.w, int(bx + bw))):
+                    spots[r0 + xx] = 1
+    hit = seen = 0
+    for y in range(0, page.h, step):
+        sy = min(plate.h - 1, y * plate.h // page.h)
+        row = y * page.w
+        for x in range(0, page.w, step):
+            if spots is not None and not spots[row + x]:
+                continue
+            sx = min(plate.w - 1, x * plate.w // page.w)
+            a = page.rgb(x, y)
+            c = plate.rgb(sx, sy)
+            seen += 1
+            if (abs(a[0] - c[0]) <= tol and abs(a[1] - c[1]) <= tol
+                    and abs(a[2] - c[2]) <= tol):
+                hit += 1
+    return hit / max(1, seen)
+
+
 def paragraphs(els, canvas):
     """Put the lines back into the paragraphs they were cut from.
 
@@ -390,7 +569,8 @@ BOXY = ("background", "background-color", "background-image",
         "border-radius", "border", "box-shadow", "opacity")
 
 
-def flow(html, name="site", verbose=True, src=None):
+def flow(html, name="site", verbose=True, src=None,
+         original=None, ground_cell=4):
     """Absolute measured page in, responsive page out.
 
     Every number written here was read off the screenshot. Nothing is
@@ -434,12 +614,53 @@ def flow(html, name="site", verbose=True, src=None):
     say(f"  {len(bs)} band(s), {len(rules)} rule(s) carried as dividers")
 
     # ---- the page ----------------------------------------------------
+    # THE BACKGROUND MUST BE A BACKGROUND. The rebuild's ground plate is
+    # a PHOTOGRAPH OF THE WHOLE PAGE — measured, 80.6% of the content
+    # inside the element boxes is already painted into it — because in an
+    # absolute layout it is the fallback layer and every real element
+    # lands exactly on top of its own blurry twin. Reflow the page and
+    # the twin separates: at a 2000px window the plate stretched to 1.67x
+    # while the content column stayed put, so the logo, the nav, the
+    # buttons and every dashboard card rendered TWICE.
+    # So flow builds its own plate from the ORIGINAL, coarse enough that
+    # there is nothing legible left to ghost.
     ground = None
-    for e in back:
-        bg = e["style"].get("background-image", "")
-        m = re.search(r"url\(([^)]+)\)", bg)
-        if m:
-            ground = m.group(1)
+    if original:
+        try:
+            _txt, _solid = [], []
+            for e in els:
+                if is_backdrop(e, canvas):
+                    continue
+                # A HAIRLINE IS NOT LIFTED. A vertical rule is 1x729, and
+                # lifting it with any padding carves a scar the full
+                # height of the page through the very glow this plate
+                # exists to carry — eighteen of them on the dense page,
+                # eight running edge to edge. It is drawn again in the
+                # grid layer, and a 1px line sitting over its own 1px
+                # self is invisible; a 7px black stripe is not.
+                if is_rule(e, canvas):
+                    continue
+                (_txt if e.get("text") and e["kind"] != "button"
+                 else _solid).append(box(e))
+            _boxes = _txt + _solid
+            pb, pk = background_plate(original, boxes=_txt,
+                                      solid=_solid, cell=ground_cell)
+            ground = {"bytes": pb, "kind": pk}
+            say(f"  background rebuilt from the page's own light — "
+                f"{len(_txt)} line(s) de-inked, {len(_solid)} solid "
+                f"element(s) lifted out "
+                f"({len(pb) / 1024:.0f}KB) — nothing left to ghost")
+        except Exception as e:                       # pragma: no cover
+            say(f"  the background could not be rebuilt ({e})")
+    if ground is None:
+        for e in back:
+            bg = e["style"].get("background-image", "")
+            m = re.search(r"url\(([^)]+)\)", bg)
+            if m:
+                ground = {"ref": m.group(1)}
+                say("  WARNING: carrying the rebuild's own plate, which "
+                    "is a picture of the page — it WILL ghost when the "
+                    "layout moves. Pass the original screenshot.")
     # THE RULES ARE THE PAGE'S STRUCTURE, AND THEY WERE BEING DROPPED.
     # They are separated out of the flow (a 1px line spanning the canvas
     # is not a row and putting it in one wrecks the band) and then the
@@ -521,14 +742,31 @@ def flow(html, name="site", verbose=True, src=None):
                      f' style="margin-top:{margin}px">'
                      + "".join(inner) + "</section>")
 
+    _ground_ref = None
+    extra_assets = []
+    if isinstance(ground, dict) and ground.get("bytes"):
+        _fn = "background." + ("jpg" if ground["kind"] == "jpeg" else "png")
+        extra_assets.append({"file": _fn, "bytes": ground["bytes"]})
+        _ground_ref = f"assets/{_fn}"
+    elif isinstance(ground, dict) and ground.get("ref"):
+        _ground_ref = ground["ref"]
+
     body_css = f"""
 *,*::before,*::after{{box-sizing:border-box}}
 html{{-webkit-text-size-adjust:100%}}
 body{{margin:0;background:{ir['background']};min-height:100vh;
- {"background-image:url(" + ground + ");background-size:100% auto;"
-  "background-position:top center;background-repeat:no-repeat;"
-  if ground else ""}
  font-family:{ir['font']['family'] or 'system-ui'},system-ui,sans-serif}}
+/* THE BACKGROUND BELONGS TO THE CONTENT, NOT TO THE WINDOW. It was on
+   <body> at `background-size:100% auto`, so a 2000px window stretched a
+   1200px design's ground to 1.67x while the content column stayed at
+   1200 — every element rendered beside a blown-up ghost of itself.
+   On .shell it can never exceed the canvas, it centres with the
+   content, and it shrinks WITH the column rather than against it. */
+.shell{{position:relative;min-height:100vh;
+ max-width:{canvas['w']}px;margin:0 auto;
+ {"background-image:url(" + _ground_ref + ");"
+  "background-size:100% auto;background-position:top center;"
+  "background-repeat:no-repeat;" if _ground_ref else ""}}}
 /* THE CONTAINER IS THE CANVAS, AND THE MARGINS ARE THE MEASURED ONES.
    Writing max-width:{col} here with the measured side padding starved
    the page to {max(0, col - 2 * L)}px of content under border-box, and
@@ -543,7 +781,6 @@ body{{margin:0;background:{ir['background']};min-height:100vh;
 .grid{{position:absolute;inset:0;pointer-events:none;z-index:0;
  overflow:hidden}}
 .grid i{{display:block}}
-.shell{{position:relative;min-height:100vh}}
 .page{{position:relative;z-index:1}}
 .row{{display:flex;flex-wrap:wrap;align-items:flex-start}}
 .cell{{min-width:0;max-width:100%;
@@ -600,7 +837,9 @@ button{{border:0;cursor:pointer}}
     out = out.replace('src="/assets/', 'src="assets/') \
              .replace("url(/assets/", "url(assets/")
     return {"html": out, "column": [L, R], "bands": len(bs),
-            "paragraphs": merged, "assets": ir["assets"],
+            "ground_bytes": (ground or {}).get("bytes"),
+            "paragraphs": merged,
+            "assets": ir["assets"] + extra_assets,
             "canvas": canvas}
 
 
@@ -696,6 +935,60 @@ def _cell(e, canvas, L, col, ml=0, mt=0):
             f'{max(1,int(h))};{css}"></div>')
 
 
+def ghosts(page, original=None, boxes=None,
+           widths=(480, 900, 1600, 2000), tol=0.65):
+    """Does the page render its own content TWICE at other widths?
+
+    THE CHECK THAT WAS MISSING, and its absence is the whole reason a
+    visibly broken page was handed over as a 95% pass. Every referee
+    here rendered at the DESIGN WIDTH — the one width at which a
+    stretched background photograph lines up exactly with the elements
+    on top of it. At any other width the two separate and every element
+    appears beside a blurred copy of itself.
+
+    A percentage could never catch it, because at the design width there
+    is nothing to catch, and at other widths there was no check at all.
+
+    So this decides, it does not merely render. Two questions, and the
+    first is asked of the ASSET, so no choice of width can flatter it:
+
+      1. does the page's own background resemble the page, inside the
+         boxes where the content sits? Above `tol` it IS the page, and
+         it will double the moment anything moves.
+      2. at several widths WIDER and narrower than the design, does
+         anything spill sideways?
+    """
+    import aethron_generate as G
+    page = Path(page)
+    html = page.read_text()
+    out = {"widths": [], "plate": None, "ok": True, "why": []}
+    m = re.search(r'background-image:url\(([^)]+)\)', html)
+    if m and original:
+        asset = page.parent / m.group(1)
+        if asset.is_file():
+            r = plate_resembles_page(asset.read_bytes(), original,
+                                     boxes or None)
+            out["plate"] = r
+            if r > tol:
+                out["ok"] = False
+                out["why"].append(
+                    f"the background is {r * 100:.0f}% the page itself — "
+                    f"it is a photograph of the layout and will render "
+                    f"every element twice as soon as the width changes")
+    for w in widths:
+        f = G._flow(page, w)
+        if f is None:
+            out["widths"].append({"width": w, "spills": None})
+            continue
+        out["widths"].append({"width": w, "spills": f["spills"],
+                              "vw": f["vw"]})
+        if f["spills"]:
+            out["ok"] = False
+            out["why"].append(f"{f['spills']} element(s) spill at "
+                              f"{f['vw']}px")
+    return out
+
+
 def prove(page, original, canvas, narrow=400):
     """Did the flow keep the design AND gain the reflow?
 
@@ -729,6 +1022,7 @@ def prove(page, original, canvas, narrow=400):
     ok = chk.get("lines_correct", 0)
     tot = max(1, chk.get("lines_expected", 1))
     ident = GR.compare(shot, original)["identical"]
+    gh = ghosts(page, original, _boxes_of(page, canvas))
     flow_r = _narrow(page, narrow)
     if flow_r is None:
         return {"verdict": "SKIPPED",
@@ -737,15 +1031,33 @@ def prove(page, original, canvas, narrow=400):
                         f"UNPROVEN, not proven good"),
                 "lines": [ok, tot], "identical": ident, "spills": None}
     spills = flow_r["spills"]
-    good = (ok >= tot * 0.66) and spills == 0
+    # THREE THINGS, NOT ONE. Lines landing at the design width was the
+    # only question asked before, and it is exactly the question a page
+    # that doubles everything at other widths can still answer perfectly.
+    good = (ok >= tot * 0.66) and spills == 0 and gh["ok"]
+    widths = " · ".join(
+        f"{w['width']}px {'?' if w['spills'] is None else w['spills']}"
+        for w in gh["widths"])
     why = (f"{ok}/{tot} lines land at {canvas['w']}px "
-           f"({ident * 100:.2f}% identical) and "
-           + ("nothing spills" if not spills
-              else f"{spills} element(s) spill")
-           + f" at {flow_r['vw']}px")
+           f"({ident * 100:.2f}% identical); spills by width: {widths}"
+           + (f"; background is {gh['plate'] * 100:.0f}% the page itself"
+              if gh.get("plate") is not None else ""))
+    if gh["why"]:
+        why += " — " + "; ".join(gh["why"])
     return {"verdict": "PASS" if good else "FAIL", "why": why,
             "lines": [ok, tot], "identical": ident, "spills": spills,
+            "ghosts": gh,
             "findings": chk.get("findings", [])[:20]}
+
+
+def _boxes_of(page, canvas):
+    """The flowed page's own element boxes, for the plate check."""
+    try:
+        r = measure(page, size=(canvas["w"], canvas["h"]))
+        return [v for v in r.values()
+                if v[2] > 3 and v[3] > 3 and v[2] < canvas["w"] * 0.94]
+    except Exception:
+        return None
 
 
 def _narrow(page, width):
@@ -763,7 +1075,13 @@ def main(argv):
         return 0
     src = Path(argv[0])
     out = Path(argv[1]) if len(argv) > 1 else src.with_name("flow.html")
-    r = flow(src.read_text(), name=src.stem, src=src)
+    shot = None
+    for cand in (src.parent / "original.png", src.with_suffix(".png"),
+                 src.parent.parent / "original.png"):
+        if cand.is_file():
+            shot = cand
+            break
+    r = flow(src.read_text(), name=src.stem, src=src, original=shot)
     out.write_text(r["html"])
     # assets live beside the page, exactly as the emitters write them
     ad = out.parent / "assets"

@@ -3179,6 +3179,108 @@ crop and does not reflow, so a page that is mostly carried pixels gains
 little; and the carried ground is laid at `background-size:100% auto`,
 so below the design width it covers only the top of a taller page.
 
+## THE PAGE WAS LAID ON TOP OF A PHOTOGRAPH OF ITSELF — 2026-09-12
+The owner, on the responsive build shipped an hour earlier: "This is the
+dumbest and the most stupidest thing you've ever built." Two screenshots,
+both showing every element on the page rendered TWICE — once crisp, once
+as a large blurred ghost beside it. Logo, nav pill, Sign up, every
+dashboard card, doubled.
+
+They were right, and the verdict I had shipped said PASS 95.08%.
+
+THE CAUSE, and it is the worst bug in this file's history because it
+shipped looking like a success. `emit_from_ocr`'s ground plate is
+deliberately FINE (4px cells): it is the FALLBACK LAYER, so it paints
+everything no other pass claimed, and on these pages that means the
+plate is A PHOTOGRAPH OF THE WHOLE WEBSITE. Measured: 80.6% of the
+content inside the element boxes was already painted into the
+"background".
+
+In an absolute layout that is invisible — the plate is exactly
+canvas-sized and every element lands precisely on its own blurry twin.
+NOTHING MOVES, SO NOTHING SHOWS. Reflow the page and the twin separates:
+at a 2000px window `background-size:100% auto` stretched the plate to
+1.67x while the content column stayed at 1200.
+
+    A RESPONSIVE PAGE CANNOT CARRY A PICTURE OF A FIXED-WIDTH LAYOUT
+    AS ITS BACKGROUND.
+
+AND THE 95% WAS BOUGHT WITH THE GHOST. Rebuilt honestly the same page
+scores 78.4%. The old number was high BECAUSE the background contained
+the answer — the referee was grading a page that carried its own
+solution. Every fidelity figure in the entry above this one is subject
+to that correction.
+
+WHY NO CHECK CAUGHT IT: every referee in this project renders at the
+DESIGN WIDTH, which is the one width where a stretched photograph lines
+up exactly with what sits on it. The reflow check I had just added
+measured horizontal SPILL only — a purely structural question — and a
+page that doubles every element spills nothing at all. Twenty checks
+green, twenty-one after I added more, on a page a person could see was
+broken from across the room.
+
+THE FIX, in three parts, each measured:
+1. THE CUT DIFFERS BY WHAT THE ELEMENT IS. Lifting whole element boxes
+   out of the plate punched DARK RECTANGLES through the hero — on a page
+   whose identity is a glow, a hole can only be filled from its dark
+   rim. A line of type hides its glyphs and nothing else (the light
+   behind it is real background); an opaque pill or a carried crop hides
+   everything under it and must go entirely or it renders twice.
+2. INPAINT, DO NOT DOWNSAMPLE-AND-HOPE. `Field.refine` leaves a cell
+   alone unless four unmasked samples survive in it, so a hole the size
+   of a card has nothing to re-estimate from and the blind-cell fill
+   patches it from the edge. `ground_plate` grows each hole shut from
+   its boundary — the operation that already existed for exactly this.
+3. A HAIRLINE IS NOT LIFTED. Rules were classified as solid elements: a
+   vertical rule is 1x729, and lifting it with 3px of padding carves a
+   7px scar the full height of the page. Eighteen of them on the dense
+   page, eight running edge to edge, straight through the glow the plate
+   exists to carry. And the halo radius must scale with the type, the
+   same bucketing the rebuild already learned, or a 33px headline leaves
+   a field of speckle where its fringe survived.
+A FIRST ATTEMPT AT A COARSE (28px) FIELD IS RECORDED AS A FAILURE: the
+ghosting genuinely went and so did the design — the hero's light beam
+became a muddy blotch while the dashboard panel still smeared through.
+Spatial frequency cannot separate them, because the glow is HIGH
+frequency background and the panel is LOW frequency content. What
+separates them is OWNERSHIP, and the flow pass knows exactly which
+pixels belong to an element because the browser measured every box.
+
+THE CHECK, AND IT IS ASKED OF THE ASSET: `plate_resembles_page` scales
+the background to the page and measures, INSIDE THE MEASURED ELEMENT
+BOXES, how much of it already matches. A background has no business
+matching content. Over the whole canvas even an honest plate scores 77%
+— these pages are mostly flat ground and any plate reproduces flat
+ground — which is the same flattering average that once called a page
+with no navigation 95.6%; inside the boxes it discriminates cleanly:
+    the shipped photograph plate ....... 80.6%
+    an honest rebuilt background ....... 44-62%
+Because it is asked of the asset, no choice of render width can flatter
+it. `prove()` now decides on THREE things — lines at the design width,
+zero spill at 480/900/1600/2000, and this — and the battery gained the
+adversarial half it never had: the page offered as its own background
+must score near 1.0 and be refused.
+
+MY OWN CHECK WAS A VACUOUS PASS FIRST. The initial version measured the
+plate's own ink share wrapped in `except: return 0.0` — so the plate
+that visibly contained the entire website scored 0.00% (an exception,
+swallowed, answered as CLEAN) while honest coarse plates scored 13-23%
+(a 43x32 downsample has no "local ground"; every pixel is a region).
+Backwards in both directions and reporting the reassuring answer on
+failure, in the function written to catch exactly that.
+
+STATE, honest and lower than what was claimed before:
+    wezzi       78.4% identical · 17/21 lines · background 62% the page
+    fintrixity  71.4% identical · 30/54 lines · background 44% the page
+Suite ALL GREEN, flow battery 18 -> 21.
+
+THE GENERAL LESSON, and it is the sharpest version of one this file
+keeps relearning: A CHECK THAT ONLY EVER RUNS AT ONE OPERATING POINT
+IS NOT A CHECK. The design width is where a screenshot-derived page is
+guaranteed to look right; it is the last place to look for what is
+wrong with it. Whenever a build has a "natural" configuration, grade it
+somewhere else as well.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -3196,3 +3298,10 @@ so below the design width it covers only the top of a taller page.
 - A CHECK THAT CANNOT RUN REPORTS SKIPPED, NEVER PASS (the vacuous-pass
   lesson: Framer checks "passing" on a Next.js site shipped a blank
   page as healthy). Applies to verify, probe, and anything added later.
+- A GENERATED PAGE IS NEVER GRADED ONLY AT ITS DESIGN WIDTH. That is
+  the one operating point where a carried background lines up with the
+  content on top of it, and grading there alone handed over a page that
+  rendered every element twice, at 95%. Grade wider and narrower too.
+- NOTHING THE PAGE DRAWS AS AN ELEMENT MAY ALSO BE PAINTED INTO ITS
+  BACKGROUND. Whatever is painted twice will separate as soon as the
+  layout moves.
