@@ -5413,10 +5413,15 @@ def cmd_screenshot(argv):
     """
     if not argv or {"-h", "--help"} & set(argv):
         print("usage: forge screenshot <image> <outdir> [--no-fit]")
+        print("                        [--responsive]")
         print("                        [--framework html|astro|next|"
               "react|vue|svelte]")
         print("       Rebuilds the screenshot as one HTML file and")
         print("       checks every line of it. No model, no API key.")
+        print("       With --responsive, also converts the measured")
+        print("       layout into a flowing, full-screen site and")
+        print("       proves it BOTH ways: the lines still land at the")
+        print("       design width, and nothing spills at phone width.")
         print("       With --framework, also emits a real project in")
         print("       that framework and pixel-grades it against the")
         print("       page it came from.")
@@ -5446,6 +5451,30 @@ def cmd_screenshot(argv):
         aethron_web.report(wr)
     except Exception as e:                       # pragma: no cover
         print(f"(the website audit could not run: {e})")
+    if "--responsive" in argv:
+        # THE PAGE SO FAR IS A POSTER: every element absolutely placed on
+        # a canvas of a fixed size, which is faithful and is not a
+        # website. This converts the measured layout into real flow and
+        # then has to earn it twice — the same line checker at the
+        # design width, and no horizontal spill at phone width. A pass
+        # on one alone is worthless: reflow with the layout thrown away
+        # is easy, and so is fidelity that cannot move.
+        import aethron_flow
+        page = Path(v["page"])
+        rf = aethron_flow.flow(page.read_text(), page.parent.name,
+                               src=page)
+        dest = Path(argv[1]) / "responsive"
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "index.html").write_text(rf["html"])
+        if rf["assets"]:
+            (dest / "assets").mkdir(exist_ok=True)
+            for a in rf["assets"]:
+                (dest / "assets" / a["file"]).write_bytes(a["bytes"])
+        ver = aethron_flow.prove(dest / "index.html", argv[0],
+                                 rf["canvas"])
+        print(f"\n{dest / 'index.html'}")
+        print("VERDICT: " + ver["verdict"] + " — " + ver["why"])
+
     if "--framework" in argv:
         import aethron_screen
         fw = argv[argv.index("--framework") + 1]

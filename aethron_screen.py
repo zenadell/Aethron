@@ -122,7 +122,10 @@ def page_ir(html: str, name="site"):
         # page that happened not to occur, which is luck, not design.
         # An explicit z-index survives any reordering, in every target.
         item = {"id": el["id"], "kind": el["kind"], "style": style,
+                "tag": el.get("tag", "div"),
                 "z": _num(style.get("z-index")) or 0}
+        if el.get("font_size") and not style.get("font-size"):
+            item["font_size"] = el["font_size"]
 
         src = _attr(raw, "src")
         if src and src.startswith("data:image/"):
@@ -135,8 +138,8 @@ def page_ir(html: str, name="site"):
             assets.append({"file": fn, "bytes": _from_data_uri(
                 re.search(r"url\((data:image/[^)]+)\)", bg).group(1))})
             style["background-image"] = f"url(/assets/{fn})"
-        if el["kind"] == "text":
-            item["text"] = el.get("text", "")
+        if el.get("text"):
+            item["text"] = el["text"]
         elements.append(item)
 
     return {"name": _slug(name), "canvas": canvas, "font": font,
@@ -199,7 +202,12 @@ def sections_of(elements, canvas, gap=28):
 
 
 def _tag_of(html, eid):
-    m = re.search(r'<(?:div|img)\b[^>]*data-ae-id="' + re.escape(eid)
+    # THE SAME div|img ASSUMPTION manifest() carried, in a second place.
+    # Fixing only one of them changes nothing: manifest finds the nav and
+    # the buttons, and page_ir then drops every one of them again on the
+    # way past, because it cannot locate the tag it was just told about.
+    m = re.search(r'<(?:div|img|a|button|p|h[1-6]|span|section|nav|header'
+                  r'|footer)\b[^>]*data-ae-id="' + re.escape(eid)
                   + r'"[^>]*>', html)
     return m.group(0) if m else None
 

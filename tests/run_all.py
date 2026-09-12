@@ -63,6 +63,8 @@ SUITES = [
      [PY, "aethron_web.py", "--selftest"], False),
     ("screen (one page, six frameworks, one description)",
      [PY, "aethron_screen.py", "--selftest"], False),
+    ("flow battery (a poster becomes a website, both halves)",
+     [PY, "tests/flow_battery.py"], True),
     ("edit battery (is collateral damage actually noticed?)",
      [PY, "tests/edit_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",

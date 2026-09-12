@@ -47,6 +47,13 @@ ALLOWED = {
     "rule": {"background", "opacity", "hidden"},
     "picture": {"opacity", "hidden", "border_radius"},
     "ground": {"opacity"},
+    # A BUTTON IS A BOX WITH A LABEL, so it takes both sets. It was
+    # absent from this table entirely for as long as buttons were
+    # absent from the manifest — "change the call to action" had
+    # nothing to name.
+    "button": {"text", "color", "font_size", "font_weight",
+               "font_family", "letter_spacing", "background",
+               "border_radius", "opacity", "hidden"},
 }
 
 # THE PROPERTIES NOBODY MAY SET. Not a blacklist of dangerous strings —
@@ -85,21 +92,54 @@ def manifest(html: str) -> dict:
     describing where it thinks the thing is.
     """
     out = []
-    for m in re.finditer(r"<(div|img)\b([^>]*)>(?:([^<]*)</div>)?", html):
-        attrs, inner = m.group(2), m.group(3) or ""
+    # THE SEMANTIC PASS MADE ELEMENTS THIS FUNCTION COULD NOT SEE.
+    # A measured button is emitted as a real <button> (with its label in
+    # a nested <span>) and a nav item as an <a>, which is the whole
+    # point of it — and this regex matched `div|img` and closed on
+    # `</div>`, so every one of them vanished. Measured on the Wezzi
+    # rebuild: 27 elements in the file, 20 in the manifest, the seven
+    # missing ones being the entire navigation and both buttons.
+    # It is not a cosmetic loss. manifest() is what aethron_screen's
+    # page_ir reads, so all six framework emitters were silently
+    # shipping a page with no nav and no buttons; and it is what a model
+    # is handed by aethron_edit, so "rebrand the call to action" named
+    # an element that, as far as the tool was concerned, did not exist.
+    for m in re.finditer(
+            r"<(div|img|a|button|p|h[1-6]|span|section|nav|header|footer)"
+            r"\b([^>]*)>", html):
+        tag, attrs = m.group(1), m.group(2)
         idm = ID_RE.search(attrs)
         if not idm:
             continue
+        inner = raw_inner = ""
+        if tag != "img":
+            close = html.find(f"</{tag}>", m.end())
+            if close != -1:
+                raw_inner = html[m.end():close]
+                # a button holds its label in a span; the text of the
+                # element is the text a reader sees, tags stripped
+                inner = re.sub(r"<[^>]+>", "", raw_inner)
         st = STYLE_RE.search(attrs)
         style = _parse(st.group(1) if st else "")
-        kind = _kind(attrs, style)
-        e = {"id": idm.group(1), "kind": kind,
+        kind = _kind(attrs, style, tag)
+        e = {"id": idm.group(1), "kind": kind, "tag": tag,
              "box": [_num(style.get("left")), _num(style.get("top")),
                      _num(style.get("width")), _num(style.get("height"))]}
-        if kind == "text":
+        if kind in ("text", "button"):
             e["text"] = _unescape(inner)
             e["color"] = style.get("color")
             e["font_size"] = _num(style.get("font-size"))
+        if kind == "button":
+            e["background"] = style.get("background", "")
+            e["border_radius"] = style.get("border-radius")
+            # THE LABEL'S SIZE IS ON THE LABEL. A measured button sets
+            # `font:inherit` on itself and puts the type on the nested
+            # span, so reading font-size off the button alone returns
+            # nothing and the label gets guessed from the pill's height.
+            if not e.get("font_size"):
+                fm = re.search(r"font-size:\s*([\d.]+)px", raw_inner)
+                if fm:
+                    e["font_size"] = float(fm.group(1))
         elif kind in ("fill", "rule"):
             bg = style.get("background", "")
             e["background"] = bg if len(bg) < 60 else "a measured gradient"
@@ -116,8 +156,10 @@ def manifest(html: str) -> dict:
     return {"canvas": {"w": w, "h": h}, "elements": out}
 
 
-def _kind(attrs, style):
-    if "<img" in attrs or "src=" in attrs:
+def _kind(attrs, style, tag="div"):
+    if tag == "button":
+        return "button"
+    if tag == "img" or "<img" in attrs or "src=" in attrs:
         return "picture"
     cls = re.search(r'class="([^"]*)"', attrs)
     cls = cls.group(1) if cls else ""
