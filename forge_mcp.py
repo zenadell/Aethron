@@ -174,6 +174,38 @@ def t_probe(a):
     return ("OK" if ok else "PROBLEMS") + "\n" + log
 
 
+def t_look(a):
+    """The one tool that makes a coding agent SIGHTED.
+
+    Every agent in this class writes front-end code and never looks at
+    what it drew; the industry's workaround is to hand a human a
+    screenshot. This renders what was built, measures it against the
+    target, and returns REPAIRS — each naming the words of the element,
+    a real CSS selector in the built page, and the change to make.
+    """
+    import json as _j
+    sys.path.insert(0, str(ROOT))
+    try:
+        import aethron_eye as EYE
+    except Exception as e:                       # pragma: no cover
+        return f"FAILED the eye is unavailable ({e})"
+    widths = a.get("widths") or list(EYE.WIDTHS)
+    try:
+        if a.get("repair"):
+            r = EYE.refine(a["built"], a["reference"],
+                           rounds=int(a.get("rounds", 4)),
+                           widths=tuple(widths), verbose=False)
+            return (f"{r['verdict']} — {r.get('why', '')}\n"
+                    f"trajectory: "
+                    + " -> ".join(f"{t * 100:.1f}%" for t in r["trail"])
+                    + "\n\n" + EYE.brief(r))
+        r = EYE.look(a["built"], a["reference"], widths=tuple(widths),
+                     verbose=False)
+    except Exception as e:
+        return f"FAILED {type(e).__name__}: {e}"
+    return EYE.brief(r, limit=int(a.get("limit", 30)))
+
+
 def t_measure_screenshot(a):
     """Hand the agent numbers, so it never has to guess at pixels."""
     import json as _j
@@ -787,6 +819,36 @@ TOOLS = [
         "index.html (default: home + 5 more)"},
         "all": {"type": "boolean", "description": "probe every page"}},
        ["project"]), t_probe),
+    ("look", "LOOK AT WHAT YOU BUILT. Renders your page and measures it "
+     "against the target, then returns REPAIRS — each one naming the "
+     "words of the element, a real CSS selector in YOUR page, and the "
+     "change to make. Call it after every UI change; it is the only way "
+     "to know whether the code you just wrote produced the design you "
+     "were asked for. It judges at FOUR WIDTHS by default (390/768/"
+     "1280/1920), because agent-written UI overwhelmingly breaks "
+     "narrow and testing one width is how a primary button ends up off "
+     "the edge of a phone. The verdict is a CHECKLIST, not a "
+     "percentage: a page that has lost its whole navigation can still "
+     "score 95% by area, so elements are counted present, placed and "
+     "sized — or not. With repair:true it also FIXES what is pure "
+     "arithmetic (type scale, colour), trying one change at a time and "
+     "keeping only what measures better, so it cannot make your page "
+     "worse.",
+     {"type": "object", "properties": {
+        "built": {"type": "string", "description":
+                  "what you built: a URL (your dev server), an .html "
+                  "file, or a project directory"},
+        "reference": {"type": "string", "description":
+                      "the target: a URL or a screenshot"},
+        "widths": {"type": "array", "items": {"type": "integer"},
+                   "description": "viewport widths to judge at "
+                                  "(default 390,768,1280,1920)"},
+        "repair": {"type": "boolean", "description":
+                   "also apply the repairs that are arithmetic, keeping "
+                   "only changes that measure better"},
+        "rounds": {"type": "integer", "description":
+                   "max repair rounds (default 4)"}},
+      "required": ["built", "reference"]}, t_look),
     ("measure_screenshot", "MEASURE a screenshot before writing any code "
      "from it. Returns the exact background and palette, gradients, "
      "content bands and their gaps, the column grid, solid regions with "

@@ -3281,6 +3281,119 @@ guaranteed to look right; it is the last place to look for what is
 wrong with it. Whenever a build has a "natural" configuration, grade it
 somewhere else as well.
 
+## THE EYE — every coding agent is blind, and that is the opening
+## `aethron_eye.py`, 2026-09-13
+Owner: stop the image-mapping work (it becomes its own feature) and
+build Aethron a real coding agent — "perfectly design and code a replica
+of what the user wants, just like Cursor, Claude, Lovable, except a lot
+better, more accurate, pixel-perfect." Research first, no fan-outs,
+weekly limit at 94%.
+
+WHAT THE RESEARCH ACTUALLY SAID, and it is better news than expected:
+
+ 1. THE WHOLE INDUSTRY HAS THE SAME HOLE. The 2026 write-ups name it
+    without embarrassment: "the code compiles, unit tests pass, and the
+    UI is wrong"; "agents test UI work at one screen width, so
+    everything narrower ships unchecked, resulting in primary buttons
+    ending up off the edge of phone screens"; and the standard
+    workaround is that "agents capture screenshots for HUMANS to
+    validate rather than agents validating themselves." Cursor, Claude
+    Code and Copilot write front-end code and never look at it; Lovable,
+    v0 and Bolt render a preview for a person to judge.
+ 2. THE PUBLISHED SOTA ALREADY CLOSES THE LOOP — and pays for its judge.
+    UI2Code^N (UI-to-code as interactive visual optimisation) reaches
+    88.6% on Design2Code-HARD with a 9B model by drafting, rendering,
+    inspecting and refining, up to five useful rounds on real pages. Its
+    own paper concedes the two costs of a vision-model judge: "VLMs are
+    much better COMPARATORS than EVALUATORS", and polishing an
+    already-good UI produces OSCILLATIONS — changes that alter without
+    improving. Design2Code's public leaderboard: GLM-5V-Turbo 94.8%,
+    Kimi K2.5 91.3%, Claude Opus 4.6 77.3%.
+ 3. THE BENCHMARK'S OWN METRICS ARE THINGS WE ALREADY MEASURE. Block
+    match, text (Sorensen-Dice), position (normalised coordinate
+    distance), colour (CIEDE2000). Only CLIP needs a model.
+
+So the opening is not "a better model". It is that EVERYONE IS ASKING
+FOR AN OPINION ABOUT A THING THAT IS MADE OF EXACT NUMBERS. This project
+has spent months building the instruments that read them.
+
+`aethron_eye.py` does not judge. It renders what was built, measures it
+against the target, and returns REPAIRS, each carrying three things:
+    WHAT IS WRONG   named by the words the element contains
+    WHERE IT IS     a real CSS selector taken from the BUILT page's DOM
+    WHAT TO CHANGE  a property and a value
+That triple is the whole difference between a report a human reads with
+both files open and a report the thing holding the code can act on —
+and it closes the blocker this file named three entries ago ("findings
+should name elements the BUILDER can identify, not coordinates in the
+original... today it is not usable by a weak model").
+
+THE LOOP RUNS WITH NO MODEL AT ALL. Measured on the Wezzi page:
+    round 0  15/20 (75.0%)  5 findings
+    round 1  16/20 (80.0%)  kept: wrong size on "Company v" (tried 5)
+    round 2  tried 4 repairs, none measured better — stopping
+Monotone by construction: proposals are tried ONE AT A TIME, scored on
+the checklist they are trying to satisfy, and kept only if they measure
+better. That is the deterministic answer to UI2Code^N's oscillation — a
+model's revision is a coin flip; a change kept only when it measures
+better cannot lose. The file left on disk is the BEST one, not the last
+tried, and the battery asserts that specifically.
+
+FOUR INSTRUMENT BUGS, each caught by pointing it at a page whose faults
+were already known — which is the only honest way to test a referee:
+1. SORTING A ROW BY (y, x) SCRAMBLES IT. A nav sits at y=22,24,24,26,26;
+   two renders produce different permutations of the same row, monotone
+   alignment must drop matches, and the single Log-in button on the page
+   came back reported MISSING and EXTRA at the same time. Rows are now
+   grouped by vertical overlap and read left to right — the same rule
+   that finally found the buttons.
+2. OCR REPORTS INK; A BOX IS INK PLUS PADDING. Comparing the two told us
+   a correct 10.6px button label should "scale by 0.46". Where the
+   candidate is a tight line box the heights are the same measurement;
+   where it is padded the only honest comparison is against font-size,
+   and then only outside the band cap height and descenders genuinely
+   span — so it reports a RANGE rather than inventing a number.
+3. AND THE SAME BUG AGAIN WITH THE REFERENCE. When the reference is a
+   LIVE PAGE both sides report box heights, so the ink heuristic told us
+   a correct 13px button needed 40px type — ON A PAGE BEING COMPARED
+   WITH ITSELF. A referee that fires on an identical page is one people
+   switch off. Live-vs-live now compares font-size to font-size and is
+   exact.
+4. A WORDMARK IS A PICTURE AND OCR READS IT ANYWAY. Text inside an
+   <img> on the built page was reported MISSING, which is how a row of
+   logos once shipped set as type.
+
+AND THE FIRST REPAIR PASS WAS A GOOD LESSON. It applied five independent
+font-size rules and took the page from 75% to 40%; the guard threw it
+away. IN FLOW LAYOUT A FONT-SIZE IS NOT LOCAL — enlarging one line
+pushes everything below it down and every element after it becomes
+misplaced. But the findings had said 1.17, 1.15, 1.17, 1.15: four
+elements do not independently agree to that precision. That is ONE
+fault, the page's type scale, and its repair is a single factor applied
+to every size at once, which moves nothing relative to anything else.
+Before that, the patch had no effect at all — generated pages set type
+INLINE, and an inline declaration outranks any stylesheet rule, so five
+rules applied and changed nothing while the loop correctly reported no
+improvement for a repair that had never happened.
+
+SHIPPED AS MCP TOOL #30 `look`, which is the distribution move: it makes
+ANY agent sighted — Cursor, Claude Code, Aethron's own IDE — not just
+this one. `repair:true` also fixes what is pure arithmetic.
+tests/eye_battery.py (20 checks) is wired into run_all; suite now 21
+suites, ALL GREEN. It asserts the adversarial half: a page compared with
+itself must PASS, four obviously-broken pages must FAIL with the right
+KIND of finding, every finding's selector must RESOLVE in the built
+page, content that spills only on a phone must be caught, and an
+unrenderable page must be SKIPPED rather than passed.
+
+STILL OPEN, and named rather than discovered later: CLIP similarity (the
+one Design2Code metric needing a model) is not implemented; the repair
+pass only does type scale and colour, because position in flow layout is
+not local; and the eye grades what a browser draws, so a design nobody
+has drawn yet — "build me a dashboard" with no reference — has no target
+to measure against. That last one is the design half of the owner's ask
+and is the next thing to build.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
