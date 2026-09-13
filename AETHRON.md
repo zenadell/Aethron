@@ -3394,6 +3394,96 @@ has drawn yet — "build me a dashboard" with no reference — has no target
 to measure against. That last one is the design half of the owner's ask
 and is the next thing to build.
 
+## THE DESIGN REFEREE — the half that has no picture to copy
+## `aethron_design.py`, 2026-09-13
+The eye can only grade against something a browser has already drawn: a
+screenshot, a URL, a Figma frame. That covers "rebuild this" and covers
+nothing else. "Build me a dashboard" has NO TARGET AT ALL, which is
+exactly why Lovable, v0 and Bolt generate code and then hope.
+
+A TARGET DOES NOT HAVE TO BE AN IMAGE. It can be a specification, and a
+specification made of numbers is checkable the same way a screenshot is:
+type scale, spacing grid, WCAG AA contrast measured against what is
+REALLY behind the text, alignment, vertical rhythm, tap-target size.
+None of that is taste; all of it is arithmetic. And it is precisely what
+generated interfaces get wrong — ten different font sizes, a 13px gap
+beside a 16px one, body copy at 2.3:1, a 28px button on a phone.
+
+Two modes, and the second matters more than it looks: DECLARED (hold the
+page to given tokens) and INFERRED (read the system off a page that is
+already good). Nobody types out a type scale, and a system recovered by
+measurement is one that is actually in use rather than one that was
+aspired to.
+
+FIRST RUN ON A REAL PAGE, and every finding was true: seven nav links
+between 9px and 16px tall on a phone — genuinely untappable, and not a
+thing any other coding agent checks — plus three type sizes off the
+page's own scale, because a measured rebuild derives sizes from pixels
+and pixels do not land on a scale.
+
+THREE TIMES THE INSTRUMENT WAS CAUGHT BEFORE IT WAS TRUSTED, and two of
+them were the test rather than the code:
+1. THE SPACING DETECTOR INVENTED A SYSTEM WHERE THERE WAS NONE. With a
+   +/-1 tolerance, THREE OF EVERY FOUR INTEGERS sit within 1 of a
+   multiple of 4 — so "base 4" was declared for a page whose gaps were
+   2, 3, 6, 9, 15, 21, 44, 105. A test whose options all score the same
+   is not a test. It now measures LIFT over the hit rate the base would
+   get on random numbers. Then at +/-1 on a 6px base chance alone is
+   50%, and TWO OF FOUR RANDOM gap sets came back as "base 6"; the
+   tolerance now shrinks with the base, and the false-positive rate
+   measured over 40 random sets went 50% -> 7.5% with all three real
+   grids still found. A detector that invents a design system is worse
+   than one that finds nothing, because the audit then holds the page
+   to a grid it never had.
+2. MY "RANDOM NOISE" WAS NOT RANDOM. The set chosen to prove a false
+   positive — 7, 13, 19, 31, 37 — is mostly a +6 progression, so
+   detecting 6 was CORRECT. Check the premise before believing the
+   failure.
+3. AND AGAIN: an attack page claiming eleven font sizes rendered SEVEN,
+   because two of its stylesheet edits were overridden by the inline
+   styles the same attack added. The rule correctly did not fire and
+   the failure looked like a code fault. Measure the page you are
+   attacking with.
+A REAL ONE UNDERNEATH THOSE: `NO TYPE SCALE` tested the length of the
+INFERRED scale, which can never fire — inference deliberately stops once
+it covers 90% of the text, so a page setting ten arbitrary sizes still
+infers a short one. It now counts the distinct sizes that actually reach
+the screen carrying real text. And the threshold said 8 while the
+finding message said "a scale is 5-7 steps": a rule quietly disagreeing
+with its own stated standard lets pages through while the report claims
+they were held to it. Now one named constant, MAX_STEPS = 7.
+
+THE CONTRAST RULE IS THE ONE MOST LIKELY TO SHIP DEAD, and the battery
+proves it fires. An element's own background is almost always
+transparent, so a rule that reads it finds nothing on every page and
+passes everything forever — which looks exactly like a clean bill of
+health. The probe now walks up to the first painted ancestor, and the
+battery asserts a low-contrast finding on text whose ground belongs to
+an ANCESTOR, with the measured ratio in the message rather than a
+verdict.
+
+SHIPPED: MCP tool #31 `design_review` (and `look` gained `design:true`,
+because "does it match the target" and "is it a good interface" are
+different questions and a page can pass either while failing the other —
+a pixel-perfect replica of a bad mock is still bad). tests/
+design_battery.py, 17 checks, wired into run_all. Suite now 22 suites,
+ALL GREEN.
+
+ALSO FIXED WHILE LOOKING AT SOMETHING ELSE: `read_page` wrote its probe
+copy to <dir>/index.eye.html when handed a DIRECTORY — the primary
+documented use — and deleted <dir>.eye.html, a path that never existed.
+It would have left a stray file inside every project it was pointed at.
+The cleanup now deletes the file it actually wrote.
+
+ONE TRANSIENT, RECORDED HONESTLY RATHER THAN CLAIMED AS FIXED: one full
+sweep showed probe battery 28/33 and healer battery 17/19, both of which
+pass alone and passed again on a clean re-run (probe 33/33 twice, and a
+deliberate replay of the new suites immediately before it also 33/33).
+Notably the failing run was FASTER than a passing one (45.6s vs 67s), so
+it bailed early rather than timing out. Cause not found; not reproduced
+in four attempts. If it returns, that speed difference is the thread to
+pull.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

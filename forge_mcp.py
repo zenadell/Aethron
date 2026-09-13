@@ -201,9 +201,41 @@ def t_look(a):
                     + "\n\n" + EYE.brief(r))
         r = EYE.look(a["built"], a["reference"], widths=tuple(widths),
                      verbose=False)
+        if a.get("design"):
+            r = EYE.with_design(r, a["built"], widths)
     except Exception as e:
         return f"FAILED {type(e).__name__}: {e}"
     return EYE.brief(r, limit=int(a.get("limit", 30)))
+
+
+def t_design_review(a):
+    """Hold a page to a design system, or read the one it already has."""
+    import json as _j
+    sys.path.insert(0, str(ROOT))
+    try:
+        import aethron_design as D
+        import aethron_eye as EYE
+    except Exception as e:                       # pragma: no cover
+        return f"FAILED the design referee is unavailable ({e})"
+    try:
+        if a.get("system"):
+            r = EYE.read_page(a["page"], 1280)
+            if r is None:
+                return "SKIPPED the page did not render"
+            sysm = D.infer(r["items"])
+            return _j.dumps({
+                "type_scale": sysm["type_scale"],
+                "space_base": D.step_scale(sysm["spacing"]),
+                "text_colors": ["#%02X%02X%02X" % c
+                                for c in sysm["text_colors"]],
+                "grounds": ["#%02X%02X%02X" % c
+                            for c in sysm["grounds"]]}, indent=1)
+        r = D.look(a["page"],
+                   widths=tuple(a.get("widths") or (390, 1280)),
+                   verbose=False)
+    except Exception as e:
+        return f"FAILED {type(e).__name__}: {e}"
+    return EYE.brief(r, limit=40)
 
 
 def t_measure_screenshot(a):
@@ -847,8 +879,32 @@ TOOLS = [
                    "also apply the repairs that are arithmetic, keeping "
                    "only changes that measure better"},
         "rounds": {"type": "integer", "description":
-                   "max repair rounds (default 4)"}},
+                   "max repair rounds (default 4)"},
+        "design": {"type": "boolean", "description":
+                   "also hold the page to a design system — type "
+                   "scale, spacing grid, WCAG AA contrast, alignment "
+                   "and tap targets"}},
       "required": ["built", "reference"]}, t_look),
+    ("design_review", "REVIEW A PAGE AS A DESIGNER WOULD, with no "
+     "reference needed. Answers the question the rest of this toolkit "
+     "cannot: not 'does it match the mock' but 'is this good'. Measures "
+     "the type scale the page actually renders (not the tokens it "
+     "declares), the spacing grid, WCAG AA contrast against what is "
+     "REALLY behind each piece of text, edges that miss alignment by a "
+     "few pixels, and tap targets below the 44px Apple and Google both "
+     "call the minimum. Use it on anything you generated from a "
+     "description rather than from a design. With system:true it "
+     "instead REPORTS the design system a page is using, which is how "
+     "you make new work match an existing site without anyone writing "
+     "the tokens down.",
+     {"type": "object", "properties": {
+        "page": {"type": "string", "description":
+                 "a URL, an .html file, or a project directory"},
+        "widths": {"type": "array", "items": {"type": "integer"},
+                   "description": "viewport widths (default 390,1280)"},
+        "system": {"type": "boolean", "description":
+                   "report the design system in use instead of auditing"}},
+      "required": ["page"]}, t_design_review),
     ("measure_screenshot", "MEASURE a screenshot before writing any code "
      "from it. Returns the exact background and palette, gradients, "
      "content bands and their gaps, the column grid, solid regions with "

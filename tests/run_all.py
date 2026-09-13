@@ -63,6 +63,8 @@ SUITES = [
      [PY, "aethron_web.py", "--selftest"], False),
     ("screen (one page, six frameworks, one description)",
      [PY, "aethron_screen.py", "--selftest"], False),
+    ("design battery (does each design rule actually fire?)",
+     [PY, "tests/design_battery.py"], True),
     ("eye battery (can the referee see, and can it be fooled?)",
      [PY, "tests/eye_battery.py"], True),
     ("flow battery (a poster becomes a website, both halves)",

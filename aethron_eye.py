@@ -149,6 +149,18 @@ PROBE_JS = r"""
       var txt = ownText(el);
       var bg = cs.backgroundColor;
       var hasBg = bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent';
+      // WHAT IS ACTUALLY BEHIND THIS TEXT. Contrast is a property of a
+      // PAIR, and an element's own background is usually transparent —
+      // the colour a reader sees behind a heading belongs to some
+      // ancestor. Walking up is the only way to know it, and without it
+      // a contrast check is just a guess about the body colour.
+      var eff = null, up = el;
+      while (up) {
+        var ub = getComputedStyle(up).backgroundColor;
+        if (ub && ub !== 'rgba(0, 0, 0, 0)' && ub !== 'transparent'
+            && !/rgba\(.*,\s*0\)$/.test(ub)) { eff = ub; break; }
+        up = up.parentElement;
+      }
       var hasImg = cs.backgroundImage && cs.backgroundImage !== 'none';
       if (!txt && !hasBg && !hasImg && el.tagName !== 'IMG'
           && el.tagName !== 'SVG') continue;
@@ -164,6 +176,10 @@ PROBE_JS = r"""
         fw: cs.fontWeight,
         color: cs.color,
         bg: hasBg ? bg : null,
+        effbg: eff,
+        mono: /mono|courier|consol/i.test(cs.fontFamily) || null,
+        display: cs.display,
+        pad: cs.padding,
         radius: cs.borderTopLeftRadius,
         img: el.tagName === 'IMG' ? (el.currentSrc || el.src || '') : null,
         // did the browser actually decode it? a dead <img> has a box
@@ -208,6 +224,7 @@ def read_page(target, width, height=1400, timeout=90):
         return None
     target = str(target)
     is_url = target.startswith(("http://", "https://"))
+    leaked = None
     tmp = Path(tempfile.mkdtemp(prefix="ae-eye-"))
     try:
         if is_url:
@@ -233,6 +250,7 @@ def read_page(target, width, height=1400, timeout=90):
                             if "</body>" in html else html + PROBE_JS)
             url = shot.resolve().as_uri()
             extra = []
+            leaked = shot
         prof = tmp / "prof"
         cmd = [b, "--headless", "--disable-gpu", "--hide-scrollbars",
                "--force-device-scale-factor=1",
@@ -264,8 +282,15 @@ def read_page(target, width, height=1400, timeout=90):
         except Exception:
             pass
         blob = "".join(dom)
-        if not is_url:
-            Path(target).with_suffix(".eye.html").unlink(missing_ok=True)
+        # DELETE THE FILE WE ACTUALLY WROTE. This used to recompute the
+        # path from `target`, but when `target` is a DIRECTORY — the
+        # primary documented use, "point it at your project" — the probe
+        # copy is written to <dir>/index.eye.html while the cleanup
+        # deleted <dir>.eye.html, which is a different path that never
+        # existed. The instrument would have left a stray file inside
+        # every project it was ever pointed at.
+        if leaked is not None:
+            leaked.unlink(missing_ok=True)
         m = re.search(r'data-ae-eye="([^"]*)"', blob)
         if not m:
             return None
@@ -701,14 +726,43 @@ def look(candidate, reference, widths=WIDTHS, height=1400, verbose=True):
                     f"{len(graded)} width(s), {spills} spill(s)")}
 
 
+def with_design(report, page, widths=None, spec=None):
+    """Fold the design audit into a fidelity report.
+
+    TWO QUESTIONS, ONE ANSWER. "Does it match the target" and "is it a
+    good interface" are different, and a page can pass either while
+    failing the other — a pixel-perfect replica of a badly designed
+    mock is still badly designed, and a beautifully systematic page
+    that is not the design you asked for is the wrong page.
+    """
+    try:
+        import aethron_design as D
+    except Exception:
+        return report
+    d = D.look(page, widths=tuple(widths or (390, 1280)), spec=spec,
+               verbose=False)
+    report = dict(report)
+    report["design"] = {k: d[k] for k in ("verdict", "why", "system")
+                        if k in d}
+    report["findings"] = (report.get("findings", [])
+                          + d.get("findings", []))
+    if d["verdict"] == "FAIL" and report.get("verdict") == "PASS":
+        report["verdict"] = "FAIL"
+        report["why"] = (report.get("why", "")
+                         + f"; matches the target, but {d['why']}")
+    return report
+
+
 def brief(report, limit=25):
     """The report as the builder should receive it: repairs, in order of
     how much they matter, each naming a selector it can act on.
     """
     if report.get("verdict") == "SKIPPED":
         return "SKIPPED — " + report.get("why", "")
-    rank = {"MISSING": 0, "BROKEN IMAGE": 1, "MISPLACED": 2,
-            "WRONG SIZE": 3, "WRONG COLOUR": 4, "EXTRA": 5}
+    rank = {"MISSING": 0, "BROKEN IMAGE": 1, "LOW CONTRAST": 2,
+            "MISPLACED": 3, "TAP TARGET": 4, "WRONG SIZE": 5,
+            "WRONG COLOUR": 6, "NO TYPE SCALE": 7, "OFF SCALE": 8,
+            "NOT ALIGNED": 9, "OFF GRID": 10, "EXTRA": 11}
     fs = sorted(report.get("findings", []),
                 key=lambda f: rank.get(f["kind"], 9))
     lines = [f"{report['verdict']} — {report['why']}", ""]
