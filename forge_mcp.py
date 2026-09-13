@@ -208,6 +208,34 @@ def t_look(a):
     return EYE.brief(r, limit=int(a.get("limit", 30)))
 
 
+def t_build_check(a):
+    """The contract. Refuses a build that does not meet what was asked.
+
+    The one tool here that says NO. Everything else reports; this
+    decides — and it decides on the brief, the target, the design system
+    and the reflow together, so a build cannot pass by being good at one
+    of them.
+    """
+    sys.path.insert(0, str(ROOT))
+    try:
+        import aethron_build as BLD
+        import aethron_eye as EYE
+    except Exception as e:                       # pragma: no cover
+        return f"FAILED the build contract is unavailable ({e})"
+    try:
+        r = BLD.check(a["project"], a.get("brief", ""),
+                      a.get("reference"),
+                      widths=tuple(a.get("widths") or
+                                   (390, 768, 1280, 1920)),
+                      verbose=False)
+    except Exception as e:
+        return f"FAILED {type(e).__name__}: {e}"
+    head = f"{r['verdict']} — {r.get('why', '')}"
+    if r["verdict"] == "ACCEPTED":
+        return head + "\n\nEvery check passed. This is safe to hand over."
+    return head + "\n\n" + EYE.brief(r, limit=30)
+
+
 def t_design_review(a):
     """Hold a page to a design system, or read the one it already has."""
     import json as _j
@@ -885,6 +913,29 @@ TOOLS = [
                    "scale, spacing grid, WCAG AA contrast, alignment "
                    "and tap targets"}},
       "required": ["built", "reference"]}, t_look),
+    ("build_check", "THE CONTRACT — ask whether what you built is "
+     "actually finished, and be told NO if it is not. Checks four "
+     "things together, so a build cannot pass by being good at one: "
+     "(1) THE BRIEF — the words and the COUNTS the user asked for, so "
+     "'three tiers' is verified as three repeated structures on the "
+     "rendered page; (2) the TARGET, if a screenshot or URL was given; "
+     "(3) the DESIGN SYSTEM — contrast, type scale, spacing, tap "
+     "targets; (4) REFLOW at 390/768/1280/1920. Returns ACCEPTED or "
+     "REFUSED with the blocking faults, each naming a selector in your "
+     "own page. Run it before you tell the user you are done — it is "
+     "the difference between handing over work and handing over a "
+     "guess.",
+     {"type": "object", "properties": {
+        "project": {"type": "string", "description":
+                    "your project directory, or an .html file"},
+        "brief": {"type": "string", "description":
+                  "what the user asked for, in their words — quoted "
+                  "copy and counts in it become hard requirements"},
+        "reference": {"type": "string", "description":
+                      "OPTIONAL target to match: a URL or screenshot"},
+        "widths": {"type": "array", "items": {"type": "integer"},
+                   "description": "viewport widths to judge at"}},
+      "required": ["project"]}, t_build_check),
     ("design_review", "REVIEW A PAGE AS A DESIGNER WOULD, with no "
      "reference needed. Answers the question the rest of this toolkit "
      "cannot: not 'does it match the mock' but 'is this good'. Measures "

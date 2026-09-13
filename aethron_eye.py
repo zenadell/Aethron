@@ -162,7 +162,19 @@ PROBE_JS = r"""
         up = up.parentElement;
       }
       var hasImg = cs.backgroundImage && cs.backgroundImage !== 'none';
-      if (!txt && !hasBg && !hasImg && el.tagName !== 'IMG'
+      // A CARD DEFINED BY ITS BORDER IS STILL A CARD. The filter used
+      // to keep only elements with text, a background or an image — so
+      // a pricing tier drawn as `border:1px solid` with its text in
+      // children was dropped completely, and "the page's largest group
+      // of repeated elements is 0" was reported about a page with three
+      // identical tiers plainly on it. Structure is what you count
+      // repeated things WITH.
+      var bw = parseFloat(cs.borderTopWidth) || 0;
+      var rad = parseFloat(cs.borderTopLeftRadius) || 0;
+      var shadow = cs.boxShadow && cs.boxShadow !== 'none';
+      var boxish = (r.width >= 60 && r.height >= 40)
+        && ((bw > 0 && cs.borderTopStyle !== 'none') || rad > 0 || shadow);
+      if (!txt && !hasBg && !hasImg && !boxish && el.tagName !== 'IMG'
           && el.tagName !== 'SVG') continue;
       out.push({
         sel: selectorOf(el),
@@ -181,6 +193,7 @@ PROBE_JS = r"""
         display: cs.display,
         pad: cs.padding,
         radius: cs.borderTopLeftRadius,
+        boxish: boxish || null,
         img: el.tagName === 'IMG' ? (el.currentSrc || el.src || '') : null,
         // did the browser actually decode it? a dead <img> has a box
         // and no picture, and no markup scan can tell the difference

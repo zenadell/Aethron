@@ -3484,6 +3484,91 @@ it bailed early rather than timing out. Cause not found; not reproduced
 in four attempts. If it returns, that speed difference is the thread to
 pull.
 
+## THE LOOP — a brief goes in, a project that PASSES comes out
+## `aethron_build.py`, 2026-09-13
+The eye measures a page against a target. The design referee holds it to
+a system. Neither of them DRIVES anything, and a referee nobody runs is
+a referee nobody uses. This is the piece the rest was built for.
+
+WHAT EVERY OTHER TOOL IN THIS CLASS DOES IS HAND OVER UNCONDITIONALLY.
+Cursor and Claude Code never render. Lovable and v0 render for a person
+to judge. UI2Code^N renders and asks a vision model, which its own paper
+says oscillates. THIS REFUSES — and if no revision passes, the honest
+output is the best attempt plus the list of what is still wrong, never a
+green light over a red page. Same contract as verify -> probe -> heal:
+THE AGENT NEVER DECIDES SUCCESS, THE CHECKS DO.
+
+THE THIRD TARGET IS THE ONE NOBODY CHECKS. A screenshot or URL gives the
+eye something to measure. A design system gives the referee something to
+enforce. But "build me a dashboard" had nothing — until you notice that
+A BRIEF IS MOSTLY A REQUIREMENTS LIST NOBODY WAS READING:
+
+    "Build a pricing page for Northwind with three tiers, a FAQ
+     section, and a \"Start free trial\" button"
+      -> the text "Start free trial" must appear
+      -> at least 3 repeated structures
+      -> "Northwind" and "FAQ" must appear
+
+Extracted with no model: quoted strings are literal copy, counted nouns
+become countable requirements, proper nouns become names that must be
+present. "three tiers" is checked by finding REPEATED STRUCTURES — boxes
+of the same size in a row — which is a measurement, not a guess, and
+needs nobody to name a class. Deliberately conservative: a requirement
+that fires on a page which honoured the brief is worse than one that
+misses, because the loop would spend every round chasing a phantom, and
+this project has already watched a correction loop get further from the
+answer the more rounds it ran. Adjectives and filler produce NOTHING.
+
+PROVEN, on a page written to the brief and then broken five ways:
+    ACCEPTED  brief 100%, design 100%, flow 100%, 0 blocking
+    REFUSED   only two tiers                    -> WRONG COUNT
+    REFUSED   the named button renamed          -> MISSING FROM BRIEF
+    REFUSED   body copy at 2.1:1                -> LOW CONTRAST
+    REFUSED   content hanging off a phone       -> SPILLS
+    REFUSED   tap targets shrunk to 22px        -> TAP TARGET
+Each refused for the RIGHT reason, which is the half that matters: a
+referee that fails everything is as useless as one that passes
+everything.
+
+THE PROJECT ON DISK IS THE BEST ONE SEEN, NOT THE LAST ONE TRIED. A loop
+that leaves its final attempt in place hands over a regression whenever
+the last round was the worst — roughly half the time if the writer is a
+model — while the report quotes the best score it ever saw. That is the
+most dishonest failure available to this design, so the battery drives
+it with a writer that improves for three rounds and then WRECKS the page
+on the fourth, and asserts the wreck did not survive.
+
+THE BUG THE DEMO FOUND, and it was in the probe everything else rests
+on: a pricing tier drawn as `border:1px solid` with its text in children
+has no background, no own text and no image — so the element filter
+DROPPED IT COMPLETELY, and "the page's largest group of repeated
+elements is 0" was reported about a page with three identical tiers
+plainly on it. Structure is what you count repeated things WITH. The
+probe now keeps anything with a border, a radius or a shadow at card
+size.
+
+AND A TAUTOLOGY IN MY OWN BATTERY: one check ended in `or True`, so it
+passed whatever the prompt contained — a vacuous check inside a suite
+written about vacuous passes. Replaced with the real property: every
+finding that HAS a selector must appear in the repair prompt with it.
+
+SHIPPED: MCP tool #32 `build_check`, the one tool in the set that says
+NO. tests/build_battery.py, 18 checks. Suite now 23 suites, ALL GREEN.
+
+THE WRITER IS AN ABSTRACTION ON PURPOSE — `writer(prompt, project,
+round)` is a model through `aethron_code`, a deterministic emitter, or a
+test's mock, and the loop does not care. The contract is enforced on the
+OUTPUT, so it holds for any writer, including one having a bad day.
+That is exactly what makes a cheap model usable here, and it is why the
+battery proves the architecture with a mock rather than spending a key.
+
+STILL OPEN: the loop has never been run end to end against a LIVE model
+(the owner is at 94% of a weekly limit and Gemini credits are gone), so
+the writer path is proven by mock and by the deterministic passes, not
+in anger. And the scaffolding step is thin — it checks and repairs a
+project, it does not yet create a Next/Astro/Vite app from nothing;
+`aethron_screen`'s six emitters are the obvious place to wire that in.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -3508,3 +3593,8 @@ pull.
 - NOTHING THE PAGE DRAWS AS AN ELEMENT MAY ALSO BE PAINTED INTO ITS
   BACKGROUND. Whatever is painted twice will separate as soon as the
   layout moves.
+- THE HAND-OVER IS CONDITIONAL. A build is ACCEPTED only when the checks
+  pass; if none does, the output is the best attempt AND the list of
+  what is still wrong. Never a green light over a red page.
+- A LOOP LEAVES ITS BEST ATTEMPT ON DISK, NEVER ITS LAST. Otherwise it
+  hands over a regression while quoting the best score it ever saw.
