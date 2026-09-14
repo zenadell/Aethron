@@ -37,3 +37,6 @@ aethron_keys.json
 # AETHRON.md is TRACKED on purpose — it is the project's memory
 # and one careless overwrite already cost 105KB of it.
 .aethron_ocr
+
+# full output of suites that failed in the last run_all
+tests/.last-failures/

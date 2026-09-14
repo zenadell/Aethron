@@ -9,6 +9,7 @@ paths are proved against in-process mock providers, and the runtime
 paths against a real headless browser if one is installed (and honestly
 SKIPPED if not).
 """
+import re
 import subprocess
 import sys
 import time
@@ -25,7 +26,9 @@ SUITES = [
                 "aethron_figma.py", "aethron_figma_grade.py",
                 "aethron_audit.py", "aethron_vision.py",
                 "aethron_edit.py", "aethron_screen.py",
-                "aethron_web.py"], False),
+                "aethron_web.py", "aethron_eye.py", "aethron_design.py",
+                "aethron_build.py", "aethron_flow.py",
+                "aethron_generate.py", "tests/run_all.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("self-update (in-place, never a second copy)",
@@ -100,6 +103,34 @@ SUITES = [
 LIMIT = 900
 
 
+# How much wall time may pass beyond monotonic time before a suite is
+# treated as having run across a system sleep.
+SLEEP_TOL = 30.0
+
+
+def _run(cmd):
+    """Run one suite; return (ok, output, wall seconds, seconds slept).
+
+    time.monotonic() stops while macOS sleeps and time.time() does not,
+    so the difference between them is how long the machine was asleep
+    during the suite — a measurement, not a guess about flakiness.
+    """
+    t, m = time.time(), time.monotonic()
+    try:
+        r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
+                           timeout=LIMIT)
+        out = r.stdout + r.stderr
+        ok = r.returncode == 0
+    except subprocess.TimeoutExpired as e:
+        out = ((e.stdout or b"").decode("utf-8", "replace")
+               if isinstance(e.stdout, bytes) else (e.stdout or ""))
+        out += f"\nTIMED OUT after {LIMIT}s — no verdict, not a pass"
+        ok = False
+    wall = time.time() - t
+    gap = wall - (time.monotonic() - m)
+    return ok, out, wall, (gap if gap > SLEEP_TOL else 0.0)
+
+
 def main():
     quick = "--quick" in sys.argv
     rows, failed, unproven = [], 0, 0
@@ -107,18 +138,25 @@ def main():
         if quick and slow:
             rows.append((name, "skipped", 0))
             continue
-        t = time.time()
-        try:
-            r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
-                               timeout=LIMIT)
-            out = r.stdout + r.stderr
-            ok = r.returncode == 0
-        except subprocess.TimeoutExpired as e:
-            out = ((e.stdout or b"").decode("utf-8", "replace")
-                   if isinstance(e.stdout, bytes) else (e.stdout or ""))
-            out += f"\nTIMED OUT after {LIMIT}s — no verdict, not a pass"
-            ok = False
-        dt = time.time() - t
+        ok, out, dt, slept = _run(cmd)
+        if slept:
+            # A RESULT THAT CROSSED A SLEEP IS NOT A RESULT. Measured
+            # 2026-09-14: the lid closed at 13:42:58, two seconds before
+            # the probe battery started; the Mac slept until 14:12:18.
+            # The battery "took" 1,834s under a 900s timeout and never
+            # timed out, because the timeout runs on a monotonic clock
+            # that does not tick during sleep while this table uses wall
+            # time. Its first render was in flight when the machine went
+            # down, so it FAILED; alone, awake, it was 33/33. Re-run once.
+            print(f"  {name}: the machine slept ~{slept:.0f}s mid-suite "
+                  f"— re-running once", flush=True)
+            ok, out, dt2, slept = _run(cmd)
+            dt += dt2
+            if slept:
+                rows.append((name, (f"SKIP  interrupted by system sleep "
+                                    f"twice — not graded")[:78], dt))
+                unproven += 1
+                continue
         tail = out.strip().splitlines()
         # A SUITE THAT DID NOT RUN IS NOT A SUITE THAT PASSED.
         #
@@ -142,8 +180,23 @@ def main():
             unproven += 1
             continue
         failed += not ok
+        # KEEP THE WHOLE STORY OF A FAILURE. Only the last twelve lines
+        # used to reach this table, so when the probe battery failed its
+        # FIRST check in a full run — and passed alone — the probe's own
+        # output for that check was already gone, and the cause could
+        # only be argued about, not read. The diagnosis was collected and
+        # then thrown away, which is the fourth time that pattern has
+        # appeared in this project's history.
+        saved = ""
+        if not ok:
+            logdir = ROOT / "tests" / ".last-failures"
+            logdir.mkdir(exist_ok=True)
+            slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40]
+            (logdir / f"{slug}.log").write_text(out)
+            saved = f"\n  full output: tests/.last-failures/{slug}.log"
         rows.append((name, ("PASS  " + summary.strip())[:78] if ok
-                     else ("FAIL  " + "\n".join(tail[-12:]))[:1200], dt))
+                     else ("FAIL  " + "\n".join(tail[-12:]))[:1200] + saved,
+                     dt))
     print("\n" + "=" * 70)
     for name, res, dt in rows:
         print(f"{name:52} {dt:5.1f}s  {res}")

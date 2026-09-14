@@ -101,6 +101,116 @@ def write(project, html):
     (Path(project) / "index.html").write_text(html)
 
 
+def cap_checks():
+    """The spend cap, proven with the network faked. Costs nothing.
+
+    Real money is the one thing a test must never touch, and the one
+    thing this writer exists to protect: the owner ran this with $0.38
+    left. So every path that could spend is exercised against a fake
+    endpoint, and the assertions are about what the writer REFUSES.
+    """
+    import io
+    import urllib.error
+    import urllib.request
+
+    print("\n── the spend cap cannot be crossed (network faked)")
+    real = urllib.request.urlopen
+    calls = {"n": 0}
+
+    class Resp:
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return self.body
+
+    def ok_reply(finish="stop"):
+        import json as _j
+        return _j.dumps({
+            "choices": [{"finish_reason": finish, "message": {
+                "content": "<!doctype html><html><body>hi</body></html>"}}],
+            # THINKING IS IN total - prompt. completion_tokens here is
+            # deliberately SMALLER than what was billed, which is how a
+            # thinking model reports it — the ledger must not trust it.
+            "usage": {"prompt_tokens": 1000, "completion_tokens": 500,
+                      "total_tokens": 5000}}).encode()
+
+    try:
+        # 1. refuses before calling when one worst case exceeds the cap
+        w = B.gemini_writer(budget_usd=0.01, key="k", verbose=False)
+        d = Path(tempfile.mkdtemp())
+        urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("network touched"))
+        try:
+            w("p", d, 0)
+            check("a cap below one call refuses before calling", False,
+                  "the call was allowed")
+        except B.BudgetExhausted:
+            check("a cap below one call refuses before calling",
+                  w.ledger["calls"] == 0 and w.ledger["usd"] == 0
+                  and not (d / "index.html").exists())
+
+        # 2. spend comes from REPORTED usage, with thinking counted
+        def fake(*a, **k):
+            calls["n"] += 1
+            return Resp(ok_reply())
+        urllib.request.urlopen = fake
+        w = B.gemini_writer(budget_usd=0.06, key="k", verbose=False)
+        d = Path(tempfile.mkdtemp())
+        w("p", d, 0)
+        want = 1000 * B.GEMINI_IN + 4000 * B.GEMINI_OUT
+        check("spend is measured from usage, thinking included",
+              abs(w.ledger["usd"] - want) < 1e-9 and w.ledger["out"] == 4000,
+              f"${w.ledger['usd']:.5f} vs ${want:.5f}, out={w.ledger['out']}")
+        check("and the page was written", (d / "index.html").exists())
+
+        # 3. once real spend makes the NEXT worst case unaffordable, stop
+        before = calls["n"]
+        try:
+            w("p", d, 1)
+            check("a second call that could cross the cap is refused",
+                  False, f"spent ${w.ledger['usd']:.4f} and called again")
+        except B.BudgetExhausted:
+            check("a second call that could cross the cap is refused",
+                  calls["n"] == before)
+
+        # 4. "credits depleted" stops at once — no back-off retries
+        calls["n"] = 0
+
+        def depleted(*a, **k):
+            calls["n"] += 1
+            raise urllib.error.HTTPError(
+                "u", 429, "x", {}, io.BytesIO(
+                    b'{"error":"Your prepayment credits are depleted."}'))
+        urllib.request.urlopen = depleted
+        w = B.gemini_writer(budget_usd=1.0, key="k", verbose=False)
+        try:
+            w("p", Path(tempfile.mkdtemp()), 0)
+            check("depleted credits stop immediately", False, "no stop")
+        except B.BudgetExhausted:
+            check("depleted credits stop immediately, without retrying",
+                  calls["n"] == 1, f"{calls['n']} attempt(s)")
+
+        # 5. a page cut off by the token limit is never written
+        urllib.request.urlopen = lambda *a, **k: Resp(ok_reply("length"))
+        w = B.gemini_writer(budget_usd=1.0, key="k", verbose=False)
+        d = Path(tempfile.mkdtemp())
+        try:
+            w("p", d, 0)
+            check("a truncated page is not written", False, "it was written")
+        except RuntimeError:
+            check("a truncated page is not written",
+                  not (d / "index.html").exists())
+    finally:
+        urllib.request.urlopen = real
+
+
 def main():
     import aethron_figma_grade as GR
 
@@ -122,6 +232,8 @@ def main():
                            "that looks really nice")
     check("adjectives and filler produce no requirements",
           not noise, str(noise))
+
+    cap_checks()
 
     if not GR.find_browser():
         skip("everything that needs a render", "no browser")

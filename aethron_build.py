@@ -443,6 +443,127 @@ def model_writer(provider=None, model=None, timeout=900):
     return write
 
 
+# PRICES CHECKED 2026-09-14 (Gemini 3.6 Flash, introductory rate to
+# 2026-12-31). Thinking tokens bill as OUTPUT, which is the one cost a
+# token count of the prompt cannot see.
+GEMINI_IN = 0.75 / 1e6
+GEMINI_OUT = 3.75 / 1e6
+
+
+class BudgetExhausted(RuntimeError):
+    """Refused to START a call that could exceed the cap."""
+
+
+def gemini_writer(budget_usd=0.25, model="gemini-3.6-flash",
+                  max_tokens=12000, key=None, verbose=True):
+    """One direct call per round, with a spend cap that cannot be crossed.
+
+    WHY NOT THE AGENT PATH. `model_writer` drives the CLI, which resends
+    its whole system prompt and every tool definition on every request,
+    several requests per round. That is the right tool for a large
+    codebase and the wrong one for $0.38. A page is one file: one call
+    writes it.
+
+    THE CAP IS CHECKED BEFORE THE CALL, NOT AFTER. Adding up the bill
+    once a response arrives tells you that you overspent; it does not
+    stop you. Before each call the writer asks whether the WORST CASE —
+    the prompt plus every token `max_tokens` allows, thinking included —
+    would cross the budget, and if it could, the call is never made.
+    Spend is then taken from the usage the API actually reports, so the
+    ledger is a measurement rather than an estimate.
+    """
+    import json as _j
+    import time as _t
+    import urllib.request as _u
+    import urllib.error as _ue
+    if key is None:
+        import aethron_brain as _B
+        r = _B.resolve({"provider": "gemini"})
+        key = next((r[k] for k in r if "key" in k.lower() and r[k]), None)
+    if not key:
+        raise BudgetExhausted("no Gemini key configured")
+    ledger = {"calls": 0, "in": 0, "out": 0, "usd": 0.0,
+              "budget": budget_usd, "stopped": None}
+
+    def say(*a):
+        if verbose:
+            print(*a)
+
+    def write(prompt, project, rnd):
+        project = Path(project)
+        project.mkdir(parents=True, exist_ok=True)
+        page = project / "index.html"
+        text = prompt
+        if rnd > 0 and page.is_file():
+            text += "\n\nTHE CURRENT PAGE (return it complete, fixed):\n" \
+                    + page.read_text()
+        text += ("\n\nReturn ONLY one complete, self-contained index.html "
+                 "(inline CSS, no external assets, no markdown fences, "
+                 "no commentary).")
+        est_in = len(text) // 3 + 50          # generous: ~3 chars/token
+        worst = est_in * GEMINI_IN + max_tokens * GEMINI_OUT
+        if ledger["usd"] + worst > budget_usd:
+            ledger["stopped"] = (f"cap: ${ledger['usd']:.4f} spent, next "
+                                 f"call could cost up to ${worst:.4f}, "
+                                 f"budget ${budget_usd:.2f}")
+            raise BudgetExhausted(ledger["stopped"])
+        body = _j.dumps({
+            "model": model,
+            "messages": [{"role": "user", "content": text}],
+            "max_tokens": max_tokens, "temperature": 0.3,
+            "reasoning_effort": "low",
+        }).encode()
+        req = _u.Request(
+            "https://generativelanguage.googleapis.com/v1beta/openai"
+            "/chat/completions", data=body,
+            headers={"Content-Type": "application/json",
+                     "Authorization": f"Bearer {key}"})
+        d = None
+        for attempt in range(4):
+            try:
+                with _u.urlopen(req, timeout=300) as resp:
+                    d = _j.loads(resp.read())
+                break
+            except _ue.HTTPError as e:
+                msg = e.read()[:400].decode(errors="replace")
+                # "credits depleted" also arrives as a 429, and retrying
+                # it is how the last run spent four rounds of back-off
+                # waiting on a balance that was not coming back.
+                if "depleted" in msg.lower() or "billing" in msg.lower():
+                    ledger["stopped"] = "provider: credits depleted"
+                    raise BudgetExhausted(ledger["stopped"])
+                if e.code not in (429, 500, 502, 503, 504) or attempt == 3:
+                    raise RuntimeError(f"provider said {e.code}: {msg}")
+                _t.sleep(6 * (attempt + 1))
+        u = d.get("usage") or {}
+        p_in = int(u.get("prompt_tokens") or 0)
+        # total - prompt, NOT completion_tokens: on thinking models the
+        # completion count can omit the reasoning that was billed.
+        p_out = int((u.get("total_tokens") or 0) - p_in) or \
+            int(u.get("completion_tokens") or 0)
+        cost = p_in * GEMINI_IN + p_out * GEMINI_OUT
+        ledger["calls"] += 1
+        ledger["in"] += p_in
+        ledger["out"] += p_out
+        ledger["usd"] += cost
+        choice = d["choices"][0]
+        html = (choice.get("message") or {}).get("content") or ""
+        say(f"    call {ledger['calls']}: {p_in} in / {p_out} out "
+            f"= ${cost:.4f}  (total ${ledger['usd']:.4f} of "
+            f"${budget_usd:.2f})")
+        if choice.get("finish_reason") == "length":
+            raise RuntimeError("the model ran out of tokens mid-page — "
+                               "a truncated page is not written")
+        import aethron_generate as _G
+        html = _G._clean(html)
+        if "<" not in html:
+            raise RuntimeError("the reply was not a page")
+        page.write_text(html)
+
+    write.ledger = ledger
+    return write
+
+
 def main(argv):
     if not argv or {"-h", "--help"} & set(argv):
         print(__doc__.split("\n\n")[0])

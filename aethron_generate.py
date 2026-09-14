@@ -522,7 +522,12 @@ def generate(image, outdir, key=None, model=None, rounds=1, verbose=True):
     (outdir / "page.html").write_text(best["html"])
     GR.shoot(outdir / "page.html", sp["canvas"]["w"], sp["canvas"]["h"],
              outdir / "page.png")
-    cost = spent["in"] / 1e6 * 0.30 + spent["out"] / 1e6 * 2.50
+    # PRICE CHECKED 2026-09-14, NOT REMEMBERED. This line said 0.30/2.50
+    # for months, which understated every Gemini cost this project ever
+    # reported by 2.5x on input and 1.5x on output. Gemini 3.6 Flash is
+    # $0.75/M in and $3.75/M out on the introductory rate that ends
+    # 2026-12-31, and $1.50/$7.50 after. Thinking tokens bill as output.
+    cost = spent["in"] / 1e6 * 0.75 + spent["out"] / 1e6 * 3.75
     best["cost"] = round(cost, 4)
     best["tokens"] = spent
     (outdir / "result.json").write_text(json.dumps(

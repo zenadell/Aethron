@@ -219,6 +219,60 @@ PROBE_JS = r"""
 """
 
 
+# CHROME HEADLESS WILL NOT OPEN A WINDOW NARROWER THAN THIS ON macOS.
+# Measured 2026-09-14: asked 390 -> innerWidth 500, asked 450 -> 500,
+# 768 -> 768. So every "390px phone" check this referee stack ever ran
+# was laid out at 500px — and a page that fits 500 but breaks at 420
+# was ACCEPTED as phone-safe. A check that does not run at the width it
+# names is not a check at that width.
+CHROME_MIN_WIDTH = 500
+
+
+def _frame(page, width, height):
+    """A TRUE narrow viewport: the page inside an iframe of exactly
+    `width` px, served same-origin so the frame can still be measured.
+
+    An iframe's viewport is its own box, whatever the window is clamped
+    to. The harness page is served from memory rather than written into
+    the served directory, because writing into the user's project is
+    the exact bug this module fixed one commit ago.
+    """
+    import functools
+    import http.server
+    import socketserver
+    from urllib.parse import quote
+    page = Path(page)
+    frame = (
+        "<!doctype html><html><body style='margin:0'>"
+        f"<iframe id='f' src='/{quote(page.name)}' "
+        f"style='width:{width}px;height:{height}px;border:0;display:block'>"
+        "</iframe><script>"
+        "setInterval(function(){try{var v=f.contentDocument"
+        ".documentElement.getAttribute('data-ae-eye');"
+        "if(v)document.documentElement.setAttribute('data-ae-eye',v);"
+        "}catch(e){}},150);</script></body></html>").encode()
+
+    class H(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path.startswith("/__ae_frame__"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.send_header("Content-Length", str(len(frame)))
+                self.end_headers()
+                self.wfile.write(frame)
+                return
+            return super().do_GET()
+
+        def log_message(self, *a):
+            pass
+
+    socketserver.TCPServer.allow_reuse_address = True
+    srv = socketserver.ThreadingTCPServer(
+        ("127.0.0.1", 0), functools.partial(H, directory=str(page.parent)))
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_address[1]}/__ae_frame__"
+
+
 def read_page(target, width, height=1400, timeout=90):
     """What the browser actually drew, as numbers. None if it could not.
 
@@ -238,6 +292,7 @@ def read_page(target, width, height=1400, timeout=90):
     target = str(target)
     is_url = target.startswith(("http://", "https://"))
     leaked = None
+    srv = None
     tmp = Path(tempfile.mkdtemp(prefix="ae-eye-"))
     try:
         if is_url:
@@ -264,11 +319,14 @@ def read_page(target, width, height=1400, timeout=90):
             url = shot.resolve().as_uri()
             extra = []
             leaked = shot
+            if width < CHROME_MIN_WIDTH:
+                srv, url = _frame(shot, width, height)
+        win_w = max(width, CHROME_MIN_WIDTH) + (20 if srv else 0)
         prof = tmp / "prof"
         cmd = [b, "--headless", "--disable-gpu", "--hide-scrollbars",
                "--force-device-scale-factor=1",
                f"--user-data-dir={prof}",
-               f"--window-size={width},{height}",
+               f"--window-size={win_w},{height + (20 if srv else 0)}",
                "--virtual-time-budget=9000", "--dump-dom", *extra, url]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.DEVNULL, text=True)
@@ -310,10 +368,16 @@ def read_page(target, width, height=1400, timeout=90):
         import html as _h
         r = json.loads(_h.unescape(m.group(1)))
         r["width"] = width
+        # SAY WHETHER THE WIDTH WAS HONOURED rather than letting a
+        # reading labelled 390 quietly carry a 500px layout.
+        r["true_width"] = (r.get("vw") == width)
         return r
     except Exception:
         return None
     finally:
+        if srv is not None:
+            srv.shutdown()
+            srv.server_close()
         shutil.rmtree(tmp, ignore_errors=True)
 
 

@@ -3569,6 +3569,147 @@ in anger. And the scaffolding step is thin — it checks and repairs a
 project, it does not yet create a Next/Astro/Vite app from nothing;
 `aethron_screen`'s six emitters are the obvious place to wire that in.
 
+## FIRST LIVE RUN — $0.05, and two instruments lying in opposite
+## directions about the same page — 2026-09-14
+Owner: "we have 0.38 gemini credit left, will be enough??" Answered with
+measurement, not memory, and the first measurement found a stale number.
+
+THE PRICE WAS WRONG FOR MONTHS. `aethron_generate` computed cost as
+$0.30/M input and $2.50/M output. Gemini 3.6 Flash is $0.75/$3.75 on the
+introductory rate that ends 2026-12-31 ($1.50/$7.50 after), so every
+Gemini cost this project ever reported was understated 2.5x on input.
+Checked against current pricing and corrected; thinking tokens bill as
+output, which is the one cost a prompt token count cannot see.
+Prompt sizes were then MEASURED FOR FREE with Gemini's countTokens
+endpoint: 152 tokens for the first prompt, 897 for a repair prompt
+carrying the whole page, ~808 for a page — before a cent was spent.
+
+`gemini_writer` — ONE DIRECT CALL PER ROUND, NOT THE AGENT PATH. The CLI
+resends its system prompt and every tool definition on every request,
+several requests per round; right for a codebase, wrong for $0.38.
+THE CAP IS CHECKED BEFORE THE CALL, NOT AFTER: adding up the bill once a
+response arrives tells you that you overspent, it does not stop you.
+Before each call the writer asks whether the worst case — the prompt
+plus every token max_tokens allows — could cross the budget, and if it
+could the call is never made. Spend is then taken from REPORTED usage
+(total minus prompt, because on a thinking model completion_tokens can
+omit reasoning that was billed), "credits depleted" stops at once rather
+than burning back-off on a 429 that is not transient, and a page cut off
+by the token limit is never written. Six offline checks with the network
+faked prove all of it, and the cap was proven to refuse with $0.00 spent
+BEFORE the live run was allowed to start.
+
+THE FIRST LIVE RUN OF THE LOOP, gemini-3.6-flash, capped at $0.25:
+    call 1    180 in / 4,934 out   $0.0186   REFUSED   66.7%  7 blocking
+    call 2  6,532 in / 7,779 out   $0.0341   ACCEPTED 100.0%  0 blocking
+    total   $0.0527 of $0.25 · 2 calls · 78s
+The loop refused a first draft, fed the repairs back, and accepted the
+second. At this size $0.38 is about seven runs. The page is genuinely
+good: three tiers with "Most popular", a WORKING monthly/annual toggle
+the brief never asked for, a FAQ accordion, zero external requests. It
+also wrote "© 2025" — a model slip no referee here checks for.
+
+ACCEPTED WAS NOT TAKEN ON TRUST, and that is where it got interesting.
+Checked three ways that do not go through the checker: a grep of the raw
+HTML (the literal copy 4x, the brand 9x, three priced tiers), a fresh
+re-check of the page left ON DISK, and screenshots. The desktop render
+was right. THE PHONE RENDER LOOKED BROKEN — headline cut mid-word, the
+header button reading "Star", every card running off the right edge —
+on a page the referee had just called phone-safe.
+
+MEASURED, NOT ARGUED: Chrome headless on macOS will not open a window
+narrower than 500px. Asked 390 -> innerWidth 500; 450 -> 500; 768 -> 768.
+Laid out inside a TRUE 390px viewport (a same-origin iframe) the page
+measured scrollWidth 390, zero elements spilling — it was fine.
+
+TWO INSTRUMENTS, WRONG IN OPPOSITE DIRECTIONS, ABOUT ONE PAGE:
+  * the SCREENSHOT at "390" cropped a 500px layout to 390 and showed a
+    defect that does not exist. A false alarm I nearly handed the owner.
+  * the REFEREE at "390" laid the page out at 500 and passed it. Right
+    by luck: EVERY "390px phone" check in eye, design and build has been
+    running at 500px since those modules existed, so a page that fits
+    500 and breaks at 420 would have been ACCEPTED as phone-safe.
+
+THE FIX IS IN ONE PLACE because all three referees read through
+`aethron_eye.read_page`: below CHROME_MIN_WIDTH the page is loaded in an
+iframe of exactly the requested width, served from a local same-origin
+server so the frame can still be measured, with the harness served from
+memory so nothing is written into the user's project (the exact bug
+fixed one commit earlier). Every reading now carries `true_width`, so a
+result labelled 390 can no longer quietly carry a 500px layout.
+The regression contract is an attack built to be precise: a page that
+GENUINELY FITS at 500 and breaks at 390 must be caught at 390 — invisible
+to the whole referee stack before, caught now. The live page re-checks
+at a true 390: vw 390, zero spills, still ACCEPTED — right for the right
+reason this time.
+
+STILL OPEN, named rather than discovered later:
+  * the loop keeps only its BEST round, so the seven blocking findings on
+    round 0 were not preserved and cannot be audited. The first live
+    refusal is unverifiable after the fact. Per-round findings should be
+    kept.
+  * OTHER NARROW PATHS STILL CLAMP: aethron_generate._flow (400),
+    aethron_flow.ghosts (480), aethron_motion, and figma_grade.shoot —
+    whose sub-500 screenshots are CROPS OF A 500px LAYOUT, never evidence
+    of a phone render. They belong to the parked image-mapping feature
+    and were left alone; the rule below covers them when it resumes.
+  * read_page still cannot measure a live URL (the probe is not injected
+    into pages it does not own), so `look` on a dev server reports
+    SKIPPED. Honest, and a real gap for the primary documented use.
+Batteries: eye 20 -> 24, build 18 -> 24.
+
+## THE "FLAKY" PROBE BATTERY WAS A CLOSED LID — 2026-09-14
+The full suite before this commit came back 1 FAILED: probe battery
+30/33 in 1,834 seconds, failing its FIRST three checks ("exit 0",
+"verdict CLEAN at runtime", "React #418 is not fatal"). The unexplained
+transient recorded two entries up failed THOSE SAME THREE FIRST. Alone,
+the battery was 33/33 both times. So it was not random, and it was not
+waved away as flakiness a second time.
+
+THE CONTRADICTION THAT CRACKED IT: run_all gives every suite a 900s
+timeout, and a suite reported 1,834s WITHOUT timing out. That cannot
+happen on one clock. Python's timeout runs on time.monotonic(), which
+on macOS STOPS WHILE THE MACHINE SLEEPS; run_all's table used time.time(),
+which does not. So the question became checkable: did the Mac sleep?
+
+`pmset -g log`, to the minute:
+    13:38:05  full suite starts
+    ~13:43:00 probe battery starts (the suites before it total ~291s)
+    13:42:58  Entering Sleep state due to 'Clamshell Sleep'
+    14:12:18  Wake from Deep Idle ... lid ... HID Activity
+    ~14:13:30 probe battery ends — 1,834s of wall time later
+The lid closed two seconds before the battery began. Its first render
+was in flight across ~29 minutes of sleep, broke, and failed; every
+check after the wake passed. The isolated re-run started 14:38:55 — after
+the owner reopened the lid — and was 33/33. Environmental, not the
+narrow-viewport change it followed. (The earlier transient is very
+probably the same class; that day's log was not examined, so it stays
+"probably".)
+
+WHAT THE HARNESS DOES NOW:
+  * it MEASURES sleep instead of inviting a guess: wall time minus
+    monotonic time is how long the machine was asleep during a suite,
+    and a suite that crossed a sleep is RE-RUN ONCE. If it crosses a
+    sleep again it is reported SKIPPED — interrupted, not graded — and
+    the footer says NOT ALL GREEN. A result that crossed a sleep is
+    neither a pass nor a failure.
+  * A FAILING SUITE'S FULL OUTPUT IS KEPT (tests/.last-failures/). Only
+    the last twelve lines used to reach the table, so the probe's own
+    output for the check that failed was already gone and the cause
+    could only be argued about. The diagnosis was collected and then
+    discarded — the fourth time that exact pattern appears in this file.
+  * And a bug in that very fix, caught before it ran: the new
+    failure-log code called re.sub in a module whose imports were not
+    checked. Had `re` been missing, the first failing suite would have
+    crashed the runner instead of recording its failure.
+
+THE LESSON, and it generalises beyond sleep: WHEN A NUMBER IS
+IMPOSSIBLE, THE IMPOSSIBILITY IS THE CLUE. A duration longer than its
+own timeout said "two clocks disagree" before any hypothesis was needed,
+and the power log turned "flaky" into a timestamp. An unexplained
+failure that only appears in long runs is a question about the machine
+before it is a question about the code.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -3598,3 +3739,13 @@ project, it does not yet create a Next/Astro/Vite app from nothing;
   what is still wrong. Never a green light over a red page.
 - A LOOP LEAVES ITS BEST ATTEMPT ON DISK, NEVER ITS LAST. Otherwise it
   hands over a regression while quoting the best score it ever saw.
+- CHROME HEADLESS WILL NOT RENDER BELOW 500px. Any check or screenshot
+  that names a narrower width must use a true viewport (a same-origin
+  iframe of that width); a --window-size below 500 is a 500px layout,
+  and a screenshot of it is a crop, never evidence of a phone render.
+- A TEST RESULT THAT CROSSED A SYSTEM SLEEP IS NOT A RESULT. Detect it
+  (wall time minus monotonic time), re-run, and never record it as PASS
+  or FAIL.
+- NEVER SPEND WITHOUT A PRE-CALL CAP. A model writer must refuse to START
+  any call whose worst case could cross its budget, and must take spend
+  from the usage the provider reports, not from an estimate.

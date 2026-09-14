@@ -206,6 +206,41 @@ def main():
     check("content that spills on a phone is caught",
           spilled > 0 and rr["verdict"] == "FAIL", f"{spilled} spill(s)")
 
+    print("\n── a phone is 390px, not Chrome's 500px floor")
+    # CHROME HEADLESS CLAMPS ITS WINDOW TO 500px ON macOS — measured:
+    # asked 390 -> innerWidth 500. So every "390px" check here was laid
+    # out at 500, and the attack below, which fits 500 and breaks at
+    # 390, was invisible to the whole referee stack. It was also found
+    # the embarrassing way round: a live build was screenshotted at
+    # "390", the image cropped a 500px layout and looked broken, and the
+    # page turned out to be fine — two instruments lying in opposite
+    # directions about the same page.
+    squeeze = PAGE.replace(
+        ".wrap{max-width:900px;margin:0 auto;padding:24px}",
+        ".wrap{max-width:900px;min-width:460px;margin:0 auto;padding:24px}")
+    assert squeeze != PAGE, "the attack did not apply"
+    f = tmp / "fits500_breaks390.html"
+    f.write_text(squeeze)
+    r390 = E.read_page(f, 390)
+    r500 = E.read_page(f, 500)
+    if r390 is None or r500 is None:
+        skip("the true-phone-width checks", "no reading")
+    else:
+        def spills(r):
+            return sum(1 for it in r["items"]
+                       if it["x"] + it["w"] > r["vw"] + 2)
+        check("a 390px reading is laid out at 390px, not 500px",
+              r390["vw"] == 390 and r390.get("true_width"),
+              f"vw={r390['vw']}")
+        check("the attack is precise: it genuinely fits at 500px",
+              spills(r500) == 0, f"{spills(r500)} spill(s) at 500")
+        check("and a page that breaks only below 500px IS caught at 390",
+              spills(r390) > 0, f"{spills(r390)} spill(s) at 390")
+        check("the narrow read leaves nothing behind in the project",
+              not f.with_suffix(".eye.html").exists()
+              and sorted(x.name for x in tmp.iterdir()
+                         if "__ae_frame__" in x.name) == [])
+
     print("\n── the loop cannot make the page worse")
     f = tmp / "loop.html"
     f.write_text(PAGE.replace("p.lede{font-size:15px", "p.lede{font-size:9px"))
