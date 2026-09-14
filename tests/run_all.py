@@ -70,6 +70,11 @@ SUITES = [
      [PY, "tests/build_battery.py"], True),
     ("design battery (does each design rule actually fire?)",
      [PY, "tests/design_battery.py"], True),
+    # Taste rules refuse generic design on the rendered page instead of
+    # asking the model to grade itself — and must stay silent on real
+    # design and while cloning, or they do more harm than good.
+    ("taste battery (refuses slop, and only slop)",
+     [PY, "tests/taste_battery.py"], True),
     ("eye battery (can the referee see, and can it be fooled?)",
      [PY, "tests/eye_battery.py"], True),
     ("flow battery (a poster becomes a website, both halves)",

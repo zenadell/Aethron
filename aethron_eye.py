@@ -189,6 +189,11 @@ PROBE_JS = r"""
         color: cs.color,
         bg: hasBg ? bg : null,
         effbg: eff,
+        // THE GRADIENT ITSELF, not just "has a background image": taste
+        // rules need the colour stops to tell a generic purple-to-blue
+        // hero from a designed one.
+        bgi: (hasImg && /gradient/.test(cs.backgroundImage))
+             ? cs.backgroundImage.slice(0, 400) : null,
         mono: /mono|courier|consol/i.test(cs.fontFamily) || null,
         display: cs.display,
         pad: cs.padding,

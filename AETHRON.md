@@ -3710,6 +3710,96 @@ and the power log turned "flaky" into a timestamp. An unexplained
 failure that only appears in long runs is a question about the machine
 before it is a question about the code.
 
+## TASTE RULES — refused on the page, not requested in a prompt
+## — 2026-09-14
+Owner asked for research into how YouTubers train Google Antigravity to
+avoid "AI slop" and design at a professional, Framer-like standard, and
+whether it would help pixel-perfect screenshot-to-code. The videos
+themselves could not be read (YouTube pages yield no transcript to a
+fetcher), so the research went to what those creators teach from: the
+written guides, the rule files they install, and Google's own docs.
+
+WHAT THEY DO. Taste steering, and it is real: a DESIGN.md holding exact
+tokens, a GEMINI.md telling the agent to read it first, use only palette
+colours, the spacing scale and 3-4 font sizes, a structure -> design ->
+polish three-pass build on shadcn/ui, Taste Skill's dials and bans, and
+anti-slop's 38 MIT-licensed rules (purple-blue gradients, centred badge
++ headline + 3-card grid, fake dashboard mockups, em dashes).
+WHAT NONE OF THEM DOES: check the rendered page. Taste Skill's own
+write-up has a pre-flight checklist and no post-render verification. The
+"pixel-perfect" Antigravity workflow is paste a screenshot, then "visual
+back-and-forth" for 3+ rounds, with no measurement and no accuracy
+numbers; Google's docs say the browser agent screenshots "when it would
+like YOUR review". The claim that it notices 2px of padding is not backed
+by anything found.
+
+THE CONCLUSION THAT SHAPED THE CODE: taste rules and fidelity pull in
+opposite directions. A ban on flat hierarchy or on gradients would
+"improve" a template away from the thing a user asked to copy. So:
+BRIEF mode (no reference) turns taste rules ON; CLONE mode turns them
+OFF and the eye decides. check() infers the mode from whether a
+reference was given.
+
+THE FIRST LIVE PAGE HAD GAMED THE CHECKLIST, which is what made this
+urgent. Its CSS comments recited our checks back ("meeting WCAG AA",
+"Safe 44px+ tap target", "Type Scale (Strictly 14, 16, 18)"), it read
+"at most 7 sizes" as "as few as possible", and its headline was 18px:
+the size of its own card titles. It passed every measured rule and
+looked timid. Correct and generic are not opposites.
+
+SHIPPED, in aethron_design, brief mode only:
+  FLAT HIERARCHY  headline under 1.8x body, or not larger than every
+                  section title. Judged wide only: a headline sized down
+                  on a phone is a legitimate design decision. Blocking.
+  AI GRADIENT     a gradient on a surface >= 400x150 whose saturated
+                  stops all sit at hue 210-300 with at least one >= 250:
+                  purple/indigo into blue. The probe now reports the
+                  gradient string itself. Blocking.
+  EM DASH         reported, NOT blocking: a strong generated-copy tell,
+                  not worth a paid repair round on its own.
+The brief-mode writer prompt gained the same three, plus "a limit is a
+maximum, not a goal" and "do not describe the checks in comments; meet
+them".
+
+THE PRECISION HALF IS MOST OF THE BATTERY, because a taste rule that
+fires on real design is worse than none. Not refused: the owner's own
+orange-into-black glow, a blue-only wash, the purple gradient on a small
+BUTTON, a headline sized down on a phone, and every taste rule while
+cloning.
+
+RESULT ON THE LIVE PAGE:
+    brief mode  REFUSED — "the headline is 18px against body copy at
+                14px (1.29x) and section titles at 18px; it has to
+                lead, so set it to at least 25px"
+    as a clone of itself  ACCEPTED, match 100%
+Exactly the defect a person saw, now caught by measurement.
+
+CONSIDERED AND NOT SHIPPED, with the reason:
+  * "3-4 font sizes max": a good design can use more; the failure on the
+    live page was not too many sizes but too little difference between
+    them, which FLAT HIERARCHY measures directly.
+  * the "centred badge + headline + 3-card grid" ban: it contradicts
+    briefs that REQUIRE three of something — this very page was asked
+    for "three tiers". A ban must yield to a stated requirement, and that
+    precedence is not built yet.
+
+THE OWNER'S JSON IDEA (screenshot -> JSON spec -> coder -> checks) is
+the right architecture, and the extractor already emits most of it with
+no model: background, palette, bands, boxes, rules, and an explicit list
+of what a still cannot contain. Two corrections from this project's own
+history: the values must be MEASURED, not written by a model (a model's
+"font-size: 48px" looks exact and is a guess), and the owner's chosen
+example — orange blending into black — is precisely what the spec cannot
+yet describe: the extractor finds the region and its ends
+(#1E1211 -> #E1642A) and reports "radial or multi-axis and is NOT
+fitted". The next build is a GRADIENT FITTER (fit a radial/multi-stop
+gradient to the measured field, render it, diff it, emit CSS only when
+the fit is proven) and a design.json read by both the writer and the eye.
+
+Batteries: taste 15 (new); eye 24, design 17, build 24 re-run after the
+change. The full suite was not re-run: the probe field is consumed only
+by eye/design/build, all of which passed.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -3743,6 +3833,9 @@ before it is a question about the code.
   that names a narrower width must use a true viewport (a same-origin
   iframe of that width); a --window-size below 500 is a 500px layout,
   and a screenshot of it is a crop, never evidence of a phone render.
+- TASTE RULES APPLY ONLY WHEN THERE IS NOTHING TO COPY. With a
+  reference, fidelity wins and every taste rule is off; a taste rule
+  that fires on legitimate design is worse than no rule.
 - A TEST RESULT THAT CROSSED A SYSTEM SLEEP IS NOT A RESULT. Detect it
   (wall time minus monotonic time), re-run, and never record it as PASS
   or FAIL.

@@ -175,7 +175,7 @@ def covers(reqs, items):
 # ────────────────────────────── the contract ─────────────────────────
 
 def check(project, brief="", reference=None, widths=None, spec=None,
-          verbose=True):
+          verbose=True, taste=None):
     """Everything the build must satisfy, in one verdict.
 
     Four questions, and a build has to answer all of them:
@@ -189,6 +189,14 @@ def check(project, brief="", reference=None, widths=None, spec=None,
             print(*a)
 
     widths = tuple(widths or (390, 768, 1280, 1920))
+    # TASTE RULES AND FIDELITY PULL IN OPPOSITE DIRECTIONS, so the mode
+    # decides which one wins. With a REFERENCE the job is a clone, and a
+    # rule like "no flat hierarchy" or "no gradient hero" would "improve"
+    # the design away from the thing the user asked to copy. With only a
+    # BRIEF there is nothing to copy, and the model falls back on its
+    # defaults — the generic look the rules exist to refuse.
+    if taste is None:
+        taste = reference is None
     page = _entry(project)
     if page is None:
         return {"verdict": "SKIPPED", "score": 0.0,
@@ -219,11 +227,13 @@ def check(project, brief="", reference=None, widths=None, spec=None,
             say(f"  target   UNMEASURED — {r.get('why', '')}")
 
     d = DES.look(page, widths=(widths[0], widths[-2] if len(widths) > 2
-                               else widths[-1]), spec=spec, verbose=False)
+                               else widths[-1]), spec=spec, verbose=False,
+                 taste=taste)
     if d["verdict"] != "SKIPPED":
         serious = [f for f in d["findings"]
                    if f["kind"] in ("LOW CONTRAST", "TAP TARGET",
-                                    "NO TYPE SCALE")]
+                                    "NO TYPE SCALE", "FLAT HIERARCHY",
+                                    "AI GRADIENT")]
         findings += d["findings"]
         # A DESIGN SCORE IS NOT A COUNT. One unreadable heading matters
         # more than a dozen gaps two pixels off a grid nobody measures.
@@ -256,7 +266,8 @@ def check(project, brief="", reference=None, widths=None, spec=None,
     hard = [f for f in findings
             if f["kind"] in ("MISSING FROM BRIEF", "WRONG COUNT",
                              "LOW CONTRAST", "TAP TARGET", "SPILLS",
-                             "BROKEN IMAGE", "MISSING")]
+                             "BROKEN IMAGE", "MISSING",
+                             "FLAT HIERARCHY", "AI GRADIENT")]
     verdict = "ACCEPTED" if not hard and score >= 0.9 else "REFUSED"
     return {"verdict": verdict, "score": score, "parts": parts,
             "findings": findings, "blocking": hard,
@@ -381,6 +392,25 @@ def _first_prompt(brief, reference):
         "least 44px on a phone, and NOTHING hanging off the right edge "
         "at 390px. Those are measured, not reviewed.",
     ]
+    if not reference:
+        # THE FIRST LIVE PAGE OBEYED EVERY MEASURED RULE AND CAME OUT
+        # TIMID: it echoed the checks back as CSS comments, read "at most
+        # 7 sizes" as "use as few as possible", and set its headline at
+        # 18px, the same size as its card titles. A limit is not a target,
+        # and a page can be correct and generic at once.
+        lines += [
+            "",
+            "DESIGN, not just correctness — these are also measured:",
+            "  - A real typographic hierarchy: the headline must clearly "
+            "dominate (at least 1.8x the body size, and larger than every "
+            "section title). The size limit is a maximum, not a goal.",
+            "  - No generic purple/indigo-to-blue gradient backgrounds.",
+            "  - No em dashes in the copy.",
+            "  - Commit to one specific visual direction for this brand "
+            "rather than a neutral template: a deliberate palette, a type "
+            "pairing with character, and spacing with rhythm.",
+            "Do not describe the checks in comments; meet them.",
+        ]
     return "\n".join(lines)
 
 
@@ -398,7 +428,8 @@ def _repair_prompt(report, brief):
              "in the page you wrote.", ""]
     rank = {"MISSING FROM BRIEF": 0, "WRONG COUNT": 1, "SPILLS": 2,
             "LOW CONTRAST": 3, "BROKEN IMAGE": 4, "MISSING": 5,
-            "TAP TARGET": 6, "MISPLACED": 7, "WRONG SIZE": 8}
+            "TAP TARGET": 6, "FLAT HIERARCHY": 7, "AI GRADIENT": 8,
+            "MISPLACED": 9, "WRONG SIZE": 10}
     for f in sorted(report["findings"],
                     key=lambda f: rank.get(f["kind"], 99))[:20]:
         who = f.get("selector") or "(not on the page)"

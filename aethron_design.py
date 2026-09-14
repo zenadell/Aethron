@@ -183,7 +183,113 @@ def step_scale(spacing):
 
 # ───────────────────────────── the audit ─────────────────────────────
 
-def audit(items, spec=None, mobile=False):
+EM_DASH = "\u2014"
+
+
+def _hsv(rgb):
+    r, g, b = [c / 255 for c in rgb]
+    mx, mn = max(r, g, b), min(r, g, b)
+    d = mx - mn
+    if d == 0:
+        h = 0.0
+    elif mx == r:
+        h = (60 * ((g - b) / d)) % 360
+    elif mx == g:
+        h = 60 * ((b - r) / d) + 120
+    else:
+        h = 60 * ((r - g) / d) + 240
+    return h, (0.0 if mx == 0 else d / mx), mx
+
+
+def _taste(items, txt, mobile):
+    """Generic-design signatures that can be MEASURED, for brief mode.
+
+    Taste guides on the web put these in a prompt and ask the model to
+    check itself. Here they are refused on the rendered page. Only the
+    signatures a measurement can settle live here; the ones that need
+    judgement stay in the writer's prompt.
+    """
+    out = []
+
+    # ── flat hierarchy ────────────────────────────────────────────
+    # THE FIRST LIVE PAGE: every measured rule passed and the headline
+    # was 18px — the size of its own card titles — because the model
+    # read "at most 7 type sizes" as "as few as possible". Correct and
+    # timid at once. Judged wide only: a headline legitimately shrinks
+    # toward body size on a phone, and flagging that would cry wolf.
+    if not mobile:
+        sized = [i for i in txt if len((i.get("text") or "").strip()) >= 2]
+        if sized:
+            h1s = [i for i in sized if i.get("tag") == "h1"]
+            lead = max(h1s or sized, key=lambda i: i["fs"])
+            prose = sorted(i["fs"] for i in sized
+                           if len((i.get("text") or "").strip()) >= 20)
+            pool = prose or sorted(i["fs"] for i in sized)
+            body = pool[len(pool) // 2]
+            titles = [i["fs"] for i in sized
+                      if i.get("tag") in ("h2", "h3") and i is not lead]
+            top = max(titles) if titles else 0
+            ratio = lead["fs"] / body if body else 99
+            if ratio < 1.8 or (top and lead["fs"] <= top + 0.5):
+                need = max(1.8 * body, top * 1.25)
+                out.append({
+                    "kind": "FLAT HIERARCHY",
+                    "text": (lead.get("text") or "")[:40],
+                    "selector": lead.get("sel"), "tag": "type",
+                    "want": f">= {need:.0f}px", "got": lead["fs"],
+                    "fix": (f"the headline is {lead['fs']:g}px against body "
+                            f"copy at {body:g}px ({ratio:.2f}x)"
+                            + (f" and section titles at {top:g}px"
+                               if top else "")
+                            + f"; it has to lead, so set it to at least "
+                              f"{need:.0f}px"),
+                })
+
+    # ── the generic gradient ──────────────────────────────────────
+    # Purple/indigo into blue across a large surface: the single most
+    # recognisable generated-design signature. Hue-based and narrow on
+    # purpose — an orange-into-black glow, a blue-only wash, or a
+    # gradient BUTTON are design decisions, not the signature.
+    for i in items:
+        g = i.get("bgi") or ""
+        if "gradient" not in g or i.get("w", 0) < 400 or i.get("h", 0) < 150:
+            continue
+        stops = [tuple(int(float(v)) for v in m) for m in re.findall(
+            r"rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)", g)]
+        stops += [tuple(int(hx[k:k + 2], 16) for k in (0, 2, 4))
+                  for hx in re.findall(r"#([0-9a-fA-F]{6})\b", g)]
+        hues = [h for h, sat, val in map(_hsv, stops)
+                if sat >= 0.25 and val >= 0.2]
+        if (len(hues) >= 2 and all(210 <= h <= 300 for h in hues)
+                and any(h >= 250 for h in hues)):
+            out.append({
+                "kind": "AI GRADIENT", "text": (i.get("text") or "")[:40],
+                "selector": i.get("sel"), "tag": "color",
+                "want": "a palette chosen for this brand", "got": g[:80],
+                "fix": "a purple/indigo-to-blue gradient across a large "
+                       "surface is the most recognisable generated-design "
+                       "signature; replace it with colour that belongs to "
+                       "this brand",
+            })
+
+    # ── em dashes ─────────────────────────────────────────────────
+    # Reported, not blocking: a strong generated-copy tell, but not worth
+    # a paid repair round on its own.
+    n = 0
+    for i in txt:
+        if EM_DASH in (i.get("text") or "") and n < 5:
+            n += 1
+            out.append({
+                "kind": "EM DASH", "text": (i.get("text") or "")[:40],
+                "selector": i.get("sel"), "tag": "copy",
+                "want": "no em dash", "got": EM_DASH,
+                "fix": "rewrite without the em dash: a comma, a colon, or "
+                       "two sentences",
+            })
+    return out
+
+
+def audit(items, spec=None, mobile=False, taste=False):
     """Every way this page departs from a design system, as repairs.
 
     Same finding shape as `aethron_eye`, so both flow into the same
@@ -322,10 +428,15 @@ def audit(items, spec=None, mobile=False):
                            f"{TAP_MIN}px both Apple and Google call the "
                            f"minimum — add padding",
                 })
+    # ── taste, brief mode only ────────────────────────────────────
+    # OFF when cloning: a taste rule would "improve" a design away from
+    # the thing the user asked to copy.
+    if taste:
+        out.extend(_taste(items, txt, mobile))
     return out
 
 
-def look(page, widths=(390, 1280), spec=None, verbose=True):
+def look(page, widths=(390, 1280), spec=None, verbose=True, taste=False):
     """Hold a built page to a design system and report the repairs.
 
     Judged narrow AND wide, because tap targets and line lengths only
@@ -343,7 +454,7 @@ def look(page, widths=(390, 1280), spec=None, verbose=True):
             say(f"  {w:>5}px  UNMEASURED")
             rounds.append({"width": w, "skipped": True})
             continue
-        f = audit(r["items"], spec, mobile=(w <= 480))
+        f = audit(r["items"], spec, mobile=(w <= 480), taste=taste)
         rounds.append({"width": w, "findings": f,
                        "system": infer(r["items"])})
         all_f.extend(f)
@@ -358,7 +469,8 @@ def look(page, widths=(390, 1280), spec=None, verbose=True):
     # SEVERITY IS NOT COUNT. One unreadable heading matters more than a
     # dozen gaps that are 2px off a grid nobody will ever measure.
     hard = [f for f in all_f
-            if f["kind"] in ("LOW CONTRAST", "TAP TARGET", "NO TYPE SCALE")]
+            if f["kind"] in ("LOW CONTRAST", "TAP TARGET", "NO TYPE SCALE",
+                             "FLAT HIERARCHY", "AI GRADIENT")]
     verdict = "PASS" if not hard and len(all_f) <= 6 else "FAIL"
     return {"verdict": verdict, "findings": all_f, "rounds": rounds,
             "system": graded[0]["system"],
