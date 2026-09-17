@@ -49,3 +49,8 @@ tests/.last-failures/
 aethron.log
 uploads/
 tests/.stress/
+
+# vendored upstreams are fetched, never committed
+vendor/.cache/
+vendor/metal-engine.js
+vendor/metal.js

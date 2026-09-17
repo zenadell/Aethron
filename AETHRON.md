@@ -4902,6 +4902,111 @@ AND A NEAR-MISS ON THE FIRST REAL COMMIT: clearing the keys wrote
 it listed the literal `aethron_config.json`. One `git add -A` from five
 live keys in history. Pattern widened to `aethron_config*.json`.
 
+## REAL GLASS AND REAL METAL — and five bugs that were one habit
+## — 2026-09-17
+Two things the page cannot do for itself, both done by the thing that
+can, and every one of the bugs on the way was me styling or selecting
+something that is not what ends up in the document.
+
+NATIVE GLASS UNDER THE SHEET. Measured last session: this engine
+IGNORES `backdrop-filter: url(#svg)` with a feDisplacementMap — a card
+using it showed no bending of the stripes behind it against a plain-blur
+card — so an HTML <div> can blur what is behind it and can never bend
+it. A magnifying edge exists only in native views. So the page stops
+pretending: `.pvw` posts its rectangle to `/api/glass`, studio keeps it
+in `GLASS_RECT` and touches no AppKit, and desktop.py polls that dict
+from a background thread and moves a SECOND `NSGlassEffectView` on the
+main thread. Two panels: one fills the window and is the app's ground,
+one follows the sheet and has its own edge — the edge being the whole
+point. Both sit BELOW the web view (a native view above it would cover
+the sheet's own text), and `.pvw.onglass` turns its background and its
+imitation blur off so the real material shows. CSS counts down from the
+top and AppKit counts up from the bottom, so the Y flips against the
+CONTENT view's height, not the window's.
+The move is deliberately posted only once the sheet has ARRIVED: a
+native view cannot ride a CSS spring, and glass sliding half a beat out
+of step with the thing it backs is worse than no glass.
+
+METAL — metal-fx v2.0.0 (MIT, Jakub Antalik, the author of the orbs),
+carrying @paper-design/shaders' liquid-metal fragment shader
+(Apache-2.0, "Paper Shaders, Copyright 2026 Paper"), which is the one
+symbol it imports and its own vite build inlines. NOT their React
+component: their index.ts exposes the engine primitives "for consumers
+building non-React integrations", so scratchpad/metal/build_metal.py
+flattens their ES modules and the mount is MetalFx.tsx's lifecycle with
+the hooks removed. Nothing about the effect is reimplemented.
+Three places, all of them things the owner pointed at: the SEND BUTTON
+(a ring, with the composer's pills as reflection targets — the engine
+reads the shader's own pixels and paints a soft copy onto whatever
+stands near it, which is the part a <div> cannot fake); the "LIVE MODE ·
+NEW" BADGE, their MetalBadge's Figma metrics in plain DOM, metal ALL
+OVER via a full-pill mask rather than a ring around a hole; and SEARCH,
+where the field itself is the rim so the light runs around what you are
+typing into.
+Served at `/metal.js`, not inlined: 222KB has no business being re-sent
+with every render. EMBEDDED in studio.py rather than read from disk,
+because a data file is one more thing that can be missing from the
+bundle and this project has found the shipped app stale three times.
+
+FIVE BUGS, AND FOUR OF THEM ARE ONE HABIT — naming a thing that is not
+what the document ends up holding:
+1. `.find [data-ic]` STYLED NOTHING. [data-ic] is a PLACEHOLDER: the
+   icon pass replaces the element with an `<svg class="ic">` and the
+   attribute is gone before the first paint. The magnifier stayed in
+   flow and pushed the search field 13px right of its own box.
+2. `.mbadge > div` MATCHED THE WRAPPER THE MOUNT HAD JUST INSERTED —
+   also a div. Every observer tick wrapped the wrapper: measured, 33
+   nested rings inside one badge. A selector used by an idempotent pass
+   must not match that pass's own output.
+3. THE SEND ARROW HAD BEEN MISSING SINCE ANY NAVIGATION, and it was not
+   mine. `[data-ic]` is hydrated ONCE, over the static page, at script
+   load; convShell rewrites the composer on every view change and
+   spelled the arrow the static way. From the first navigation onward
+   the send button was a blank square. `I()` now warns on a name that is
+   not in ICONS — there is no `project` glyph either, which is the same
+   bug this file already recorded once about `image`.
+4. THE RING WAS MEASURED FROM THE WRONG RULE. `.cbar .cbtn` says 30px /
+   radius 9 and `.composer .cbtn` says 34 / 11 — equal specificity,
+   later wins. A ring drawn to a rule the button does not obey reads as
+   a ring that does not fit.
+5. `S.projects` STARTS AS `[]`, WHICH IS TRUTHY, so the first listing
+   counted as "everything just arrived" and all 23 projects wore the NEW
+   badge. An explicit `S.listed` flag, because emptiness and absence are
+   different facts.
+
+AND THE GATE COULD NOT SEE. `node --check bundle.js` printed OK on a
+file whose first token in the browser was an uncaught
+`SyntaxError: Unexpected token 'export'`: node DETECTS module syntax and
+re-checks as ESM, so the one `export` my flattener missed was legal to
+it. Checking the same bytes as `.cjs` — a classic script, which is what
+a `<script>` tag is — failed immediately, and then failed AGAIN on
+`Identifier '_pt' has already been declared`, a genuine collision
+between two of their modules that ESM's per-module scope hides and a
+flat concatenation does not. Both fixed before either could ship.
+The same collision then bit at PAGE level: the engine's ~20 flattened
+modules put every private top-level name into the global scope and
+`cache` collided with Aethron's own, taking the entire interface down.
+One closure, two names out.
+
+AN IMMUTABLE CACHE NEEDS A NEW URL, NOT A NEW FILE. `/metal.js` is sent
+`max-age=604800, immutable`, which is right and which means a browser
+that has it never asks again. The first fixed build was served correctly
+and the page kept running the broken copy it already had — so the error
+on screen was about code the server no longer had. `METAL_VER` is a
+content hash in the URL.
+
+MY OWN TEST FIXTURE WAS WRONG, AGAIN. To prove the NEW badge fires on a
+project that arrives mid-session I copied a forge.json from another
+project — and `project_info` reads the NAME from that file, so the
+"new" project listed as `acme-demo`, was already in the previous
+listing, and correctly produced no badge. Check the test can see, for
+the fifth or sixth time in this file.
+
+MEASURED, on a fresh load with zero console output: search ring 9.9% of
+its canvas lit, send ring 20%, badge 88.9% (metal all over, which is
+what a mask instead of a ring punch means), 2 reflection targets live,
+3 wrappers and not 33.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5021,6 +5126,19 @@ live keys in history. Pattern widened to `aethron_config*.json`.
 - A CAPABILITY PROVEN ON AETHRON'S OWN OUTPUT IS NOT PROVEN. Its own pages are still, whole,
   self-contained and unbroken; real ones are alive, served from a web root, and already
   faulty. Six of seven live refusals on the first real page were the product, not the model.
+- A SELECTOR MUST NAME WHAT THE DOCUMENT ENDS UP HOLDING, NOT WHAT THE
+  TEMPLATE SPELLED. A placeholder attribute is gone after hydration, and
+  a wrapper an idempotent pass inserts must never match that pass's own
+  selector — one of those styled nothing, the other wrapped itself 33
+  times deep.
+- A SYNTAX GATE MUST PARSE THE BYTES THE WAY THE BROWSER WILL. `node
+  --check file.js` silently re-checks as an ES module, so `export` and
+  duplicate top-level declarations pass a check that a `<script>` tag
+  refuses. Check it as `.cjs`.
+- AN IMMUTABLE CACHE NEEDS A NEW URL, NOT A NEW FILE. Anything served
+  with `immutable` carries a content hash in its URL, or a fixed build
+  is served correctly while the page keeps running the broken copy it
+  already has.
 - A CONSEQUENCE OF AN EXPLAINED CHANGE IS THAT CHANGE. It holds for the
   screen an element's move touches, for styles that follow a new size,
   and for what a reaction produces when the thing it acts on changed —

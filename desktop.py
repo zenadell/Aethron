@@ -177,17 +177,34 @@ def main():
 
         Silent and optional by design: on an older macOS the class does
         not exist and the app looks exactly as it did before.
+
+        TWO panels, and the second is the point. The first fills the
+        window and is the app's ground. The second follows the rectangle
+        the page reports in `studio.GLASS_RECT` — the work sheet — so
+        that sheet sits on its OWN slab of system material with its own
+        edge. That edge is the thing HTML cannot have: measured in this
+        session, `backdrop-filter: url(#svg)` with a feDisplacementMap is
+        ignored by this engine, so a <div> can blur what is behind it and
+        can never bend it. A native view's edge bends it because the
+        system draws the lensing itself.
+
+        Both panels go BELOW the web view. A native view above it would
+        cover the sheet's own text; the page instead turns its own
+        background off (`.pvw.onglass`) and lets the material through.
         """
         try:
             import objc
-            from Foundation import NSObject
+            from Foundation import NSObject, NSMakeRect
             from AppKit import (NSApp, NSColor, NSViewWidthSizable,
-                                NSViewHeightSizable, NSWindowBelow)
+                                NSViewHeightSizable, NSWindowBelow,
+                                NSWindowAbove)
             try:
                 GLASS = objc.lookUpClass('NSGlassEffectView')
             except Exception:
                 _log("liquid glass: not on this macOS")
                 return
+
+            views = {}                      # 'base' / 'panel' / 'root'
 
             class _Install(NSObject):
                 # AppKit refuses layout changes from a background thread
@@ -207,15 +224,60 @@ def main():
                         NSViewWidthSizable | NSViewHeightSizable)
                     root.addSubview_positioned_relativeTo_(
                         g, NSWindowBelow, None)
+
+                    p = GLASS.alloc().initWithFrame_(NSMakeRect(0, 0, 0, 0))
+                    p.setStyle_(0)
+                    try: p.setEffectIsInteractive_(True)
+                    except Exception: pass
+                    p.setHidden_(True)
+                    root.addSubview_positioned_relativeTo_(
+                        p, NSWindowAbove, g)
+
                     win.setOpaque_(False)
                     win.setBackgroundColor_(NSColor.clearColor())
+                    views['base'], views['panel'], views['root'] = g, p, root
                     _log("liquid glass: installed")
+
+                def move_(self, _):
+                    """Put the panel where the page says the sheet is.
+
+                    CSS counts down from the top; AppKit counts up from
+                    the bottom, so the Y has to be flipped against the
+                    CONTENT VIEW's own height — not the window's, which
+                    includes the title bar this window does not draw."""
+                    p, root = views.get('panel'), views.get('root')
+                    if p is None or root is None:
+                        return
+                    r = dict(studio.GLASS_RECT)
+                    if not r or not r.get('w') or not r.get('h'):
+                        p.setHidden_(True)
+                        return
+                    h = root.bounds().size.height
+                    y = h - (r['y'] + r['h'])
+                    p.setFrame_(NSMakeRect(r['x'], y, r['w'], r['h']))
+                    try: p.setCornerRadius_(float(r.get('radius') or 0))
+                    except Exception: pass
+                    p.setHidden_(False)
+
+            inst = _Install.alloc().init()
 
             def later():
                 time.sleep(2.5)          # after the first paint
-                _Install.alloc().init()\
-                    .performSelectorOnMainThread_withObject_waitUntilDone_(
-                        'go:', None, False)
+                inst.performSelectorOnMainThread_withObject_waitUntilDone_(
+                    'go:', None, False)
+                # The page posts its rectangle; this carries it across to
+                # the main thread, which is the only one allowed to move
+                # a view. Polling a dict is cheaper than a callback into
+                # AppKit from the HTTP thread, and it cannot deadlock.
+                last = None
+                while True:
+                    time.sleep(0.12)
+                    cur = tuple(sorted(studio.GLASS_RECT.items()))
+                    if cur == last:
+                        continue
+                    last = cur
+                    inst.performSelectorOnMainThread_withObject_waitUntilDone_(
+                        'move:', None, False)
             threading.Thread(target=later, daemon=True).start()
         except Exception as e:
             _log(f"liquid glass: skipped ({type(e).__name__}: {e})")

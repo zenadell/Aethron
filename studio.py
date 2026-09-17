@@ -88,6 +88,10 @@ except Exception as _e:                                # pragma: no cover
 else:
     CODE_IMPORT_ERROR = ""
 CODE_SESSIONS = {}    # workspace path -> CodeSession
+# The rectangle the native shell should back with real Liquid Glass,
+# or {} for none. desktop.py reads this on the main thread; nothing
+# in this file touches AppKit.
+GLASS_RECT = {}
 SKIP_DIRS = {".git", "node_modules", ".history", "__pycache__", ".venv",
              "dist", "build", ".next", ".DS_Store"}
 
@@ -1204,6 +1208,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.wfile.write(body)
             if u.path.startswith("/edit/"):
                 return self.serve_edit(u, q)
+            if u.path == "/metal.js":
+                # A vendored engine never changes between renders, so it
+                # is cached hard. Everything else in this server sends
+                # no-store, and that is right for anything Aethron makes;
+                # this is not that.
+                body = METAL_JS.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "public, max-age=604800, immutable")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             if u.path == "/":
                 body = INDEX_HTML.encode()
                 self.send_response(200)
@@ -1665,6 +1681,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail("command not allowed")
                 self._track("run_step", step=cmd)
                 self.send_json({"job": start_job(argv, d)})
+            elif u.path == "/api/glass":
+                # THE PAGE CANNOT REFRACT, SO IT ASKS THE WINDOW TO.
+                # Measured: `backdrop-filter: url(#svg)` is ignored by
+                # this engine, so a magnifying, mirroring edge is not
+                # available to a <div> at all. It IS available to an
+                # NSGlassEffectView, which already sits in this window —
+                # so the page posts the rectangle it wants backed, in CSS
+                # pixels with a top-left origin, and the native shell
+                # moves real glass there.
+                GLASS_RECT.clear()
+                GLASS_RECT.update(body or {})
+                self.send_json({"ok": True})
             elif u.path == "/api/ai/settings":
                 if not brain:
                     return self.fail("AI settings unavailable")
@@ -2718,6 +2746,5358 @@ MARK_B64 = (
     "1YBVA1ZH1YBVA1YNWMHjfzCNJtWxlhfBAAAAAElFTkSuQmCC")
 MARK = "data:image/png;base64," + MARK_B64
 
+# ══ METAL ═══════════════════════════════════════════════════════════
+# metal-fx v2.0.0 — MIT, © 2026 Jakub Antalik
+#   https://github.com/Jakubantalik/metal-fx
+# carrying, inside it, the liquid-metal fragment shader from
+# @paper-design/shaders — Apache-2.0, "Paper Shaders, Copyright 2026
+# Paper, https://shaders.paper.design" — which is the one symbol
+# metal-fx imports and its own build inlines.
+#
+# Their React component is not used; their index.ts exposes the engine
+# primitives precisely "for consumers building non-React integrations",
+# and scratchpad/metal/build_metal.py flattens their ES modules into
+# this one script. Nothing about the effect is reimplemented.
+#
+# It is served at /metal.js rather than inlined into the page: 222KB
+# has no business being re-sent with every render, and the browser
+# caches a file with its own URL. It is EMBEDDED here rather than read
+# from disk because a data file is one more thing that can be missing
+# from the bundle, and this project has already found the shipped app
+# stale three times.
+METAL_JS = r"""/* THE WHOLE ENGINE LIVES IN ITS OWN SCOPE — see build_metal.py. */
+(function(){
+'use strict';
+/* metal-fx v2.0.0 — MIT © 2026 Jakub Antalik (github.com/Jakubantalik/metal-fx).
+   Flattened from their own ES modules by build_metal.py; the engine
+   code below is theirs, unchanged apart from module syntax. */
+
+/* ── @paper-design/shaders liquid-metal (Apache-2.0)
+   Paper Shaders, Copyright 2026 Paper — https://shaders.paper.design
+   The one symbol metal-fx imports, resolved from the published
+   package exactly as their own build inlines it. */
+const liquidMetalFragmentShader = "#version 300 es\nprecision mediump float;\n\nuniform sampler2D u_image;\nuniform float u_imageAspectRatio;\n\nuniform vec2 u_resolution;\nuniform float u_time;\n\nuniform vec4 u_colorBack;\nuniform vec4 u_colorTint;\n\nuniform float u_softness;\nuniform float u_repetition;\nuniform float u_shiftRed;\nuniform float u_shiftBlue;\nuniform float u_distortion;\nuniform float u_contour;\nuniform float u_angle;\n\nuniform float u_shape;\nuniform bool u_isImage;\n\nin vec2 v_objectUV;\nin vec2 v_responsiveUV;\nin vec2 v_responsiveBoxGivenSize;\nin vec2 v_imageUV;\n\nout vec4 fragColor;\n\n\n#define TWO_PI 6.28318530718\n#define PI 3.14159265358979323846\n\n\nvec2 rotate(vec2 uv, float th) {\n  return mat2(cos(th), sin(th), -sin(th), cos(th)) * uv;\n}\n\n\nvec3 permute(vec3 x) { return mod(((x * 34.0) + 1.0) * x, 289.0); }\nfloat snoise(vec2 v) {\n  const vec4 C = vec4(0.211324865405187, 0.366025403784439,\n    -0.577350269189626, 0.024390243902439);\n  vec2 i = floor(v + dot(v, C.yy));\n  vec2 x0 = v - i + dot(i, C.xx);\n  vec2 i1;\n  i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);\n  vec4 x12 = x0.xyxy + C.xxzz;\n  x12.xy -= i1;\n  i = mod(i, 289.0);\n  vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))\n    + i.x + vec3(0.0, i1.x, 1.0));\n  vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy),\n      dot(x12.zw, x12.zw)), 0.0);\n  m = m * m;\n  m = m * m;\n  vec3 x = 2.0 * fract(p * C.www) - 1.0;\n  vec3 h = abs(x) - 0.5;\n  vec3 ox = floor(x + 0.5);\n  vec3 a0 = x - ox;\n  m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);\n  vec3 g;\n  g.x = a0.x * x0.x + h.x * x0.y;\n  g.yz = a0.yz * x12.xz + h.yz * x12.yw;\n  return 130.0 * dot(m, g);\n}\n\n\nfloat getColorChanges(float c1, float c2, float stripe_p, vec3 w, float blur, float bump, float tint) {\n\n  float ch = mix(c2, c1, smoothstep(.0, 2. * blur, stripe_p));\n\n  float border = w[0];\n  ch = mix(ch, c2, smoothstep(border, border + 2. * blur, stripe_p));\n\n  if (u_isImage == true) {\n    bump = smoothstep(.2, .8, bump);\n  }\n  border = w[0] + .4 * (1. - bump) * w[1];\n  ch = mix(ch, c1, smoothstep(border, border + 2. * blur, stripe_p));\n\n  border = w[0] + .5 * (1. - bump) * w[1];\n  ch = mix(ch, c2, smoothstep(border, border + 2. * blur, stripe_p));\n\n  border = w[0] + w[1];\n  ch = mix(ch, c1, smoothstep(border, border + 2. * blur, stripe_p));\n\n  float gradient_t = (stripe_p - w[0] - w[1]) / w[2];\n  float gradient = mix(c1, c2, smoothstep(0., 1., gradient_t));\n  ch = mix(ch, gradient, smoothstep(border, border + .5 * blur, stripe_p));\n\n  // Tint color is applied with color burn blending\n  ch = mix(ch, 1. - min(1., (1. - ch) / max(tint, 0.0001)), u_colorTint.a);\n  return ch;\n}\n\nfloat getImgFrame(vec2 uv, float th) {\n  float frame = 1.;\n  frame *= smoothstep(0., th, uv.y);\n  frame *= 1.0 - smoothstep(1. - th, 1., uv.y);\n  frame *= smoothstep(0., th, uv.x);\n  frame *= 1.0 - smoothstep(1. - th, 1., uv.x);\n  return frame;\n}\n\nfloat blurEdge3x3(sampler2D tex, vec2 uv, vec2 dudx, vec2 dudy, float radius, float centerSample) {\n  vec2 texel = 1.0 / vec2(textureSize(tex, 0));\n  vec2 r = radius * texel;\n\n  float w1 = 1.0, w2 = 2.0, w4 = 4.0;\n  float norm = 16.0;\n  float sum = w4 * centerSample;\n\n  sum += w2 * textureGrad(tex, uv + vec2(0.0, -r.y), dudx, dudy).r;\n  sum += w2 * textureGrad(tex, uv + vec2(0.0, r.y), dudx, dudy).r;\n  sum += w2 * textureGrad(tex, uv + vec2(-r.x, 0.0), dudx, dudy).r;\n  sum += w2 * textureGrad(tex, uv + vec2(r.x, 0.0), dudx, dudy).r;\n\n  sum += w1 * textureGrad(tex, uv + vec2(-r.x, -r.y), dudx, dudy).r;\n  sum += w1 * textureGrad(tex, uv + vec2(r.x, -r.y), dudx, dudy).r;\n  sum += w1 * textureGrad(tex, uv + vec2(-r.x, r.y), dudx, dudy).r;\n  sum += w1 * textureGrad(tex, uv + vec2(r.x, r.y), dudx, dudy).r;\n\n  return sum / norm;\n}\n\nfloat lst(float edge0, float edge1, float x) {\n  return clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);\n}\n\nvoid main() {\n\n  const float firstFrameOffset = 2.8;\n  float t = .3 * (u_time + firstFrameOffset);\n\n  vec2 uv = v_imageUV;\n  vec2 dudx = dFdx(v_imageUV);\n  vec2 dudy = dFdy(v_imageUV);\n  vec4 img = textureGrad(u_image, uv, dudx, dudy);\n\n  if (u_isImage == false) {\n    uv = v_objectUV + .5;\n    uv.y = 1. - uv.y;\n  }\n\n  float cycleWidth = u_repetition;\n  float edge = 0.;\n  float contOffset = 1.;\n\n  vec2 rotatedUV = uv - vec2(.5);\n  float angle = (-u_angle + 70.) * PI / 180.;\n  float cosA = cos(angle);\n  float sinA = sin(angle);\n  rotatedUV = vec2(\n  rotatedUV.x * cosA - rotatedUV.y * sinA,\n  rotatedUV.x * sinA + rotatedUV.y * cosA\n  ) + vec2(.5);\n\n  if (u_isImage == true) {\n    float edgeRaw = img.r;\n    edge = blurEdge3x3(u_image, uv, dudx, dudy, 6., edgeRaw);\n    edge = pow(edge, 1.6);\n    edge *= mix(0.0, 1.0, smoothstep(0.0, 0.4, u_contour));\n  } else {\n    if (u_shape < 1.) {\n      // full-fill on canvas\n      vec2 borderUV = v_responsiveUV + .5;\n      float ratio = v_responsiveBoxGivenSize.x / v_responsiveBoxGivenSize.y;\n      vec2 mask = min(borderUV, 1. - borderUV);\n      vec2 pixel_thickness = min(250. / v_responsiveBoxGivenSize, vec2(.5));\n      float maskX = smoothstep(0.0, pixel_thickness.x, mask.x);\n      float maskY = smoothstep(0.0, pixel_thickness.y, mask.y);\n      maskX = pow(maskX, .25);\n      maskY = pow(maskY, .25);\n      edge = clamp(1. - maskX * maskY, 0., 1.);\n\n      uv = v_responsiveUV;\n      if (ratio > 1.) {\n        uv.y /= ratio;\n      } else {\n        uv.x *= ratio;\n      }\n      uv += .5;\n      uv.y = 1. - uv.y;\n\n      cycleWidth *= 2.;\n      contOffset = 1.5;\n\n    } else if (u_shape < 2.) {\n      // circle\n      vec2 shapeUV = uv - .5;\n      shapeUV *= .67;\n      edge = pow(clamp(3. * length(shapeUV), 0., 1.), 18.);\n    } else if (u_shape < 3.) {\n      // daisy\n      vec2 shapeUV = uv - .5;\n      shapeUV *= 1.68;\n\n      float r = length(shapeUV) * 2.;\n      float a = atan(shapeUV.y, shapeUV.x) + .2;\n      r *= (1. + .05 * sin(3. * a + 2. * t));\n      float f = abs(cos(a * 3.));\n      edge = smoothstep(f, f + .7, r);\n      edge *= edge;\n\n      uv *= .8;\n      cycleWidth *= 1.6;\n\n    } else if (u_shape < 4.) {\n      // diamond\n      vec2 shapeUV = uv - .5;\n      shapeUV = rotate(shapeUV, .25 * PI);\n      shapeUV *= 1.42;\n      shapeUV += .5;\n      vec2 mask = min(shapeUV, 1. - shapeUV);\n      vec2 pixel_thickness = vec2(.15);\n      float maskX = smoothstep(0.0, pixel_thickness.x, mask.x);\n      float maskY = smoothstep(0.0, pixel_thickness.y, mask.y);\n      maskX = pow(maskX, .25);\n      maskY = pow(maskY, .25);\n      edge = clamp(1. - maskX * maskY, 0., 1.);\n    } else if (u_shape < 5.) {\n      // metaballs\n      vec2 shapeUV = uv - .5;\n      shapeUV *= 1.3;\n      edge = 0.;\n      for (int i = 0; i < 5; i++) {\n        float fi = float(i);\n        float speed = 1.5 + 2./3. * sin(fi * 12.345);\n        float angle = -fi * 1.5;\n        vec2 dir1 = vec2(cos(angle), sin(angle));\n        vec2 dir2 = vec2(cos(angle + 1.57), sin(angle + 1.));\n        vec2 traj = .4 * (dir1 * sin(t * speed + fi * 1.23) + dir2 * cos(t * (speed * 0.7) + fi * 2.17));\n        float d = length(shapeUV + traj);\n        edge += pow(1.0 - clamp(d, 0.0, 1.0), 4.0);\n      }\n      edge = 1. - smoothstep(.65, .9, edge);\n      edge = pow(edge, 4.);\n    }\n\n    edge = mix(smoothstep(.9 - 2. * fwidth(edge), .9, edge), edge, smoothstep(0.0, 0.4, u_contour));\n\n  }\n\n  float opacity = 0.;\n  if (u_isImage == true) {\n    opacity = img.g;\n    float frame = getImgFrame(v_imageUV, 0.);\n    opacity *= frame;\n  } else {\n    opacity = 1. - smoothstep(.9 - 2. * fwidth(edge), .9, edge);\n    if (u_shape < 2.) {\n      edge = 1.2 * edge;\n    } else if (u_shape < 5.) {\n      edge = 1.8 * pow(edge, 1.5);\n    }\n  }\n\n  float diagBLtoTR = rotatedUV.x - rotatedUV.y;\n  float diagTLtoBR = rotatedUV.x + rotatedUV.y;\n\n  vec3 color = vec3(0.);\n  vec3 color1 = vec3(.98, 0.98, 1.);\n  vec3 color2 = vec3(.1, .1, .1 + .1 * smoothstep(.7, 1.3, diagTLtoBR));\n\n  vec2 grad_uv = uv - .5;\n\n  float dist = length(grad_uv + vec2(0., .2 * diagBLtoTR));\n  grad_uv = rotate(grad_uv, (.25 - .2 * diagBLtoTR) * PI);\n  float direction = grad_uv.x;\n\n  float bump = pow(1.8 * dist, 1.2);\n  bump = 1. - bump;\n  bump *= pow(uv.y, .3);\n\n\n  float thin_strip_1_ratio = .12 / cycleWidth * (1. - .4 * bump);\n  float thin_strip_2_ratio = .07 / cycleWidth * (1. + .4 * bump);\n  float wide_strip_ratio = (1. - thin_strip_1_ratio - thin_strip_2_ratio);\n\n  float thin_strip_1_width = cycleWidth * thin_strip_1_ratio;\n  float thin_strip_2_width = cycleWidth * thin_strip_2_ratio;\n\n  float noise = snoise(uv - t);\n\n  edge += (1. - edge) * u_distortion * noise;\n\n  direction += diagBLtoTR;\n  float contour = 0.;\n  direction -= 2. * noise * diagBLtoTR * (smoothstep(0., 1., edge) * (1.0 - smoothstep(0., 1., edge)));\n  direction *= mix(1., 1. - edge, smoothstep(.5, 1., u_contour));\n  direction -= 1.7 * edge * smoothstep(.5, 1., u_contour);\n  direction += .2 * pow(u_contour, 4.) * (1.0 - smoothstep(0., 1., edge));\n\n  bump *= clamp(pow(uv.y, .1), .3, 1.);\n  direction *= (.1 + (1.1 - edge) * bump);\n\n  direction *= (.4 + .6 * (1.0 - smoothstep(.5, 1., edge)));\n  direction += .18 * (smoothstep(.1, .2, uv.y) * (1.0 - smoothstep(.2, .4, uv.y)));\n  direction += .03 * (smoothstep(.1, .2, 1. - uv.y) * (1.0 - smoothstep(.2, .4, 1. - uv.y)));\n\n  direction *= (.5 + .5 * pow(uv.y, 2.));\n  direction *= cycleWidth;\n  direction -= t;\n\n\n  float colorDispersion = (1. - bump);\n  colorDispersion = clamp(colorDispersion, 0., 1.);\n  float dispersionRed = colorDispersion;\n  dispersionRed += .03 * bump * noise;\n  dispersionRed += 5. * (smoothstep(-.1, .2, uv.y) * (1.0 - smoothstep(.1, .5, uv.y))) * (smoothstep(.4, .6, bump) * (1.0 - smoothstep(.4, 1., bump)));\n  dispersionRed -= diagBLtoTR;\n\n  float dispersionBlue = colorDispersion;\n  dispersionBlue *= 1.3;\n  dispersionBlue += (smoothstep(0., .4, uv.y) * (1.0 - smoothstep(.1, .8, uv.y))) * (smoothstep(.4, .6, bump) * (1.0 - smoothstep(.4, .8, bump)));\n  dispersionBlue -= .2 * edge;\n\n  dispersionRed *= (u_shiftRed / 20.);\n  dispersionBlue *= (u_shiftBlue / 20.);\n\n  float blur = 0.;\n  float rExtraBlur = 0.;\n  float gExtraBlur = 0.;\n  if (u_isImage == true) {\n    float softness = 0.05 * u_softness;\n    blur = softness + .5 * smoothstep(1., 10., u_repetition) * smoothstep(.0, 1., edge);\n    float smallCanvasT = 1.0 - smoothstep(100., 500., min(u_resolution.x, u_resolution.y));\n    blur += smallCanvasT * smoothstep(.0, 1., edge);\n    rExtraBlur = softness * (0.05 + .1 * (u_shiftRed / 20.) * bump);\n    gExtraBlur = softness * 0.05 / max(0.001, abs(1. - diagBLtoTR));\n  } else {\n    blur = u_softness / 15. + .3 * contour;\n  }\n\n  vec3 w = vec3(thin_strip_1_width, thin_strip_2_width, wide_strip_ratio);\n  w[1] -= .02 * smoothstep(.0, 1., edge + bump);\n  float stripe_r = fract(direction + dispersionRed);\n  float r = getColorChanges(color1.r, color2.r, stripe_r, w, blur + fwidth(stripe_r) + rExtraBlur, bump, u_colorTint.r);\n  float stripe_g = fract(direction);\n  float g = getColorChanges(color1.g, color2.g, stripe_g, w, blur + fwidth(stripe_g) + gExtraBlur, bump, u_colorTint.g);\n  float stripe_b = fract(direction - dispersionBlue);\n  float b = getColorChanges(color1.b, color2.b, stripe_b, w, blur + fwidth(stripe_b), bump, u_colorTint.b);\n\n  color = vec3(r, g, b);\n  color *= opacity;\n\n  vec3 bgColor = u_colorBack.rgb * u_colorBack.a;\n  color = color + bgColor * (1. - opacity);\n  opacity = opacity + u_colorBack.a * (1. - opacity);\n\n  \n  color += 1. / 256. * (fract(sin(dot(.014 * gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453123) - .5);\n\n\n  fragColor = vec4(color, opacity);\n}\n";
+
+/* ── engine/bend/config.ts ─────────────────────────────── */
+/**
+ * Live config for the cursor "bend" effect — a local liquid dent.
+ *
+ * The cursor carries a blob of displacement that rides the ring: moving
+ * toward the button's centre dents the edge inward, moving away drags it
+ * outward, and on release the bulge springs back. Implemented as an SVG
+ * `feDisplacementMap` over the whole MetalFx root (button, ring, glow), with
+ * the vector field regenerated each frame into a small canvas.
+ *
+ * Mutable singleton, read every frame by `useBend`.
+ */
+                             
+                   
+                                                                           
+                                                    
+                          
+                                                                     
+                   
+                                                                          
+                                                                          
+                   
+                                                                     
+                    
+                                                                            
+                                                                            
+                                                                              
+                   
+                                                                            
+                
+                                                           
+               
+                                                                             
+                     
+                                                                  
+                  
+                                                                         
+                                        
+               
+                                                                            
+                                                                       
+                    
+                                                                           
+                                                                                 
+                   
+                                                                     
+                
+                                                                           
+                                                                           
+                                                                            
+                                                                           
+                 
+                                                                           
+                                                                        
+                                                                               
+                      
+                                                                   
+                          
+                                                                          
+                        
+                                                             
+                    
+                                                          
+                  
+               
+                                                                        
+                                                                          
+                                                              
+                 
+                                                                            
+                                                                             
+                 
+                                                                            
+                                                                             
+                                                   
+                 
+ 
+
+const BEND_DEFAULTS                       = Object.freeze({
+  enabled: true,
+  applyTo: 'ring',
+  strength: 0.74,
+  fadeInMs: 200,
+  fadeOutMs: 350,
+  smoothMs: 140,
+  reach: 36,
+  blob: 13,
+  liquidBlob: 10,
+  maxDisp: 9,
+  gain: 0.6,
+  pressGain: 0.55,
+  pullGain: 0.49,
+  press: 5,
+  liquid: 7.5,
+  liquidReach: 8,
+  liquidStiffness: 53,
+  liquidDamping: 9,
+  stiffness: 260,
+  damping: 13,
+  mass: 1,
+  follow: 0.32,
+  mapRes: 2,
+  smooth: 0.25,
+});
+
+const BEND             = { ...BEND_DEFAULTS };
+
+function setBendConfig(patch                     )       {
+  Object.assign(BEND, patch);
+}
+
+function resetBendConfig()       {
+  Object.assign(BEND, BEND_DEFAULTS);
+}
+
+
+/* ── engine/color.ts ─────────────────────────────── */
+/** Converts `#rrggbb` (or `#rgb`) to a normalized `[r, g, b]` triple (0–1). */
+function hexToRgb(hex        )                           {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+}
+
+/**
+ * Converts `#rgb` / `#rgba` / `#rrggbb` / `#rrggbbaa` to a normalized
+ * `[r, g, b, a]` quad (0–1). Alpha defaults to 1 when the hex omits it.
+ *
+ * Paper's shader takes colors as `vec4`, and for `u_colorTint` the alpha is a
+ * blend *amount* (how much colour-burn to apply), not an opacity — so the
+ * 8-digit form is the normal way to write a tint here, not an edge case.
+ */
+function hexToRgba(hex        )                                   {
+  let h = hex.replace('#', '');
+  if (h.length === 3 || h.length === 4) h = h.split('').map((c) => c + c).join('');
+  const a = h.length >= 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+  return [
+    parseInt(h.slice(0, 2), 16) / 255,
+    parseInt(h.slice(2, 4), 16) / 255,
+    parseInt(h.slice(4, 6), 16) / 255,
+    a,
+  ];
+}
+
+function rgbToHsv(r        , g        , b        )                           {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  const s = max === 0 ? 0 : d / max;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d + 6) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6;
+  }
+  return [h, s, max];
+}
+
+function hsvToRgb(h        , s        , v        )                           {
+  const i = Math.floor(h * 6), f = h * 6 - i;
+  const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
+  let r = 0, g = 0, b = 0;
+  switch (i % 6) {
+    case 0: r = v; g = t; b = p; break; case 1: r = q; g = v; b = p; break;
+    case 2: r = p; g = v; b = t; break; case 3: r = p; g = q; b = v; break;
+    case 4: r = t; g = p; b = v; break; case 5: r = v; g = p; b = q; break;
+  }
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+
+/* ── engine/perfConfig.ts ─────────────────────────────── */
+// ─── Frame rates ──────────────────────────────────────────────────────────
+
+// Main render loop: shader + canvas compositing. 66ms ≈ 15fps.
+const FRAME_INTERVAL_MS = 66;
+
+// Reflection repaint throttle. Matches main loop; CSS blur hides stepping.
+const REFLECTION_INTERVAL_MS = 66;
+
+// ─── Glow ─────────────────────────────────────────────────────────────────
+
+// gl.readPixels interval for luminance sampling. GPU→CPU sync is expensive.
+const GLOW_READBACK_INTERVAL_MS = 1500;
+
+// Only run the glow callback every Nth rendered frame. Each update triggers
+// Chrome to re-rasterize + re-blur 6 SVG paths through 2 masks.
+const GLOW_SKIP_FRAMES = 1;
+
+// Points sampled around the perimeter to find the brightest hotspot.
+const PERIM_SAMPLES = 16;
+
+// SVG path segment counts. Lower = shorter d-strings = less SVG parse work.
+// Blur filters smooth out any polygon faceting.
+const HALO_SEGMENTS = 16;
+const EXTRA_SEGMENTS = 8;
+
+// ─── GL canvas ────────────────────────────────────────────────────────────
+
+// Base pixel size of the offscreen GL canvas (before DPR scaling).
+// The plasma is inherently blurry — higher values waste fragment work.
+const CANONICAL_GL_SIZE = 96;
+
+// Cap devicePixelRatio for the GL canvas. 3x retina is wasted on soft plasma.
+const GL_DPR_CAP = 2;
+
+
+/* ── engine/presets.ts ─────────────────────────────── */
+/**
+ * Bundled preset configurations for the metal effect.
+ *
+ * These sit on top of Paper Shaders' `liquidMetal`, so the parameter set is
+ * Paper's, not the old plasma engine's. Baseline values come from Paper's own
+ * `fullScreenPreset` ("Backdrop") — the `shape: 'none'` variant, which fills
+ * the frame with the material instead of masking it to a circle/daisy/diamond.
+ * That's the mode we want: metal-fx carves the ring itself on the 2D canvas
+ * (`punchInnerHole`), so the shader should hand us a full sheet of metal.
+ *
+ * A note on color, because it is the big behavioural change from the plasma
+ * engine: Paper hardcodes the stripe endpoints inside the shader to
+ * near-white (.98,.98,1.) and near-black (.1,.1,.1). There is no palette to
+ * feed. All three presets therefore render the *same* silver material and
+ * differ only in `colorTint`, which the shader applies as a colour-burn pass
+ * weighted by the tint's alpha. `chromatic` is consequently an approximation
+ * — the old 5-stop rainbow is not reproducible here.
+ *
+ * `colorBack` is composited *under* the material at its own alpha. Keep it
+ * fully transparent for ring use, otherwise the punched-out centre fills in.
+ *
+ * `speed` is applied JS-side to `u_time` before upload (cheaper than a
+ * uniform, and it matches how Paper's own mount drives time).
+ */
+
+                                                         
+                                           
+
+/** Paper's `LiquidMetalShapes`. Only `none` fills the frame. */
+const SHAPE_NONE = 0;
+const SHAPE_CIRCLE = 1;
+const SHAPE_DAISY = 2;
+const SHAPE_DIAMOND = 3;
+const SHAPE_METABALLS = 4;
+
+/** Paper's `ShaderFitOptions`. */
+const FIT_NONE = 0;
+const FIT_CONTAIN = 1;
+const FIT_COVER = 2;
+
+                             
+                                                                               
+                    
+                                                                              
+                                                     
+                    
+                                                                     
+                
+                                
+                     
+                                                      
+                   
+                                      
+                   
+                                      
+                    
+                                                         
+                     
+                                                                
+                  
+                                                     
+                
+                                                                                
+                
+                                
+                
+                                              
+                   
+                                       
+                  
+                  
+                                                              
+                  
+                  
+                                                                   
+                     
+                      
+                                            
+              
+                                                                            
+                                                                             
+                                                                         
+                        
+ 
+
+                         
+                   
+                                         
+ 
+
+/** Paper `fullScreenPreset` values, minus the opaque `#AAAAAC` backdrop. */
+const BASE                                                  = {
+  colorBack: '#00000000',
+  speed: 1,
+  repetition: 1.5,
+  softness: 0.05,
+  shiftRed: 0.3,
+  shiftBlue: 0.3,
+  distortion: 0.1,
+  contour: 0.4,
+  angle: 90,
+  shape: SHAPE_NONE,
+  scale: 1,
+  rotation: 0,
+  offsetX: 0,
+  offsetY: 0,
+  originX: 0.5,
+  originY: 0.5,
+  worldWidth: 0,
+  worldHeight: 0,
+  fit: FIT_CONTAIN,
+};
+
+const CHROMATIC         = {
+  name: 'chromatic',
+  modes: {
+    // Cool blue burn with the dispersion pushed well past Paper's default —
+    // the R/B channel split is the only knob that produces colour separation
+    // in this shader, so it carries what the 5-stop palette used to do.
+    dark: { ...BASE, colorTint: '#88ccff2e', shiftRed: 0.75, shiftBlue: 0.75, repetition: 2, softness: 0.09, shaderOpacity: 1 },
+    light: { ...BASE, colorTint: '#66b0ff99', shiftRed: 0.6, shiftBlue: 0.6, shaderOpacity: 1 },
+  },
+};
+
+const SILVER         = {
+  name: 'silver',
+  modes: {
+    // White tint at low amount = Paper's material essentially untouched.
+    dark: { ...BASE, colorTint: '#ffffff66', shaderOpacity: 0.88 },
+    light: { ...BASE, colorTint: '#ffffff40', shaderOpacity: 1 },
+  },
+};
+
+const GOLD         = {
+  name: 'gold',
+  modes: {
+    dark: { ...BASE, colorTint: '#ffcc55cc', speed: 0.85, shaderOpacity: 0.92 },
+    light: { ...BASE, colorTint: '#f7d488aa', shaderOpacity: 1 },
+  },
+};
+
+const PRESETS                             = {
+  chromatic: CHROMATIC,
+  silver: SILVER,
+  gold: GOLD,
+};
+
+
+
+
+/* ── engine/shaders.ts ─────────────────────────────── */
+/**
+ * Vertex + fragment shader for the metal-fx effect.
+ *
+ * Source-of-truth: Paper Shaders' `liquidMetal`, consumed unmodified from
+ * `@paper-design/shaders` so the material stays byte-identical to what the
+ * Paper editor previews and updates come in via npm.
+ *
+ * Paper's shaders are GLSL ES 3.00 / WebGL2 (`#version 300 es`, `out vec4
+ * fragColor`), which is why the shared renderer asks for a `webgl2` context.
+ * The fragment stage reads varyings (`v_objectUV`, `v_responsiveUV`,
+ * `v_responsiveBoxGivenSize`, `v_imageUV`) produced by Paper's own vertex
+ * shader, so the pair has to travel together — a bare full-screen-quad vertex
+ * stage will link but render nothing.
+ *
+ * The vertex source is vendored below rather than imported: `@paper-design/
+ * shaders` exposes it only through `ShaderMount`, which owns its own canvas
+ * and RAF loop and would bypass this library's shared-renderer architecture
+ * (one GL context feeding every instance). Copied verbatim from
+ * paper-design/shaders `packages/shaders/src/vertex-shader.ts` @ 0.0.80,
+ * Apache-2.0 — see NOTICE.
+ *
+ * IMPORTANT: `#version` must be the first characters of the source string.
+ * Neither template literal below may start with a newline.
+ *
+ * Fragment uniforms (Paper's liquidMetal):
+ *   u_resolution      vec2  — destination pixel buffer (DPR-scaled)
+ *   u_time            float — seconds since boot, JS-side multiplied by speed
+ *   u_pixelRatio      float — device pixel ratio the buffer was sized at
+ *   u_colorBack       vec4  — backdrop RGBA, composited under the material
+ *   u_colorTint       vec4  — tint RGBA, applied as color-burn (a = amount)
+ *   u_repetition      float — stripe density (1..10)
+ *   u_softness        float — stripe transition blur (0..1)
+ *   u_shiftRed        float — R-channel dispersion (-1..1)
+ *   u_shiftBlue       float — B-channel dispersion (-1..1)
+ *   u_distortion      float — simplex-noise warp over the stripes (0..1)
+ *   u_contour         float — edge-following strength (0..1)
+ *   u_angle           float — pattern drift direction, degrees (0..360)
+ *   u_shape           float — 0 none / 1 circle / 2 daisy / 3 diamond / 4 metaballs
+ *   u_isImage         bool  — image-mask mode; always false here
+ *   u_image           sampler2D — unused at u_isImage=false, 1×1 dummy bound
+ *
+ * Sizing uniforms consumed by the vertex stage: u_originX, u_originY,
+ * u_worldWidth, u_worldHeight, u_fit, u_scale, u_rotation, u_offsetX,
+ * u_offsetY, u_imageAspectRatio.
+ *
+ * Note the material itself is fixed: Paper hardcodes the stripe endpoints to
+ * near-white and near-black, so all color comes from u_colorTint (burn) and
+ * u_colorBack. There is no multi-stop palette to drive.
+ */
+
+
+/** Paper's sizing vertex stage. Vendored verbatim — see file header. */
+const VERT_SHADER_SRC = /* glsl */ `#version 300 es
+precision mediump float;
+
+layout(location = 0) in vec4 a_position;
+
+uniform vec2 u_resolution;
+uniform float u_pixelRatio;
+uniform float u_imageAspectRatio;
+uniform float u_originX;
+uniform float u_originY;
+uniform float u_worldWidth;
+uniform float u_worldHeight;
+uniform float u_fit;
+uniform float u_scale;
+uniform float u_rotation;
+uniform float u_offsetX;
+uniform float u_offsetY;
+
+out vec2 v_objectUV;
+out vec2 v_objectBoxSize;
+out vec2 v_responsiveUV;
+out vec2 v_responsiveBoxGivenSize;
+out vec2 v_patternUV;
+out vec2 v_patternBoxSize;
+out vec2 v_imageUV;
+
+vec3 getBoxSize(float boxRatio, vec2 givenBoxSize) {
+  vec2 box = vec2(0.);
+  // fit = none
+  box.x = boxRatio * min(givenBoxSize.x / boxRatio, givenBoxSize.y);
+  float noFitBoxWidth = box.x;
+  if (u_fit == 1.) { // fit = contain
+    box.x = boxRatio * min(u_resolution.x / boxRatio, u_resolution.y);
+  } else if (u_fit == 2.) { // fit = cover
+    box.x = boxRatio * max(u_resolution.x / boxRatio, u_resolution.y);
+  }
+  box.y = box.x / boxRatio;
+  return vec3(box, noFitBoxWidth);
+}
+
+void main() {
+  gl_Position = a_position;
+
+  vec2 uv = gl_Position.xy * .5;
+  vec2 boxOrigin = vec2(.5 - u_originX, u_originY - .5);
+  vec2 givenBoxSize = vec2(u_worldWidth, u_worldHeight);
+  givenBoxSize = max(givenBoxSize, vec2(1.)) * u_pixelRatio;
+  float r = u_rotation * 3.14159265358979323846 / 180.;
+  mat2 graphicRotation = mat2(cos(r), sin(r), -sin(r), cos(r));
+  vec2 graphicOffset = vec2(-u_offsetX, u_offsetY);
+
+
+  // ===================================================
+
+  float fixedRatio = 1.;
+  vec2 fixedRatioBoxGivenSize = vec2(
+  (u_worldWidth == 0.) ? u_resolution.x : givenBoxSize.x,
+  (u_worldHeight == 0.) ? u_resolution.y : givenBoxSize.y
+  );
+
+  v_objectBoxSize = getBoxSize(fixedRatio, fixedRatioBoxGivenSize).xy;
+  vec2 objectWorldScale = u_resolution.xy / v_objectBoxSize;
+
+  v_objectUV = uv;
+  v_objectUV *= objectWorldScale;
+  v_objectUV += boxOrigin * (objectWorldScale - 1.);
+  v_objectUV += graphicOffset;
+  v_objectUV /= u_scale;
+  v_objectUV = graphicRotation * v_objectUV;
+
+  // ===================================================
+
+  v_responsiveBoxGivenSize = vec2(
+  (u_worldWidth == 0.) ? u_resolution.x : givenBoxSize.x,
+  (u_worldHeight == 0.) ? u_resolution.y : givenBoxSize.y
+  );
+  float responsiveRatio = v_responsiveBoxGivenSize.x / v_responsiveBoxGivenSize.y;
+  vec2 responsiveBoxSize = getBoxSize(responsiveRatio, v_responsiveBoxGivenSize).xy;
+  vec2 responsiveBoxScale = u_resolution.xy / responsiveBoxSize;
+
+  v_responsiveUV = uv;
+  v_responsiveUV *= responsiveBoxScale;
+  v_responsiveUV += boxOrigin * (responsiveBoxScale - 1.);
+  v_responsiveUV += graphicOffset;
+  v_responsiveUV /= u_scale;
+  v_responsiveUV.x *= responsiveRatio;
+  v_responsiveUV = graphicRotation * v_responsiveUV;
+  v_responsiveUV.x /= responsiveRatio;
+
+  // ===================================================
+
+  float patternBoxRatio = givenBoxSize.x / givenBoxSize.y;
+  vec2 patternBoxGivenSize = vec2(
+  (u_worldWidth == 0.) ? u_resolution.x : givenBoxSize.x,
+  (u_worldHeight == 0.) ? u_resolution.y : givenBoxSize.y
+  );
+  patternBoxRatio = patternBoxGivenSize.x / patternBoxGivenSize.y;
+
+  vec3 boxSizeData = getBoxSize(patternBoxRatio, patternBoxGivenSize);
+  v_patternBoxSize = boxSizeData.xy;
+  float patternBoxNoFitBoxWidth = boxSizeData.z;
+  vec2 patternBoxScale = u_resolution.xy / v_patternBoxSize;
+
+  v_patternUV = uv;
+  v_patternUV += graphicOffset / patternBoxScale;
+  v_patternUV += boxOrigin;
+  v_patternUV -= boxOrigin / patternBoxScale;
+  v_patternUV *= u_resolution.xy;
+  v_patternUV /= u_pixelRatio;
+  if (u_fit > 0.) {
+    v_patternUV *= (patternBoxNoFitBoxWidth / v_patternBoxSize.x);
+  }
+  v_patternUV /= u_scale;
+  v_patternUV = graphicRotation * v_patternUV;
+  v_patternUV += boxOrigin / patternBoxScale;
+  v_patternUV -= boxOrigin;
+  // x100 is a default multiplier between vertex and fragmant shaders
+  // we use it to avoid UV presision issues
+  v_patternUV *= .01;
+
+  // ===================================================
+
+  vec2 imageBoxSize;
+  if (u_fit == 1.) { // contain
+    imageBoxSize.x = min(u_resolution.x / u_imageAspectRatio, u_resolution.y) * u_imageAspectRatio;
+  } else if (u_fit == 2.) { // cover
+    imageBoxSize.x = max(u_resolution.x / u_imageAspectRatio, u_resolution.y) * u_imageAspectRatio;
+  } else {
+    imageBoxSize.x = min(10.0, 10.0 / u_imageAspectRatio * u_imageAspectRatio);
+  }
+  imageBoxSize.y = imageBoxSize.x / u_imageAspectRatio;
+  vec2 imageBoxScale = u_resolution.xy / imageBoxSize;
+
+  v_imageUV = uv;
+  v_imageUV *= imageBoxScale;
+  v_imageUV += boxOrigin * (imageBoxScale - 1.);
+  v_imageUV += graphicOffset;
+  v_imageUV /= u_scale;
+  v_imageUV.x *= u_imageAspectRatio;
+  v_imageUV = graphicRotation * v_imageUV;
+  v_imageUV.x /= u_imageAspectRatio;
+
+  v_imageUV += .5;
+  v_imageUV.y = 1. - v_imageUV.y;
+}`;
+
+/** Paper's liquidMetal fragment stage, unmodified. */
+const FRAG_SHADER_SRC         = liquidMetalFragmentShader;
+
+/** Compile a single shader stage. Throws with the GL info log on failure. */
+function compileShader(
+  gl                        ,
+  type        ,
+  source        
+)              {
+  const shader = gl.createShader(type);
+  if (!shader) throw new Error('metal-fx: gl.createShader returned null');
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const info = gl.getShaderInfoLog(shader);
+    gl.deleteShader(shader);
+    throw new Error(`metal-fx: shader compile failed: ${info ?? '(no info log)'}`);
+  }
+  return shader;
+}
+
+/** Link a vertex + fragment shader pair into a complete program. */
+function linkProgram(
+  gl                        ,
+  vert             ,
+  frag             
+)               {
+  const program = gl.createProgram();
+  if (!program) throw new Error('metal-fx: gl.createProgram returned null');
+  gl.attachShader(program, vert);
+  gl.attachShader(program, frag);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const info = gl.getProgramInfoLog(program);
+    gl.deleteProgram(program);
+    throw new Error(`metal-fx: program link failed: ${info ?? '(no info log)'}`);
+  }
+  return program;
+}
+
+
+/* ── engine/renderer/core.ts ─────────────────────────────── */
+/**
+ * Shared WebGL renderer — one offscreen GL canvas drives all MetalFx instances.
+ *
+ * Architecture:
+ *   1. A single offscreen GL canvas renders the plasma shader.
+ *   2. Each instance owns a visible 2D canvas that receives a cropped/scaled
+ *      copy of the GL output with an inner "hole punch" mask (ring effect).
+ *   3. Glow sampling reads from a shared pixel buffer (gl.readPixels) that is
+ *      refreshed at most every 200ms to avoid GPU pipeline flushes on every frame.
+ *   4. The animation loop is capped at ~30fps — the blur + slow plasma motion
+ *      makes higher rates imperceptible.
+ */
+
+
+
+const CANONICAL_PILL_W = 140;
+const CANONICAL_PILL_H = 40;
+const PILL_SHADER_SCALE = 1.6;
+const CIRCLE_SHADER_SCALE = 1.3;
+
+                                                              
+
+/**
+ * Vector deformation hook. Maps a point in the instance's CSS-px box (origin
+ * top-left, before any overscan) to its displaced position, writing into
+ * `out`. When an instance carries one, the ring mask is built from displaced
+ * rounded-rect outlines instead of `roundRect`, so stretch stays anti-aliased
+ * at any magnitude — unlike a pixel displacement filter.
+ */
+                                                                                     
+
+/**
+ * Extra layers drawn into the canvas while deforming — things that live on
+ * CSS boxes (root background, `::after` rim, `.metal-fx-inner` hairline) and
+ * therefore can't follow a vector deformation on their own.
+ */
+                               
+                                                                    
+                       
+                                                                             
+                                                               
+                                                               
+                                                                       
+                                                                    
+ 
+
+/**
+ * Custom alpha mask. Paints opaque shapes in *device* px onto a context whose
+ * origin is the instance's box top-left; the engine keeps the shader only
+ * where the mask painted (`destination-in`). Replaces the ring punch — use it
+ * for metal-filled text or glyphs.
+ */
+                                                                                                
+
+                                  
+                            
+                                
+                   
+                    
+                       
+                          
+                    
+                      
+                     
+                                                                             
+                                                                    
+                   
+                   
+                                                                            
+                                                                            
+                  
+                  
+                                                                         
+                                                                             
+                                                               
+                      
+              
+                                                                       
+                                                                            
+                                                                              
+                
+                            
+                                                                             
+                                                            
+                           
+                                                                        
+                                                          
+                           
+                                                                              
+                      
+                                                                           
+                                                                        
+                                                                        
+                                      
+                   
+                                                        
+                          
+                                    
+                                                                          
+                                                          
+                   
+                                                                            
+                                                                             
+                                                                             
+                                                          
+                                                                           
+                                                                            
+                                                    
+                    
+ 
+
+                                 
+                                                
+                             
+                        
+                      
+                                                        
+                                                                 
+                                    
+                     
+                       
+                       
+                        
+                                  
+                  
+                   
+                            
+                
+              
+                                  
+                     
+                               
+                  
+                   
+                         
+                      
+                      
+ 
+
+let SHARED                        = null;
+
+let _supported                 = null;
+/**
+ * Whether this browser can run the engine (WebGL2). Cached after the first
+ * call. Consumers get this for free through `<MetalFx>`, which renders its
+ * children plain when unsupported instead of throwing.
+ */
+function isMetalFxSupported()          {
+  if (_supported !== null) return _supported;
+  if (typeof document === 'undefined') return (_supported = false);
+  try {
+    const c = document.createElement('canvas');
+    const gl = c.getContext('webgl2')                                 ;
+    _supported = !!gl;
+    gl?.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch {
+    _supported = false;
+  }
+  return _supported;
+}
+
+// Called by ensureSharedRenderer on first init and by the contextrestored
+// listener to rebuild GL state after the browser reclaims the context.
+let _onContextRestored                      = null;
+function setContextRestoredCallback(cb                     )       {
+  _onContextRestored = cb;
+}
+
+const UNIFORM_NAMES = [
+  // Fragment stage (Paper liquidMetal)
+  'u_resolution', 'u_time', 'u_pixelRatio',
+  'u_colorBack', 'u_colorTint',
+  'u_repetition', 'u_softness', 'u_shiftRed', 'u_shiftBlue',
+  'u_distortion', 'u_contour', 'u_angle', 'u_shape', 'u_isImage', 'u_image',
+  // Vertex stage (Paper sizing)
+  'u_originX', 'u_originY', 'u_worldWidth', 'u_worldHeight',
+  'u_fit', 'u_scale', 'u_rotation', 'u_offsetX', 'u_offsetY',
+  'u_imageAspectRatio',
+];
+
+/**
+ * Paper's shader writes premultiplied color (`color *= opacity` before the
+ * backdrop composite), so the blend func has to be ONE / 1-SRC_ALPHA. Pairing
+ * premultiplied output with the classic SRC_ALPHA factor double-darkens every
+ * partially-transparent pixel — which on a 1px ring is the whole thing.
+ */
+function buildGLPipeline(gl                        )   
+                        
+                      
+                                                        
+                                    
+  {
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+  const vert = compileShader(gl, gl.VERTEX_SHADER, VERT_SHADER_SRC);
+  const frag = compileShader(gl, gl.FRAGMENT_SHADER, FRAG_SHADER_SRC);
+  const program = linkProgram(gl, vert, frag);
+  // biome-ignore lint/correctness/useHookAtTopLevel: WebGL method, not a React hook
+  gl.useProgram(program);
+
+  const buffer = gl.createBuffer();
+  if (!buffer) throw new Error('metal-fx: gl.createBuffer returned null');
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+  const posLoc = gl.getAttribLocation(program, 'a_position');
+  gl.enableVertexAttribArray(posLoc);
+  // Paper declares `a_position` as vec4; feeding 2 floats leaves z=0, w=1,
+  // which is exactly the full-screen quad the shader expects.
+  gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+  const uniforms                                              = {};
+  for (const n of UNIFORM_NAMES) uniforms[n] = gl.getUniformLocation(program, n);
+
+  // `u_image` is dead at u_isImage=false, but an unbound sampler2D is
+  // undefined behaviour and renders black on some drivers. Bind 1×1 opaque
+  // black to texture unit 0 and leave it there for the life of the program.
+  const dummyTexture = gl.createTexture();
+  if (dummyTexture) {
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, dummyTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 0, 255])
+    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    if (uniforms.u_image) gl.uniform1i(uniforms.u_image, 0);
+  }
+
+  return { program, buffer, uniforms, dummyTexture };
+}
+
+function ensureSharedRenderer()                 {
+  if (SHARED) return SHARED;
+
+  const dpr = Math.min(GL_DPR_CAP, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+  const size = Math.round(CANONICAL_GL_SIZE * dpr);
+  const useOffscreen = typeof OffscreenCanvas !== 'undefined';
+
+  let glCanvas                                     ;
+  let gl                               ;
+
+  // WebGL2 is required, not preferred: Paper's shaders are `#version 300 es`
+  // and use textureSize/fwidth/textureGrad. There is no WebGL1 fallback path.
+  if (useOffscreen) {
+    glCanvas = new OffscreenCanvas(size, size);
+    gl = glCanvas.getContext('webgl2', {
+      alpha: true, premultipliedAlpha: true, antialias: false,
+    })                                 ;
+  } else {
+    const htmlCanvas = document.createElement('canvas');
+    htmlCanvas.width = size;
+    htmlCanvas.height = size;
+    gl = htmlCanvas.getContext('webgl2', {
+      alpha: true, premultipliedAlpha: true, antialias: false, preserveDrawingBuffer: true,
+    })                                 ;
+    glCanvas = htmlCanvas;
+  }
+  if (!gl) throw new Error('metal-fx: WebGL2 not supported');
+
+  const { program, buffer, uniforms, dummyTexture } = buildGLPipeline(gl);
+
+  const onContextLost = (e       ) => { e.preventDefault(); if (SHARED) SHARED.contextLost = true; };
+  const onContextRestored = () => {
+    if (!SHARED) return;
+    const rebuilt = buildGLPipeline(SHARED.gl);
+    SHARED.program = rebuilt.program;
+    SHARED.buffer = rebuilt.buffer;
+    SHARED.uniforms = rebuilt.uniforms;
+    SHARED.dummyTexture = rebuilt.dummyTexture;
+    SHARED.presetDirty = true;
+    SHARED.contextLost = false;
+    _onContextRestored?.();
+  };
+  glCanvas.addEventListener('webglcontextlost', onContextLost                 , false);
+  glCanvas.addEventListener('webglcontextrestored', onContextRestored                 , false);
+
+  SHARED = {
+    glCanvas, gl, program, buffer, uniforms, dummyTexture,
+    preset: PRESETS.chromatic.modes.dark, presetDirty: true,
+    contextLost: false, useOffscreen, frameBitmap: null,
+    startMs: performance.now(), pausedMs: 0, pausedAtMs: null,
+    rafId: 0, dpr, instances: new Set(), frameCount: 0,
+    glowQueue: [], glowIdx: 0, glowSkip: 0,
+    glowPixels: new Uint8Array(size * size * 4),
+    glowPixelsW: size, glowPixelsH: size,
+  };
+  return SHARED;
+}
+
+function teardownSharedRenderer()       {
+  if (!SHARED) return;
+  const { gl, program, buffer, frameBitmap, dummyTexture } = SHARED;
+  try {
+    frameBitmap?.close();
+    gl.deleteBuffer(buffer);
+    gl.deleteProgram(program);
+    if (dummyTexture) gl.deleteTexture(dummyTexture);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+  } catch { /* swallow */ }
+  SHARED = null;
+}
+
+
+/* ── engine/renderer/outline.ts ─────────────────────────────── */
+/**
+ * Rounded-rect outline sampling shared by the canvas ring mask and the glow's
+ * SVG mask, so both see the *same* deformed shape.
+ *
+ * Points go into a reusable flat `Float32Array` (x0,y0,x1,y1,…) — a bend
+ * traces 6–8 outlines per frame at display rate, and allocating ~150 point
+ * objects per outline was measurable GC churn.
+ */
+                                       
+
+                                                           
+
+const ARC_N = 14;
+const EDGE_STEP = 1.5;
+const _o = { x: 0, y: 0 };
+
+function createOutlineBuf(capacity = 512)             {
+  return { xy: new Float32Array(capacity * 2), n: 0 };
+}
+
+/**
+ * Sample a rounded rect clockwise from the end of the top-left corner. Edges
+ * every ~1.5 CSS px, 14 points per corner arc — dense enough that a gaussian
+ * dent a few px wide stays smooth. `deform` (optional) displaces each point.
+ */
+function roundRectOutline(
+  x        , y        , w        , h        , r        ,
+  deform                 ,
+  buf             = createOutlineBuf()
+)             {
+  r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  // Upper bound on point count: 4 arcs + 4 edges.
+  const need = 4 * (ARC_N + 1) + Math.ceil((2 * (w + h)) / EDGE_STEP) + 8;
+  if (buf.xy.length < need * 2) buf.xy = new Float32Array(need * 2);
+  const xy = buf.xy;
+  let n = 0;
+  const push = (px        , py        ) => {
+    if (deform) { deform(px, py, _o); xy[n * 2] = _o.x; xy[n * 2 + 1] = _o.y; }
+    else { xy[n * 2] = px; xy[n * 2 + 1] = py; }
+    n++;
+  };
+  const edge = (x0        , y0        , x1        , y1        ) => {
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    const k = Math.max(1, Math.ceil(len / EDGE_STEP));
+    for (let i = 0; i < k; i++) { const t = i / k; push(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t); }
+  };
+  const arc = (cx        , cy        , a0        , a1        ) => {
+    for (let i = 0; i <= ARC_N; i++) {
+      const a = a0 + (a1 - a0) * (i / ARC_N);
+      push(cx + r * Math.cos(a), cy + r * Math.sin(a));
+    }
+  };
+  edge(x + r, y, x + w - r, y);
+  arc(x + w - r, y + r, -Math.PI / 2, 0);
+  edge(x + w, y + r, x + w, y + h - r);
+  arc(x + w - r, y + h - r, 0, Math.PI / 2);
+  edge(x + w - r, y + h, x + r, y + h);
+  arc(x + r, y + h - r, Math.PI / 2, Math.PI);
+  edge(x, y + h - r, x, y + r);
+  arc(x + r, y + r, Math.PI, 1.5 * Math.PI);
+  buf.n = n;
+  return buf;
+}
+
+/** SVG path data for an outline (closed). */
+function outlinePathD(buf            )         {
+  const { xy, n } = buf;
+  if (n === 0) return '';
+  let d = `M${xy[0].toFixed(2)} ${xy[1].toFixed(2)}`;
+  for (let i = 1; i < n; i++) d += `L${xy[i * 2].toFixed(2)} ${xy[i * 2 + 1].toFixed(2)}`;
+  return d + 'Z';
+}
+
+
+/* ── engine/renderer/sampling.ts ─────────────────────────────── */
+/**
+ * Pixel readback and luminance/colour sampling from the shared GL canvas.
+ *
+ * All glow luminance/color sampling reads from a shared pixel buffer
+ * (SHARED.glowPixels). The buffer is refreshed via gl.readPixels at most
+ * every GLOW_READBACK_INTERVAL_MS to avoid the expensive GPU→CPU pipeline
+ * flush on every frame. The plasma shader evolves slowly so 200ms-stale
+ * data is visually indistinguishable.
+ */
+
+
+let _lastReadbackMs = 0;
+
+function ensureGlowPixels()       {
+  if (!SHARED) return;
+  const now = performance.now();
+  if (now - _lastReadbackMs < GLOW_READBACK_INTERVAL_MS) return;
+  _lastReadbackMs = now;
+  const { gl, glCanvas } = SHARED;
+  const cw = glCanvas.width, ch = glCanvas.height;
+  if (SHARED.glowPixelsW !== cw || SHARED.glowPixelsH !== ch) {
+    SHARED.glowPixelsW = cw;
+    SHARED.glowPixelsH = ch;
+    SHARED.glowPixels = new Uint8Array(cw * ch * 4);
+  }
+  gl.readPixels(0, 0, cw, ch, gl.RGBA, gl.UNSIGNED_BYTE, SHARED.glowPixels);
+}
+
+/**
+ * Map per-instance CSS-px glow coordinates to the shared GL pixel buffer.
+ *
+ * The GL canvas is shared across all instances. Each instance "sees" a
+ * different crop of it (computed identically to copyShaderToInstance).
+ * This function reverses that mapping: given a CSS-px coordinate on the
+ * instance, it returns the (bx, by) index into SHARED.glowPixels.
+ *
+ * readPixels stores rows bottom-up (GL convention) so Y is flipped.
+ */
+const _map = { bx: 0, by: 0 };
+
+function mapToGlowBuf(inst                 , cssPxX        , cssPxY        )              {
+  if (!SHARED) { _map.bx = 0; _map.by = 0; return _map; }
+  const { glCanvas } = SHARED;
+  const cw = glCanvas.width, ch = glCanvas.height;
+  const dpr = inst.dpr;
+  const dw = inst.cssWidth * dpr, dh = inst.cssHeight * dpr;
+  const bdW = CANONICAL_PILL_W * dpr, bdH = CANONICAL_PILL_H * dpr;
+  let srcW = (dw * (cw / bdW)) / inst.shaderScale;
+  let srcH = (dh * (ch / bdH)) / inst.shaderScale;
+  if (srcW > cw) srcW = cw;
+  if (srcH > ch) srcH = ch;
+  const sx = (cw - srcW) / 2;
+  const sy = (ch - srcH) / 2;
+  const glX = sx + (cssPxX / inst.cssWidth) * srcW;
+  const glY = sy + (cssPxY / inst.cssHeight) * srcH;
+  _map.bx = Math.round(glX);
+  _map.by = Math.round(ch - 1 - glY);
+  return _map;
+}
+
+const _sr = { r: 0, g: 0, b: 0, lum: 0, count: 0 };
+
+function sampleRegion(
+  buf            , W        , H        ,
+  bx        , by        , radius        
+)             {
+  const r = Math.max(1, radius | 0);
+  const x0 = Math.max(0, bx - r), x1 = Math.min(W, bx + r + 1);
+  const y0 = Math.max(0, by - r), y1 = Math.min(H, by + r + 1);
+  _sr.r = 0; _sr.g = 0; _sr.b = 0; _sr.lum = 0; _sr.count = 0;
+  for (let py = y0; py < y1; py++) {
+    const row = py * W;
+    for (let px = x0; px < x1; px++) {
+      const i = (row + px) * 4;
+      _sr.r += buf[i]; _sr.g += buf[i + 1]; _sr.b += buf[i + 2];
+      _sr.lum += (0.2126 * buf[i] + 0.7152 * buf[i + 1] + 0.0722 * buf[i + 2]) / 255;
+      _sr.count++;
+    }
+  }
+  return _sr;
+}
+
+const _rgb            = { r: 255, g: 255, b: 255 };
+
+function sampleShaderLumAt(inst                 , cssPxX        , cssPxY        , radius        )         {
+  if (!SHARED) return 0;
+  ensureGlowPixels();
+  const m = mapToGlowBuf(inst, cssPxX, cssPxY);
+  const s = sampleRegion(SHARED.glowPixels, SHARED.glowPixelsW, SHARED.glowPixelsH, m.bx, m.by, radius);
+  return s.count > 0 ? s.lum / s.count : 0;
+}
+
+function sampleShaderRGBAt(inst                 , cssPxX        , cssPxY        , radius        )            {
+  if (!SHARED) { _rgb.r = 255; _rgb.g = 255; _rgb.b = 255; return _rgb; }
+  ensureGlowPixels();
+  const m = mapToGlowBuf(inst, cssPxX, cssPxY);
+  const s = sampleRegion(SHARED.glowPixels, SHARED.glowPixelsW, SHARED.glowPixelsH, m.bx, m.by, radius);
+  if (s.count === 0) { _rgb.r = 255; _rgb.g = 255; _rgb.b = 255; return _rgb; }
+  _rgb.r = s.r / s.count; _rgb.g = s.g / s.count; _rgb.b = s.b / s.count;
+  return _rgb;
+}
+
+function sampleShaderRGBChromatic(inst                 , cssPxX        , cssPxY        , radius        )            {
+  if (!SHARED) { _rgb.r = 255; _rgb.g = 255; _rgb.b = 255; return _rgb; }
+  ensureGlowPixels();
+  const m = mapToGlowBuf(inst, cssPxX, cssPxY);
+  const { glowPixels: buf, glowPixelsW: W, glowPixelsH: H } = SHARED;
+  const r = Math.max(1, radius | 0);
+  const x0 = Math.max(0, m.bx - r), x1 = Math.min(W, m.bx + r + 1);
+  const y0 = Math.max(0, m.by - r), y1 = Math.min(H, m.by + r + 1);
+  let bestScore = -1;
+  _rgb.r = 255; _rgb.g = 255; _rgb.b = 255;
+  for (let py = y0; py < y1; py++) {
+    const row = py * W;
+    for (let px = x0; px < x1; px++) {
+      const i = (row + px) * 4;
+      const rr = buf[i], gg = buf[i + 1], bb = buf[i + 2];
+      const maxC = Math.max(rr, gg, bb), minC = Math.min(rr, gg, bb);
+      const sat = maxC > 0 ? (maxC - minC) / maxC : 0;
+      const score = sat * (0.35 + 0.65 * (maxC / 255));
+      if (score > bestScore) { bestScore = score; _rgb.r = rr; _rgb.g = gg; _rgb.b = bb; }
+    }
+  }
+  return _rgb;
+}
+
+const _pk = { r: 255, g: 255, b: 255, lum: 0 };
+
+/** Brightest pixel in the window (not the mean) — for "is the ring shining
+ *  here" questions, where a dark stripe next to a bright one should still
+ *  read as lit. */
+function sampleShaderPeakAt(inst                 , cssPxX        , cssPxY        , radius        )             {
+  _pk.r = 255; _pk.g = 255; _pk.b = 255; _pk.lum = 0;
+  if (!SHARED) return _pk;
+  ensureGlowPixels();
+  const m = mapToGlowBuf(inst, cssPxX, cssPxY);
+  const { glowPixels: buf, glowPixelsW: W, glowPixelsH: H } = SHARED;
+  const r = Math.max(1, radius | 0);
+  const x0 = Math.max(0, m.bx - r), x1 = Math.min(W, m.bx + r + 1);
+  const y0 = Math.max(0, m.by - r), y1 = Math.min(H, m.by + r + 1);
+  for (let py = y0; py < y1; py++) {
+    const row = py * W;
+    for (let px = x0; px < x1; px++) {
+      const i = (row + px) * 4;
+      const lum = (0.2126 * buf[i] + 0.7152 * buf[i + 1] + 0.0722 * buf[i + 2]) / 255;
+      if (lum > _pk.lum) { _pk.lum = lum; _pk.r = buf[i]; _pk.g = buf[i + 1]; _pk.b = buf[i + 2]; }
+    }
+  }
+  return _pk;
+}
+
+
+/* ── engine/renderer/loop.ts ─────────────────────────────── */
+/** Animation loop, per-frame compositing, and instance lifecycle. */
+
+
+
+
+
+
+
+// Restart the animation loop when the browser restores the GL context.
+setContextRestoredCallback(() => {
+  if (SHARED && SHARED.instances.size > 0 && SHARED.pausedAtMs === null) {
+    startSharedLoop();
+  }
+});
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!SHARED || SHARED.pausedAtMs !== null || SHARED.contextLost) return;
+    if (document.hidden) {
+      stopSharedLoop();
+    } else if (SHARED.instances.size > 0) {
+      startSharedLoop();
+    }
+  });
+}
+
+// ─── Instance lifecycle ───────────────────────────────────────────────────
+
+                                 
+                                
+                   
+                    
+                       
+                          
+                       
+                     
+                      
+                    
+                   
+                 
+                            
+                           
+                           
+                       
+ 
+
+function createInstance(opts                       )                  {
+  const renderer = ensureSharedRenderer();
+  const ctx = opts.hostCanvas.getContext('2d', { alpha: true });
+  if (!ctx) throw new Error('metal-fx: canvas 2D context unavailable');
+
+  const scale = opts.scale ?? 1;
+  const inst                  = {
+    canvas: opts.hostCanvas, ctx,
+    cssWidth: opts.cssWidth, cssHeight: opts.cssHeight,
+    cornerRadius: opts.cornerRadius,
+    kind: opts.kind,
+    ringCssPx: opts.ringCssPx ?? (opts.kind === 'circle' ? 2 : 1) * scale,
+    shaderScale: opts.shaderScale ?? (opts.kind === 'circle' ? CIRCLE_SHADER_SCALE : PILL_SHADER_SCALE) * scale,
+    opacityMul: opts.opacityMul ?? 1,
+    glowGain: opts.glowGain ?? 1,
+    visible: true,
+    paused: opts.paused ?? false,
+    everCopied: false,
+    dpr: typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1,
+    scale,
+    onAfterFrame: opts.onAfterFrame,
+    onComposite: opts.onComposite,
+    onFirstCopy: opts.onFirstCopy,
+    mask: opts.mask ?? null,
+    deform: null,
+    deformLayers: null,
+    overscan: 0,
+    cursorLight: null,
+    glowFast: false,
+    rawCanvas: null,
+    wantRaw: false,
+  };
+  resizeInstanceCanvas(inst);
+  renderer.instances.add(inst);
+  if (renderer.rafId === 0 && renderer.pausedAtMs === null) startSharedLoop();
+  return inst;
+}
+
+function destroyInstance(inst                 )       {
+  if (!SHARED) return;
+  SHARED.instances.delete(inst);
+  const qi = SHARED.glowQueue.indexOf(inst);
+  if (qi !== -1) SHARED.glowQueue.splice(qi, 1);
+  if (SHARED.instances.size === 0) { stopSharedLoop(); teardownSharedRenderer(); }
+}
+
+function registerGlowInstance(inst                 )       {
+  if (!SHARED) return;
+  if (!SHARED.glowQueue.includes(inst)) SHARED.glowQueue.push(inst);
+}
+
+function unregisterGlowInstance(inst                 )       {
+  if (!SHARED) return;
+  const i = SHARED.glowQueue.indexOf(inst);
+  if (i !== -1) SHARED.glowQueue.splice(i, 1);
+}
+
+function updateInstance(
+  inst                 ,
+  patch                                                                                                                                                                            
+)       {
+  let dirty = false;
+  if (patch.mask !== undefined) inst.mask = patch.mask;
+  if (patch.cssWidth !== undefined && patch.cssWidth !== inst.cssWidth) { inst.cssWidth = patch.cssWidth; dirty = true; }
+  if (patch.cssHeight !== undefined && patch.cssHeight !== inst.cssHeight) { inst.cssHeight = patch.cssHeight; dirty = true; }
+  if (patch.cornerRadius !== undefined) inst.cornerRadius = patch.cornerRadius;
+  if (patch.scale !== undefined) inst.scale = patch.scale;
+  if (patch.kind !== undefined && patch.kind !== inst.kind) {
+    inst.kind = patch.kind;
+    if (patch.shaderScale === undefined) inst.shaderScale = (patch.kind === 'circle' ? CIRCLE_SHADER_SCALE : PILL_SHADER_SCALE) * inst.scale;
+    if (patch.ringCssPx === undefined) inst.ringCssPx = (patch.kind === 'circle' ? 2 : 1) * inst.scale;
+  }
+  if (patch.shaderScale !== undefined) inst.shaderScale = patch.shaderScale;
+  if (patch.ringCssPx !== undefined) inst.ringCssPx = patch.ringCssPx;
+  if (patch.opacityMul !== undefined) inst.opacityMul = patch.opacityMul;
+  if (patch.glowGain !== undefined) inst.glowGain = patch.glowGain;
+  if (patch.paused !== undefined && patch.paused !== inst.paused) {
+    inst.paused = patch.paused;
+    // Unpausing should kick the loop if it had idled because every visible
+    // instance was paused.
+    if (!patch.paused && SHARED && SHARED.rafId === 0 && SHARED.pausedAtMs === null && !SHARED.contextLost) {
+      startSharedLoop();
+    }
+  }
+  if (dirty) resizeInstanceCanvas(inst);
+}
+
+function setInstanceVisible(inst                 , visible         )       {
+  inst.visible = visible;
+  if (visible && SHARED && SHARED.rafId === 0 && SHARED.pausedAtMs === null && !SHARED.contextLost) {
+    startSharedLoop();
+  }
+}
+
+/**
+ * Attach (or clear) a vector deformation to the instance that owns `canvas`.
+ * `overscan` grows the canvas by that many CSS px on every side so outward
+ * bulges aren't clipped. Redraws immediately so a paused instance updates.
+ */
+function setInstanceDeform(
+  canvas                   ,
+  deform                 ,
+  layers                      = null,
+  overscan = 0
+)          {
+  const inst = findInstance(canvas);
+  if (!inst) return false;
+  inst.deform = deform;
+  inst.deformLayers = deform ? layers : null;
+  const o = deform ? Math.max(0, Math.round(overscan)) : 0;
+  if (o !== inst.overscan) { inst.overscan = o; resizeInstanceCanvas(inst); }
+  copyShaderToInstance(inst);
+  return true;
+}
+
+/** Re-composite one instance now — for callers driving `deform` per frame at
+ *  a higher rate than the shared 15 fps loop. */
+function redrawInstance(canvas                   )       {
+  const inst = findInstance(canvas);
+  if (inst) copyShaderToInstance(inst);
+}
+
+function findInstance(canvas                   )                         {
+  if (!SHARED) return null;
+  for (const inst of SHARED.instances) if (inst.canvas === canvas) return inst;
+  return null;
+}
+
+/** Set by `setSharedPresetMode`. While non-null it wins over the named
+ *  presets, so a live tuning surface isn't fighting every `<MetalFx preset>`
+ *  effect that re-runs on a theme toggle. */
+let presetOverride                    = null;
+
+function setSharedPreset(name            , theme             )       {
+  const s = ensureSharedRenderer();
+  s.preset = presetOverride ?? PRESETS[name].modes[theme];
+  s.presetDirty = true;
+}
+
+/**
+ * Push raw Paper liquidMetal parameters into the shared renderer, bypassing
+ * the named presets. Pass `null` to hand control back to `preset` / `theme`.
+ *
+ * This exists for the playground: every instance shares one GL program, so
+ * tuning is necessarily global rather than per-instance.
+ */
+function setSharedPresetMode(mode                   )       {
+  const s = ensureSharedRenderer();
+  presetOverride = mode;
+  if (mode) {
+    s.preset = mode;
+    s.presetDirty = true;
+  }
+}
+
+/** The preset the shared renderer is currently drawing with, or null before
+ *  any instance has mounted. Read-only snapshot — mutate via the setters. */
+function getSharedPreset()                    {
+  return SHARED ? { ...SHARED.preset } : null;
+}
+
+function pauseShared()       {
+  if (!SHARED || SHARED.pausedAtMs !== null) return;
+  SHARED.pausedAtMs = performance.now();
+  stopSharedLoop();
+}
+
+function resumeShared()       {
+  if (!SHARED || SHARED.pausedAtMs === null) return;
+  SHARED.pausedMs += performance.now() - SHARED.pausedAtMs;
+  SHARED.pausedAtMs = null;
+  if (SHARED.instances.size > 0) startSharedLoop();
+}
+
+function getSharedFrameCount()         {
+  return SHARED?.frameCount ?? 0;
+}
+
+// ─── Glow callback ────────────────────────────────────────────────────────
+
+/** Returns true when the glow wants per-frame ticks (mid-fade). */
+                                                                                    
+let _glowCallback                      = null;
+
+function setGlowCallback(cb                     )       {
+  _glowCallback = cb;
+}
+
+/** Run one glow update for an instance now — for drivers (cursor light) that
+ *  need the hotspot to move at pointer rate rather than the shared 15 fps. */
+function tickInstanceGlow(inst                 , nowMs        )       {
+  if (!_glowCallback || !SHARED || !inst.visible || inst.paused) return;
+  if (!SHARED.glowQueue.includes(inst)) return;
+  inst.glowFast = !!_glowCallback(inst, nowMs);
+}
+
+// ─── Internal rendering ───────────────────────────────────────────────────
+
+function resizeInstanceCanvas(inst                 )       {
+  inst.dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const o = inst.overscan;
+  const w = Math.max(1, Math.round((inst.cssWidth + 2 * o) * inst.dpr));
+  const h = Math.max(1, Math.round((inst.cssHeight + 2 * o) * inst.dpr));
+  if (inst.canvas.width !== w) inst.canvas.width = w;
+  if (inst.canvas.height !== h) inst.canvas.height = h;
+  // Overscan: grow the element past its box and drop the CSS radius clip so
+  // displaced geometry outside the rounded box is visible.
+  const st = inst.canvas.style;
+  if (o > 0) {
+    st.left = `${-o}px`; st.top = `${-o}px`;
+    st.width = `calc(100% + ${2 * o}px)`; st.height = `calc(100% + ${2 * o}px)`;
+    st.borderRadius = '0';
+  } else if (st.left !== '') {
+    st.left = ''; st.top = ''; st.width = '100%'; st.height = '100%'; st.borderRadius = '';
+  }
+}
+
+function punchInnerHole(inst                 )       {
+  const { ctx, dpr, canvas } = inst;
+  const stroke = inst.ringCssPx * dpr;
+  const w = canvas.width, h = canvas.height;
+  const innerR = Math.max(0, (inst.cornerRadius - inst.ringCssPx) * dpr);
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.roundRect(stroke, stroke, w - 2 * stroke, h - 2 * stroke, innerR);
+  ctx.fill();
+  ctx.restore();
+}
+
+const _outline             = createOutlineBuf();
+
+/** Trace a (possibly deformed) rounded rect into the ctx, in device px. */
+function traceDeformedRoundRect(
+  ctx                          ,
+  x        , y        , w        , h        , r        ,
+  deform          , dpr        
+)       {
+  const { xy, n } = roundRectOutline(x, y, w, h, r, deform, _outline);
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    if (i === 0) ctx.moveTo(xy[0] * dpr, xy[1] * dpr);
+    else ctx.lineTo(xy[i * 2] * dpr, xy[i * 2 + 1] * dpr);
+  }
+  ctx.closePath();
+}
+
+function copyShaderToInstance(inst                 )       {
+  if (!SHARED) return;
+  const src                    = SHARED.frameBitmap ?? SHARED.glCanvas;
+  const dpr = inst.dpr;
+  const dw = inst.canvas.width, dh = inst.canvas.height;
+  if (dw < 1 || dh < 1) return;
+  // Box = the element's own CSS box in device px; the canvas may be larger
+  // by `overscan` on every side while deforming.
+  const bw = Math.max(1, Math.round(inst.cssWidth * dpr));
+  const bh = Math.max(1, Math.round(inst.cssHeight * dpr));
+  const od = inst.overscan * dpr;
+
+  const cw = SHARED.glCanvas.width, ch = SHARED.glCanvas.height;
+  const bdW = CANONICAL_PILL_W * dpr, bdH = CANONICAL_PILL_H * dpr;
+  let srcW = (bw * (cw / bdW)) / inst.shaderScale;
+  let srcH = (bh * (ch / bdH)) / inst.shaderScale;
+  if (srcW > cw) srcW = cw;
+  if (srcH > ch) srcH = ch;
+  const sx = Math.max(0, (cw - srcW) / 2);
+  const sy = Math.max(0, (ch - srcH) / 2);
+
+  // Paper's shader has no `u_shaderOpacity` equivalent, so the preset-level
+  // opacity rides along with the per-instance `strength` multiplier here
+  // instead of being applied on the GPU.
+  const alpha = inst.opacityMul * SHARED.preset.shaderOpacity;
+  const ctx = inst.ctx;
+
+  ctx.clearRect(0, 0, dw, dh);
+
+  const deform = inst.deform;
+  if (inst.mask) {
+    // ── Custom mask (metal text / glyph) ─────────────────────────────
+    if (alpha < 1) ctx.globalAlpha = alpha;
+    ctx.drawImage(src, sx, sy, srcW, srcH, 0, 0, dw, dh);
+    if (alpha < 1) ctx.globalAlpha = 1;
+    if (inst.wantRaw) {
+      // Keep the sheet before it is cut to the glyphs, for reflections.
+      let rc = inst.rawCanvas;
+      if (!rc) { rc = document.createElement('canvas'); inst.rawCanvas = rc; }
+      if (rc.width !== dw || rc.height !== dh) { rc.width = dw; rc.height = dh; }
+      const rg = rc.getContext('2d');
+      if (rg) { rg.clearRect(0, 0, dw, dh); rg.drawImage(inst.canvas, 0, 0); }
+    }
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = '#000';
+    inst.mask(ctx, dw, dh, dpr);
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+  } else if (!deform) {
+    if (alpha < 1) ctx.globalAlpha = alpha;
+    ctx.drawImage(src, sx, sy, srcW, srcH, 0, 0, dw, dh);
+    if (alpha < 1) ctx.globalAlpha = 1;
+    punchInnerHole(inst);
+  } else {
+    // ── Vector-deformed ring ──────────────────────────────────────────
+    // The shader texture is laid down over the (overscanned) canvas, then
+    // masked to a displaced outer outline minus a displaced inner outline.
+    // Because the mask is geometry, stretched regions stay crisp.
+    const W = inst.cssWidth, H = inst.cssHeight;
+    const R = inst.cornerRadius, ring = inst.ringCssPx;
+    const layers = inst.deformLayers;
+    ctx.save();
+    ctx.translate(od, od);
+
+    // Texture: over the box plus the overscan margin, so an outward bulge
+    // still has shader pixels under it. The source crop grows by the same
+    // ratio so the mapping *inside the box* is identical to the rigid path —
+    // otherwise the pattern jumps scale the moment a bend starts or ends.
+    // If the enlarged crop would exceed the GL buffer, shrink the *destination*
+    // instead of the crop's scale — a scale change is a visible texture jump.
+    const scX = bw / srcW, scY = bh / srcH;          // dest px per source px
+    const esW = Math.min(cw, srcW * (bw + 2 * od) / bw);
+    const esH = Math.min(ch, srcH * (bh + 2 * od) / bh);
+    const esx = Math.max(0, (cw - esW) / 2);
+    const esy = Math.max(0, (ch - esH) / 2);
+    const dW = esW * scX, dH = esH * scY;
+    if (alpha < 1) ctx.globalAlpha = alpha;
+    ctx.drawImage(src, esx, esy, esW, esH, bw / 2 - dW / 2, bh / 2 - dH / 2, dW, dH);
+    if (alpha < 1) ctx.globalAlpha = 1;
+
+    ctx.globalCompositeOperation = 'destination-in';
+    traceDeformedRoundRect(ctx, 0, 0, W, H, R, deform, dpr);
+    ctx.fillStyle = '#000';
+    ctx.fill();
+
+    ctx.globalCompositeOperation = 'destination-out';
+    traceDeformedRoundRect(ctx, ring, ring, W - 2 * ring, H - 2 * ring, Math.max(0, R - ring), deform, dpr);
+    ctx.fill();
+
+    if (layers?.hairline) {
+      const hl = layers.hairline;
+      ctx.globalCompositeOperation = 'destination-over';
+      traceDeformedRoundRect(ctx, hl.inset, hl.inset, W - 2 * hl.inset, H - 2 * hl.inset, Math.max(0, R - hl.inset), deform, dpr);
+      ctx.lineWidth = hl.width * dpr;
+      ctx.strokeStyle = hl.color;
+      ctx.stroke();
+    }
+    if (layers?.fill) {
+      ctx.globalCompositeOperation = 'destination-over';
+      traceDeformedRoundRect(ctx, 0, 0, W, H, R, deform, dpr);
+      ctx.fillStyle = layers.fill;
+      ctx.fill();
+    }
+    if (layers?.rim) {
+      const rim = layers.rim;
+      ctx.globalCompositeOperation = 'source-over';
+      // Inset band of `width` starting `inset` in from the outline: stroke
+      // its centre line, then clip to the outline so nothing spills out.
+      ctx.save();
+      traceDeformedRoundRect(ctx, 0, 0, W, H, R, deform, dpr);
+      ctx.clip();
+      const c = rim.inset + rim.width / 2;
+      traceDeformedRoundRect(ctx, c, c, W - 2 * c, H - 2 * c, Math.max(0, R - c), deform, dpr);
+      ctx.lineWidth = rim.width * dpr;
+      ctx.strokeStyle = rim.color;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  inst.onComposite?.();
+  if (inst.onFirstCopy) { const cb = inst.onFirstCopy; inst.onFirstCopy = undefined; cb(); }
+  inst.onAfterFrame?.();
+}
+
+function uploadPresetUniforms()       {
+  if (!SHARED) return;
+  const { gl, uniforms, preset, glCanvas, dpr } = SHARED;
+
+  // Shared by both stages.
+  if (uniforms.u_resolution) gl.uniform2f(uniforms.u_resolution, glCanvas.width, glCanvas.height);
+  // Paper's vertex stage divides the world box by this; leaving it at the
+  // default 0 collapses the box and the shader renders nothing.
+  if (uniforms.u_pixelRatio) gl.uniform1f(uniforms.u_pixelRatio, dpr);
+
+  // Fragment — material.
+  if (uniforms.u_colorBack) gl.uniform4fv(uniforms.u_colorBack, hexToRgba(preset.colorBack));
+  if (uniforms.u_colorTint) gl.uniform4fv(uniforms.u_colorTint, hexToRgba(preset.colorTint));
+  if (uniforms.u_repetition) gl.uniform1f(uniforms.u_repetition, preset.repetition);
+  if (uniforms.u_softness) gl.uniform1f(uniforms.u_softness, preset.softness);
+  if (uniforms.u_shiftRed) gl.uniform1f(uniforms.u_shiftRed, preset.shiftRed);
+  if (uniforms.u_shiftBlue) gl.uniform1f(uniforms.u_shiftBlue, preset.shiftBlue);
+  if (uniforms.u_distortion) gl.uniform1f(uniforms.u_distortion, preset.distortion);
+  if (uniforms.u_contour) gl.uniform1f(uniforms.u_contour, preset.contour);
+  if (uniforms.u_angle) gl.uniform1f(uniforms.u_angle, preset.angle);
+  if (uniforms.u_shape) gl.uniform1f(uniforms.u_shape, preset.shape);
+  // Procedural only — metal-fx never feeds a logo through the effect.
+  if (uniforms.u_isImage) gl.uniform1i(uniforms.u_isImage, 0);
+  if (uniforms.u_imageAspectRatio) gl.uniform1f(uniforms.u_imageAspectRatio, 1);
+
+  // Vertex — sizing.
+  if (uniforms.u_originX) gl.uniform1f(uniforms.u_originX, preset.originX);
+  if (uniforms.u_originY) gl.uniform1f(uniforms.u_originY, preset.originY);
+  if (uniforms.u_worldWidth) gl.uniform1f(uniforms.u_worldWidth, preset.worldWidth);
+  if (uniforms.u_worldHeight) gl.uniform1f(uniforms.u_worldHeight, preset.worldHeight);
+  if (uniforms.u_fit) gl.uniform1f(uniforms.u_fit, preset.fit);
+  if (uniforms.u_scale) gl.uniform1f(uniforms.u_scale, preset.scale);
+  if (uniforms.u_rotation) gl.uniform1f(uniforms.u_rotation, preset.rotation);
+  if (uniforms.u_offsetX) gl.uniform1f(uniforms.u_offsetX, preset.offsetX);
+  if (uniforms.u_offsetY) gl.uniform1f(uniforms.u_offsetY, preset.offsetY);
+
+  SHARED.presetDirty = false;
+}
+
+function renderSharedFrame(now        )       {
+  if (!SHARED) return;
+  const { gl, uniforms, preset, glCanvas } = SHARED;
+  const t = ((now - SHARED.startMs - SHARED.pausedMs) / 1000) * preset.speed;
+
+  gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+
+  if (SHARED.presetDirty) uploadPresetUniforms();
+  if (uniforms.u_time) gl.uniform1f(uniforms.u_time, t);
+
+  gl.drawArrays(gl.TRIANGLES, 0, 6);
+  SHARED.frameCount++;
+}
+
+let lastFrameMs = 0;
+
+function tick(now        )       {
+  if (!SHARED) return;
+  if (SHARED.contextLost) { SHARED.rafId = 0; return; }
+
+  // Loop stays alive while at least one visible instance still has work to do
+  // — i.e. it's either unpaused (needs a fresh copy each frame) or paused but
+  // hasn't yet painted its first frame (initial-mount-paused case).
+  let anyWork = false;
+  for (const inst of SHARED.instances) {
+    if (inst.visible && (!inst.paused || !inst.everCopied)) { anyWork = true; break; }
+  }
+  if (!anyWork) { SHARED.rafId = 0; return; }
+
+  SHARED.rafId = requestAnimationFrame(tick);
+  if (now - lastFrameMs < FRAME_INTERVAL_MS) {
+    // Between shader frames, keep fading glows moving at display rate.
+    if (_glowCallback) {
+      for (const inst of SHARED.glowQueue) {
+        if (inst.glowFast && inst.visible && !inst.paused) inst.glowFast = !!_glowCallback(inst, now);
+      }
+    }
+    return;
+  }
+  lastFrameMs = now;
+
+  renderSharedFrame(now);
+
+  if (SHARED.useOffscreen) {
+    if (SHARED.glowQueue.length > 0) ensureGlowPixels();
+    SHARED.frameBitmap?.close();
+    SHARED.frameBitmap = (SHARED.glCanvas                   ).transferToImageBitmap();
+  }
+
+  for (const inst of SHARED.instances) {
+    if (!inst.visible) continue;
+    if (inst.paused && inst.everCopied) continue;
+    copyShaderToInstance(inst);
+    inst.everCopied = true;
+  }
+
+  // Every visible glow instance, every Nth tick. Round-robin (one instance
+  // per tick) made each halo's update rate depend on how many rings were on
+  // the page — five rings meant ~330 ms between updates, so a 300 ms fade
+  // landed in a single step and read as a flash. updateGlow costs ~0.05 ms.
+  if (_glowCallback && SHARED.glowQueue.length > 0 && ++SHARED.glowSkip % GLOW_SKIP_FRAMES === 0) {
+    for (const inst of SHARED.glowQueue) {
+      // Skip paused instances so their halo also freezes (otherwise the
+      // catch-light would keep travelling on a frozen ring).
+      if (inst.visible && !inst.paused) inst.glowFast = !!_glowCallback(inst, now);
+    }
+  }
+}
+
+function startSharedLoop()       {
+  if (!SHARED || SHARED.rafId !== 0) return;
+  SHARED.rafId = requestAnimationFrame(tick);
+}
+
+function stopSharedLoop()       {
+  if (!SHARED) return;
+  if (SHARED.rafId !== 0) cancelAnimationFrame(SHARED.rafId);
+  SHARED.rafId = 0;
+}
+
+
+/* ── engine/cursor/light.ts ─────────────────────────────── */
+/**
+ * Cursor light — the pointer and the ring lighting each other.
+ *
+ * Three effects, all keyed off the pointer's distance to the nearest ring
+ * (either side of the edge, within `reach`):
+ *
+ *   • cursor — the ring lights the cursor. A page cannot paint on the OS
+ *     cursor, so while the pointer is near a ring and the element under it
+ *     shows the plain arrow, that element gets `cursor: none` and a sprite
+ *     of the pointer is drawn at the same spot (same trick as cursorjoy).
+ *     The sprite must be the platform's real pointer or the swap shows —
+ *     consumers supply it via `setCursorSprite`; without one this effect is
+ *     off. Over buttons/text (hand, I-beam) the OS cursor stays.
+ *
+ *     Lighting treats the ring as the light source and the pointer as a
+ *     small glossy object: a diffuse rim on the face that looks at the ring,
+ *     coloured by the ring there and falling off with the inverse square of
+ *     the distance, plus a specular term — the ring's own canvas mirrored
+ *     across that face and compressed in depth, like on a convex surface.
+ *   • spill — a soft glint on the page under the pointer, tinted with the
+ *     ring's colour at the outline point nearest the cursor.
+ *   • catch — the ring's catch-light faces the pointer (see `updateGlow`'s
+ *     cursor mode), so the pointer acts as a light source.
+ *
+ * Runs only on `(pointer: fine)` devices. Tracking starts when the first
+ * instance attaches and stops with the last; the per-frame loop runs only
+ * while the pointer is within reach of some ring (plus the fade-out).
+ *
+ * Fail-safes for the cursor swap (the only part that can hurt someone):
+ *   • off under `prefers-reduced-motion`, `forced-colors`, coarse/no-hover
+ *     pointers, and pen/touch input;
+ *   • off while the page is zoomed (DPR differs from when the sprite was
+ *     registered, or pinch-zoomed) — the sprite would scale, the OS cursor
+ *     wouldn't;
+ *   • the OS cursor is hidden by an inline style on one element only, never
+ *     a stylesheet, restored on every leave/blur/hide/keydown, when that
+ *     element is detached, and on any exception (which also disables the
+ *     effect for the session);
+ *   • a frame-time watchdog disables it if it ever becomes expensive;
+ *   • it never runs where the pointer is anything but the plain arrow, so
+ *     hand, I-beam, resize and custom cursors are untouched.
+ * Not detectable: Accessibility › Pointer size/colour on macOS. A user with
+ * an enlarged pointer sees it swap to the stock one — ship the sprite only
+ * where that trade-off is acceptable, and give them a way to turn it off.
+ */
+
+
+
+
+
+                                    
+                   
+                                                                                        
+                
+                                                                         
+                 
+
+                                                                  
+                  
+                                                                          
+                                                                            
+                                                     
+                         
+                                                                           
+                         
+                                                                              
+                        
+                                                                        
+                                                      
+                        
+                                                                             
+                                                                         
+                      
+                                                                                  
+                     
+                                                                         
+                                                                          
+                      
+                                       
+                     
+                                                                         
+                                                                   
+                     
+
+                                             
+                 
+                              
+                      
+                                                          
+                        
+                                                                           
+                      
+                                                                                 
+                       
+                                                   
+                          
+                                                                                 
+                      
+                                                                    
+                    
+
+                                              
+                      
+                                                                          
+                      
+                                                             
+                    
+ 
+
+const CURSOR_LIGHT_DEFAULTS                              = Object.freeze({
+  enabled: true,
+  reach: 56,
+  fadeMs: 200,
+  cursor: true,
+  cursorDistance: 186,
+  cursorStrength: 3.35,
+  cursorDiffuse: 1.4,
+  cursorFalloff: 37,
+  cursorDepth: 0.4,
+  cursorEdge: 0,
+  cursorReach: 11.5,
+  cursorBlur: 0.5,
+  cursorZoom: 3,
+  spill: false,
+  spillRadius: 48,
+  spillStrength: 0.55,
+  spillOffset: 0.35,
+  spillLumGain: 0.7,
+  spillSaturation: 1.3,
+  spillInside: 0.5,
+  spillBlur: 0,
+  catchLight: false,
+  catchFollow: 0.25,
+  catchGain: 1,
+});
+
+/** Live values. Read every frame; write via `setCursorLightConfig`. */
+const CURSOR_LIGHT                    = { ...CURSOR_LIGHT_DEFAULTS };
+
+function setCursorLightConfig(patch                            )       {
+  Object.assign(CURSOR_LIGHT, patch);
+  if (!CURSOR_LIGHT.spill && spillEl) hideSpill();
+  if (!CURSOR_LIGHT.cursor) hideCursor();
+  kick();
+}
+
+function resetCursorLightConfig()       {
+  setCursorLightConfig({ ...CURSOR_LIGHT_DEFAULTS });
+}
+
+/** A raster of the platform's real pointer. `width`/`height` in CSS px,
+ *  `hotX`/`hotY` the click point. `centerX`/`centerY` optionally override
+ *  the body centre (default: alpha centroid). */
+                               
+              
+                
+                 
+               
+               
+                   
+                   
+ 
+
+let sprite                      = null;
+let spriteImg                          = null;
+/** DPR when the sprite was registered — a change means browser zoom or a
+ *  different display, where the sprite no longer matches the OS cursor. */
+let spriteDpr = 0;
+/** Off-switch flipped by the fail-safes. An exception disables for the
+ *  session; the frame-time watchdog only pauses for a while (`disabledUntil`). */
+let cursorDisabled = false;
+let disabledUntil = 0;
+let slowFrames = 0;
+/** Opaque body pixels (sprite-local CSS px, centred on `bodyC`), the alpha
+ *  centroid, and a hard mask of the body — built once per sprite. The
+ *  silhouette extent in any direction comes from `bodyPts` per frame. */
+let bodyPts                      = null;
+const bodyC = { x: 0, y: 0 };
+let bodyMask                           = null;
+/** Hard body alpha at the sprite canvas's device resolution, cached by dpr. */
+let bodyAlpha                           = null;
+let bodyAlphaDpr = 0;
+
+function bodyAlphaFor(img                  , sp              , dpr        , w        , h        )                           {
+  if (bodyAlpha && bodyAlphaDpr === dpr && bodyAlpha.length === w * h) return bodyAlpha;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  if (!g) return null;
+  g.scale(dpr, dpr);
+  g.drawImage(img, 0, 0, sp.width, sp.height);
+  const d = g.getImageData(0, 0, w, h).data;
+  const a = new Uint8ClampedArray(w * h);
+  for (let i = 0, j = 3; i < a.length; i++, j += 4) a[i] = d[j] >= 128 ? 255 : 0;
+  bodyAlpha = a; bodyAlphaDpr = dpr;
+  return a;
+}
+
+/**
+ * Multiply the canvas alpha by a per-pixel factor, in pixel data. Used in
+ * place of `destination-in`, which WebKit intermittently misapplies on
+ * accelerated canvases (a frame of the unclipped image — a white flash).
+ */
+function alphaPass(g                          , w        , h        , factor                                             )       {
+  const img = g.getImageData(0, 0, w, h);
+  const px = img.data;
+  for (let y = 0, i = 0, j = 3; y < h; y++) {
+    for (let x = 0; x < w; x++, i++, j += 4) {
+      const a = px[j];
+      if (a === 0) continue;
+      const f = factor(x, y, i);
+      px[j] = f >= 1 ? a : f <= 0 ? 0 : a * f;
+    }
+  }
+  g.putImageData(img, 0, 0);
+}
+
+function analyseSprite(img                  , sp              )       {
+  const S = 2;
+  const c = document.createElement('canvas');
+  c.width = Math.ceil(sp.width * S); c.height = Math.ceil(sp.height * S);
+  const g = c.getContext('2d', { willReadFrequently: true });
+  if (!g) return;
+  g.drawImage(img, 0, 0, c.width, c.height);
+  const d = g.getImageData(0, 0, c.width, c.height).data;
+  const pts           = [];
+  let sx = 0, sy = 0, n = 0;
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; x++) {
+      const a = d[(y * c.width + x) * 4 + 3];
+      if (a < 128) continue;
+      const px = (x + 0.5) / S, py = (y + 0.5) / S;
+      pts.push(px, py); sx += px; sy += py; n++;
+    }
+  }
+  if (n === 0) return;
+  bodyC.x = sp.centerX ?? sx / n;
+  bodyC.y = sp.centerY ?? sy / n;
+  const arr = new Float32Array(pts.length);
+  for (let i = 0; i < pts.length; i += 2) { arr[i] = pts[i] - bodyC.x; arr[i + 1] = pts[i + 1] - bodyC.y; }
+  bodyPts = arr;
+  // Hard body mask (drops the sprite's soft shadow) for clipping the light.
+  const m = document.createElement('canvas');
+  m.width = c.width; m.height = c.height;
+  const mg = m.getContext('2d');
+  if (mg) {
+    const id = mg.createImageData(c.width, c.height);
+    for (let i = 3; i < d.length; i += 4) if (d[i] >= 128) { id.data[i - 3] = 255; id.data[i - 2] = 255; id.data[i - 1] = 255; id.data[i] = 255; }
+    mg.putImageData(id, 0, 0);
+  }
+  bodyMask = m;
+}
+
+/** Farthest the body extends from its centre along direction (ux, uy). */
+function bodyExtent(ux        , uy        )         {
+  if (!bodyPts) return 0;
+  let best = -Infinity;
+  for (let i = 0; i < bodyPts.length; i += 2) {
+    const dot = bodyPts[i] * ux + bodyPts[i + 1] * uy;
+    if (dot > best) best = dot;
+  }
+  return best === -Infinity ? 0 : best;
+}
+
+/** Supply the pointer raster (or null to turn the cursor effect off). Must
+ *  match the OS pointer pixel-for-pixel, or the swap is visible. */
+function setCursorSprite(next                     )       {
+  sprite = next;
+  spriteImg = null; bodyPts = null; bodyMask = null; bodyAlpha = null;
+  cursorDisabled = false; disabledUntil = 0; slowFrames = 0;
+  spriteDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  hideCursor();
+  if (!next || typeof Image === 'undefined') return;
+  const img = new Image();
+  img.decoding = 'async';
+  img.onload = () => { if (sprite === next) { analyseSprite(img, next); spriteImg = img; kick(); } };
+  img.src = next.src;
+}
+
+// ─── Tracking ─────────────────────────────────────────────────────────────
+
+let attached = 0;
+let tracking = false;
+let raf = 0;
+let last = 0;
+let px = Number.NaN, py = Number.NaN; // live pointer, NaN when gone
+let lpx = 0, lpy = 0;                 // last known, for the fade-out
+let uS = 0;                           // smoothed proximity weight (reach)
+let uCS = 0;                          // smoothed proximity weight (cursorReach)
+let near                         = null;
+const _near = { d: 0, nx: 0, ny: 0, k: 1, left: 0, top: 0 };
+const _pt = { x: 0, y: 0 };
+const _sc = { r: 255, g: 255, b: 255 }; // smoothed spill tint
+
+let spillEl                        = null;
+let spillBg = '';
+let spillSize = -1;
+let spillBlur = -1;
+let spillShown = false;
+
+/** Reference-counted: MetalFx calls attach on mount, detach on unmount. */
+function attachCursorLight()       {
+  attached++;
+  ensureTracking();
+}
+
+function detachCursorLight()       {
+  attached = Math.max(0, attached - 1);
+  if (attached === 0) stopTracking();
+}
+
+const mq = (q        )          => typeof window.matchMedia === 'function' && window.matchMedia(q).matches;
+
+/** Whether replacing the OS cursor is acceptable right now. Re-checked
+ *  every frame; all of these can change while the page is open. */
+function cursorSwapAllowed()          {
+  if (cursorDisabled || performance.now() < disabledUntil || !sprite || !spriteImg) return false;
+  if (mq('(prefers-reduced-motion: reduce)') || mq('(forced-colors: active)')) return false;
+  if (!mq('(pointer: fine)') || !mq('(hover: hover)')) return false;
+  if ((window.devicePixelRatio || 1) !== spriteDpr) return false;
+  const vv = window.visualViewport;
+  if (vv && Math.abs(vv.scale - 1) > 0.001) return false;
+  return true;
+}
+
+function ensureTracking()       {
+  if (tracking || attached === 0 || typeof document === 'undefined') return;
+  if (!mq('(pointer: fine)')) return;
+  tracking = true;
+  document.addEventListener('pointermove', onMove, { passive: true });
+  document.addEventListener('pointerleave', onLeave);
+  document.addEventListener('pointercancel', onLeave);
+  document.addEventListener('keydown', onKey, { passive: true });
+  document.addEventListener('visibilitychange', onLeave);
+  window.addEventListener('blur', onLeave);
+}
+
+function stopTracking()       {
+  if (!tracking) return;
+  tracking = false;
+  document.removeEventListener('pointermove', onMove);
+  document.removeEventListener('pointerleave', onLeave);
+  document.removeEventListener('pointercancel', onLeave);
+  document.removeEventListener('keydown', onKey);
+  document.removeEventListener('visibilitychange', onLeave);
+  window.removeEventListener('blur', onLeave);
+  if (raf !== 0) { cancelAnimationFrame(raf); raf = 0; }
+  if (near) { near.cursorLight = null; near = null; }
+  uS = 0; uCS = 0;
+  if (spillEl) { spillEl.remove(); spillEl = null; spillBg = ''; spillSize = -1; spillBlur = -1; spillShown = false; }
+  hideCursor();
+  if (curEl) { curEl.remove(); curEl = null; }
+}
+
+let pointerIsMouse = true;
+/** Set on keydown, cleared by the next pointer move — keeps the sprite off
+ *  while someone types even though the loop keeps running nearby. */
+let typing = false;
+
+function onMove(e              )       {
+  pointerIsMouse = e.pointerType === 'mouse' || e.pointerType === '';
+  typing = false;
+  px = lpx = e.clientX;
+  py = lpy = e.clientY;
+  // While the sprite is up, hide the OS cursor and move the sprite *inside*
+  // the event, not in the next frame. WebKit re-evaluates the cursor only on
+  // mouse moves: a hide applied one frame late, after the pointer crossed
+  // into a new element and stopped, leaves the real arrow showing until the
+  // next move. Moving the sprite here also trims a frame of lag.
+  if (curShown && curEl) {
+    if (pointerIsMouse && claimCursor(px, py)) {
+      const sp = sprite;
+      if (sp) curEl.style.transform = `translate3d(${(px - sp.hotX).toFixed(2)}px,${(py - sp.hotY).toFixed(2)}px,0)`;
+    } else {
+      hideCursor();
+    }
+  }
+  kick();
+}
+
+/** macOS hides the pointer while typing; match it, and never leave a fake
+ *  arrow sitting over a field someone is keyboard-navigating. */
+function onKey()       {
+  typing = true;
+  hideCursor();
+}
+
+function onLeave()       {
+  px = py = Number.NaN;
+  kick();
+}
+
+function kick()       {
+  if (!tracking || raf !== 0) return;
+  last = performance.now();
+  raf = requestAnimationFrame(step);
+}
+
+// ─── Geometry ─────────────────────────────────────────────────────────────
+
+/**
+ * Signed distance from a box-local point to the ring's outer outline
+ * (positive outside), writing the nearest outline point to `out`.
+ */
+function nearestOutlinePoint(
+  lx        , ly        , W        , H        , R        , kind                   , out                          
+)         {
+  const rr = kind === 'circle' ? Math.min(W, H) / 2 : Math.max(0, Math.min(R, Math.min(W, H) / 2));
+  const cx = W / 2, cy = H / 2;
+  const hx = Math.max(0, W / 2 - rr), hy = Math.max(0, H / 2 - rr);
+  const qx = Math.max(-hx, Math.min(hx, lx - cx));
+  const qy = Math.max(-hy, Math.min(hy, ly - cy));
+  const dx = lx - cx - qx, dy = ly - cy - qy;
+  const len = Math.hypot(dx, dy);
+  if (len > 1e-6) {
+    out.x = cx + qx + (dx / len) * rr;
+    out.y = cy + qy + (dy / len) * rr;
+    return len - rr;
+  }
+  // Inside the straight-edged core: nearest side.
+  const dl = lx, dr = W - lx, dt = ly, db = H - ly;
+  const m = Math.min(dl, dr, dt, db);
+  if (m === dl) { out.x = 0; out.y = ly; }
+  else if (m === dr) { out.x = W; out.y = ly; }
+  else if (m === dt) { out.x = lx; out.y = 0; }
+  else { out.x = lx; out.y = H; }
+  return -m;
+}
+
+// ─── Pointer sprite ───────────────────────────────────────────────────────
+
+let curEl                        = null;
+let curCanvas                           = null;
+let curCtx                                  = null;
+let refCanvas                           = null;
+let refCtx                                  = null;
+let refCtxReadable = false;
+let curDpr = 0, curW = 0, curH = 0;
+let curShown = false;
+/** Root-level hide (stable while the sprite is up — no churn as the pointer
+ *  crosses elements, which is what WebKit shows as flicker), plus one
+ *  element-level hide for elements that set their own `cursor: default`. */
+let rootHidden = false;
+let rootPrev = '';
+let hiddenEl                     = null;
+let hiddenPrev = '';
+
+const TEXTY = /^(INPUT|TEXTAREA|SELECT)$/;
+/** Per-element verdicts (true = plain arrow, claimable) so a pointermove
+ *  doesn't force style resolution on every event. Cleared on release. */
+let verdicts = new WeakMap                      ();
+let lastClaimMs = 0;
+let lastTarget                     = null;
+/** Elements where `cursor: auto` means something other than the arrow. */
+function isTextTarget(el             )          {
+  let n                     = el;
+  while (n && n !== document.body) {
+    if (TEXTY.test(n.tagName) || n.isContentEditable) return true;
+    n = n.parentElement;
+  }
+  return false;
+}
+
+function ensureCursor()          {
+  if (curEl) return true;
+  const el = document.createElement('div');
+  el.className = 'metal-fx-cursor';
+  el.setAttribute('aria-hidden', 'true');
+  el.style.cssText = 'position:fixed;left:0;top:0;pointer-events:none;z-index:2147483001;will-change:transform;display:none';
+  const c = document.createElement('canvas');
+  c.style.display = 'block';
+  el.appendChild(c);
+  document.body.appendChild(el);
+  const ctx = c.getContext('2d');
+  const rc = document.createElement('canvas');
+  const rctx = rc.getContext('2d');
+  if (!ctx || !rctx) { el.remove(); return false; }
+  curEl = el; curCanvas = c; curCtx = ctx; refCanvas = rc; refCtx = rctx;
+  return true;
+}
+
+/** Hide the OS cursor on the element under the pointer, if it shows the
+ *  plain arrow there. Returns whether the sprite may show. */
+function claimCursor(x        , y        , force = false)          {
+  // Hit-testing forces layout; while the bend is animating that layout is
+  // dirty on every frame, so cap this at ~one per frame unless forced.
+  const now = performance.now();
+  if (!force && rootHidden && now - lastClaimMs < 12) return true;
+  lastClaimMs = now;
+  const target = document.elementFromPoint(x, y)                      ;
+  if (!target) { releaseCursor(); return false; }
+  if (target === lastTarget && rootHidden) return true;
+  lastTarget = target;
+  let ok = verdicts.get(target);
+  if (ok === undefined) {
+    ok = !isTextTarget(target);
+    if (ok) { const cur = getComputedStyle(target).cursor; ok = cur === 'auto' || cur === 'default' || cur === 'none'; }
+    verdicts.set(target, ok);
+  }
+  if (!ok) { releaseCursor(); return false; }
+  if (!rootHidden) {
+    const root = document.documentElement;
+    rootPrev = root.style.cursor;
+    root.style.cursor = 'none';
+    rootHidden = true;
+  }
+  // Elements that set `cursor: default` / `auto` themselves don't inherit the
+  // root's `none`; hide on them directly (rare — chips, drag handles).
+  if (target !== hiddenEl) {
+    if (hiddenEl) { hiddenEl.style.cursor = hiddenPrev; hiddenEl = null; hiddenPrev = ''; }
+    if (getComputedStyle(target).cursor !== 'none') {
+      hiddenEl = target; hiddenPrev = target.style.cursor;
+      target.style.cursor = 'none';
+    }
+  }
+  return true;
+}
+
+function releaseCursor()       {
+  if (hiddenEl) {
+    if (hiddenEl.isConnected) hiddenEl.style.cursor = hiddenPrev;
+    hiddenEl = null; hiddenPrev = '';
+  }
+  if (rootHidden) {
+    document.documentElement.style.cursor = rootPrev;
+    rootHidden = false; rootPrev = '';
+  }
+  lastTarget = null;
+  verdicts = new WeakMap();
+}
+
+function hideCursor()       {
+  releaseCursor();
+  if (curEl && curShown) { curEl.style.display = 'none'; curShown = false; }
+}
+
+function drawCursor(inst                 , cfg                   , env        )       {
+  if (!curCtx || !refCtx || !curCanvas || !refCanvas || !curEl || !sprite || !spriteImg) return;
+  const sp = sprite;
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  if (dpr !== curDpr || sp.width !== curW || sp.height !== curH) {
+    curDpr = dpr; curW = sp.width; curH = sp.height;
+    curCanvas.width = refCanvas.width = Math.ceil(sp.width * dpr);
+    curCanvas.height = refCanvas.height = Math.ceil(sp.height * dpr);
+    curCanvas.style.width = `${sp.width}px`;
+    curCanvas.style.height = `${sp.height}px`;
+  }
+  if (!refCtxReadable) { refCtx = refCanvas.getContext('2d', { willReadFrequently: true }); refCtxReadable = true; if (!refCtx) return; }
+  const ctx = curCtx, rctx = refCtx;
+  const W = sp.width, H = sp.height;
+
+  // The pointer itself.
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, curCanvas.width, curCanvas.height);
+  ctx.scale(dpr, dpr);
+  ctx.drawImage(spriteImg, 0, 0, W, H);
+
+  // Light from the ring. Direction from the body centre to the outline
+  // point nearest it; the mirror plane sits on the body's silhouette in that
+  // direction, so only the face that looks at the ring catches light —
+  // cursor left of the button lights the pointer's right side, and so on.
+  const rx = _near.left + _near.nx * _near.k, ry = _near.top + _near.ny * _near.k;
+  const ccx = lpx - sp.hotX + bodyC.x, ccy = lpy - sp.hotY + bodyC.y;
+  const dx = rx - ccx, dy = ry - ccy;
+  const dist = Math.hypot(dx, dy);
+  const ux0 = dist > 0.01 ? dx / dist : 1, uy0 = dist > 0.01 ? dy / dist : 0;
+  const e = bodyExtent(ux0, uy0) + cfg.cursorEdge;
+  const dEdge = Math.max(0, dist - e);
+  const f0 = Math.max(1, cfg.cursorFalloff);
+  const falloff = 1 / (1 + (dEdge / f0) * (dEdge / f0));
+  // Sample the ring's colour a little inside its outer edge — the edge pixel
+  // itself is anti-aliased toward transparent and reads dark.
+  const bcx = inst.cssWidth / 2, bcy = inst.cssHeight / 2;
+  const inx = bcx - _near.nx, iny = bcy - _near.ny, inl = Math.hypot(inx, iny) || 1;
+  const ins = inst.ringCssPx * 0.5 + 1;
+  const sxp = _near.nx + (inx / inl) * ins, syp = _near.ny + (iny / inl) * ins;
+  const pk = sampleShaderPeakAt(inst, sxp, syp, 4);
+  const lum = pk.lum;
+  const pr = pk.r, pg = pk.g, pb = pk.b;
+  const spec = cfg.cursorStrength * falloff * env;
+  const diff = cfg.cursorDiffuse * falloff * (0.5 + 0.5 * Math.min(1, lum / 0.5)) * env;
+  if (dist > 0.01 && spec + diff > 0.005) {
+    const ux = dx / dist, uy = dy / dist, a = Math.atan2(uy, ux);
+    const sdepth = Math.max(0.1, Math.min(1, cfg.cursorDepth));
+    // Mirror plane: on the face of the pointer that looks at the ring.
+    const mx = bodyC.x + e * ux, my = bodyC.y + e * uy;
+    const fl = Math.max(1, cfg.cursorReach);
+
+    rctx.setTransform(1, 0, 0, 1, 0, 0);
+    rctx.clearRect(0, 0, refCanvas.width, refCanvas.height);
+    rctx.scale(dpr, dpr);
+
+    // Specular: the ring seen in the pointer's surface.
+    if (spec > 0.005) {
+      rctx.save();
+      rctx.filter = cfg.cursorBlur > 0 ? `blur(${cfg.cursorBlur}px)` : 'none';
+      const zoom = Math.max(1, cfg.cursorZoom);
+      rctx.translate(mx, my);
+      rctx.rotate(a);
+      rctx.scale(-1, 1);                                // mirror across the plane
+      rctx.translate((dist - e) * sdepth, 0);           // ring point, depth-compressed, behind the plane
+      rctx.rotate(-a);
+      rctx.scale(zoom, zoom);                           // magnify around the ring point
+      const o = inst.overscan, k = _near.k;
+      const passes = Math.max(1, Math.ceil(spec));
+      rctx.globalAlpha = Math.min(1, spec / passes);
+      rctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < passes; i++) {
+        rctx.drawImage(inst.canvas, -(_near.nx + o) * k, -(_near.ny + o) * k, (inst.cssWidth + 2 * o) * k, (inst.cssHeight + 2 * o) * k);
+      }
+      rctx.restore();
+      // Fade into the body away from the mirror plane.
+      const inv = 1 / dpr, fl1 = 1 / fl;
+      alphaPass(rctx, refCanvas.width, refCanvas.height, (x, y) => {
+        const behind = -(((x + 0.5) * inv - mx) * ux + ((y + 0.5) * inv - my) * uy);
+        return behind <= 0 ? 1 : 1 - behind * fl1;
+      });
+    }
+
+    // Diffuse: the lit rim, in the ring's colour at that point.
+    if (diff > 0.005) {
+      const peak = Math.max(pr, pg, pb) || 1;
+      const cr = Math.round((pr * 255) / peak), cg = Math.round((pg * 255) / peak), cb = Math.round((pb * 255) / peak);
+      const dl = fl * 1.2;
+      const g = rctx.createLinearGradient(mx + 0.5 * ux, my + 0.5 * uy, mx - dl * ux, my - dl * uy);
+      const a0 = Math.min(1, diff);
+      g.addColorStop(0, `rgba(${cr},${cg},${cb},${a0.toFixed(3)})`);
+      g.addColorStop(0.45, `rgba(${cr},${cg},${cb},${(a0 * 0.4).toFixed(3)})`);
+      g.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+      rctx.globalCompositeOperation = 'lighter';
+      rctx.fillStyle = g;
+      rctx.fillRect(0, 0, W, H);
+      rctx.globalCompositeOperation = 'source-over';
+    }
+
+    // Keep the light on the pointer's body only (not its soft shadow).
+    const body = bodyAlphaFor(spriteImg, sp, dpr, refCanvas.width, refCanvas.height);
+    if (body) alphaPass(rctx, refCanvas.width, refCanvas.height, (_x, _y, i) => body[i] === 0 ? 0 : 1);
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(refCanvas, 0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  curEl.style.transform = `translate3d(${(lpx - sp.hotX).toFixed(2)}px,${(lpy - sp.hotY).toFixed(2)}px,0)`;
+  if (!curShown) { curEl.style.display = ''; curShown = true; }
+}
+
+// ─── Frame ────────────────────────────────────────────────────────────────
+
+function ensureSpill()                 {
+  if (spillEl) return spillEl;
+  const el = document.createElement('div');
+  el.className = 'metal-fx-cursor-spill';
+  el.setAttribute('aria-hidden', 'true');
+  el.style.cssText =
+    'position:fixed;left:0;top:0;pointer-events:none;z-index:2147483000;border-radius:50%;' +
+    'mix-blend-mode:plus-lighter;will-change:transform,opacity;opacity:0;display:none';
+  document.body.appendChild(el);
+  spillEl = el;
+  return el;
+}
+
+function hideSpill()       {
+  if (!spillEl || !spillShown) return;
+  spillEl.style.display = 'none';
+  spillEl.style.opacity = '0';
+  spillShown = false;
+}
+
+function step(now        )       {
+  raf = 0;
+  if (!tracking) return;
+  // Own work only — `now` is the frame timestamp and includes whatever else
+  // ran in this frame (React renders, other rAF callbacks), which is not
+  // ours to be blamed for.
+  const t0 = performance.now();
+  try {
+    stepInner(now);
+  } catch (err) {
+    // Whatever broke, the user must get their cursor back.
+    cursorDisabled = true;
+    hideCursor();
+    hideSpill();
+    if (near) { near.cursorLight = null; near = null; }
+    if (typeof console !== 'undefined') console.warn('metal-fx: cursor light disabled after error', err);
+    return;
+  }
+  // Watchdog: this should cost well under a millisecond. If it keeps not
+  // doing so — huge pages, a pathological elementFromPoint — pause the
+  // cursor swap for a few seconds and try again.
+  const took = performance.now() - t0;
+  if (took > 6) {
+    if (++slowFrames >= 20) { slowFrames = 0; disabledUntil = performance.now() + 5000; hideCursor(); }
+  } else if (slowFrames > 0) slowFrames--;
+}
+
+function stepInner(now        )       {
+  const cfg = CURSOR_LIGHT;
+  const dt = Math.min(0.05, Math.max(0.001, (now - last) / 1000));
+  last = now;
+
+  // Nearest ring within reach.
+  let best                         = null;
+  let u = 0, uC = 0;
+  if (cfg.enabled && SHARED && !Number.isNaN(px)) {
+    let bestAbs = Number.POSITIVE_INFINITY;
+    const reachA = Math.max(1, cfg.reach);
+    const reachC = cfg.cursor && cursorSwapAllowed() ? Math.max(1, cfg.cursorDistance) : 0;
+    const reach = Math.max(reachA, reachC);
+    for (const inst of SHARED.instances) {
+      if (!inst.visible || inst.paused || !inst.canvas.isConnected) continue;
+      const r = inst.canvas.getBoundingClientRect();
+      if (r.width <= 0) continue;
+      const o = inst.overscan;
+      const k = r.width / (inst.cssWidth + 2 * o);
+      const left = r.left + o * k, top = r.top + o * k;
+      const rk = reach * k;
+      if (px < left - rk || px > left + inst.cssWidth * k + rk || py < top - rk || py > top + inst.cssHeight * k + rk) continue;
+      const lx = (px - left) / k, ly = (py - top) / k;
+      const d = nearestOutlinePoint(lx, ly, inst.cssWidth, inst.cssHeight, inst.cornerRadius, inst.kind, _pt);
+      const ad = Math.abs(d);
+      if (ad <= reach && ad < bestAbs) {
+        bestAbs = ad; best = inst;
+        _near.d = d; _near.nx = _pt.x; _near.ny = _pt.y; _near.k = k; _near.left = left; _near.top = top;
+      }
+    }
+    if (best) {
+      if (bestAbs <= reachA) { const t = 1 - bestAbs / reachA; u = t * t * (3 - 2 * t); }
+      if (bestAbs <= reachC) uC = Math.min(1, (1 - bestAbs / reachC) * 3);
+    }
+  }
+
+  // Envelope on the proximity weight — no pops on enter/leave/jump.
+  const a = 1 - Math.exp(-(dt * 1000) / (Math.max(1, cfg.fadeMs) / 3));
+  uS += (u - uS) * a;
+  uCS += (uC - uCS) * a;
+
+  if (best && best !== near) {
+    if (near) { near.cursorLight = null; tickInstanceGlow(near, now); }
+    near = best;
+  }
+  if (!best && uS < 0.002 && uCS < 0.002) {
+    uS = 0; uCS = 0;
+    if (near) { near.cursorLight = null; tickInstanceGlow(near, now); near = null; }
+    hideSpill();
+    hideCursor();
+    return;
+  }
+  if (!near) return;
+
+  // C — hand the glow a light source and tick it at pointer rate.
+  if (cfg.catchLight) {
+    const cl = near.cursorLight ?? (near.cursorLight = { x: 0, y: 0, w: 0 });
+    cl.x = _near.nx; cl.y = _near.ny; cl.w = uS;
+  } else if (near.cursorLight) {
+    near.cursorLight = null;
+  }
+  tickInstanceGlow(near, now);
+
+  // A — the ring on the cursor.
+  if (cfg.cursor && uCS > 0.002 && pointerIsMouse && !typing && !Number.isNaN(px) && cursorSwapAllowed() && ensureCursor() && claimCursor(px, py)) {
+    drawCursor(near, cfg, uCS);
+  } else {
+    hideCursor();
+  }
+
+  // B — the glint under the pointer.
+  if (cfg.spill) {
+    const el = ensureSpill();
+    const rgb = sampleShaderRGBAt(near, _near.nx, _near.ny, 2);
+    const lum = sampleShaderLumAt(near, _near.nx, _near.ny, 3);
+    const peak = Math.max(rgb.r, rgb.g, rgb.b) || 1;
+    const hsv = rgbToHsv((rgb.r * 255) / peak, (rgb.g * 255) / peak, (rgb.b * 255) / peak);
+    const [cr, cg, cb] = hsvToRgb(hsv[0], Math.min(1, hsv[1] * cfg.spillSaturation), 1);
+    _sc.r += (cr - _sc.r) * 0.15; _sc.g += (cg - _sc.g) * 0.15; _sc.b += (cb - _sc.b) * 0.15;
+    // Quantise so the gradient string (and its repaint) only changes on a
+    // visible step.
+    const qr = Math.round(_sc.r / 6) * 6, qg = Math.round(_sc.g / 6) * 6, qb = Math.round(_sc.b / 6) * 6;
+    const bg = `radial-gradient(closest-side, rgba(${qr},${qg},${qb},1) 0%, rgba(${qr},${qg},${qb},0.35) 45%, rgba(${qr},${qg},${qb},0) 100%)`;
+    if (bg !== spillBg) { spillBg = bg; el.style.background = bg; }
+
+    const R = Math.max(1, cfg.spillRadius * _near.k);
+    if (R !== spillSize) { spillSize = R; el.style.width = `${(2 * R).toFixed(1)}px`; el.style.height = `${(2 * R).toFixed(1)}px`; }
+    if (cfg.spillBlur !== spillBlur) { spillBlur = cfg.spillBlur; el.style.filter = cfg.spillBlur > 0 ? `blur(${cfg.spillBlur}px)` : ''; }
+
+    const rx = _near.left + _near.nx * _near.k, ry = _near.top + _near.ny * _near.k;
+    const sx = lpx + (rx - lpx) * cfg.spillOffset, sy = lpy + (ry - lpy) * cfg.spillOffset;
+    el.style.transform = `translate3d(${(sx - R).toFixed(2)}px,${(sy - R).toFixed(2)}px,0)`;
+
+    const lf = Math.min(1, Math.max(0, lum / 0.3));
+    const lumMix = 1 - cfg.spillLumGain + cfg.spillLumGain * lf;
+    const insideMul = _near.d < 0 ? cfg.spillInside : 1;
+    const op = Math.max(0, Math.min(1, cfg.spillStrength * uS * lumMix * insideMul));
+    if (!spillShown) { el.style.display = ''; spillShown = true; }
+    el.style.opacity = op.toFixed(3);
+  } else {
+    hideSpill();
+  }
+
+  raf = requestAnimationFrame(step);
+}
+
+
+/* ── engine/glow/config.ts ─────────────────────────────── */
+/**
+ * Live-tunable glow parameters.
+ *
+ * Every number the halo + catch-light overlay used to hard-code lives here as
+ * a mutable singleton so a tuning surface can drive it at runtime. Two classes:
+ *
+ *   • runtime — read every frame inside `updateGlow`. Changing one takes
+ *     effect on the next frame with no DOM work.
+ *   • markup — baked into the SVG (`buildSvgMarkup`) at inject time: stroke
+ *     widths, blur radii, per-layer opacities, blob lengths. Changing one
+ *     requires the SVG to be rebuilt, which `setGlowConfig` signals through
+ *     `subscribeGlowConfig` so MetalFx can re-inject.
+ *
+ * `GLOW_DEFAULTS` are the values that shipped before this file existed, so
+ * `resetGlowConfig()` is an exact restore.
+ */
+
+                             
+                                                                           
+                                               
+                    
+                                                                              
+                         
+                                                     
+                 
+                                                
+                 
+                                                                        
+                
+                                                                   
+                       
+                                                                              
+                      
+                                                 
+                     
+                                                                      
+                   
+                                                         
+                
+                                                         
+                
+                                                                        
+                     
+                                                                         
+                                                                                 
+                      
+                                                                            
+                                                                          
+                              
+                    
+
+                                                                           
+                                                                    
+                      
+                                                                           
+                       
+                       
+                       
+                       
+                       
+                     
+                     
+                     
+                     
+                   
+                   
+                   
+                   
+                           
+                          
+                         
+                        
+                                                                     
+                     
+                       
+ 
+
+const GLOW_MARKUP_KEYS                                = new Set                  ([
+  'haloHalfLen', 'extraHalfLen',
+  'haloStrokeXl', 'haloStrokeLg', 'haloStrokeMd', 'haloStrokeSm',
+  'haloBlurXl', 'haloBlurLg', 'haloBlurMd', 'haloBlurSm',
+  'haloOpXl', 'haloOpLg', 'haloOpMd', 'haloOpSm',
+  'extraStrokeOuter', 'extraStrokeCore', 'extraBlurOuter', 'extraBlurCore',
+  'extraFadeR', 'extraOpOuter',
+]);
+
+// The `/ 3` values were `EXTRA_SCALE = 1 / 3` applied to the original
+// constants (4.0, 2.0, 2.0, 1.35, 13.0, 9.13952). Stored pre-multiplied so a
+// slider moves the number the SVG actually receives.
+const GLOW_DEFAULTS                       = Object.freeze({
+  haloOpMul: 2.0,
+  extraIntensity: 3.51,
+  peakOp: 0.85,
+  baseOp: 0.34,
+  inset: 1.5,
+  extraOutward: 1.0,
+  wanderRange: 15,
+  wanderLerp: 0.0075,
+  fadeRate: 0.00875,
+  lumLo: 0.08,
+  lumHi: 0.32,
+  minDwellMs: 1500,
+  relocFadeMs: 300,
+  pointGain: 2.5,
+
+  haloHalfLen: 7.8,
+  extraHalfLen: 9.13952 / 3,
+  haloStrokeXl: 26.4,
+  haloStrokeLg: 15.6,
+  haloStrokeMd: 7.2,
+  haloStrokeSm: 3.0,
+  haloBlurXl: 8.4,
+  haloBlurLg: 4.8,
+  haloBlurMd: 2.1,
+  haloBlurSm: 0.9,
+  haloOpXl: 0.385,
+  haloOpLg: 0.595,
+  haloOpMd: 0.70,
+  haloOpSm: 0.70,
+  extraStrokeOuter: 4.0 / 3,
+  extraStrokeCore: 2.0 / 3,
+  extraBlurOuter: 2.0 / 3,
+  extraBlurCore: 1.35 / 3,
+  extraFadeR: 13.0 / 3,
+  extraOpOuter: 0.85,
+});
+
+/** Live values. Read directly by the glow engine; write via `setGlowConfig`. */
+const GLOW             = { ...GLOW_DEFAULTS };
+
+                                                 
+const listeners = new Set          ();
+
+/**
+ * Merge a partial config. Notifies subscribers, flagging whether any markup
+ * key changed so they can decide between "next frame picks it up" and
+ * "rebuild the SVG".
+ */
+function setGlowConfig(patch                     )       {
+  let markupChanged = false;
+  for (const k of Object.keys(patch)                           ) {
+    const v = patch[k];
+    if (v === undefined || GLOW[k] === v) continue;
+    GLOW[k] = v;
+    if (GLOW_MARKUP_KEYS.has(k)) markupChanged = true;
+  }
+  for (const fn of listeners) fn(markupChanged);
+}
+
+function resetGlowConfig()       {
+  setGlowConfig({ ...GLOW_DEFAULTS });
+}
+
+function subscribeGlowConfig(fn          )             {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
+
+/* ── engine/glow/bake.ts ─────────────────────────────── */
+/**
+ * Pre-rendered glow sprites.
+ *
+ * The halo used to be four blurred SVG strokes re-rasterised through
+ * `feGaussianBlur` on every move. Here the same strokes are rendered once,
+ * in white, into small alpha bitmaps; the per-frame work is then a couple of
+ * `drawImage` calls. Blur is a 3-pass box blur on the alpha channel (a close
+ * gaussian approximation) so it doesn't depend on `ctx.filter` support.
+ *
+ * Sprites are cached by everything that shapes them — half-length, scale,
+ * device pixel ratio and the GLOW markup values — and shared by every
+ * instance with the same key.
+ */
+
+
+                         
+                            
+                                                                    
+                           
+                                   
+            
+            
+                                                                                
+             
+             
+ 
+
+const cache = new Map                ();
+
+// ─── Blur ─────────────────────────────────────────────────────────────────
+
+/** Box sizes for `n` passes approximating a gaussian of `sigma` (Kutskir). */
+function boxesForGauss(sigma        , n        )           {
+  const wIdeal = Math.sqrt((12 * sigma * sigma) / n + 1);
+  let wl = Math.floor(wIdeal);
+  if (wl % 2 === 0) wl--;
+  const wu = wl + 2;
+  const mIdeal = (12 * sigma * sigma - n * wl * wl - 4 * n * wl - 3 * n) / (-4 * wl - 4);
+  const m = Math.round(mIdeal);
+  const sizes           = [];
+  for (let i = 0; i < n; i++) sizes.push(i < m ? wl : wu);
+  return sizes;
+}
+
+function boxBlurH(src              , dst              , w        , h        , r        )       {
+  const iarr = 1 / (r + r + 1);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let acc = 0;
+    for (let x = -r; x <= r; x++) acc += src[row + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      dst[row + x] = acc * iarr;
+      const out = row + Math.max(0, x - r), inn = row + Math.min(w - 1, x + r + 1);
+      acc += src[inn] - src[out];
+    }
+  }
+}
+
+function boxBlurV(src              , dst              , w        , h        , r        )       {
+  const iarr = 1 / (r + r + 1);
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = -r; y <= r; y++) acc += src[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      dst[y * w + x] = acc * iarr;
+      const out = Math.max(0, y - r) * w + x, inn = Math.min(h - 1, y + r + 1) * w + x;
+      acc += src[inn] - src[out];
+    }
+  }
+}
+
+function gaussBlur(a              , w        , h        , sigma        )               {
+  if (sigma <= 0.05) return a;
+  const tmp = new Float32Array(a.length);
+  let cur = a;
+  for (const box of boxesForGauss(sigma, 3)) {
+    const r = (box - 1) / 2;
+    boxBlurH(cur, tmp, w, h, r);
+    boxBlurV(tmp, cur, w, h, r);
+  }
+  return cur;
+}
+
+// ─── Rasterising ──────────────────────────────────────────────────────────
+
+                                                                 
+
+/** Alpha of a horizontal round-capped line of `halfLen` at the given width,
+ *  rendered through the 2D canvas so the AA matches what SVG produced. */
+function strokeAlpha(halfLen        , strokeW        , w        , h        , dpr        , ax        , ay        )               {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  const out = new Float32Array(w * h);
+  if (!g) return out;
+  g.scale(dpr, dpr);
+  g.strokeStyle = '#fff';
+  g.lineCap = 'round';
+  g.lineJoin = 'round';
+  g.lineWidth = strokeW;
+  g.beginPath();
+  g.moveTo(ax - halfLen, ay);
+  g.lineTo(ax + halfLen, ay);
+  g.stroke();
+  const d = g.getImageData(0, 0, w, h).data;
+  for (let i = 0, j = 3; i < out.length; i++, j += 4) out[i] = d[j] / 255;
+  return out;
+}
+
+function compose(layers         , halfLen        , s        , dpr        , fade        )         {
+  let padMax = 0;
+  for (const l of layers) padMax = Math.max(padMax, (l.stroke / 2 + 3 * l.blur) * s);
+  const pad = Math.ceil(padMax) + 1;
+  const cw = 2 * halfLen + 2 * pad, ch = 2 * pad;
+  const w = Math.ceil(cw * dpr), h = Math.ceil(ch * dpr);
+  const acc = new Float32Array(w * h);
+  for (const l of layers) {
+    let a = strokeAlpha(halfLen, l.stroke * s, w, h, dpr, pad, pad);
+    a = gaussBlur(a, w, h, l.blur * s * dpr);
+    const op = l.opacity;
+    // White over white: only alpha composes.
+    for (let i = 0; i < acc.length; i++) { const la = a[i] * op; acc[i] = acc[i] + la * (1 - acc[i]); }
+  }
+  if (fade > 0) {
+    // SVG luminance mask: white to 0.30, #404040 (0.25) at 0.65, black at 1.
+    const cx = pad * dpr, cy = pad * dpr, R = fade * s * dpr;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const t = Math.hypot(x + 0.5 - cx, y + 0.5 - cy) / R;
+      let m        ;
+      if (t <= 0.3) m = 1;
+      else if (t <= 0.65) m = 1 - ((t - 0.3) / 0.35) * 0.75;
+      else if (t < 1) m = 0.25 * (1 - (t - 0.65) / 0.35);
+      else m = 0;
+      acc[y * w + x] *= m;
+    }
+  }
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  const alpha = new Uint8ClampedArray(w * h);
+  for (let i = 0; i < acc.length; i++) alpha[i] = Math.round(Math.min(1, acc[i]) * 255);
+  if (g) {
+    const img = g.createImageData(w, h);
+    const d = img.data;
+    for (let i = 0, j = 0; i < acc.length; i++, j += 4) {
+      d[j] = 255; d[j + 1] = 255; d[j + 2] = 255; d[j + 3] = alpha[i];
+    }
+    g.putImageData(img, 0, 0);
+  }
+  return { canvas: c, alpha, w: cw, h: ch, ax: pad, ay: pad };
+}
+
+function markupKey()         {
+  return [
+    GLOW.haloStrokeXl, GLOW.haloStrokeLg, GLOW.haloStrokeMd, GLOW.haloStrokeSm,
+    GLOW.haloBlurXl, GLOW.haloBlurLg, GLOW.haloBlurMd, GLOW.haloBlurSm,
+    GLOW.haloOpXl, GLOW.haloOpLg, GLOW.haloOpMd, GLOW.haloOpSm,
+    GLOW.extraStrokeOuter, GLOW.extraStrokeCore, GLOW.extraBlurOuter, GLOW.extraBlurCore,
+    GLOW.extraFadeR, GLOW.extraOpOuter,
+  ].join(',');
+}
+
+/** The wide halo: four blurred strokes stacked, at `halfLen` half-length. */
+function bakeHalo(halfLen        , s        , dpr        )         {
+  const key = `h|${halfLen.toFixed(2)}|${s}|${dpr}|${markupKey()}`;
+  let sp = cache.get(key);
+  if (!sp) {
+    sp = compose([
+      { stroke: GLOW.haloStrokeXl, blur: GLOW.haloBlurXl, opacity: GLOW.haloOpXl },
+      { stroke: GLOW.haloStrokeLg, blur: GLOW.haloBlurLg, opacity: GLOW.haloOpLg },
+      { stroke: GLOW.haloStrokeMd, blur: GLOW.haloBlurMd, opacity: GLOW.haloOpMd },
+      { stroke: GLOW.haloStrokeSm, blur: GLOW.haloBlurSm, opacity: GLOW.haloOpSm },
+    ], halfLen, s, dpr, 0);
+    cache.set(key, sp);
+  }
+  return sp;
+}
+
+/** The catch-light: two tight strokes with a radial fade at the ends. */
+function bakeExtra(halfLen        , s        , dpr        )         {
+  const key = `e|${halfLen.toFixed(2)}|${s}|${dpr}|${markupKey()}`;
+  let sp = cache.get(key);
+  if (!sp) {
+    sp = compose([
+      { stroke: GLOW.extraStrokeOuter, blur: GLOW.extraBlurOuter, opacity: GLOW.extraOpOuter },
+      { stroke: GLOW.extraStrokeCore, blur: GLOW.extraBlurCore, opacity: 1 },
+    ], halfLen, s, dpr, GLOW.extraFadeR);
+    cache.set(key, sp);
+  }
+  return sp;
+}
+
+/** A tinted copy of a white sprite. `holder` caches by tint so the re-tint
+ *  only happens when the colour actually changes. Pixel-data based on
+ *  purpose: no `source-in` compositing, which WebKit intermittently gets
+ *  wrong on accelerated canvases (a solid rectangle instead of the shape). */
+                                                                                                                     
+
+function tintSprite(src        , r        , g        , b        , holder        )                    {
+  const key = (r << 16) | (g << 8) | b;
+  if (holder.canvas && holder.tint === key && holder.src === src) return holder.canvas;
+  let c = holder.canvas;
+  let img = holder.img;
+  if (!c || !img || holder.src !== src) {
+    c = document.createElement('canvas');
+    c.width = src.canvas.width; c.height = src.canvas.height;
+    img = c.getContext('2d')?.createImageData(c.width, c.height) ?? null;
+  }
+  const ctx = c.getContext('2d');
+  if (ctx && img) {
+    const d = img.data, a = src.alpha;
+    for (let i = 0, j = 0; i < a.length; i++, j += 4) { d[j] = r; d[j + 1] = g; d[j + 2] = b; d[j + 3] = a[i]; }
+    ctx.putImageData(img, 0, 0);
+  }
+  holder.canvas = c; holder.img = img; holder.tint = key; holder.src = src;
+  return c;
+}
+
+
+/* ── engine/glow/geometry.ts ─────────────────────────────── */
+/**
+ * Pure geometry + SVG markup for the glow overlay.
+ *
+ * Perimeter math (rounded-rect / circle arc-length sampling), blob path
+ * generation, SVG filter/mask construction, and HSV colour helpers.
+ * No state — every function is a pure transform.
+ */
+
+
+
+
+
+
+function rrPerim(w        , h        , r        )         {
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  return 2 * Math.max(0, w - 2 * rr) + 2 * Math.max(0, h - 2 * rr) + 2 * Math.PI * rr;
+}
+
+function shapePerim(w        , h        , r        , kind                   )         {
+  if (kind === 'circle') return 2 * Math.PI * Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  return rrPerim(w, h, r);
+}
+
+function sampleAtArc(s        , w        , h        , r        , inset        , outward        , kind                   , out     )     {
+  const o = out || { x: 0, y: 0 };
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  if (kind === 'circle') {
+    const perim = 2 * Math.PI * rr;
+    if (perim <= 0.0001) { o.x = w * 0.5; o.y = h * 0.5; return o; }
+    s = ((s % perim) + perim) % perim;
+    const theta = -Math.PI / 2 + (s / perim) * Math.PI * 2;
+    const rad = Math.max(0, rr - inset + outward);
+    o.x = w * 0.5 + rad * Math.cos(theta);
+    o.y = h * 0.5 + rad * Math.sin(theta);
+    return o;
+  }
+  const topLen = Math.max(0, w - 2 * rr), sideLen = Math.max(0, h - 2 * rr);
+  const arcLen = (Math.PI * rr) / 2;
+  const perim = 2 * (topLen + sideLen) + 4 * arcLen;
+  s = ((s % perim) + perim) % perim;
+  const rad = Math.max(0, rr - inset + outward);
+  let d = s;
+  if (d < topLen) { o.x = rr + d; o.y = inset - outward; return o; }
+  d -= topLen;
+  if (d < arcLen) {
+    const theta = -Math.PI / 2 + (arcLen > 0 ? d / arcLen : 0) * (Math.PI / 2);
+    o.x = (w - rr) + rad * Math.cos(theta); o.y = rr + rad * Math.sin(theta); return o;
+  }
+  d -= arcLen;
+  if (d < sideLen) { o.x = w - inset + outward; o.y = rr + d; return o; }
+  d -= sideLen;
+  if (d < arcLen) {
+    const theta = (arcLen > 0 ? d / arcLen : 0) * (Math.PI / 2);
+    o.x = (w - rr) + rad * Math.cos(theta); o.y = (h - rr) + rad * Math.sin(theta); return o;
+  }
+  d -= arcLen;
+  if (d < topLen) { o.x = w - rr - d; o.y = h - inset + outward; return o; }
+  d -= topLen;
+  if (d < arcLen) {
+    const theta = Math.PI / 2 + (arcLen > 0 ? d / arcLen : 0) * (Math.PI / 2);
+    o.x = rr + rad * Math.cos(theta); o.y = (h - rr) + rad * Math.sin(theta); return o;
+  }
+  d -= arcLen;
+  if (d < sideLen) { o.x = inset - outward; o.y = h - rr - d; return o; }
+  d -= sideLen;
+  const theta = Math.PI + (arcLen > 0 ? d / arcLen : 0) * (Math.PI / 2);
+  o.x = rr + rad * Math.cos(theta); o.y = rr + rad * Math.sin(theta);
+  return o;
+}
+
+/**
+ * Inverse of `sampleAtArc` at inset 0: the arc-length position on the outline
+ * nearest a box-local point. Points off the outline project onto it.
+ */
+function arcAtPoint(x        , y        , w        , h        , r        , kind                   )         {
+  const rr = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+  if (kind === 'circle') {
+    const perim = 2 * Math.PI * rr;
+    if (perim <= 0.0001) return 0;
+    const theta = Math.atan2(y - h / 2, x - w / 2);
+    const s = ((theta + Math.PI / 2) / (2 * Math.PI)) * perim;
+    return ((s % perim) + perim) % perim;
+  }
+  const topLen = Math.max(0, w - 2 * rr), sideLen = Math.max(0, h - 2 * rr);
+  const arcLen = (Math.PI * rr) / 2, Q = Math.PI / 2;
+  const s1 = topLen, s2 = s1 + arcLen, s3 = s2 + sideLen, s4 = s3 + arcLen, s5 = s4 + topLen, s6 = s5 + arcLen, s7 = s6 + sideLen;
+  const inX = x >= rr && x <= w - rr, inY = y >= rr && y <= h - rr;
+  if (inX && inY) {
+    const dl = x, dr = w - x, dt = y, db = h - y, m = Math.min(dl, dr, dt, db);
+    if (m === dt) return x - rr;
+    if (m === dr) return s2 + (y - rr);
+    if (m === db) return s4 + (w - rr - x);
+    return s6 + (h - rr - y);
+  }
+  if (inX) return y < h / 2 ? x - rr : s4 + (w - rr - x);
+  if (inY) return x > w / 2 ? s2 + (y - rr) : s6 + (h - rr - y);
+  if (x > w / 2 && y < h / 2) { const t = Math.atan2(y - rr, x - (w - rr)); return s1 + ((t + Q) / Q) * arcLen; }
+  if (x > w / 2) { const t = Math.atan2(y - (h - rr), x - (w - rr)); return s3 + (t / Q) * arcLen; }
+  if (y > h / 2) { const t = Math.atan2(y - (h - rr), x - rr); return s5 + ((t - Q) / Q) * arcLen; }
+  const t = Math.atan2(y - rr, x - rr);
+  return s7 + ((t + Math.PI) / Q) * arcLen;
+}
+
+function buildStaticBlobPath(halfLen        , segments        )         {
+  const step = (halfLen * 2) / segments;
+  let d = '';
+  for (let i = 0; i <= segments; i++) {
+    const x = -halfLen + i * step;
+    d += (i === 0 ? 'M ' : 'L ') + x.toFixed(3) + ' 0 ';
+  }
+  return d;
+}
+
+const _ta     = { x: 0, y: 0 };
+const _tb     = { x: 0, y: 0 };
+
+function tangentAngleAtArc(s        , w        , h        , r        , inset        , kind                   )         {
+  const eps = 0.1;
+  sampleAtArc(s - eps, w, h, r, inset, 0, kind, _ta);
+  sampleAtArc(s + eps, w, h, r, inset, 0, kind, _tb);
+  return Math.atan2(_tb.y - _ta.y, _tb.x - _ta.x);
+}
+
+function smoothstep(a        , b        , x        )         {
+  if (a === b) return x < a ? 0 : 1;
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+function buildPerimTable(opts             )                {
+  if (opts.samplePoints && opts.samplePoints.length > 0) {
+    // Point mode: `arc` is just the index — relocation logic works on
+    // indices, and positioning bypasses arc math entirely.
+    return opts.samplePoints.map((p, i) => ({ x: p.x, y: p.y, arc: i }));
+  }
+  const perim = shapePerim(opts.width, opts.height, opts.cornerRadius, opts.kind);
+  const insetS = GLOW.inset * (opts.scale ?? 1);
+  const table                = [];
+  for (let i = 0; i < PERIM_SAMPLES; i++) {
+    const arc = (i / PERIM_SAMPLES) * perim;
+    const pt = sampleAtArc(arc, opts.width, opts.height, opts.cornerRadius, insetS, 0, opts.kind);
+    table.push({ x: pt.x, y: pt.y, arc });
+  }
+  return table;
+}
+
+function buildSvgMarkup(opts             , p        )         {
+  const { width: W, height: H, cornerRadius: R } = opts;
+  const s = opts.scale ?? 1;
+  const ringInset = opts.kind === 'circle' ? 2 : 1;
+  const innerR = Math.max(0, R - ringInset);
+  // Filter region grows with scale so blurred strokes don't get clipped at
+  // bigger sizes. The 200/540/440 baseline matches the canonical 1× pill.
+  const fX = (-200 * s).toFixed(0), fY = fX;
+  const fW = (540 * s).toFixed(0), fH = (440 * s).toFixed(0);
+  const fRect = `x="${fX}" y="${fY}" width="${fW}" height="${fH}"`;
+  const fr = `${fRect} filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"`;
+  // Stroke widths and blur stdDeviations are absolute SVG units; multiply
+  // by `s` so they remain proportional when viewBox grows with the host.
+  const sw = (n        ) => (n * s).toFixed(3);
+  const sd = (n        ) => (n * s).toFixed(3);
+  return [
+    '<defs>',
+    `<filter id="${p}_bXl" ${fr}><feGaussianBlur stdDeviation="${sd(GLOW.haloBlurXl)}"/></filter>`,
+    `<filter id="${p}_bLg" ${fr}><feGaussianBlur stdDeviation="${sd(GLOW.haloBlurLg)}"/></filter>`,
+    `<filter id="${p}_bMd" ${fr}><feGaussianBlur stdDeviation="${sd(GLOW.haloBlurMd)}"/></filter>`,
+    `<filter id="${p}_bSm" ${fr}><feGaussianBlur stdDeviation="${sd(GLOW.haloBlurSm)}"/></filter>`,
+    `<filter id="${p}_ebO" ${fr}><feGaussianBlur stdDeviation="${sd(GLOW.extraBlurOuter)}"/></filter>`,
+    `<filter id="${p}_ebC" ${fr}><feGaussianBlur stdDeviation="${sd(GLOW.extraBlurCore)}"/></filter>`,
+    `<radialGradient id="${p}_fg" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="white"/><stop offset="0.30" stop-color="white"/><stop offset="0.65" stop-color="#404040"/><stop offset="1" stop-color="black"/></radialGradient>`,
+    `<mask id="${p}_fm" maskUnits="userSpaceOnUse" ${fRect}><rect ${fRect} fill="black"/><circle id="${p}_fc" cx="0" cy="0" r="${(GLOW.extraFadeR * s).toFixed(3)}" fill="url(#${p}_fg)"/></mask>`,
+    opts.maskDataUrl
+      // Point mode clips hard to the glyphs (black surround); the halo's
+      // blurred energy outside the strokes is discarded, so `pointGain`
+      // compensates inside them.
+      ? `<mask id="${p}_rm" maskUnits="userSpaceOnUse" ${fRect}><rect ${fRect} fill="black"/><image href="${opts.maskDataUrl}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"/></mask>`
+      : `<mask id="${p}_rm" maskUnits="userSpaceOnUse" ${fRect}><rect ${fRect} fill="#808080"/><path id="${p}_rmO" d="${outlinePathD(roundRectOutline(0, 0, W, H, R, null))}" fill="white"/><path id="${p}_rmI" d="${outlinePathD(roundRectOutline(ringInset, ringInset, W - ringInset * 2, H - ringInset * 2, innerR, null))}" fill="black"/></mask>`,
+    '</defs>',
+    // Safari clips mask to the masked element's bbox; our horizontal strokes
+    // have zero height, so the mask becomes a sliver. These spacer rects
+    // inflate the bbox to the full filter region.
+    `<g id="${p}_h" mask="url(#${p}_rm)" opacity="0">`,
+    `<rect ${fRect} fill="none" pointer-events="none"/>`,
+    `<g id="${p}_hI" stroke="white">`,
+    `<path id="${p}_pXl" stroke-width="${sw(GLOW.haloStrokeXl)}" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="${GLOW.haloOpXl}" filter="url(#${p}_bXl)"/>`,
+    `<path id="${p}_pLg" stroke-width="${sw(GLOW.haloStrokeLg)}" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="${GLOW.haloOpLg}" filter="url(#${p}_bLg)"/>`,
+    `<path id="${p}_pMd" stroke-width="${sw(GLOW.haloStrokeMd)}" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="${GLOW.haloOpMd}" filter="url(#${p}_bMd)"/>`,
+    `<path id="${p}_pSm" stroke-width="${sw(GLOW.haloStrokeSm)}" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="${GLOW.haloOpSm}" filter="url(#${p}_bSm)"/>`,
+    '</g></g>',
+    `<g id="${p}_e" mask="url(#${p}_rm)" opacity="0">`,
+    `<rect ${fRect} fill="none" pointer-events="none"/>`,
+    `<g mask="url(#${p}_fm)">`,
+    `<g id="${p}_eI" stroke="white">`,
+    `<path id="${p}_eO" stroke-width="${sw(GLOW.extraStrokeOuter)}" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="${GLOW.extraOpOuter}" filter="url(#${p}_ebO)"/>`,
+    `<path id="${p}_eC" stroke-width="${sw(GLOW.extraStrokeCore)}" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="1.0" filter="url(#${p}_ebC)"/>`,
+    '</g></g></g>',
+  ].join('');
+}
+
+
+/* ── engine/tween.ts ─────────────────────────────── */
+                                           
+
+const ease = {
+  linear: (t        ) => t,
+  smoothstep: (t        ) => t * t * (3 - 2 * t),
+}         ;
+
+                        
+               
+             
+              
+               
+                  
+              
+                
+ 
+
+function tween(from        , to        , dur        , e         = ease.linear)        {
+  return { from, to, dur, ease: e, startMs: -1, val: from, done: false };
+}
+
+function tweenStart(tw       , nowMs        )       {
+  tw.startMs = nowMs;
+  tw.val = tw.from;
+  tw.done = false;
+}
+
+function tweenTick(tw       , nowMs        )         {
+  if (tw.done || tw.startMs < 0) return tw.val;
+  const t = Math.min(1, (nowMs - tw.startMs) / tw.dur);
+  tw.val = tw.from + (tw.to - tw.from) * tw.ease(t);
+  if (t >= 1) tw.done = true;
+  return tw.val;
+}
+
+
+/* ── engine/glow/glow.ts ─────────────────────────────── */
+/**
+ * Glow overlay — a luminance-driven halo that tracks the brightest point on
+ * the shader's perimeter, plus a tight catch-light.
+ *
+ * How it works:
+ *   1. Samples luminance at N points around the component's perimeter.
+ *   2. A state machine tracks which perimeter point is brightest, with dwell
+ *      timers and fade-out / fade-in when relocating to a new hotspot.
+ *   3. Pre-baked sprites (see `bake.ts`) are drawn onto a small per-instance
+ *      canvas at the hotspot, tinted to the shader's colour there, and
+ *      clipped to the ring band (or the glyph mask in point mode).
+ *
+ * The canvas replaces the earlier SVG: four `feGaussianBlur` strokes over a
+ * 540×440 filter region re-rasterised on every move — the single biggest
+ * idle cost of the effect. Now a move is a few `drawImage` calls inside
+ * `clip()` paths, and nothing is drawn at all when the hotspot hasn't moved
+ * more than a quarter pixel.
+ *
+ * Deliberately no `destination-in` / `source-in` compositing on the hot
+ * path: WebKit intermittently applies those wrong on accelerated canvases
+ * (one frame of the halo unclipped and untinted — a white flash). Tinting is
+ * pixel data, clipping is paths; the glyph mask (point mode) multiplies
+ * alpha in pixel data too.
+ */
+                                                                   
+
+
+
+
+
+                                                 
+
+
+
+
+// ─── Constants ────────────────────────────────────────────────────────────
+
+const RELOCATE_DELTA = 0.05;
+/** Wander retarget period. Was 120 ticks at the 15 fps shader rate. */
+const WANDER_RETARGET_MS = 120 * (1000 / 15);
+/** Per-tick rates in GLOW are defined at the 15 fps shader rate; ticks now
+ *  come at display rate mid-fade, so they're rescaled by elapsed time. */
+const RATE_TICK_MS = 1000 / 15;
+const TINT_HOLD_MS = 2000, TINT_FADE_MS = 400;
+const LT_SAT_BOOST = 2.625, LT_VAL_MULT = 1.008, LT_MIN_VAL = 0.31;
+const REF_W = 140, REF_H = 40, REF_R = 20;
+/** Longest a single tick may advance the fade envelope, ms (~2 frames). */
+const ENV_MAX_STEP_MS = 34;
+/** Redraw thresholds — below these a frame is skipped entirely. */
+const POS_EPS = 0.25, ANG_EPS = 0.01, OP_EPS = 0.004;
+/** Point mode: the glyph clip keeps a soft skirt around the letters, like the
+ *  ring band's 50 % surround — otherwise on small type the halo's blur is
+ *  thrown away and only a hairline glint survives inside the strokes. */
+const GLYPH_SKIRT = 0.5, GLYPH_SKIRT_SIGMA = 3.5;
+
+// ─── Types ────────────────────────────────────────────────────────────────
+
+                                              
+
+                              
+                                                                            
+                                                                        
+                                                                        
+                                                                             
+                                                                      
+                                                          
+                       
+                      
+                            
+                                
+                                                                          
+                                                                          
+                                           
+                              
+                          
+                                                                                   
+                                      
+                     
+                                                                            
+                 
+              
+               
+                
+                   
+                    
+                                                                             
+                                                                        
+                                                                         
+                                                                                  
+                          
+                                                                               
+                                                               
+                                                                            
+                
+                       
+                                                                             
+                     
+                                                              
+                                                                            
+                                                                          
+                                                                                 
+                                                                                     
+                                                                          
+                                                                          
+                                                                     
+                                                                                      
+                                                               
+                                                                                             
+                                             
+                                                                                             
+                                                        
+                                                                           
+                                                                     
+               
+ 
+
+const _pt__m1     = { x: 0, y: 0 };
+
+// ─── Public API ───────────────────────────────────────────────────────────
+
+function injectGlow(container             , opts             )              {
+  const { width: W, height: H } = opts;
+  const s = opts.scale ?? 1;
+  const dpr = Math.min(3, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+
+  const ratio = shapePerim(W, H, opts.cornerRadius, opts.kind) / rrPerim(REF_W, REF_H, REF_R);
+  const haloHL = Math.max(1, GLOW.haloHalfLen * ratio);
+  const extraHL = Math.max(0.6, GLOW.extraHalfLen * ratio);
+  const halo = bakeHalo(haloHL, s, dpr);
+  const extra = bakeExtra(extraHL, s, dpr);
+
+  // Enough room for the halo's full blur skirt plus the outward catch-light.
+  const margin = Math.ceil(Math.max(halo.ay, extra.ay) + GLOW.extraOutward * ratio * s + 2);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'metal-fx-glow-svg';
+  wrap.setAttribute('aria-hidden', 'true');
+  const env = document.createElement('div');
+  env.className = 'metal-fx-glow-env';
+  env.style.cssText = 'position:absolute;inset:0;pointer-events:none;opacity:0';
+  const canvas = document.createElement('canvas');
+  canvas.className = 'metal-fx-glow-canvas';
+  const cw = W + 2 * margin, ch = H + 2 * margin;
+  canvas.width = Math.ceil(cw * dpr); canvas.height = Math.ceil(ch * dpr);
+  canvas.style.cssText = `position:absolute;left:${-margin}px;top:${-margin}px;width:${cw}px;height:${ch}px;pointer-events:none`;
+  env.appendChild(canvas);
+  wrap.appendChild(env);
+  container.appendChild(wrap);
+  const ctx = canvas.getContext('2d', { willReadFrequently: !!opts.maskDataUrl });
+  if (!ctx) throw new Error('metal-fx: glow canvas 2D context unavailable');
+
+  const h              = {
+    wrap, env, canvas, ctx, surroundPath: null, bandPath: null, maskAlpha: null, maskReady: false, margin, dpr,
+    halo, extra,
+    haloTint: { canvas: null, img: null, tint: -1, src: null }, extraTint: { canvas: null, img: null, tint: -1, src: null },
+    mO: createOutlineBuf(), mI: createOutlineBuf(), maskSum: Number.NaN, maskDeformed: false, deform: null,
+    width: W, height: H, cornerRadius: opts.cornerRadius, kind: opts.kind,
+    scale: s,
+    perim: buildPerimTable(opts),
+    pointMode: !!(opts.samplePoints && opts.samplePoints.length > 0),
+    currentIdx: 0, appearedAt: 0, glowOpacity: 0,
+    relocTween: null, relocNextIdx: -1, relocMul: 0, envClock: 0,
+    cursorMode: false, cursorArc: 0, cursorTargetArc: 0, lastTickMs: 0,
+    wanderS: 0, wanderTargetS: 0, wanderFrames: 0,
+    tintFrom: { r: 255, g: 255, b: 255 }, tintTarget: { r: 255, g: 255, b: 255 }, tintTween: null, tintHoldUntil: 0,
+    dX: Number.NaN, dY: Number.NaN, dAng: Number.NaN, dEX: Number.NaN, dEY: Number.NaN, dHOp: Number.NaN, dEOp: Number.NaN,
+    dHaloTint: '', dExtraTint: '', dirty: true,
+    dEnv: -1,
+  };
+
+  if (opts.maskDataUrl) {
+    const img = new Image();
+    img.onload = () => {
+      // Rasterise the glyph mask once at canvas resolution and keep its alpha.
+      const c = document.createElement('canvas');
+      c.width = canvas.width; c.height = canvas.height;
+      const g = c.getContext('2d', { willReadFrequently: true });
+      if (!g) return;
+      g.scale(dpr, dpr);
+      g.drawImage(img, margin, margin, W, H);
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      const n = c.width * c.height;
+      const glyph = new Float32Array(n);
+      for (let i = 0, j = 3; i < n; i++, j += 4) glyph[i] = d[j] / 255;
+      const skirt = gaussBlur(Float32Array.from(glyph), c.width, c.height, GLYPH_SKIRT_SIGMA * dpr);
+      let peak = 0;
+      for (let i = 0; i < n; i++) if (skirt[i] > peak) peak = skirt[i];
+      const k = peak > 0 ? GLYPH_SKIRT / peak : 0;
+      const a = new Uint8ClampedArray(n);
+      for (let i = 0; i < n; i++) a[i] = Math.round(Math.max(glyph[i], skirt[i] * k) * 255);
+      h.maskAlpha = a; h.maskReady = true; h.dirty = true;
+    };
+    img.src = opts.maskDataUrl;
+  } else {
+    renderMask(h, null);
+  }
+  return h;
+}
+
+// ─── Mask ─────────────────────────────────────────────────────────────────
+
+/**
+ * The band clip, as two evenodd paths. Matches the old SVG mask: 50 % outside
+ * the ring, 100 % inside the band, 0 in the hole — the halo's blur skirt
+ * still spills softly onto the page.
+ */
+function renderMask(h             , deform                 )       {
+  if (h.pointMode) return;
+  const { margin: m, width: W, height: H, cornerRadius: R } = h;
+  const ringInset = h.kind === 'circle' ? 2 : 1;
+  roundRectOutline(0, 0, W, H, R, deform, h.mO);
+  roundRectOutline(ringInset, ringInset, W - 2 * ringInset, H - 2 * ringInset, Math.max(0, R - ringInset), deform, h.mI);
+  const outer = new Path2D();
+  tracePath(outer, h.mO, m);
+  const band = new Path2D();
+  tracePath(band, h.mO, m);
+  tracePath(band, h.mI, m);
+  const surround = new Path2D();
+  surround.rect(0, 0, W + 2 * m, H + 2 * m);
+  surround.addPath(outer);
+  h.surroundPath = surround;
+  h.bandPath = band;
+  h.maskReady = true;
+}
+
+function tracePath(p        , buf            , off        )       {
+  const xy = buf.xy;
+  for (let i = 0; i < buf.n; i++) {
+    const x = xy[i * 2] + off, y = xy[i * 2 + 1] + off;
+    if (i === 0) p.moveTo(x, y); else p.lineTo(x, y);
+  }
+  p.closePath();
+}
+
+function outlineSum(deform                 , h             )         {
+  if (!deform) return 0;
+  // Cheap checksum of the deformed outline: every 4th point.
+  roundRectOutline(0, 0, h.width, h.height, h.cornerRadius, deform, h.mO);
+  let sum = 0;
+  const xy = h.mO.xy;
+  for (let i = 0; i < h.mO.n; i += 4) sum += xy[i * 2] * 1.37 + xy[i * 2 + 1];
+  return sum;
+}
+
+/**
+ * Keep the glow's band mask (and hotspot) on the deformed outline. Call after
+ * every composite while `deform` is set; pass null once to restore the rigid
+ * mask. Cheap: a checksum of ~40 points, and a small path fill when changed.
+ */
+function updateGlowMask(h             , deform                 )       {
+  h.deform = deform;
+  if (h.pointMode) return;
+  if (deform) {
+    const sum = outlineSum(deform, h);
+    if (sum !== h.maskSum) { h.maskSum = sum; renderMask(h, deform); h.maskDeformed = true; h.dirty = true; }
+  } else if (h.maskDeformed) {
+    h.maskSum = Number.NaN;
+    renderMask(h, null);
+    h.maskDeformed = false;
+    h.dirty = true;
+  }
+}
+
+// ─── Per-frame update ─────────────────────────────────────────────────────
+
+/**
+ * One glow tick. Returns true while an envelope is animating (relocation
+ * fade, tint crossfade, cursor tracking) — the loop then calls again every
+ * animation frame so the fade is smooth instead of stepping at 15 fps.
+ */
+function updateGlow(h             , inst                 , nowMs        , strengthMul        , theme                   = 'dark')          {
+  const { width: W, height: H, cornerRadius: R, perim } = h;
+  if (perim.length === 0) return false;
+
+  const halfWin = 2;
+
+  let maxLum = -1, maxIdx = h.currentIdx, curLum = 0;
+  for (let i = 0; i < perim.length; i++) {
+    const pt = perim[i];
+    const lum = sampleShaderLumAt(inst, pt.x, pt.y, halfWin);
+    if (lum > maxLum) { maxLum = lum; maxIdx = i; }
+    if (i === h.currentIdx) curLum = lum;
+  }
+
+  const dwellActive = h.appearedAt > 0 && nowMs - h.appearedAt < GLOW.minDwellMs;
+  const targetOp = GLOW.baseOp + (GLOW.peakOp - GLOW.baseOp) * smoothstep(GLOW.lumLo, GLOW.lumHi, curLum);
+  const rivalDominates = !dwellActive && maxLum - curLum > RELOCATE_DELTA;
+
+  // Cursor as light source: while the pointer is within reach the hotspot
+  // faces it (nearest outline point) and its brightness follows proximity.
+  // Ring mode only — glyph masks have no continuous outline to slide along.
+  const cl = inst.cursorLight;
+  const cursorOn = CURSOR_LIGHT.enabled && CURSOR_LIGHT.catchLight && !h.pointMode && !!cl && cl.w > 0.02;
+  const perimLen = shapePerim(W, H, R, h.kind);
+  if (cursorOn) h.cursorTargetArc = arcAtPoint(cl .x, cl .y, W, H, R, h.kind);
+  const cursorOp = cursorOn ? Math.min(1, GLOW.peakOp * CURSOR_LIGHT.catchGain * cl .w) : 0;
+  const dtMs = h.lastTickMs > 0 ? Math.min(200, Math.max(0.5, nowMs - h.lastTickMs)) : RATE_TICK_MS;
+  h.lastTickMs = nowMs;
+  h.envClock += Math.min(dtMs, ENV_MAX_STEP_MS);
+  const rate = (perTick        ) => 1 - Math.pow(1 - perTick, dtMs / RATE_TICK_MS);
+
+  // Relocation rules: a hotspot holds for at least `minDwellMs`; moving is
+  // always disappear-in-place (relocFadeMs) then appear at the new point
+  // (relocFadeMs). The halo never slides along the ring — except in cursor
+  // mode, where the light source itself is moving.
+  const fadeMs = Math.max(1, GLOW.relocFadeMs);
+  const CURSOR_ENTER = -2, CURSOR_EXIT = -3;
+  const fadeIn = () => {
+    h.appearedAt = nowMs;
+    h.wanderS = 0; h.wanderTargetS = 0; h.wanderFrames = 0;
+    h.relocTween = tween(0, 1, fadeMs, ease.smoothstep);
+    tweenStart(h.relocTween, h.envClock);
+  };
+  const fadeOut = (next        ) => {
+    h.relocNextIdx = next;
+    h.relocTween = tween(1, 0, fadeMs, ease.smoothstep);
+    tweenStart(h.relocTween, h.envClock);
+  };
+  if (h.relocTween?.done && h.relocTween.to === 0) {
+    // Faded out at the old spot: switch, then fade in at the new one.
+    let next = h.relocNextIdx;
+    if (next === CURSOR_ENTER && !cursorOn) next = CURSOR_EXIT;
+    if (next === CURSOR_EXIT) {
+      // Back to the luminance hunt — re-appears below as a first appearance.
+      h.cursorMode = false; h.appearedAt = 0; h.relocTween = null;
+    } else if (next === CURSOR_ENTER) {
+      h.cursorMode = true; h.cursorArc = h.cursorTargetArc; h.glowOpacity = cursorOp;
+      fadeIn();
+    } else {
+      h.currentIdx = next;
+      const np = perim[h.currentIdx];
+      const nl = sampleShaderLumAt(inst, np.x, np.y, halfWin);
+      h.glowOpacity = GLOW.baseOp + (GLOW.peakOp - GLOW.baseOp) * smoothstep(GLOW.lumLo, GLOW.lumHi, nl);
+      fadeIn();
+    }
+  }
+  if (!h.relocTween || h.relocTween.done) {
+    if (h.appearedAt === 0) {
+      // First appearance: face the cursor if it's there, else the brightest point.
+      if (cursorOn) { h.cursorMode = true; h.cursorArc = h.cursorTargetArc; h.glowOpacity = cursorOp; }
+      else { h.cursorMode = false; h.currentIdx = maxIdx; h.glowOpacity = targetOp; }
+      fadeIn();
+    } else if (cursorOn !== h.cursorMode) {
+      fadeOut(cursorOn ? CURSOR_ENTER : CURSOR_EXIT);
+    } else if (!h.cursorMode && rivalDominates) {
+      fadeOut(maxIdx);
+    }
+  }
+  if (h.cursorMode) {
+    // Proximity-weighted, no lag; holds the last value while fading out.
+    if (cursorOn) h.glowOpacity = cursorOp;
+    const follow = Math.max(0.01, Math.min(1, CURSOR_LIGHT.catchFollow));
+    const fa = 1 - Math.pow(1 - follow, dtMs / (1000 / 60));
+    let diff = h.cursorTargetArc - h.cursorArc;
+    diff = ((((diff % perimLen) + perimLen * 1.5) % perimLen) - perimLen / 2);
+    h.cursorArc += diff * fa;
+  } else {
+    // Luminance tracking runs continuously; the envelope handles appear/disappear.
+    h.glowOpacity += (targetOp - h.glowOpacity) * rate(GLOW.fadeRate);
+  }
+  h.glowOpacity = Math.max(0, Math.min(1, h.glowOpacity));
+  h.relocMul = h.relocTween ? tweenTick(h.relocTween, h.envClock) : 1;
+
+  const ratio = shapePerim(W, H, R, h.kind) / rrPerim(REF_W, REF_H, REF_R);
+  const wanderRange = GLOW.wanderRange * ratio;
+  h.wanderFrames += dtMs;
+  if (h.wanderFrames >= WANDER_RETARGET_MS) { h.wanderTargetS = (Math.random() * 2 - 1) * wanderRange; h.wanderFrames = 0; }
+  h.wanderS += (h.wanderTargetS - h.wanderS) * rate(GLOW.wanderLerp);
+
+  let blobX        , blobY        , tangent        , exX        , exY        ;
+  if (h.pointMode) {
+    // Custom-mask instance: hotspot sits on a sampled glyph point, halo runs
+    // horizontally (reads as a glint across the letterforms), wander slides
+    // it along x only.
+    const p = perim[h.currentIdx];
+    blobX = p.x + h.wanderS; blobY = p.y; tangent = 0;
+    exX = blobX; exY = blobY;
+  } else {
+    const blobArc = h.cursorMode ? h.cursorArc : perim[h.currentIdx].arc + h.wanderS;
+    // GLOW.inset / GLOW.extraOutward are absolute units; multiply by the
+    // master scale so the catch-light sits at the right perpendicular
+    // distance when the host element is rendered at non-1× layout.
+    const insetS = GLOW.inset * h.scale;
+    sampleAtArc(blobArc, W, H, R, insetS, 0, h.kind, _pt__m1);
+    blobX = _pt__m1.x; blobY = _pt__m1.y;
+    tangent = tangentAngleAtArc(blobArc, W, H, R, insetS, h.kind);
+    const extraOut = GLOW.extraOutward * ratio * h.scale;
+    sampleAtArc(blobArc, W, H, R, insetS, extraOut, h.kind, _pt__m1);
+    exX = _pt__m1.x; exY = _pt__m1.y;
+  }
+  if (h.deform) {
+    h.deform(blobX, blobY, _pt__m1); blobX = _pt__m1.x; blobY = _pt__m1.y;
+    h.deform(exX, exY, _pt__m1); exX = _pt__m1.x; exY = _pt__m1.y;
+  }
+
+  const light = theme === 'light';
+  const samp = light
+    ? sampleShaderRGBChromatic(inst, blobX, blobY, halfWin)
+    : sampleShaderRGBAt(inst, blobX, blobY, halfWin);
+
+  if (!h.tintTween) {
+    h.tintFrom = { ...samp }; h.tintTarget = { ...samp };
+    h.tintTween = tween(0, 1, TINT_FADE_MS);
+    tweenStart(h.tintTween, nowMs);
+    h.tintHoldUntil = light ? 0 : nowMs + TINT_HOLD_MS;
+  } else if (h.tintTween.done) {
+    if (light) {
+      h.tintFrom = {
+        r: h.tintFrom.r + (h.tintTarget.r - h.tintFrom.r) * h.tintTween.val,
+        g: h.tintFrom.g + (h.tintTarget.g - h.tintFrom.g) * h.tintTween.val,
+        b: h.tintFrom.b + (h.tintTarget.b - h.tintFrom.b) * h.tintTween.val,
+      };
+      h.tintTarget = { ...samp };
+      h.tintTween = tween(0, 1, TINT_FADE_MS);
+      tweenStart(h.tintTween, nowMs);
+    } else if (nowMs >= h.tintHoldUntil) {
+      h.tintFrom = { ...h.tintTarget };
+      h.tintTarget = { ...samp };
+      h.tintTween = tween(0, 1, TINT_FADE_MS);
+      tweenStart(h.tintTween, nowMs);
+      h.tintHoldUntil = nowMs + TINT_HOLD_MS;
+    }
+  }
+  tweenTick(h.tintTween , nowMs);
+  const ft = h.tintTween .val;
+
+  let tR        , tG        , tB        ;
+  if (light) {
+    tR = Math.round(h.tintFrom.r + (h.tintTarget.r - h.tintFrom.r) * ft);
+    tG = Math.round(h.tintFrom.g + (h.tintTarget.g - h.tintFrom.g) * ft);
+    tB = Math.round(h.tintFrom.b + (h.tintTarget.b - h.tintFrom.b) * ft);
+  } else {
+    const hR = h.tintFrom.r + (h.tintTarget.r - h.tintFrom.r) * ft;
+    const hG = h.tintFrom.g + (h.tintTarget.g - h.tintFrom.g) * ft;
+    const hB = h.tintFrom.b + (h.tintTarget.b - h.tintFrom.b) * ft;
+    const peak = Math.max(hR, hG, hB) || 1;
+    tR = Math.round(255 * (hR / peak)); tG = Math.round(255 * (hG / peak)); tB = Math.round(255 * (hB / peak));
+  }
+  const haloTint = `rgb(${tR},${tG},${tB})`;
+  let extraTint = '#ffffff';
+  if (light) {
+    const hsv = rgbToHsv(tR, tG, tB);
+    const [er, eg, eb] = hsvToRgb(hsv[0], Math.min(1, hsv[1] * LT_SAT_BOOST), Math.max(LT_MIN_VAL, hsv[2] * LT_VAL_MULT));
+    extraTint = `rgb(${er},${eg},${eb})`;
+  }
+
+  const m = Math.max(0, Math.min(1, strengthMul)) * (h.pointMode ? GLOW.pointGain : 1);
+  const haloOp = Math.min(1, h.glowOpacity * GLOW.haloOpMul * m);
+  const extraOp = Math.min(1, h.glowOpacity * GLOW.extraIntensity * m);
+
+  // The appear/disappear envelope is element opacity: a compositor-only
+  // change, so it can run every animation frame for free. Only movement,
+  // tint and luminance changes redraw the canvas.
+  if (Math.abs(h.relocMul - h.dEnv) > 0.002) {
+    const arrived = h.relocMul >= 0.998 && h.dEnv < 0.998;
+    h.dEnv = h.relocMul;
+    h.env.style.opacity = h.relocMul.toFixed(3);
+    // Fresh content once fully visible — a nudge for engines that only
+    // re-upload a canvas when something in it changes.
+    if (arrived) h.dirty = true;
+  }
+
+  const animating = !!(h.relocTween && !h.relocTween.done) || h.cursorMode;
+
+  // Skip the draw when nothing visible changed.
+  const moved = !(Math.abs(blobX - h.dX) < POS_EPS && Math.abs(blobY - h.dY) < POS_EPS &&
+                  Math.abs(tangent - h.dAng) < ANG_EPS &&
+                  Math.abs(exX - h.dEX) < POS_EPS && Math.abs(exY - h.dEY) < POS_EPS);
+  const faded = !(Math.abs(haloOp - h.dHOp) < OP_EPS && Math.abs(extraOp - h.dEOp) < OP_EPS);
+  const tinted = haloTint !== h.dHaloTint || extraTint !== h.dExtraTint;
+  if (!(h.dirty || moved || faded || tinted)) return animating;
+  h.dX = blobX; h.dY = blobY; h.dAng = tangent; h.dEX = exX; h.dEY = exY;
+  h.dHOp = haloOp; h.dEOp = extraOp; h.dHaloTint = haloTint; h.dExtraTint = extraTint;
+  h.dirty = false;
+  draw(h, blobX, blobY, tangent, exX, exY, haloOp, extraOp, haloTint, extraTint);
+  return animating;
+}
+
+// ─── Drawing ──────────────────────────────────────────────────────────────
+
+function draw(
+  h             ,
+  bx        , by        , ang        , ex        , ey        ,
+  haloOp        , extraOp        , haloTint        , extraTint        
+)       {
+  const { ctx: g, canvas: c, dpr, margin: m } = h;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 1;
+  g.clearRect(0, 0, c.width, c.height);
+  if ((haloOp <= 0.002 && extraOp <= 0.002) || !h.maskReady) return;
+
+  const haloImg = haloOp > 0.002 ? tintSprite(h.halo, ...parseRgb(haloTint), h.haloTint) : null;
+  const extraImg = extraOp > 0.002
+    ? (extraTint === '#ffffff' ? h.extra.canvas : tintSprite(h.extra, ...parseRgb(extraTint), h.extraTint))
+    : null;
+
+  const sprites = (mul        ) => {
+    if (haloImg) {
+      g.save();
+      g.translate(bx + m, by + m);
+      g.rotate(ang);
+      g.globalAlpha = haloOp * mul;
+      g.drawImage(haloImg, -h.halo.ax, -h.halo.ay, h.halo.w, h.halo.h);
+      g.restore();
+    }
+    if (extraImg) {
+      g.save();
+      g.translate(ex + m, ey + m);
+      g.rotate(ang);
+      g.globalAlpha = extraOp * mul;
+      g.drawImage(extraImg, -h.extra.ax, -h.extra.ay, h.extra.w, h.extra.h);
+      g.restore();
+    }
+  };
+
+  if (!h.pointMode && h.surroundPath && h.bandPath) {
+    // Two disjoint clip regions: outside the ring at half strength, the band
+    // at full. Plain source-over inside each, so nothing for WebKit to get
+    // wrong.
+    g.save(); g.scale(dpr, dpr); g.clip(h.surroundPath, 'evenodd'); sprites(0.5); g.restore();
+    g.save(); g.scale(dpr, dpr); g.clip(h.bandPath, 'evenodd'); sprites(1); g.restore();
+    return;
+  }
+
+  // Point mode: draw, then multiply alpha by the glyph mask in pixel data.
+  g.save(); g.scale(dpr, dpr); sprites(1); g.restore();
+  const a = h.maskAlpha;
+  if (!a) return;
+  const img = g.getImageData(0, 0, c.width, c.height);
+  const d = img.data;
+  for (let i = 0, j = 3; i < a.length; i++, j += 4) {
+    const ma = a[i];
+    if (ma === 255) continue;
+    if (ma === 0) { d[j] = 0; continue; }
+    d[j] = (d[j] * ma + 127) / 255;
+  }
+  g.putImageData(img, 0, 0);
+}
+
+const _rgb__m1                           = [255, 255, 255];
+function parseRgb(css        )                           {
+  if (css[0] === '#') {
+    _rgb__m1[0] = parseInt(css.slice(1, 3), 16); _rgb__m1[1] = parseInt(css.slice(3, 5), 16); _rgb__m1[2] = parseInt(css.slice(5, 7), 16);
+    return _rgb__m1;
+  }
+  // "rgb(r,g,b)"
+  let i = 4, n = 0, k = 0;
+  while (i < css.length && k < 3) {
+    const ch = css.charCodeAt(i++);
+    if (ch >= 48 && ch <= 57) n = n * 10 + (ch - 48);
+    else if (ch === 44 || ch === 41) { _rgb__m1[k++] = n; n = 0; }
+  }
+  return _rgb__m1;
+}
+
+/**
+ * Carry the visible state of a glow across a rebuild (a real resize), so the
+ * halo keeps its hotspot, brightness and fade instead of restarting from
+ * invisible. Only state — never geometry, sprites or masks.
+ */
+function carryGlowState(prev             , next             )       {
+  if (prev.pointMode !== next.pointMode) return;
+  next.currentIdx = Math.min(prev.currentIdx, Math.max(0, next.perim.length - 1));
+  next.appearedAt = prev.appearedAt;
+  next.glowOpacity = prev.glowOpacity;
+  next.relocTween = prev.relocTween;
+  next.relocNextIdx = prev.relocNextIdx;
+  next.relocMul = prev.relocMul;
+  next.envClock = prev.envClock;
+  next.cursorMode = prev.cursorMode;
+  next.cursorArc = prev.cursorArc;
+  next.cursorTargetArc = prev.cursorTargetArc;
+  next.lastTickMs = prev.lastTickMs;
+  next.wanderS = prev.wanderS; next.wanderTargetS = prev.wanderTargetS; next.wanderFrames = prev.wanderFrames;
+  next.tintFrom = prev.tintFrom; next.tintTarget = prev.tintTarget;
+  next.tintTween = prev.tintTween; next.tintHoldUntil = prev.tintHoldUntil;
+  next.dEnv = prev.relocMul;
+  next.env.style.opacity = prev.relocMul.toFixed(3);
+}
+
+function resizeGlow(handles             , container             , opts             )              {
+  for (const el of Array.from(container.querySelectorAll('.metal-fx-glow-svg'))) {
+    if (el.parentNode === container) container.removeChild(el);
+  }
+  void handles;
+  return injectGlow(container, opts);
+}
+
+
+/* ── engine/reflection/constants.ts ─────────────────────────────── */
+/**
+ * Canonical constants and types for proximity reflections.
+ *
+ * Verbatim from `Image loader/index.html` L5851-5915. Shared across
+ * the observer, geometry, and paint modules.
+ */
+                                                        
+
+const RANGE_PX = 12;
+const ATTACH_RANGE_PX = 32;
+const OVERLAP_MIN_PX = 1;
+const BASE_ALPHA = 0.55;
+const BOOST_ALPHA = 1.0;
+const GRAD_NEAR = 1.0;
+const GRAD_MID = 0.85;
+const GRAD_FAR = 0.0;
+const INTENSITY_MULT = 1.3;
+const MAX_ALPHA_STACK = 3.6;
+const GLOBAL_ATTENUATION = 0.7;
+const STROKE_CSS_PX = 1;
+const STROKE_EXTRA_ALPHA = 0.52;
+const BORDER_HILITE_PX = 1.0;
+const BORDER_HILITE_ALPHA = 0.044;
+const REF_DRAW_CSS_W = 235;
+const FILL_EXTRA_ALPHA = 2.535;
+const FILL_OPACITY_MUL = 0.7;
+const FILL_CIRCLE_ATTENUATION = 0.5;
+
+const REFLECTION_BLOCKED_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'OPTION']);
+
+                                   
+                  
+                          
+                        
+                                                                        
+                   
+                       
+                            
+                                
+                                  
+                                      
+                       
+                        
+                             
+                                   
+                            
+                                        
+                                            
+                                                         
+                        
+ 
+
+
+/* ── engine/reflection/geometry.ts ─────────────────────────────── */
+/**
+ * Canvas 2D drawing primitives for proximity reflections.
+ *
+ * All the low-level compositing passes — rounded-rect paths, ring clips,
+ * fill/stroke multi-pass alpha stacking, mirror-flip drawImage, and the
+ * border-highlight gradient stroke.
+ */
+
+
+// ─── Layout helpers ───────────────────────────────────────────────────────
+
+function shortestRectDistance(a         , b         )         {
+  const dx = Math.max(a.left - b.right, b.left - a.right, 0);
+  const dy = Math.max(a.top - b.bottom, b.top - a.bottom, 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function isHorizontalNeighbour(anchorRect         , targetRect         , overlapMin        , attachRange        )          {
+  const verticalOverlap =
+    Math.min(anchorRect.bottom, targetRect.bottom) -
+    Math.max(anchorRect.top, targetRect.top);
+  if (verticalOverlap < overlapMin) return false;
+  const horizontalGap = Math.max(
+    anchorRect.left - targetRect.right,
+    targetRect.left - anchorRect.right,
+    0
+  );
+  if (horizontalGap > attachRange) return false;
+  return true;
+}
+
+function isVerticalNeighbour(anchorRect         , targetRect         , overlapMin        , attachRange        )          {
+  const horizontalOverlap =
+    Math.min(anchorRect.right, targetRect.right) -
+    Math.max(anchorRect.left, targetRect.left);
+  if (horizontalOverlap < overlapMin) return false;
+  const verticalGap = Math.max(
+    anchorRect.top - targetRect.bottom,
+    targetRect.top - anchorRect.bottom,
+    0
+  );
+  return verticalGap <= attachRange;
+}
+
+// ─── Path helpers ─────────────────────────────────────────────────────────
+
+function roundRectPath(
+  ctx                          ,
+  x        ,
+  y        ,
+  w        ,
+  h        ,
+  r        
+)       {
+  const rr = Math.max(0, Math.min(r, w * 0.5, h * 0.5));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const native = (ctx       ).roundRect;
+  if (typeof native === 'function') {
+    native.call(ctx, x, y, w, h, rr);
+    return;
+  }
+  ctx.moveTo(x + rr, y);
+  ctx.lineTo(x + w - rr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
+  ctx.lineTo(x + w, y + h - rr);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
+  ctx.lineTo(x + rr, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
+  ctx.lineTo(x, y + rr);
+  ctx.quadraticCurveTo(x, y, x + rr, y);
+}
+
+// ─── Draw source (mirror flip) ───────────────────────────────────────────
+
+                          
+            
+            
+            
+            
+                 
+                 
+                                                                            
+                                                                            
+              
+              
+ 
+
+function drawSource(
+  ctx                          ,
+  src                   ,
+  sw        ,
+  sh        ,
+  dst         
+)       {
+  if (!dst.flipX && !dst.flipY) {
+    ctx.drawImage(src, dst.sx ?? 0, dst.sy ?? 0, sw, sh, dst.x, dst.y, dst.w, dst.h);
+    return;
+  }
+  ctx.save();
+  if (dst.flipX) {
+    ctx.translate(dst.x + dst.w, 0);
+    ctx.scale(-1, 1);
+  }
+  if (dst.flipY) {
+    ctx.translate(0, dst.y + dst.h);
+    ctx.scale(1, -1);
+  }
+  ctx.drawImage(
+    src,
+    dst.sx ?? 0,
+    dst.sy ?? 0,
+    sw,
+    sh,
+    dst.flipX ? 0 : dst.x,
+    dst.flipY ? 0 : dst.y,
+    dst.w,
+    dst.h
+  );
+  ctx.restore();
+}
+
+// ─── Clip + compositing passes ────────────────────────────────────────────
+
+                          
+            
+            
+            
+            
+            
+ 
+
+const FILL_BLUR_CSS_PX = 4;
+
+function fillRingClip(
+  ctx                          ,
+  x        , y        , w        , h        ,
+  radiusDevPx        , bandDevPx        
+)       {
+  if (w <= 2 * bandDevPx || h <= 2 * bandDevPx) {
+    ctx.beginPath();
+    roundRectPath(ctx, x, y, w, h, radiusDevPx);
+    ctx.clip();
+    return;
+  }
+  ctx.beginPath();
+  roundRectPath(ctx, x, y, w, h, radiusDevPx);
+  roundRectPath(ctx, x + bandDevPx, y + bandDevPx, w - 2 * bandDevPx, h - 2 * bandDevPx, Math.max(0, radiusDevPx - bandDevPx));
+  ctx.clip('evenodd');
+}
+
+function maskedFillPasses(
+  ctx                          ,
+  src                   ,
+  sw        , sh        ,
+  tw        , th        ,
+  totalAlpha        ,
+  grad                ,
+  dst         ,
+  fillBox         ,
+  dpr        ,
+  /** Override for the edge band the fill is clipped to, device px. Glyph
+   *  targets pass the whole box — letters have no "rim" to hug. */
+  bandDevPxOverride         
+)       {
+  const fillBandDevPx = bandDevPxOverride ?? Math.max(1, Math.round((RANGE_PX + FILL_BLUR_CSS_PX * 3) * dpr));
+  let remaining = Math.max(0, totalAlpha);
+  let firstChunk = true;
+  for (let i = 0; i < 3 && remaining > 1e-4; i++) {
+    const a = Math.min(1, remaining);
+    ctx.save();
+    fillRingClip(ctx, fillBox.x, fillBox.y, fillBox.w, fillBox.h, fillBox.r, fillBandDevPx);
+    ctx.globalCompositeOperation = firstChunk ? 'source-over' : 'lighter';
+    firstChunk = false;
+    ctx.globalAlpha = a;
+    drawSource(ctx, src, sw, sh, dst);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, tw, th);
+    ctx.restore();
+    remaining -= a;
+  }
+}
+
+function insideStrokeEvenOddClip(
+  ctx                          ,
+  x        , y        , w        , h        ,
+  radiusDevPx        , strokeDevPx        
+)       {
+  const r = strokeDevPx | 0;
+  if (r < 1 || w <= 2 * r || h <= 2 * r) {
+    ctx.beginPath();
+    roundRectPath(ctx, x, y, w, h, radiusDevPx);
+    ctx.clip();
+    return;
+  }
+  ctx.beginPath();
+  roundRectPath(ctx, x, y, w, h, radiusDevPx);
+  roundRectPath(ctx, x + r, y + r, w - 2 * r, h - 2 * r, Math.max(0, radiusDevPx - r));
+  ctx.clip('evenodd');
+}
+
+function maskedStrokePasses(
+  ctx                          ,
+  src                   ,
+  sw        , sh        ,
+  tw        , th        ,
+  strokeBox         ,
+  intensity        ,
+  strokeBandPx        ,
+  grad                ,
+  strokeExtraAlpha        ,
+  dst         
+)       {
+  let remaining = intensity * strokeExtraAlpha;
+  let firstChunk = true;
+  for (let i = 0; i < 3 && remaining > 1e-4; i++) {
+    const a = Math.min(1, remaining);
+    ctx.save();
+    insideStrokeEvenOddClip(ctx, strokeBox.x, strokeBox.y, strokeBox.w, strokeBox.h, strokeBox.r, strokeBandPx);
+    ctx.globalCompositeOperation = firstChunk ? 'source-over' : 'lighter';
+    firstChunk = false;
+    ctx.globalAlpha = a;
+    drawSource(ctx, src, sw, sh, dst);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, tw, th);
+    ctx.restore();
+    remaining -= a;
+  }
+}
+
+function drawBorderHighlight(
+  ctx                          ,
+  strokeBox         ,
+  strokeDevPx        ,
+  g0x        , g0y        ,
+  g1x        , g1y        ,
+  alpha        
+)       {
+  const grad = ctx.createLinearGradient(g0x, g0y, g1x, g1y);
+  grad.addColorStop(0, `rgba(255,255,255,${alpha.toFixed(3)})`);
+  grad.addColorStop(0.5, `rgba(255,255,255,${(alpha * 0.45).toFixed(3)})`);
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+
+  ctx.save();
+  insideStrokeEvenOddClip(ctx, strokeBox.x, strokeBox.y, strokeBox.w, strokeBox.h, strokeBox.r, strokeDevPx);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineWidth = strokeDevPx * 2;
+  ctx.strokeStyle = grad;
+  ctx.beginPath();
+  roundRectPath(ctx, strokeBox.x, strokeBox.y, strokeBox.w, strokeBox.h, strokeBox.r);
+  ctx.stroke();
+  ctx.restore();
+}
+
+
+/* ── engine/reflection/observers.ts ─────────────────────────────── */
+/**
+ * Style observation for reflection targets.
+ *
+ * Reads corner radii and hairline specs from computed styles, and
+ * attaches ResizeObserver / MutationObserver so values stay fresh
+ * without per-frame getComputedStyle calls.
+ */
+                                                    
+
+function readCornerRadius(el             )         {
+  const cs = getComputedStyle(el);
+  const radii = [
+    parseFloat(cs.borderTopLeftRadius) || 0,
+    parseFloat(cs.borderTopRightRadius) || 0,
+    parseFloat(cs.borderBottomRightRadius) || 0,
+    parseFloat(cs.borderBottomLeftRadius) || 0,
+  ].filter((v) => v > 0);
+  return radii.length ? Math.min.apply(null, radii) : 0;
+}
+
+/**
+ * Read the visible "hairline" geometry of the host so the 1-px stroke
+ * reflection sits exactly on the host's existing ring.
+ *
+ * Returns the visible thickness (`width`) and the OUTWARD extent past the
+ * padding-box edge (`outerCssPx`) — the wrap is overscanned by `outerCssPx`
+ * on every side so its outer rim lines up with the host's visible silhouette.
+ *
+ * Source contributions:
+ *   - CSS `border-*-width` (max across the 4 sides)
+ *   - smallest `inset` `box-shadow` with spread > 0
+ *   - smallest outset `box-shadow` with spread > 0
+ */
+function readHairlineSpec(el             )                                        {
+  const cs = getComputedStyle(el);
+  const borderMax = Math.max(
+    parseFloat(cs.borderTopWidth) || 0,
+    parseFloat(cs.borderRightWidth) || 0,
+    parseFloat(cs.borderBottomWidth) || 0,
+    parseFloat(cs.borderLeftWidth) || 0
+  );
+
+  let smallestInsetSpread = 0;
+  let smallestOutsetSpread = 0;
+  const shadow = cs.boxShadow;
+  if (shadow && shadow !== 'none') {
+    const safe = shadow.replace(/rgba?\([^)]*\)/g, (m) => m.replace(/,/g, '\u0000'));
+    const parts = safe.split(/,\s*/);
+    let inset = Infinity;
+    let outset = Infinity;
+    for (const part of parts) {
+      const nums = part.match(/-?\d+(?:\.\d+)?px/g);
+      if (!nums || nums.length < 4) continue;
+      const spread = parseFloat(nums[3]);
+      if (!(spread > 0)) continue;
+      if (/\binset\b/.test(part)) {
+        if (spread < inset) inset = spread;
+      } else if (spread < outset) {
+        outset = spread;
+      }
+    }
+    if (Number.isFinite(inset)) smallestInsetSpread = inset;
+    if (Number.isFinite(outset)) smallestOutsetSpread = outset;
+  }
+
+  const outerCssPx = Math.max(borderMax, smallestOutsetSpread);
+  const width =
+    Math.max(borderMax, smallestInsetSpread, smallestOutsetSpread) || 1;
+
+  return { width, outerCssPx };
+}
+
+function refreshTargetStyles(t                  )       {
+  t.cornerRadius = readCornerRadius(t.el);
+  const spec = readHairlineSpec(t.el);
+  t.hairlineWidth = spec.width;
+  t.hairlineOuterCssPx = spec.outerCssPx;
+}
+
+function attachObservers(t                  )       {
+  if (typeof ResizeObserver !== 'undefined') {
+    t.resizeObserver = new ResizeObserver(() => refreshTargetStyles(t));
+    t.resizeObserver.observe(t.el);
+  }
+  if (typeof MutationObserver !== 'undefined') {
+    t.mutationObserver = new MutationObserver(() => refreshTargetStyles(t));
+    t.mutationObserver.observe(t.el, {
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    });
+  }
+}
+
+function detachObservers(t                  )       {
+  t.resizeObserver?.disconnect();
+  t.resizeObserver = null;
+  t.mutationObserver?.disconnect();
+  t.mutationObserver = null;
+}
+
+
+/* ── engine/reflection/paint.ts ─────────────────────────────── */
+/** Proximity reflection — public API and per-frame paint loop. */
+                                                        
+
+
+
+
+                                                    
+
+const targets                        = new Set();
+
+// ─── Cursor occluder ──────────────────────────────────────────────────────
+// The reflection is light leaving the anchor and landing on the target. A
+// pointer sitting in the gap between them blocks some of that light, so we
+// cut a soft shadow band out of the painted reflection at the pointer's
+// position across the layout axis. The band widens with distance from the
+// target (penumbra from an extended source) and is only applied while the
+// pointer is actually inside the gap.
+
+                                           
+                   
+                                                                              
+                 
+                                                                              
+                   
+                                                                           
+                   
+                                                                         
+                                                                
+                  
+                                                                       
+                   
+                                                                   
+                   
+                                                      
+                    
+ 
+
+const REFLECTION_OCCLUDER_DEFAULTS                                     = Object.freeze({
+  enabled: true,
+  radius: 20,
+  strength: 1,
+  penumbra: 0.55,
+  falloff: 0.21,
+  edgeFade: 0.7,
+  softness: 0.24,
+  repaintMs: 36,
+});
+
+const REFLECTION_OCCLUDER                           = { ...REFLECTION_OCCLUDER_DEFAULTS };
+
+function setReflectionOccluderConfig(patch                                   )       {
+  Object.assign(REFLECTION_OCCLUDER, patch);
+  scheduleOccluderRepaint();
+}
+
+function resetReflectionOccluderConfig()       {
+  setReflectionOccluderConfig({ ...REFLECTION_OCCLUDER_DEFAULTS });
+}
+
+let occluder                                  = null;
+let occluderRaf = 0;
+let occluderLastMs = 0;
+let pointerTracked = false;
+
+function scheduleOccluderRepaint()       {
+  if (occluderRaf !== 0 || typeof requestAnimationFrame === 'undefined') return;
+  occluderRaf = requestAnimationFrame((now) => {
+    occluderRaf = 0;
+    // 30 fps is plenty for a shadow that follows a hand.
+    if (now - occluderLastMs < REFLECTION_OCCLUDER.repaintMs) { scheduleOccluderRepaint(); return; }
+    occluderLastMs = now;
+    paintReflections();
+  });
+}
+
+// Repaint only while the pointer can actually cast a shadow — inside the
+// region spanning some anchor and its target (expanded by the occluder
+// radius) — plus one more repaint on the way out to clear it. Without this
+// every mouse move anywhere on the page re-rasterised every reflection.
+let occluderWasNear = false;
+function pointerNearAnyGap(x        , y        )          {
+  const r = REFLECTION_OCCLUDER.radius;
+  for (const t of targets) {
+    const a = t.anchorEl.getBoundingClientRect();
+    const b = t.el.getBoundingClientRect();
+    const l = Math.min(a.left, b.left) - r, rt = Math.max(a.right, b.right) + r;
+    const tp = Math.min(a.top, b.top) - r, bt = Math.max(a.bottom, b.bottom) + r;
+    if (x >= l && x <= rt && y >= tp && y <= bt) return true;
+  }
+  return false;
+}
+function onOccluderMove(e              )       {
+  occluder = { x: e.clientX, y: e.clientY };
+  if (!REFLECTION_OCCLUDER.enabled) return;
+  const near = pointerNearAnyGap(e.clientX, e.clientY);
+  if (near || occluderWasNear) scheduleOccluderRepaint();
+  occluderWasNear = near;
+}
+function onOccluderLeave()       {
+  occluder = null;
+  if (occluderWasNear) scheduleOccluderRepaint();
+  occluderWasNear = false;
+}
+
+function ensurePointerTracking(on         )       {
+  if (typeof document === 'undefined' || on === pointerTracked) return;
+  pointerTracked = on;
+  if (on) {
+    document.addEventListener('pointermove', onOccluderMove, { passive: true });
+    document.addEventListener('pointerleave', onOccluderLeave);
+    window.addEventListener('blur', onOccluderLeave);
+  } else {
+    document.removeEventListener('pointermove', onOccluderMove);
+    document.removeEventListener('pointerleave', onOccluderLeave);
+    window.removeEventListener('blur', onOccluderLeave);
+    occluder = null;
+  }
+}
+
+/**
+ * Cut the pointer's shadow out of a freshly painted reflection.
+ * `horiz` — layout axis; light travels along x when true.
+ */
+function applyOccluderShadow(
+  ctx                          ,
+  strokeCtx                          ,
+  aRect         ,
+  tRect         ,
+  horiz         ,
+  tw        ,
+  th        ,
+  overscanCssPx        ,
+  dpr        
+)       {
+  if (!occluder) return;
+  const cfg = REFLECTION_OCCLUDER;
+  if (!cfg.enabled || cfg.strength <= 0) return;
+  const r = cfg.radius;
+
+  // Gap along the layout axis between the two facing edges, and the overlap
+  // band across it. Pointer must be inside (expanded by r) for any effect.
+  let gapStart        , gapEnd        , along        , across        , bandLo        , bandHi        ;
+  if (horiz) {
+    const anchorRight = aRect.left >= tRect.right;
+    gapStart = anchorRight ? tRect.right : aRect.right;   // target-side edge
+    gapEnd = anchorRight ? aRect.left : tRect.left;       // anchor-side edge
+    along = occluder.x; across = occluder.y;
+    bandLo = Math.max(aRect.top, tRect.top); bandHi = Math.min(aRect.bottom, tRect.bottom);
+  } else {
+    const anchorBelow = aRect.top >= tRect.bottom;
+    gapStart = anchorBelow ? tRect.bottom : aRect.bottom;
+    gapEnd = anchorBelow ? aRect.top : tRect.top;
+    along = occluder.y; across = occluder.x;
+    bandLo = Math.max(aRect.left, tRect.left); bandHi = Math.min(aRect.right, tRect.right);
+  }
+  const lo = Math.min(gapStart, gapEnd), hi = Math.max(gapStart, gapEnd);
+  const gapW = Math.max(1, hi - lo);
+  if (along < lo - r || along > hi + r) return;
+  if (across < bandLo - r || across > bandHi + r) return;
+
+  // 0 at the target's edge, 1 at the anchor's edge.
+  const t = Math.max(0, Math.min(1, Math.abs(along - gapStart) / gapW));
+  // Fade at the gap's ends so entering/leaving doesn't pop.
+  const fadePx = Math.max(0.5, r * cfg.edgeFade);
+  const endFade = Math.min(1, Math.min(along - (lo - r), (hi + r) - along) / fadePx);
+  const depth = cfg.strength * (1 - cfg.falloff * t) * endFade;
+  if (depth <= 0.001) return;
+
+  const halfBand = r * dpr * (1 + cfg.penumbra * t);
+  // Position across the target, in the target canvas' device space.
+  const c = horiz
+    ? (across - tRect.top + overscanCssPx) * dpr
+    : (across - tRect.left + overscanCssPx) * dpr;
+
+  for (const c2d of [ctx, strokeCtx]) {
+    c2d.save();
+    c2d.setTransform(1, 0, 0, 1, 0, 0);
+    c2d.globalCompositeOperation = 'destination-out';
+    const g = horiz
+      ? c2d.createLinearGradient(0, c - halfBand, 0, c + halfBand)
+      : c2d.createLinearGradient(c - halfBand, 0, c + halfBand, 0);
+    // softness 1 → triangle; 0 → flat plateau across the whole band.
+    const core = Math.max(0, Math.min(0.5, (1 - cfg.softness) * 0.5));
+    const d = `rgba(0,0,0,${depth.toFixed(3)})`;
+    g.addColorStop(0, 'rgba(0,0,0,0)');
+    g.addColorStop(0.5 - core, d);
+    g.addColorStop(0.5 + core, d);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    c2d.fillStyle = g;
+    if (horiz) c2d.fillRect(0, c - halfBand, tw, halfBand * 2);
+    else c2d.fillRect(c - halfBand, 0, halfBand * 2, th);
+    c2d.restore();
+  }
+}
+
+// Scratch pair for multi-edge (contained) targets. Each masked pass ends with
+// a `destination-in` gradient over the whole ring clip, which would erase the
+// previous edge's ink — so every edge after the first paints here and is
+// composited back with `lighter`.
+let scratchFill                           = null;
+let scratchStroke                           = null;
+let scratchFillCtx                                  = null;
+let scratchStrokeCtx                                  = null;
+function ensureScratch(w        , h        )          {
+  if (!scratchFill) {
+    scratchFill = document.createElement('canvas');
+    scratchStroke = document.createElement('canvas');
+    scratchFillCtx = scratchFill.getContext('2d', { alpha: true });
+    scratchStrokeCtx = scratchStroke.getContext('2d', { alpha: true });
+  }
+  if (!scratchFillCtx || !scratchStrokeCtx || !scratchFill || !scratchStroke) return false;
+  if (scratchFill.width !== w) { scratchFill.width = w; scratchStroke.width = w; }
+  if (scratchFill.height !== h) { scratchFill.height = h; scratchStroke.height = h; }
+  scratchFillCtx.setTransform(1, 0, 0, 1, 0, 0);
+  scratchStrokeCtx.setTransform(1, 0, 0, 1, 0, 0);
+  scratchFillCtx.globalCompositeOperation = 'source-over';
+  scratchStrokeCtx.globalCompositeOperation = 'source-over';
+  scratchFillCtx.clearRect(0, 0, w, h);
+  scratchStrokeCtx.clearRect(0, 0, w, h);
+  return true;
+}
+
+function addReflectionTarget(
+  el             ,
+  anchor                 ,
+  anchorEl             ,
+  strength = 1
+)                          {
+  if (typeof document === 'undefined') return null;
+  if (REFLECTION_BLOCKED_TAGS.has(el.tagName)) return null;
+  for (const existing of targets) {
+    if (existing.el === el) { existing.strength = strength; return existing; }
+  }
+
+  const wrap = document.createElement('div');
+  wrap.setAttribute('data-metal-fx-reflection', '');
+  wrap.setAttribute('aria-hidden', 'true');
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'metal-fx-reflection-canvas';
+  const ctx = canvas.getContext('2d', { alpha: true });
+  if (!ctx) return null;
+
+  const strokeCanvas = document.createElement('canvas');
+  strokeCanvas.className = 'metal-fx-reflection-stroke-canvas';
+  const strokeCtx = strokeCanvas.getContext('2d', { alpha: true });
+  if (!strokeCtx) return null;
+
+  wrap.appendChild(canvas);
+  wrap.appendChild(strokeCanvas);
+
+  const cs = getComputedStyle(el);
+  let appliedPositionRelative = false;
+  if (cs.position === 'static') {
+    el.style.position = 'relative';
+    appliedPositionRelative = true;
+  }
+  let appliedIsolation = false;
+  if (cs.isolation !== 'isolate') {
+    el.style.isolation = 'isolate';
+    appliedIsolation = true;
+  }
+  el.setAttribute('data-metal-fx-reflect-host', '');
+  el.insertBefore(wrap, el.firstChild);
+
+  const initialSpec = readHairlineSpec(el);
+  const target                   = {
+    el,
+    anchor,
+    anchorEl,
+    strength,
+    wrap,
+    canvas,
+    ctx,
+    strokeCanvas,
+    strokeCtx,
+    cornerRadius: readCornerRadius(el),
+    hairlineWidth: initialSpec.width,
+    hairlineOuterCssPx: initialSpec.outerCssPx,
+    appliedPositionRelative,
+    appliedIsolation,
+    resizeObserver: null,
+    mutationObserver: null,
+  };
+  attachObservers(target);
+  targets.add(target);
+  ensurePointerTracking(true);
+  return target;
+}
+
+function removeReflectionTarget(el             )       {
+  for (const target of targets) {
+    if (target.el === el) {
+      detachObservers(target);
+      target.canvas.width = 0;
+      target.canvas.height = 0;
+      target.strokeCanvas.width = 0;
+      target.strokeCanvas.height = 0;
+      if (target.wrap.parentNode === target.el) {
+        target.el.removeChild(target.wrap);
+      }
+      target.el.removeAttribute('data-metal-fx-reflect-host');
+      if (target.appliedPositionRelative) target.el.style.position = '';
+      if (target.appliedIsolation) target.el.style.isolation = '';
+      targets.delete(target);
+      if (targets.size === 0) ensurePointerTracking(false);
+      return;
+    }
+  }
+}
+
+/** Bounding box of pixels with alpha > 8 inside a sub-rect, device px. */
+function alphaBBox(
+  canvas                   , x0        , y0        , w        , h        
+)                                                        {
+  if (w < 1 || h < 1) return null;
+  const g = canvas.getContext('2d');
+  if (!g) return null;
+  const d = g.getImageData(x0, y0, w, h).data;
+  let minX = w, minY = h, maxX = -1, maxY = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      if (d[(row + x) * 4 + 3] > 8) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX < 0) return null;
+  return { x: x0 + minX, y: y0 + minY, w: maxX - minX + 1, h: maxY - minY + 1 };
+}
+
+function paintReflections()       {
+  if (targets.size === 0) return;
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+  const anchorRects = new Map                      ();
+
+  for (const t of targets) {
+    const tRect = t.el.getBoundingClientRect();
+    let aRect = anchorRects.get(t.anchorEl);
+    if (!aRect) {
+      aRect = t.anchorEl.getBoundingClientRect();
+      anchorRects.set(t.anchorEl, aRect);
+    }
+    if (tRect.width < 1 || tRect.height < 1) continue;
+    if (aRect.width < 1 || aRect.height < 1) continue;
+    // Glyph targets (text masked to its letterforms, see `data-metal-fx-text`)
+    // are lit differently from a chip: no rim stroke or border highlight —
+    // those are a white hairline along a box edge, which on text reads as a
+    // flat light on the last letter — just the mirrored metal itself, at its
+    // natural size so its banding stays legible, fading over a longer run so
+    // more than one letter catches it.
+    const glyph = t.el.hasAttribute('data-metal-fx-text');
+    if (glyph && !t.glyphStyled) {
+      // The chip blur (4 px) exists to melt the ring into a soft rim glow. On
+      // letters it erases exactly the detail the mirror should show — the
+      // stripes and dispersion fringes — so keep it to anti-aliasing width.
+      t.canvas.style.filter = 'blur(0.4px) saturate(1.35) brightness(1.2)';
+      t.glyphStyled = true;
+    }
+
+    if (
+      !isHorizontalNeighbour(aRect, tRect, OVERLAP_MIN_PX, ATTACH_RANGE_PX) &&
+      !isVerticalNeighbour(aRect, tRect, OVERLAP_MIN_PX, ATTACH_RANGE_PX)
+    ) {
+      if (t.canvas.width !== 1) { t.canvas.width = 1; t.canvas.height = 1; }
+      if (t.strokeCanvas.width !== 1) { t.strokeCanvas.width = 1; t.strokeCanvas.height = 1; }
+      continue;
+    }
+
+    // Glyph target on a masked anchor: mirror the metal *sheet*, not the
+    // three thin letters cut from it. A mirror facing the "Pro" glyphs shows
+    // the material's stripes across its whole face; the masked canvas would
+    // give mostly transparency with a few slivers.
+    const useRaw = glyph && !!t.anchor.mask;
+    if (useRaw && !t.anchor.wantRaw) t.anchor.wantRaw = true;
+    const anchorCanvas = (useRaw && t.anchor.rawCanvas) ? t.anchor.rawCanvas : t.anchor.canvas;
+    // Sample only the anchor's CSS box. While a vector bend is active the
+    // canvas carries an `overscan` margin on every side; reading it whole
+    // would shrink the ring to the middle of the slice and miss the band.
+    const ovs = Math.round(t.anchor.overscan * dpr);
+    let ssx = ovs, ssy = ovs;
+    let sw = (anchorCanvas.width | 0) - 2 * ovs;
+    let sh = (anchorCanvas.height | 0) - 2 * ovs;
+    // Custom-mask anchors (metal text): the metal is wherever the mask
+    // painted, not at the box edge. Crop the source to its alpha bounding
+    // box so the glyphs' edge — not the padding — lands on the target.
+    if (t.anchor.mask && !useRaw) {
+      const bb = alphaBBox(anchorCanvas, ssx, ssy, sw, sh);
+      if (bb) { ssx = bb.x; ssy = bb.y; sw = bb.w; sh = bb.h; }
+    }
+    if (sw < 4 || sh < 4) continue;
+
+    const acx = (aRect.left + aRect.right) * 0.5;
+    const acy = (aRect.top + aRect.bottom) * 0.5;
+    const tcx = (tRect.left + tRect.right) * 0.5;
+    const tcy = (tRect.top + tRect.bottom) * 0.5;
+    const dx = acx - tcx;
+    const dy = acy - tcy;
+
+    const edgeGapH = Math.max(aRect.left - tRect.right, tRect.left - aRect.right, 0);
+    const edgeGapV = Math.max(aRect.top - tRect.bottom, tRect.top - aRect.bottom, 0);
+    const isHorizontalLayout = edgeGapH >= edgeGapV;
+
+    const dist = shortestRectDistance(aRect, tRect);
+    let proximity = 1 - Math.min(1, dist / RANGE_PX);
+    proximity = proximity * proximity * (3 - 2 * proximity);
+    const intensity = BASE_ALPHA + (BOOST_ALPHA - BASE_ALPHA) * proximity;
+
+    const reflectionAlpha = Math.min(
+      MAX_ALPHA_STACK,
+      intensity * INTENSITY_MULT * GLOBAL_ATTENUATION
+    ) * t.strength;
+
+    // A target that contains the anchor (the card the button lives in) has no
+    // single "facing" edge — the button sits near a corner, so the echo lands
+    // on both the closest vertical and closest horizontal inner edge.
+    const contained =
+      aRect.left >= tRect.left && aRect.right <= tRect.right &&
+      aRect.top >= tRect.top && aRect.bottom <= tRect.bottom;
+    const layouts            = contained ? [true, false] : [isHorizontalLayout];
+
+    // Effective scale of the host element. Anything drawn on the reflection
+    // canvas (strokes, border-highlight) is in DEVICE pixels, so it doesn't
+    // automatically grow when the host is rendered at non-1× layout (CSS
+    // zoom: 2, etc.). Multiply absolute-pixel constants by the anchor's
+    // scale so the reflection scales together with the metal effect itself.
+    const sScale = t.anchor.scale ?? 1;
+    const hairlineCssPx = Math.max(STROKE_CSS_PX * sScale, t.hairlineWidth);
+    const strokeBandPx = Math.max(1, Math.round(hairlineCssPx * dpr));
+    const borderHighlightPx = Math.max(
+      1,
+      Math.round(Math.max(BORDER_HILITE_PX * sScale, t.hairlineWidth) * dpr)
+    );
+
+    const overscanCssPx = t.hairlineOuterCssPx;
+    t.wrap.style.inset = `${-overscanCssPx}px`;
+    t.wrap.style.borderRadius = `${Math.max(0, t.cornerRadius)}px`;
+
+    const tw = Math.max(1, Math.round((tRect.width + overscanCssPx * 2) * dpr));
+    const th = Math.max(1, Math.round((tRect.height + overscanCssPx * 2) * dpr));
+    if (t.canvas.width !== tw) t.canvas.width = tw;
+    if (t.canvas.height !== th) t.canvas.height = th;
+    if (t.strokeCanvas.width !== tw) t.strokeCanvas.width = tw;
+    if (t.strokeCanvas.height !== th) t.strokeCanvas.height = th;
+
+    const ctx = t.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, tw, th);
+    const strokeCtx = t.strokeCtx;
+    strokeCtx.setTransform(1, 0, 0, 1, 0, 0);
+    strokeCtx.clearRect(0, 0, tw, th);
+
+    for (const [li, horiz] of layouts.entries()) {
+      // First edge paints straight into the target; later edges go via scratch.
+      const viaScratch = li > 0 && ensureScratch(tw, th);
+      const fCtx = viaScratch ? (scratchFillCtx                            ) : ctx;
+      const sCtx = viaScratch ? (scratchStrokeCtx                            ) : strokeCtx;
+      const bandDevPx = Math.min((glyph ? RANGE_PX * 1.5 : RANGE_PX) * dpr, Math.max(tw, th));
+      let g0x        , g0y        , g1x        , g1y        ;
+      if (horiz) {
+        g0x = dx > 0 ? tw : 0; g1x = dx > 0 ? tw - bandDevPx : bandDevPx;
+        g0y = th * 0.5; g1y = th * 0.5;
+      } else {
+        g0y = dy > 0 ? th : 0; g1y = dy > 0 ? th - bandDevPx : bandDevPx;
+        g0x = tw * 0.5; g1x = tw * 0.5;
+      }
+      const grad = ctx.createLinearGradient(g0x, g0y, g1x, g1y);
+      grad.addColorStop(0, `rgba(0,0,0,${GRAD_NEAR})`);
+      grad.addColorStop(0.5, `rgba(0,0,0,${GRAD_MID})`);
+      grad.addColorStop(1, `rgba(0,0,0,${GRAD_FAR})`);
+
+      const anchorCssW = sw / dpr;
+      const refWdpr = glyph
+        ? Math.max(1, Math.min(horiz ? tw : th, Math.round(horiz ? sw : sh)))
+        : Math.max(1, Math.round(REF_DRAW_CSS_W * Math.max(0.1, anchorCssW / 140) * dpr));
+
+      let drawX        , drawY        , drawW        , drawH        ;
+      let flipX = false, flipY = false;
+      if (horiz) {
+        const overlapTop = Math.max(aRect.top, tRect.top);
+        const overlapBot = Math.min(aRect.bottom, tRect.bottom);
+        flipX = true;
+        drawX = dx > 0 ? tw - refWdpr : 0;
+        drawY = Math.round((overlapTop - tRect.top + overscanCssPx) * dpr);
+        drawW = refWdpr;
+        drawH = Math.max(1, Math.round((overlapBot - overlapTop) * dpr));
+      } else {
+        const overlapLeft = Math.max(aRect.left, tRect.left);
+        const overlapRight = Math.min(aRect.right, tRect.right);
+        flipY = true;
+        drawX = Math.round((overlapLeft - tRect.left + overscanCssPx) * dpr);
+        drawY = dy > 0 ? th - refWdpr : 0;
+        drawW = Math.max(1, Math.round((overlapRight - overlapLeft) * dpr));
+        drawH = refWdpr;
+      }
+      const drawDst          = { x: drawX, y: drawY, w: drawW, h: drawH, flipX, flipY, sx: ssx, sy: ssy };
+
+      const strokeBox          = { x: 0, y: 0, w: tw, h: th, r: Math.max(0, t.cornerRadius * dpr) };
+
+      // Glyphs: one pass, never over 1 — stacking `lighter` passes clips the
+      // metal's highlights to white and the colour is gone.
+      const fillReflectionAlpha = glyph
+        ? Math.min(1, reflectionAlpha * FILL_OPACITY_MUL)
+        : Math.min(MAX_ALPHA_STACK, reflectionAlpha * FILL_EXTRA_ALPHA * FILL_OPACITY_MUL * FILL_CIRCLE_ATTENUATION);
+      maskedFillPasses(fCtx, anchorCanvas, sw, sh, tw, th, fillReflectionAlpha, grad, drawDst, strokeBox, dpr, glyph ? Math.max(tw, th) : undefined);
+
+      if (!glyph) {
+        maskedStrokePasses(
+          sCtx, anchorCanvas, sw, sh, tw, th,
+          strokeBox, reflectionAlpha, strokeBandPx, grad, STROKE_EXTRA_ALPHA, drawDst
+        );
+
+        drawBorderHighlight(
+          sCtx, strokeBox, borderHighlightPx,
+          g0x, g0y, g1x, g1y,
+          Math.min(0.85, BORDER_HILITE_ALPHA * reflectionAlpha)
+        );
+      }
+
+      if (viaScratch) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(scratchFill                     , 0, 0);
+        strokeCtx.globalCompositeOperation = 'lighter';
+        strokeCtx.drawImage(scratchStroke                     , 0, 0);
+      }
+    }
+
+    for (const horiz of layouts) {
+      applyOccluderShadow(ctx, strokeCtx, aRect, tRect, horiz, tw, th, overscanCssPx, dpr);
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+    strokeCtx.globalCompositeOperation = 'source-over';
+  }
+}
+
+
+/* ── engine/reflection/reflectionScheduler.ts ─────────────────────────────── */
+/**
+ * Auxiliary RAF driver for *target-side* work (currently: dark-mode reflections).
+ *
+ * Reflections run at 15 fps — the CSS blur(4px) on the fill canvas hides
+ * temporal stepping completely. The scheduler coalesces rapid calls and
+ * skips frames that arrive faster than the target interval.
+ */
+
+
+
+let scheduled = false;
+let lastReflectionMs = 0;
+
+function scheduleReflectionPaint()       {
+  if (scheduled) return;
+  scheduled = true;
+  if (typeof requestAnimationFrame === 'undefined') return;
+  requestAnimationFrame((now) => {
+    scheduled = false;
+    if (now - lastReflectionMs < REFLECTION_INTERVAL_MS) return;
+    lastReflectionMs = now;
+    paintReflections();
+  });
+}
+
+
+/* ── engine/rim.ts ─────────────────────────────── */
+/**
+ * Inner-shadow rim on the metal ring — the same treatment the "Pro" text
+ * carries (Figma: white 90 %, offset 0/1, blur 0.5): a hairline of light
+ * along the top inside edge of the band.
+ *
+ * Computed, not CSS: band alpha minus the same alpha shifted down by the
+ * offset leaves exactly the top rim (outer edge on the ring's upper half,
+ * inner edge on its lower half — what a light from above does to a torus).
+ * Blurred, tinted, drawn to a small overlay canvas above the metal. Redrawn
+ * only when the outline changes (deform), so it's free at rest.
+ */
+                                                
+
+
+
+                             
+                                                             
+                  
+                      
+               
+                                        
+                
+                               
+                
+ 
+
+const RIM_DEFAULTS                       = Object.freeze({ offsetY: 1, blur: 0.5, alpha: 0.9, color: '#ffffff' });
+
+                             
+                            
+                                
+                             
+                                 
+                                                                                             
+                              
+                   
+                                 
+                                                                              
+              
+ 
+
+function injectRim(
+  container             ,
+  dims                                                                                                ,
+  opts            
+)                    {
+  const dpr = Math.min(3, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
+  const margin = Math.ceil(3 * opts.blur + Math.abs(opts.offsetY) + 1);
+  const cw = dims.width + 2 * margin, ch = dims.height + 2 * margin;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'metal-fx-rim-canvas';
+  canvas.setAttribute('aria-hidden', 'true');
+  canvas.width = Math.ceil(cw * dpr); canvas.height = Math.ceil(ch * dpr);
+  canvas.style.cssText = `position:absolute;left:${-margin}px;top:${-margin}px;width:${cw}px;height:${ch}px;pointer-events:none`;
+  const ctx = canvas.getContext('2d');
+  const scratch = document.createElement('canvas');
+  scratch.width = canvas.width; scratch.height = canvas.height;
+  const sctx = scratch.getContext('2d', { willReadFrequently: true });
+  if (!ctx || !sctx) return null;
+  container.appendChild(canvas);
+  const h             = {
+    canvas, ctx, scratch, sctx,
+    width: dims.width, height: dims.height, cornerRadius: dims.cornerRadius, kind: dims.kind, ring: dims.ring,
+    margin, dpr, opts, mO: createOutlineBuf(), mI: createOutlineBuf(), sum: Number.NaN,
+  };
+  updateRim(h, null, true);
+  return h;
+}
+
+function trace(g                          , buf            , off        )       {
+  const xy = buf.xy;
+  for (let i = 0; i < buf.n; i++) {
+    const x = xy[i * 2] + off, y = xy[i * 2 + 1] + off;
+    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
+  }
+  g.closePath();
+}
+
+/** Redraw if the (deformed) outline changed. Cheap when it hasn't. */
+function updateRim(h            , deform                 , force = false)       {
+  const { width: W, height: H, cornerRadius: R, ring, margin: m, dpr } = h;
+  roundRectOutline(0, 0, W, H, R, deform, h.mO);
+  roundRectOutline(ring, ring, W - 2 * ring, H - 2 * ring, Math.max(0, R - ring), deform, h.mI);
+  let sum = 0;
+  const xy = h.mO.xy;
+  for (let i = 0; i < h.mO.n; i += 4) sum += xy[i * 2] * 1.37 + xy[i * 2 + 1];
+  if (!force && sum === h.sum) return;
+  h.sum = sum;
+
+  const { sctx: g, scratch: sc, ctx, canvas: cv, opts } = h;
+  const w = sc.width, hh = sc.height;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.clearRect(0, 0, w, hh);
+  g.scale(dpr, dpr);
+  g.fillStyle = '#fff';
+  g.beginPath();
+  trace(g, h.mO, m);
+  trace(g, h.mI, m);
+  g.fill('evenodd');
+
+  const d = g.getImageData(0, 0, w, hh).data;
+  const n = w * hh;
+  const a = new Float32Array(n);
+  for (let i = 0, j = 3; i < n; i++, j += 4) a[i] = d[j] / 255;
+  const shift = Math.round(opts.offsetY * dpr) * w;
+  const rim = new Float32Array(n);
+  if (shift >= 0) {
+    for (let i = 0; i < n; i++) rim[i] = a[i] * (1 - (i >= shift ? a[i - shift] : 0));
+  } else {
+    for (let i = 0; i < n; i++) rim[i] = a[i] * (1 - (i - shift < n ? a[i - shift] : 0));
+  }
+  const blurred = gaussBlur(rim, w, hh, opts.blur * dpr);
+
+  const cr = parseInt(opts.color.slice(1, 3), 16), cg = parseInt(opts.color.slice(3, 5), 16), cb = parseInt(opts.color.slice(5, 7), 16);
+  const img = ctx.createImageData(w, hh);
+  const o = img.data;
+  for (let i = 0, j = 0; i < n; i++, j += 4) {
+    o[j] = cr; o[j + 1] = cg; o[j + 2] = cb;
+    o[j + 3] = Math.round(Math.min(1, blurred[i] * opts.alpha) * 255);
+  }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.putImageData(img, 0, 0);
+  void cv;
+}
+
+function removeRim(h                   )       {
+  if (h) h.canvas.remove();
+}
+
+
+/* ── engine/textMask.ts ─────────────────────────────── */
+/**
+ * Paint an element's text run onto a canvas with the DOM's own font and
+ * metrics, so canvas glyphs land on the DOM glyphs to within a device px.
+ * Shared by the Pro badge's metal fill and the text reflection mask.
+ *
+ * `ctx` is expected in device px with origin at `root`'s top-left; the
+ * function scales by `dpr` internally.
+ */
+function paintTextRun(
+  ctx                          ,
+  root             ,
+  textEl             ,
+  dpr        
+)       {
+  const cs = getComputedStyle(textEl);
+  const rr = root.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(textEl);
+  const tr = range.getBoundingClientRect();
+  range.detach();
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  const text = textEl.textContent ?? '';
+  const m = ctx.measureText(text);
+  const asc = m.fontBoundingBoxAscent ?? parseFloat(cs.fontSize) * 0.9;
+  const desc = m.fontBoundingBoxDescent ?? parseFloat(cs.fontSize) * 0.2;
+  const x = tr.left - rr.left;
+  const baseline = tr.top - rr.top + (tr.height - (asc + desc)) / 2 + asc;
+  ctx.fillText(text, x, baseline);
+  ctx.restore();
+}
+
+/** Render `textEl`'s glyphs white-on-transparent over `root`'s box → data URL. */
+function textMaskDataUrl(root             , textEl             )                {
+  const dpr = window.devicePixelRatio || 1;
+  const rr = root.getBoundingClientRect();
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(rr.width * dpr));
+  c.height = Math.max(1, Math.round(rr.height * dpr));
+  const g = c.getContext('2d');
+  if (!g) return null;
+  g.fillStyle = '#fff';
+  paintTextRun(g, root, textEl, dpr);
+  return c.toDataURL('image/png');
+}
+
+
+/* ── styles.ts ─────────────────────────────── */
+const STYLE_ID = 'metal-fx-styles';
+
+const CSS = /* css */ `
+.metal-fx-root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  overflow: visible;
+  background: #272727;
+  color: #f8f8f8;
+}
+.metal-fx-root[data-theme='light'] {
+  background: #ffffff;
+  color: #1d1d1d;
+}
+
+.metal-fx-root::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: inset 0 0 50px 0 rgba(255, 255, 255, 0.02);
+}
+.metal-fx-root[data-theme='light']::before {
+  box-shadow: inset 0 0 50px 0 rgba(0, 0, 0, 0.02);
+}
+
+.metal-fx-root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 4;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+.metal-fx-root[data-theme='light']::after {
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+/* Circle variant gets a thicker outer rim than the button variant. */
+.metal-fx-root[data-variant='circle']::after {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+.metal-fx-root[data-theme='light'][data-variant='circle']::after {
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.06);
+}
+
+.metal-fx-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* The inner spacer — defines the inset geometry where the metal ring meets
+   the interior (3 px for Button, 1-2 px for Circle) and carries the Circle dark
+   hairline ('box-shadow: inset' rules below). Intentionally transparent so
+   the wrapper's background propagates through to the punched shader centre,
+   giving consumers a single surface tone to override. See "Single-surface
+   background" in the file header for the rationale. */
+.metal-fx-inner {
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.metal-fx-root[data-variant='button'][data-shape='pill'] .metal-fx-inner {
+  border-radius: calc(var(--mfx-radius, 20px) - 3px);
+}
+.metal-fx-root[data-variant='button'][data-shape='circle'] .metal-fx-inner {
+  border-radius: calc(var(--mfx-radius, 16px) - 3px);
+}
+.metal-fx-root[data-variant='circle'][data-shape='pill'] .metal-fx-inner {
+  inset: 0;
+  border-radius: var(--mfx-radius, 20px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+.metal-fx-root[data-variant='circle'][data-shape='circle'] .metal-fx-inner {
+  inset: 0;
+  border-radius: var(--mfx-radius, 16px);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+/* Circle-variant hairline alpha — light mode.
+   Source-of-truth: index.html L2261-2267. The 0.45-alpha black inset that
+   reads as a single-pixel frame against the dark interior is too heavy
+   on a #ffffff inner: it ends up looking like a hard 2-px black ring
+   against the iridescent shader. Suppressed entirely (alpha 0) — the
+   shader's own iridescent rim already defines the silhouette in light
+   mode, so an extra dark hairline only competes with it. The rule is
+   kept (rather than deleted) as a tunable hook in case a future variant
+   wants to re-introduce a soft edge. NOTE: we keep the dark-mode inset
+   and border-radius values because — unlike index.html — our renderer
+   does NOT overscan the canvas in light mode, so there is no 1-px gap
+   between inner element and shader to compensate for. */
+.metal-fx-root[data-theme='light'][data-variant='circle'][data-shape='pill'] .metal-fx-inner,
+.metal-fx-root[data-theme='light'][data-variant='circle'][data-shape='circle'] .metal-fx-inner {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0);
+}
+
+/* ─── Combined glow SVG (z=3) ──────────────────────────────────────────────
+   Single SVG per instance that holds BOTH the wide-halo group
+   (#mfx_haloTravel) and the catch-light group (#mfx_extraTravel), exactly
+   mirroring canonical's _buildGlowSvgInner (index.html L8078). One
+   mix-blend-mode: screen lifts the combined composite onto the shader
+   ring; per-frame opacity attributes on each inner group still drive the
+   independent fade-in / fade-out cycles for the halo and the catch-light.
+
+   Why a single SVG: the circle variant anchors halo + catch-light at the same
+   perimeter point, so they overlap in the bright zone. Two separately-
+   screened SVGs would double-screen the overlap (A + B + C - AB - AC -
+   BC + ABC instead of A + B + C - AB - AC once both groups composite
+   in source-over inside one SVG and then screen against the host once).
+   That overlap looked muted versus canonical specifically on the circle
+   variant where both layers travel together.
+
+   Source-of-truth opacity: #btnGlowSvg drops to 0.7 in dark and 0.2746 in
+   light (index.html L632/L643). */
+.metal-fx-glow-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0.7;
+}
+.metal-fx-root[data-theme='light'] .metal-fx-glow-svg {
+  /* Light-mode 1-px overscan mirrors .btn-glow-svg in metal.html so the
+     halo stays glued to the visible silhouette (the shader ring there sits
+     1 px outside the host's padding box). */
+  inset: -1px;
+  width: calc(100% + 2px);
+  height: calc(100% + 2px);
+  mix-blend-mode: multiply;
+  /* Source-of-truth: html[data-theme="light"] #btnGlowSvg { opacity: 0.2746 }
+     → −35 % from 0.4225 from the original 0.7 dark-mode opacity. */
+  opacity: 0.2746;
+  filter: saturate(5.355) brightness(0.78);
+}
+/* Circle light-mode small variants (e.g. 36×36 send button): the geometrically
+   shrunk halo loses density when multiplied against #ffffff. Mirror the
+   canonical override at index.html L2316 — bump saturation + drop brightness
+   so the small glow holds together visually. */
+.metal-fx-root[data-variant='circle'][data-shape='circle'][data-theme='light'] .metal-fx-glow-svg {
+  filter: saturate(7.5) brightness(0.6);
+}
+
+/* The wrapped child — hoisted into z=5 so it sits above every overlay, with
+   normalized chrome so consumer button styles don't fight the metal frame. */
+.metal-fx-content {
+  position: relative;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  pointer-events: none;
+}
+.metal-fx-content > * {
+  pointer-events: auto;
+}
+.metal-fx-root[data-normalize='true'] .metal-fx-content > * {
+  background: transparent !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  /* Sizing: we deliberately DO NOT force \`width: 100%; height: 100%\` on the
+     child here. That used to be the contract ("the wrapper is the visible
+     button surface; the child stretches to fill it"), but it created a cyclic
+     percentage dependency: the wrapper is \`inline-flex\` with no intrinsic
+     size, .metal-fx-content is \`width/height: 100%\` of the wrapper, and the
+     child was \`100%\` of .metal-fx-content. With nothing breaking the cycle,
+     icon-only / class-sized children collapsed.
+
+     The new contract: the child sizes itself (intrinsic content, CSS class,
+     or inline style — all work), and the wrapper's \`inline-flex\` wraps it
+     tightly. Consumers who want a metal frame BIGGER than the child (e.g.
+     padding around an icon) size <MetalFx style={{ width, height }}> AND
+     explicitly set width/height on the child to fill (or accept that the
+     child renders at its intrinsic size, centered).
+
+     Typography is intentionally NOT touched. We used to apply
+     \`color: inherit; font: inherit;\` here to "match" the wrapper, but
+     \`font: inherit\` is a shorthand that overrides font-family, font-size,
+     font-weight, AND line-height on the child — which (a) shrank the
+     button height (line-height changes propagate through the flex
+     content box) and (b) scaled em-based icons / font-icons inside the
+     child to whatever the wrapper inherited. The wrapper now stays out
+     of the child's typography entirely; consumers who want typographic
+     normalization can apply it themselves on the child element. */
+}
+
+[data-metal-fx-reflection] {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  overflow: hidden;
+  z-index: 0;
+  isolation: isolate;
+}
+.metal-fx-reflection-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: blur(4px) saturate(1.2) brightness(1.58);
+}
+.metal-fx-reflection-stroke-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: saturate(1.35) brightness(1.75);
+}
+/* Hosts that participate as reflection targets need positioning + isolation
+   so the wrap composites only against the host (not the parent stack). The
+   wrap injects these inline as well, but stating them here keeps reflections
+   working on hosts that already have other inline styles applied. */
+[data-metal-fx-reflect-host] {
+  isolation: isolate;
+}
+`;
+
+let injected = false;
+
+function ensureStylesInjected()       {
+  if (injected) return;
+  if (typeof document === 'undefined') return;
+  if (document.getElementById(STYLE_ID)) { injected = true; return; }
+  const style = document.createElement('style');
+  style.id = STYLE_ID;
+  style.textContent = CSS;
+  document.head.appendChild(style);
+  injected = true;
+}
+
+/* ── the vanilla mount ──────────────────────────────────────────────
+   metal-fx ships a React component; Aethron has no React. Their own
+   index.ts calls the engine primitives a "power-user surface ... for
+   consumers building non-React integrations", so this is the sanctioned
+   path, not a workaround. Everything below is MetalFx.tsx's lifecycle
+   with the hooks removed — measure, create, glow, rim, observe, destroy.
+   Nothing about the effect itself is reimplemented. */
+const MFX_GLOW = new Map();     // instance -> {handles, themeRef}
+setGlowCallback(function (inst, nowMs) {
+  const e = MFX_GLOW.get(inst);
+  if (e) updateGlow(e.handles, inst, nowMs, inst.opacityMul, e.themeRef.current);
+});
+
+/* Wrap an element that is already in the document. Returns a handle with
+   .root (the new wrapper), .pause(bool) and .destroy(). */
+function metalWrap(el, o) {
+  o = o || {};
+  if (!el) return null;
+  if (el.__mfx) return el.__mfx;
+  if (!isMetalFxSupported()) return null;   // no WebGL2: leave it alone
+  ensureStylesInjected();
+
+  const theme = o.theme || 'dark';
+  const kind = o.variant === 'circle' ? 'circle' : 'pill';
+  const scale = o.scale || 1;
+  const mask = o.mask || null;
+
+  const root = document.createElement('div');
+  root.className = 'metal-fx-root' + (o.className ? ' ' + o.className : '');
+  root.dataset.variant = o.variant || 'button';
+  root.dataset.shape = kind;
+  root.dataset.theme = theme;
+  root.dataset.normalize = o.normalize === false ? 'false' : 'true';
+  root.style.setProperty('--mfx-strength',
+    String(o.strength == null ? 1 : o.strength));
+  root.style.opacity = '0'; root.style.visibility = 'hidden';
+
+  const canvas = document.createElement('canvas');
+  canvas.className = 'metal-fx-canvas';
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+  const inner = document.createElement('div');
+  inner.className = 'metal-fx-inner';
+  inner.setAttribute('aria-hidden', 'true');
+  inner.style.cssText = 'position:absolute;inset:3px';
+  const glowHost = document.createElement('div');
+  glowHost.setAttribute('aria-hidden', 'true');
+  glowHost.style.cssText =
+    'position:absolute;inset:0;pointer-events:none;z-index:3;border-radius:inherit';
+  if (o.glow === false) glowHost.style.display = 'none';
+  const rimHost = document.createElement('div');
+  rimHost.setAttribute('aria-hidden', 'true');
+  rimHost.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:4';
+  const content = document.createElement('div');
+  content.className = 'metal-fx-content';
+
+  el.parentNode.insertBefore(root, el);
+  content.appendChild(el);
+  root.append(canvas, inner, glowHost, rimHost, content);
+
+  const themeRef = { current: theme };
+  setSharedPreset(o.preset || 'chromatic', theme);
+
+  const radiusOf = function (w, h) {
+    if (kind === 'circle') return Math.min(w, h) / 2;
+    let raw = o.borderRadius;
+    if (raw == null) {
+      const p = parseFloat(getComputedStyle(el).borderTopLeftRadius);
+      raw = Number.isFinite(p) && p > 0 ? p : 20;
+    }
+    return Math.min(raw, Math.min(w, h) / 2);
+  };
+  const measure = function () {
+    const r = root.getBoundingClientRect();
+    const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+    return { cssWidth: w, cssHeight: h, cornerRadius: radiusOf(w, h) };
+  };
+
+  const d0 = measure();
+  const inst = createInstance({
+    hostCanvas: canvas, cssWidth: d0.cssWidth, cssHeight: d0.cssHeight,
+    cornerRadius: d0.cornerRadius, kind, paused: !!o.paused,
+    shaderScale: o.shaderScale, ringCssPx: o.ringCssPx, scale,
+    opacityMul: o.strength == null ? 1 : o.strength,
+    glowGain: o.glowGain == null ? 1 : o.glowGain,
+    mask: mask,
+    onFirstCopy: reveal,
+  });
+  function reveal() {
+    root.style.opacity = '1'; root.style.visibility = 'visible';
+    root.style.transition = 'opacity .15s ease-out';
+  }
+  /* THE TRAP THIS PROJECT HAS ALREADY PAID FOR TWICE: a reveal that hangs
+     off a frame callback never fires under starvation, and here that
+     would mean the button simply is not there. A timer backs it. */
+  setTimeout(reveal, 1200);
+  root.style.setProperty('--mfx-radius', d0.cornerRadius + 'px');
+  root.style.borderRadius = d0.cornerRadius + 'px';
+
+  /* A masked instance (metal-filled glyphs, a filled badge) has no ring
+     band, so the halo is given points inside the mask and the mask
+     itself to clip against — their glowMaskData, unchanged. */
+  const glowMaskData = function (w, h) {
+    if (!mask || o.glowMode === 'ring') return {};
+    const dpr = window.devicePixelRatio || 1;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.max(1, Math.round(h * dpr));
+    const g = c.getContext('2d');
+    if (!g) return {};
+    g.fillStyle = '#fff';
+    mask(g, c.width, c.height, dpr);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    const pts = [], step = Math.max(1, Math.round(2 * dpr));
+    for (let y = step >> 1; y < c.height; y += step)
+      for (let x = step >> 1; x < c.width; x += step)
+        if (d[(y * c.width + x) * 4 + 3] > 128) pts.push({ x: x / dpr, y: y / dpr });
+    return { samplePoints: pts, maskDataUrl: c.toDataURL('image/png') };
+  };
+
+  let handles = null;
+  const buildGlow = function (d) {
+    if (o.glow === false) return;
+    const prev = handles;
+    glowHost.innerHTML = '';
+    handles = injectGlow(glowHost, Object.assign({
+      width: d.cssWidth, height: d.cssHeight,
+      cornerRadius: d.cornerRadius, kind, scale,
+    }, glowMaskData(d.cssWidth, d.cssHeight)));
+    // a rebuilt glow starts invisible; carry the old state so a resize
+    // does not read as the halo blinking out
+    if (prev) carryGlowState(prev, handles);
+    MFX_GLOW.set(inst, { handles, themeRef });
+  };
+  buildGlow(d0);
+  if (o.glow !== false) registerGlowInstance(inst);
+
+  let rim = null;
+  const buildRim = function (d) {
+    removeRim(rim); rim = null;
+    if (!o.innerShadow) return;
+    const ro = o.innerShadow === true ? RIM_DEFAULTS
+      : Object.assign({}, RIM_DEFAULTS, o.innerShadow);
+    rim = injectRim(rimHost, {
+      width: d.cssWidth, height: d.cssHeight, cornerRadius: d.cornerRadius,
+      kind, ring: inst.ringCssPx,
+    }, ro);
+  };
+  buildRim(d0);
+
+  let raf = 0, bw = d0.cssWidth, bh = d0.cssHeight, br = d0.cornerRadius;
+  const ro = new ResizeObserver(function () {
+    if (raf) return;
+    raf = requestAnimationFrame(function () {
+      raf = 0;
+      const n = measure();
+      if (Math.abs(n.cssWidth - bw) < .5 && Math.abs(n.cssHeight - bh) < .5 &&
+          Math.abs(n.cornerRadius - br) < .5) return;
+      bw = n.cssWidth; bh = n.cssHeight; br = n.cornerRadius;
+      updateInstance(inst, n);
+      root.style.setProperty('--mfx-radius', n.cornerRadius + 'px');
+      root.style.borderRadius = n.cornerRadius + 'px';
+      buildGlow(n); buildRim(n);
+    });
+  });
+  ro.observe(root);
+
+  const unsubGlow = subscribeGlowConfig(function (markupChanged) {
+    if (markupChanged) buildGlow(measure());
+  });
+
+  let io = null;
+  if (typeof IntersectionObserver !== 'undefined') {
+    io = new IntersectionObserver(function (es) {
+      for (const e of es) setInstanceVisible(inst, e.isIntersecting);
+    }, { rootMargin: '64px' });
+    io.observe(root);
+  }
+  attachCursorLight();
+
+  /* Neighbours catch the light. This is the part a <div> cannot fake: the
+     engine reads the shader's own pixels and paints a soft copy of them
+     onto whatever stands near the button. Dark mode only, by design. */
+  let refl = [];
+  if (o.reflect && o.reflect.length && theme === 'dark') {
+    inst.onAfterFrame = scheduleReflectionPaint;
+    refl = o.reflect.filter(Boolean);
+    for (const t of refl) addReflectionTarget(t.el || t, inst, root, t.strength == null ? 1 : t.strength);
+  }
+
+  const h = {
+    root: root, inst: inst, el: el,
+    pause: function (p) { updateInstance(inst, { paused: !!p }); },
+    destroy: function () {
+      detachCursorLight(); removeRim(rim); rim = null;
+      ro.disconnect(); if (io) io.disconnect(); unsubGlow();
+      if (raf) cancelAnimationFrame(raf);
+      for (const t of refl) removeReflectionTarget(t.el || t);
+      MFX_GLOW.delete(inst); unregisterGlowInstance(inst); destroyInstance(inst);
+      delete el.__mfx;
+      if (root.parentNode) { root.parentNode.insertBefore(el, root); root.remove(); }
+    },
+  };
+  el.__mfx = h;
+  return h;
+}
+
+window.metalWrap = metalWrap;
+window.metalReady = true;
+})();
+"""
+
 CALLBACK_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <title>Signing in…</title>
@@ -3189,6 +8569,12 @@ INDEX_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aethron Studio</title>
+<!-- The metal engine. `defer` because nothing above the fold waits on
+     it: every surface it decorates is mounted from mountMetal(), which
+     runs after a render and checks window.metalWrap first. A browser
+     with no WebGL2 simply never gets it, and every one of those
+     surfaces is a working button without it. -->
+<script defer src="__METAL__"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root{
@@ -4325,6 +9711,56 @@ input:focus,textarea:focus,select:focus{border-color:var(--tx);
 .empty{display:flex;min-height:60vh;padding:48px 24px}
 .empty .focal{margin:auto}
 
+/* ── THE CODE WORKSPACE, REBUILT ────────────────────────────────────
+   It read as a form with three buttons and two empty boxes because that
+   is what it was. As a sheet it gets the same treatment as everything
+   else: a quiet toolbar instead of a row of primaries, glass panes, a
+   tree and an editor that fill their space, and an empty state that
+   says what to do rather than sitting blank.
+   WHAT CSS CANNOT DO HERE IS THE EDGE. Measured: a displacement map on
+   `backdrop-filter` is ignored by this engine, so a magnifying, mirroring
+   rim is not available to an HTML surface at all — only to a native
+   view, which is why the window's own glass is an NSGlassEffectView.
+   Everything below is the honest ceiling for a <div>. */
+.pvw-stage.dark .codebar{display:flex;align-items:center;gap:8px;
+  flex-wrap:wrap;padding:12px 14px;margin:0 0 12px;
+  border-radius:var(--r-md);
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.07)}
+.pvw-stage.dark .codebar select,.pvw-stage.dark .codebar input{
+  height:30px;border-radius:var(--r-sm);padding:0 10px;font-size:12.5px;
+  background:rgba(0,0,0,.3);border:1px solid rgba(255,255,255,.09);
+  color:var(--tx)}
+.pvw-stage.dark .codebar button{height:30px;padding:0 13px;
+  border-radius:var(--r-sm);font-size:12.5px;font-weight:500;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);
+  color:var(--dim);box-shadow:none}
+.pvw-stage.dark .codebar button:hover{color:var(--tx);
+  background:rgba(255,255,255,.09);transform:none;box-shadow:none}
+.pvw-stage.dark .codebar button.primary{background:var(--acc);
+  color:#fff;border:0}
+.pvw-stage.dark .codebar button.primary:hover{background:var(--acc);
+  filter:brightness(1.08)}
+.pvw-stage.dark .codestat{font-size:11px;color:var(--lo);
+  width:100%;margin-top:2px}
+.pvw-stage.dark .ide{display:grid;grid-template-columns:230px 1fr;
+  gap:12px;min-height:0}
+.pvw-stage.dark .ide>*{min-height:0}      /* the grid-overflow trap */
+.pvw-stage.dark .idetree,.pvw-stage.dark .ideedit{
+  border-radius:var(--r-md);overflow:auto;
+  background:rgba(255,255,255,.028);
+  border:1px solid rgba(255,255,255,.06)}
+.pvw-stage.dark .idetree{padding:8px}
+.pvw-stage.dark .idehead{font-size:11px;color:var(--lo);
+  padding:8px 12px;letter-spacing:.04em}
+.pvw-stage.dark .ideedit textarea{width:100%;height:100%;border:0;
+  background:transparent;color:var(--tx);font-family:var(--mono);
+  font-size:12.5px;line-height:1.65;padding:12px 14px;resize:none}
+.pvw-stage.dark .ideedit textarea:focus{outline:none}
+.pvw-stage.dark .empty{min-height:220px;display:grid;place-items:center;
+  color:var(--lo);font-size:13px}
+@media (max-width:1000px){.pvw-stage.dark .ide{grid-template-columns:1fr}}
+
 /* ── WHEN THE WINDOW ITSELF IS GLASS ────────────────────────────────
    Launched through the native shell, an NSGlassEffectView sits in the
    window BEHIND this page and the web view is told to stop drawing its
@@ -4346,6 +9782,76 @@ html.native-glass .run,html.native-glass .prow:hover{
   background:rgba(21,20,23,.45)}
 html.native-glass .setwrap .card{background:rgba(23,22,26,.34)}
 html.native-glass .dotf.hero{opacity:.38}
+
+/* ── METAL ──────────────────────────────────────────────────────────
+   The engine paints its own canvas and glow; these rules are only the
+   furniture around it — the surfaces it wraps, and the two places
+   Aethron puts it that metal-fx does not ship a shape for. */
+
+/* SEARCH. The field itself is the ring, so the light runs around what
+   you are typing into. */
+.find{position:relative;margin:12px 14px 4px;display:flex;align-items:center}
+/* THE ATTRIBUTE IS GONE BY THE TIME THE PAGE IS PAINTED. [data-ic] is a
+   placeholder: the icon pass replaces the whole element with an <svg
+   class="ic">, so a rule written against [data-ic] matches nothing and
+   the magnifier stayed in flow — pushing the field 13px to the right of
+   its own box. Style the thing that ends up in the document. */
+.find > .ic,.find > [data-ic]{position:absolute;left:11px;color:var(--lo);
+  pointer-events:none;z-index:2}
+.find input{width:100%;height:34px;padding:0 44px 0 31px;border-radius:999px;
+  border:1px solid rgba(255,255,255,.07);background:rgba(255,255,255,.035);
+  color:var(--tx);font-size:12.5px;font-family:inherit;outline:0;
+  transition:background .16s var(--ease),border-color .16s var(--ease)}
+.find input::placeholder{color:var(--lo)}
+.find input:focus{background:rgba(255,255,255,.055);
+  border-color:rgba(255,255,255,.13)}
+.find kbd{position:absolute;right:10px;z-index:2;font:500 10px/1 ui-monospace,
+  SFMono-Regular,monospace;color:var(--lo);padding:3px 5px;border-radius:5px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06);
+  pointer-events:none}
+/* the wrapper the engine inserts has to stretch like the input did */
+.find .metal-fx-root{width:100%;background:transparent;border-radius:999px}
+.find .metal-fx-root .metal-fx-content{width:100%;display:block}
+.find .metal-fx-root::after{box-shadow:none}
+.findhits{padding:2px 8px 6px;display:flex;flex-direction:column;gap:2px}
+.fhit{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;
+  cursor:pointer;background:none;border:0;color:var(--tx);font-size:12.5px;
+  text-align:left;width:100%;box-shadow:none;transition:background .13s var(--ease)}
+.fhit:hover,.fhit.on{background:rgba(255,255,255,.06);transform:none;
+  box-shadow:none}
+.fhit .fk{margin-left:auto;font-size:10.5px;color:var(--lo)}
+.fhit .ic{color:var(--lo);flex:none}
+.findnone{padding:10px 18px;font-size:12px;color:var(--lo)}
+
+/* "LIVE MODE · NEW" — the arrival. The badge is metal-fx's own; the row
+   around it is the part that says something just happened, so it moves
+   once and then holds still. */
+.livenew{display:inline-flex;align-items:center;gap:8px;
+  opacity:0;transform:translateY(5px);
+  transition:opacity .55s var(--ease),transform .55s var(--spring)}
+.livenew.in{opacity:1;transform:none}
+.livenew i{width:6px;height:6px;border-radius:50%;background:#79e39a;
+  box-shadow:0 0 0 3px rgba(121,227,154,.14);flex:none}
+.livenew b{font-weight:500;font-size:11.5px;color:var(--dim);letter-spacing:.01em}
+.mbadge{display:inline-flex;line-height:0}
+@media (prefers-reduced-motion:reduce){
+  .livenew{transition:none;opacity:1;transform:none}}
+/* on a project row the badge sits at the end and takes no height */
+.pitem .livenew{margin-left:auto;align-self:center}
+
+/* THE SEND BUTTON. The ring is the engine's; what belongs here is only
+   making sure the wrapper does not change the layout the button had. */
+.cbar .metal-fx-root{margin-left:auto;background:var(--acc);border-radius:11px}
+.cbar .metal-fx-root .cbtn{margin-left:0}
+.cbar .metal-fx-root::after{box-shadow:none}
+.cbar .metal-fx-root .metal-fx-inner{display:none}
+/* WHEN REAL GLASS IS BEHIND IT, THE SHEET PAINTS NOTHING. Its own blur
+   was an imitation standing in front of the genuine article; the only
+   thing left is the hairline that separates it from the conversation. */
+html.native-glass .pvw.onglass{background:transparent;
+  -webkit-backdrop-filter:none;backdrop-filter:none;
+  box-shadow:inset 1px 0 0 rgba(255,255,255,.10)}
+html.native-glass .pvw.onglass .pvw-bar{background:rgba(255,255,255,.05)}
 
 /* ── THE SHAPE SCALE, APPLIED ───────────────────────────────────────
    iOS rounds considerably harder than web convention and keeps the
@@ -5453,6 +10959,13 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
 </style></head><body>
 <aside>
   <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
+  <div class="find"><span data-ic="search" data-ics="13"></span>
+    <input id="findq" placeholder="Search" autocomplete="off" spellcheck="false"
+     oninput="runFind(this.value)"
+     onkeydown="if(event.key==='Escape'){this.value='';runFind('')}
+                if(event.key==='Enter')findFirst()">
+    <kbd>&#8984;K</kbd></div>
+  <div id="findhits" class="findhits" hidden></div>
   <div id="plist"></div>
   <div class="srows">
     <button class="qrow" onclick="newProject()">
@@ -5539,6 +11052,7 @@ const $=id=>document.getElementById(id);
 if(location.search.indexOf('glass=1')>=0)
   document.documentElement.classList.add('native-glass');
 const ICONS={
+search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
 terminal:'<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
 image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
 gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
@@ -5573,7 +11087,12 @@ up:'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
 rocket:'<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
 x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 help:'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'};
-const I=(n,s=14)=>`<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
+const I=(n,s=14)=>{
+  /* An unknown name used to render an EMPTY svg — a silent hole that
+     still takes its width, which is exactly how a misaligned sidebar row
+     shipped once before. Say so in the console instead of hiding it. */
+  if(!ICONS[n])console.warn('icon missing:',n);
+  return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;};
 document.querySelectorAll('[data-ic]').forEach(n=>{n.outerHTML=I(n.dataset.ic,+(n.dataset.ics||14))});
 const S={projects:[],cur:null,info:null,cm:null,tab:'plan',log:'',running:null};
 const enc=new TextEncoder();
@@ -5590,7 +11109,21 @@ async function b64of(file){ // chunked: spread on big arrays blows the stack
   return btoa(s);}
 
 async function refresh(keepTab){
+  const before=S.listed?S.projects:null;
   S.projects=await api('/api/projects');
+  S.listed=true;
+  /* WHAT "SOMETHING NEW ENTERED AETHRON" ACTUALLY MEANS. Not the first
+     listing — on a cold start every project would wear the badge and it
+     would mean nothing. A name that was NOT in the previous listing and
+     is not the one you just opened yourself: that is a thing that
+     arrived, which on this product is usually the agent finishing a
+     migration while you were reading something else. */
+  if(before){
+    const had=new Set(before.map(p=>p.name));
+    S.fresh=S.fresh||new Set();
+    for(const p of S.projects)
+      if(!had.has(p.name)&&p.name!==S.cur)S.fresh.add(p.name);
+  }else S.fresh=new Set();   /* the FIRST listing is not news */
   renderSidebar();
   if(S.cur){
     S.info=S.projects.find(p=>p.name===S.cur)||null;
@@ -5608,14 +11141,17 @@ function renderSidebar(){
       <div class="pmeta"><span class="plat ${p.platform}">${p.platform}</span>
        <span>${p.filled}/${p.total} filled</span></div>
       <div class="pbar"><i style="width:${pct}%"></i></div></div>
+     ${S.fresh&&S.fresh.has(p.name)?liveNewHtml('Live mode',.82):''}
      <span class="del" onclick="event.stopPropagation();delProject('${p.name}')">✕</span>
      </div>`}).join('')||'<div class="sideempty"><span class="mk">'+I('package',15)+'</span>'
       +'<b>No projects yet</b>Paste a template URL, or say what you want '
       +'built. Whatever you start appears here.</div>';
+  mountMetal(); playArrivals();
 }
 async function select(name){
   /* a sheet showing the LAST project must not survive into this one */
   closePvw&&closePvw();
+  if(S.fresh)S.fresh.delete(name);      /* you have seen it; it is not new */
   S.cur=name;S.cm=null;S.tab='chat';S.view='project';
   const lb=$('libbtn');if(lb)lb.classList.remove('sel');
   await refresh();
@@ -6597,7 +12133,7 @@ function convShell(o){
             ?`<button class="cbtn stop" onclick="stopTurn()" aria-label="Stop"
                 title="Stop">${I('stop',15)}</button>`
             :`<button class="cbtn" onclick="consoleSend()" aria-label="Send"
-                title="Send"><span data-ic="up"></span></button>`}
+                title="Send">${I('up',15)}</button>`}
         </div>
       </div>
       <div class="dockmeta" id="dockmeta"></div>
@@ -6757,7 +12293,7 @@ function openSheet(o){
   let opened=false;
   const open=()=>{ if(opened)return; opened=true;
     d.classList.add('in'); document.body.classList.add('pvwopen');
-    syncHero(); };
+    syncHero(); backWithGlass(d); };
   requestAnimationFrame(()=>requestAnimationFrame(open));
   setTimeout(open,120);
   document.addEventListener('keydown',pvwKey);
@@ -6798,7 +12334,7 @@ function pvwKey(e){if(e.key==='Escape'){if($('selbox'))closeSel();else closePvw(
 function closePvw(){
   const d=$('pvw');
   document.body.classList.remove('pvwopen');
-  syncHero();
+  syncHero(); clearGlass();
   closeSel(); document.removeEventListener('keydown',pvwKey);
   if(!d)return;
   d.classList.remove('in');            // let it spring out before it goes
@@ -6872,6 +12408,204 @@ window.addEventListener('message',ev=>{
   const ta=$('selta'); if(ta)ta.focus();
 });
 function closeSel(){const b=$('selbox'); if(b)b.remove();}
+/* ── ASK THE WINDOW FOR REAL GLASS UNDER THIS RECTANGLE ─────────────
+   Only inside the native shell, and only once the sheet has finished
+   arriving — a native view cannot ride a CSS spring, so moving it early
+   would show a slab of glass sliding in half a beat out of step. The
+   page turns its own background off at the same moment, otherwise the
+   material is behind an opaque div and nobody sees it. */
+const NATIVE=document.documentElement.classList.contains('native-glass');
+async function backWithGlass(el){
+  if(!NATIVE||!el)return;
+  const r=el.getBoundingClientRect();
+  try{
+    await api('/api/glass',{x:Math.round(r.left),y:Math.round(r.top),
+      w:Math.round(r.width),h:Math.round(r.height),radius:0});
+    el.classList.add('onglass');
+  }catch(e){}
+}
+async function clearGlass(){
+  if(!NATIVE)return;
+  try{ await api('/api/glass',{}); }catch(e){}
+}
+/* the rectangle moves with the window */
+addEventListener('resize',()=>{
+  clearTimeout(window._glassT);
+  window._glassT=setTimeout(()=>{
+    const d=$('pvw'); if(d&&d.classList.contains('in'))backWithGlass(d);
+  },200);
+});
+
+/* ══ METAL ══════════════════════════════════════════════════════════
+   metal-fx's engine arrives on its own <script defer>; everything here
+   is Aethron deciding WHERE it goes. Three places, all of them things
+   the owner pointed at: the send button, a "Live mode · New" badge for
+   when something new turns up, and the search.
+
+   Every one of them is a working control with no engine at all — the
+   ring is paint, never the affordance. A browser without WebGL2, or a
+   metal.js that never loaded, loses the shine and loses nothing else. */
+const MET=[];                       /* live handles, swept when orphaned */
+/* EVERY RENDER PATH, NOT A LIST OF THEM. The composer is drawn by the
+   static shell, by convShell, by renderCode and by renderDesign; the
+   sidebar redraws on its own schedule; a run finishing redraws the chat.
+   Hooking each one is how a surface silently stops being decorated the
+   day a new view is added — the same reason this file's own listeners
+   sit on document rather than on elements. One observer, debounced. */
+let _metT=0;
+function watchMetal(){
+  const seen=new MutationObserver(()=>{
+    clearTimeout(_metT);
+    _metT=setTimeout(()=>{mountMetal();playArrivals();},60);
+  });
+  for(const id of ['content','plist','findhits']){
+    const n=document.getElementById(id);
+    if(n)seen.observe(n,{childList:true,subtree:true});
+  }
+  const dock=document.querySelector('.conv-dock');
+  if(dock)seen.observe(dock,{childList:true,subtree:true});
+}
+function mountMetal(){
+  if(!window.metalWrap)return;      /* not loaded yet — a later pass gets it */
+  /* An element re-rendered away takes its wrapper with it, but the
+     shared renderer would keep compositing for an instance nobody can
+     see. Sweep first, mount second. */
+  for(let i=MET.length-1;i>=0;i--)
+    if(!document.body.contains(MET[i].root)){try{MET[i].destroy()}catch(e){}
+      MET.splice(i,1);}
+
+  const send=document.querySelector('.cbar .cbtn:not(.stop)');
+  if(send&&!send.__mfx){
+    /* 11, not 9: `.composer .cbtn` wins over `.cbar .cbtn` on equal
+       specificity, so the button is drawn 34px at radius 11. A ring
+       measured from the wrong rule reads as a ring that does not fit. */
+    const h=window.metalWrap(send,{variant:'button',preset:'chromatic',
+      theme:'dark',borderRadius:11,innerShadow:true,
+      /* the owner's actual point: the light is in the room, not only on
+         the button — the pills beside it catch the metal */
+      reflect:[...document.querySelectorAll('.cbar .cpill')]
+                .map(el=>({el,strength:.7}))});
+    if(h)MET.push(h);
+  }
+  const q=$('findq');
+  if(q&&!q.__mfx){
+    const h=window.metalWrap(q,{variant:'button',preset:'silver',theme:'dark',
+      borderRadius:999,strength:.85,ringCssPx:1});
+    if(h)MET.push(h);
+  }
+  /* THE SELECTOR MUST NOT MATCH WHAT THE MOUNT CREATES. `.mbadge > div`
+     matched the badge host on the first pass — and on the second pass it
+     matched the WRAPPER the first pass had inserted, which is also a
+     div, so every observer tick wrapped the wrapper: measured, 33 nested
+     rings inside one badge. A dedicated class plus the handle guard, and
+     the pass is idempotent. */
+  document.querySelectorAll('.mb-host').forEach(host=>{
+    if(host.__mfx)return;
+    const R=55.556*(+host.dataset.k||1);
+    const h=window.metalWrap(host,{preset:'chromatic',theme:'dark',
+      strength:.8,shaderScale:1.6,borderRadius:R,glowMode:'ring',
+      /* a badge is metal ALL OVER, not a ring around a hole — their
+         MetalBadge does this with a full-pill mask, so this does too */
+      mask:(ctx,w,hh,dpr)=>{ctx.beginPath();ctx.roundRect(0,0,w,hh,R*dpr);ctx.fill();}});
+    if(h){h.root.style.background='#fff';MET.push(h);}
+  });
+}
+
+/* metal-fx's MetalBadge, in plain DOM. The metrics are theirs, from the
+   Figma their file cites: 45×25, r 55.556, label Inter 600 12.222/1.4
+   #323232, and the layer order white fill → metal → white core under the
+   words → gradient and inset rims → text. */
+function metalBadgeHtml(text,k){
+  k=k||1;
+  const W=45*k,H=25*k,R=55.556*k,TW=26.667*k,pad=(W-TW)/2,
+        core={r:46,blur:100,a:.94,size:49},g=.41;
+  return `<span class="mbadge"><div class="mb-host" data-k="${k}" style="position:relative;`+
+    `width:${W}px;height:${H}px;border-radius:${R}px">`+
+    `<div aria-hidden="true" style="position:absolute;inset:0;`+
+      `pointer-events:none;border-radius:${R}px;opacity:${core.a};`+
+      `background:radial-gradient(ellipse ${core.size}% ${core.size}% at 50% 50%,`+
+      `rgba(255,255,255,1) ${core.r}%,rgba(255,255,255,0) `+
+      `${Math.min(100,core.r+core.blur)}%)"></div>`+
+    `<div aria-hidden="true" style="position:absolute;inset:0;`+
+      `pointer-events:none;border-radius:${R}px;box-shadow:`+
+      `inset 0 0 ${8.333*k}px 0 rgba(255,255,255,${g}),`+
+      `inset 0 0 ${8.333*k}px 0 rgba(255,255,255,${g}),`+
+      `inset 0 0 0 ${.833*k}px rgba(255,255,255,.5),`+
+      `inset 0 ${.833*k}px 0 0 rgba(255,255,255,.78)"></div>`+
+    `<span style="position:relative;display:flex;align-items:center;`+
+      `justify-content:center;width:${W}px;height:${H}px;padding:0 ${pad}px;`+
+      `font:600 ${12.222*k}px/1.4 Inter,-apple-system,sans-serif;color:#323232;`+
+      `white-space:nowrap">${esc(text||'New')}</span></div></span>`;
+}
+/* "Live mode · New" — what the owner asked to fire when something new
+   enters Aethron. Marked .in on the next tick so it ARRIVES rather than
+   simply being there; the timer is the same insurance every other
+   reveal in this file carries. */
+function liveNewHtml(label,k){
+  return `<span class="livenew"><i></i><b>${esc(label||'Live mode')}</b>`+
+         metalBadgeHtml('New',k)+`</span>`;
+}
+function playArrivals(){
+  document.querySelectorAll('.livenew:not(.in)').forEach(r=>{
+    requestAnimationFrame(()=>r.classList.add('in'));
+    setTimeout(()=>r.classList.add('in'),150);
+  });
+}
+
+/* ══ SEARCH ═════════════════════════════════════════════════════════
+   Projects and the places you can go, in one field. It searches what is
+   already in hand (S.projects) rather than asking the server, so it
+   answers on the keystroke. */
+const FIND_GO=[
+  {icon:'plus',     label:'New project',    k:'new project start',  go:()=>newProject()},
+  {icon:'terminal', label:'Code workspace', k:'code ide editor',    go:()=>openCode()},
+  {icon:'library',  label:'Design library', k:'library designs',    go:()=>openLibrary()},
+  {icon:'gear',     label:'Settings',       k:'settings key model wallet provider',
+                                                                    go:()=>openSettings()},
+];
+let FIND_HITS=[];
+function findMatches(raw){
+  const q=(raw||'').trim().toLowerCase();
+  if(!q)return [];
+  const out=[];
+  for(const p of (S.projects||[]))
+    if((p.name+' '+(p.platform||'')).toLowerCase().includes(q))
+      /* `package`, not `project`: there is no project glyph, and a name
+         that is not in ICONS renders an empty <svg> — which is how a
+         sidebar row once sat visibly misaligned beside its neighbours. */
+      out.push({icon:'package',label:p.name,note:p.platform,
+                go:()=>select(p.name)});
+  for(const d of FIND_GO)
+    if((d.label+' '+d.k).toLowerCase().includes(q))
+      out.push({icon:d.icon,label:d.label,note:'go',go:d.go});
+  return out.slice(0,9);
+}
+function runFind(raw){
+  FIND_HITS=findMatches(raw);
+  const box=$('findhits'),list=$('plist');
+  if(!box||!list)return;
+  const on=!!(raw||'').trim();
+  list.hidden=on; box.hidden=!on;
+  if(!on){box.innerHTML='';return;}
+  box.innerHTML=FIND_HITS.length
+    ?FIND_HITS.map((h,i)=>`<button class="fhit${i?'':' on'}" onclick="findGo(${i})">`+
+       `${I(h.icon,14)}<span>${esc(h.label)}</span>`+
+       `<span class="fk">${esc(h.note||'')}</span></button>`).join('')
+    :`<div class="findnone">nothing matches that</div>`;
+}
+function findGo(i){
+  const h=FIND_HITS[i]; if(!h)return;
+  const f=$('findq'); if(f)f.value='';
+  runFind('');
+  h.go();
+}
+function findFirst(){ if(FIND_HITS.length)findGo(0); }
+addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){
+    e.preventDefault();
+    const f=$('findq'); if(f){f.focus();f.select();}
+  }
+});
 /* The sheet is a share of the window, so every resize moves the page
    inside it. Ask once the dust settles — the ring then springs to the
    new geometry on its own, which is the whole point of animating it
@@ -9786,12 +15520,27 @@ function endTour(){
 refresh();
 loadAi();          // the one AI setting, before anything asks for it
 mountDots();       // the room is lit before anyone asks it to be
+/* metal.js is deferred, so it may not be here yet. Mount now for the
+   case where it is, and again on load for the case where it is not —
+   and never wait on it, because every surface it touches already works. */
+mountMetal();
+addEventListener('load',()=>{mountMetal();playArrivals();});
+watchMetal();
 if(!localStorage.forge_tour)setTimeout(()=>startTour(0),700);
 </script></body></html>
 """
 
 # bake the inlined mark into every surface that shows the logo
 LOGIN_HTML = LOGIN_HTML.replace("__MARK__", MARK)
+# AN IMMUTABLE CACHE NEEDS A NEW URL, NOT A NEW FILE. /metal.js is sent
+# with max-age=604800, immutable — which is right, and which means a
+# browser that has it will never ask again. Measured the hard way: the
+# first fixed build was served correctly and the page kept running the
+# broken copy it already had, so the error on screen was about code the
+# server no longer had. The fingerprint makes a changed engine a
+# different URL.
+METAL_VER = __import__("hashlib").sha256(METAL_JS.encode()).hexdigest()[:12]
+INDEX_HTML = INDEX_HTML.replace("__METAL__", f"/metal.js?v={METAL_VER}")
 INDEX_HTML = INDEX_HTML.replace("__MARK__", MARK)
 CALLBACK_DONE_HTML = CALLBACK_DONE_HTML.replace("__MARK__", MARK)
 
