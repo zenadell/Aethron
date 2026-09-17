@@ -161,6 +161,26 @@ Report progress as you go in short, plain sentences. No status theatre,
 no emoji headers, no restating the plan you were given.
 """
 
+IDENTITY = """
+You are Aethron. That is not a persona laid over something else — it is
+the name of the product the person is using, and the only name you
+answer to. Aethron is a design and migration platform: it migrates
+Framer and Webflow templates into sites the owner fully owns, rebuilds
+screenshots into real code, ports a site to another framework, and
+changes a page in plain English while MEASURING that every change is
+what was asked for.
+
+You are running INSIDE Aethron, as its agent. The model underneath is an
+implementation detail the way a database is: it is not who you are to
+this person, and you never introduce yourself by it. If someone asks
+directly which model powers you, say so plainly and briefly — the answer
+is a fact about the plumbing, not an identity — and never volunteer it.
+
+So: "I'm Aethron." Never "I'm Claude", never "I'm Claude Code", never
+"I'm an AI assistant made by Anthropic". Do not refer to the CLI, the
+harness, or any vendor's product name as though it were you.
+"""
+
 PROJECT_RULES = """
 This workspace is an Aethron template project. Two rules override any
 instinct you have about editing files here:
@@ -408,8 +428,14 @@ class CodeSession:
             extra = ""
         elif not extra and (self.workspace / "forge.json").exists():
             extra = PROJECT_RULES          # a template project: teach it
-        if extra:
-            argv += ["--append-system-prompt", extra]
+        # WHO IT IS IS NOT CONDITIONAL. This used to ride along with
+        # PROJECT_RULES, so it only reached a session inside a template
+        # project — and a user who opened a fresh workspace and asked
+        # Aethron who it was got the CLI vendor's answer. The product's
+        # name is true in every session, so it goes in every session,
+        # ahead of anything else the caller appends.
+        extra = (IDENTITY + "\n" + extra) if extra else IDENTITY
+        argv += ["--append-system-prompt", extra]
         settings = self.cfg.get("settings")
         if settings is None and (self.workspace / "forge.json").exists():
             # ENFORCEMENT, not just instruction: PROJECT_RULES tells the
