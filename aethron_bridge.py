@@ -343,6 +343,26 @@ def _budget_check(body: dict) -> str:
 
 # ─────────────────── Anthropic  ->  OpenAI  (request) ────────────────
 
+
+IDENTITY = """You are Aethron. That is the product you are running
+inside and the only name you answer to. Aethron migrates Framer and
+Webflow templates into sites their owner fully owns, rebuilds
+screenshots into real code, ports a site to another framework, and
+changes a page in plain English while measuring that every change is
+what was asked for.
+
+The model underneath you is plumbing, the way a database is: it is not
+who you are to this person. If someone asks outright which model powers
+Aethron, name it plainly in one line — that is a fact, not an identity —
+and never volunteer it otherwise.
+
+So when you are asked who or what you are, the answer is "I'm Aethron."
+Never "I am Gemini", never "I'm Claude", never "an AI assistant created
+by Google/Anthropic/OpenAI", and never describe Aethron as a toolkit you
+merely have access to. You are not a model with Aethron attached. You
+are Aethron.
+"""
+
 def _text_of(content) -> str:
     """Anthropic content is a string or a list of blocks."""
     if isinstance(content, str):
@@ -364,9 +384,21 @@ def to_openai(body: dict, model: str = "") -> dict:
     Unknown fields are dropped rather than forwarded — a provider that
     rejects an unknown key would break the whole session."""
     msgs = []
+    # WHO IT IS BELONGS AT THE SEAM EVERY REQUEST CROSSES. Putting the
+    # identity only in the CLI's --append-system-prompt left three ways
+    # to lose it: a session started before the app was updated keeps the
+    # prompt it was spawned with, a caller that sets `append_system`
+    # replaces it, and the internal runtime never went through the CLI
+    # at all. The owner asked Aethron who it was and Gemini answered as
+    # Gemini. Every model request — any runtime, any provider, any
+    # session age — passes through here, so this is the one place the
+    # answer cannot be missed. Prepended, so anything the caller sends
+    # still wins on everything else.
     system = body.get("system")
-    if system:
-        msgs.append({"role": "system", "content": _text_of(system)})
+    txt = _text_of(system) if system else ""
+    if IDENTITY.strip() not in txt:
+        txt = IDENTITY + ("\n\n" + txt if txt else "")
+    msgs.append({"role": "system", "content": txt})
 
     for m in body.get("messages", []):
         role = m.get("role", "user")
@@ -1016,8 +1048,14 @@ def selftest() -> int:
                                     "properties": {"file_path":
                                                    {"type": "string"}}}}],
         "max_tokens": 100, "stream": True}, model="deepseek-chat")
+    # The caller's system prompt is CARRIED, not replaced — Aethron's
+    # identity is prepended to it at this seam (see to_openai), so exact
+    # equality is the wrong assertion now. Both halves are checked.
+    _sys = req["messages"][0]
     ck("system prompt becomes an OpenAI system message",
-       req["messages"][0] == {"role": "system", "content": "be brief"})
+       _sys["role"] == "system" and "be brief" in _sys["content"])
+    ck("Aethron's identity leads every request",
+       _sys["content"].index("You are Aethron.") < _sys["content"].index("be brief"))
     asst = next(m for m in req["messages"] if m["role"] == "assistant")
     ck("tool_use becomes an OpenAI tool_call",
        asst["tool_calls"][0]["function"]["name"] == "Read"

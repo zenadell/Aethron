@@ -10680,7 +10680,14 @@ section#content{background:var(--g-2)}
 .startrow button.primary:active{background:var(--a-lo);transform:scale(.97)}
 
 /* ── CHAT: full-bleed rows, capped measure. No bubbles. ────────────── */
-.clog{max-height:52vh;gap:20px;max-width:780px;margin:0 auto 20px;width:100%}
+/* THE LAST LINE HAS TO CLEAR THE DOCK. 20px put the final sentence
+   right against the composer, and the dock's own gradient fade sits
+   over the top of it — so the thing you just read was being dimmed
+   by the thing you type into. The padding is INSIDE the scroller so
+   scrolled-to-bottom still leaves the gap; the margin alone would
+   collapse the moment the log overflows. */
+.clog{max-height:52vh;gap:20px;max-width:780px;margin:0 auto 12px;
+  width:100%;padding-bottom:26px;scroll-padding-bottom:26px}
 .msg{animation:none;max-width:100%;border-radius:0;border:0;padding:0;
   font:400 15px/1.62em var(--sans,inherit);letter-spacing:-.014em}
 .msg.you{background:none;color:var(--t-2);align-self:stretch;
