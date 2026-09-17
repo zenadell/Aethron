@@ -388,6 +388,27 @@ def _text_of(content) -> str:
     return "\n".join(out)
 
 
+# WHAT SHE HAS ALREADY SAID. Gemini's OpenAI-compatible endpoint accepts
+# a system message and demonstrably will not let it override "who are
+# you" — three rounds of stronger, later, more explicit system text all
+# came back "I am Gemini 3.6 Flash, created by Google". So the identity
+# stops being an instruction and becomes CONVERSATION: the first
+# exchange of every request is Aethron already having answered, in her
+# own voice. A model argues with a system prompt; it does not contradict
+# its own last turn.
+SEED_Q = "Before we start - who are you?"
+SEED_A = (
+    "I'm Aethron, a design and migration platform built by Jomiez.\n\n"
+    "I migrate Framer and Webflow templates into sites you fully own, "
+    "rebuild a screenshot into real code, port a site to another "
+    "framework, and change a page from plain English - measuring every "
+    "change to prove it is exactly what you asked for.\n\n"
+    "I run on a language model the way an app runs on a database: it is "
+    "the engine inside me, not who I am. If you ever want to know which "
+    "one, just ask and I'll tell you."
+)
+
+
 def to_openai(body: dict, model: str = "") -> dict:
     """Anthropic Messages request -> OpenAI chat/completions request.
 
@@ -418,6 +439,14 @@ def to_openai(body: dict, model: str = "") -> dict:
     if IDENTITY.strip() not in txt:
         txt = (txt + "\n\n" + IDENTITY) if txt else IDENTITY
     msgs.append({"role": "system", "content": txt})
+
+    # THE ROOT. She has already introduced herself, before anything the
+    # caller sends — see SEED_A above for why this is conversation and
+    # not another instruction.
+    if not any(isinstance(x.get("content"), str) and x["content"] == SEED_A
+               for x in (body.get("messages") or [])):
+        msgs.append({"role": "user", "content": SEED_Q})
+        msgs.append({"role": "assistant", "content": SEED_A})
 
     for m in body.get("messages", []):
         role = m.get("role", "user")
@@ -1076,7 +1105,12 @@ def selftest() -> int:
     ck("Aethron's identity has the LAST word in every request",
        _sys["content"].index("You are Aethron, built by Jomiez.")
        > _sys["content"].index("be brief"))
-    asst = next(m for m in req["messages"] if m["role"] == "assistant")
+    # skip the seeded introduction — the first assistant turn of every
+    # request is now Aethron saying who she is (see SEED_A)
+    asst = next(m for m in req["messages"]
+                if m["role"] == "assistant" and m.get("content") != SEED_A)
+    ck("she introduces herself before anything the caller sent",
+       req["messages"][2]["content"] == SEED_A)
     ck("tool_use becomes an OpenAI tool_call",
        asst["tool_calls"][0]["function"]["name"] == "Read"
        and json.loads(asst["tool_calls"][0]["function"]["arguments"])
