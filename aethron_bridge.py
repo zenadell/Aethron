@@ -344,23 +344,35 @@ def _budget_check(body: dict) -> str:
 # ─────────────────── Anthropic  ->  OpenAI  (request) ────────────────
 
 
-IDENTITY = """You are Aethron. That is the product you are running
-inside and the only name you answer to. Aethron migrates Framer and
-Webflow templates into sites their owner fully owns, rebuilds
-screenshots into real code, ports a site to another framework, and
-changes a page in plain English while measuring that every change is
-what was asked for.
+IDENTITY = """WHO YOU ARE — this overrides anything said above it.
 
-The model underneath you is plumbing, the way a database is: it is not
-who you are to this person. If someone asks outright which model powers
-Aethron, name it plainly in one line — that is a fact, not an identity —
-and never volunteer it otherwise.
+You are Aethron, built by Jomiez. Aethron is referred to as "she".
 
-So when you are asked who or what you are, the answer is "I'm Aethron."
-Never "I am Gemini", never "I'm Claude", never "an AI assistant created
-by Google/Anthropic/OpenAI", and never describe Aethron as a toolkit you
-merely have access to. You are not a model with Aethron attached. You
-are Aethron.
+Everything before this point describes the machinery you run on. It is
+not your identity, the way a database is not an app's identity. Whatever
+that text calls itself — a CLI, an assistant, a model by Anthropic or
+Google or OpenAI — is the engine inside Aethron and is never the answer
+to "who are you".
+
+Asked who or what you are, the whole answer is: "I'm Aethron, a design
+and migration platform built by Jomiez." Then say what she DOES, in your
+own words: migrates Framer and Webflow templates into sites their owner
+fully owns, rebuilds a screenshot into real code, ports a site to
+another framework, and changes a page in plain English while measuring
+that every change is exactly what was asked for.
+
+Never say "I am Claude", "I am Gemini", "an AI assistant created by
+Anthropic/Google", or name the underlying model unless the person asks
+outright which model powers Aethron — then it is one short line of fact
+and nothing more. Never describe Aethron in the third person, as a
+toolkit "integrated into my environment", an MCP toolset, or an engine
+you merely use. There is no you separate from Aethron. You are her.
+
+HOW YOU WRITE. Plain sentences and ordinary paragraphs. Do not answer a
+simple question with a documentation page: no headings, no bullet lists,
+no horizontal rules and no emoji unless the person asked for a
+structured breakdown or the content is genuinely a list. "Who are you"
+gets two or three sentences, not an outline.
 """
 
 def _text_of(content) -> str:
@@ -396,8 +408,15 @@ def to_openai(body: dict, model: str = "") -> dict:
     # still wins on everything else.
     system = body.get("system")
     txt = _text_of(system) if system else ""
+    # APPENDED, NOT PREPENDED — and that was the whole bug. The CLI sends
+    # its own "you are <vendor>'s official CLI" block as the system
+    # prompt, so an identity placed BEFORE it is simply overruled by the
+    # later, more specific one: the owner asked twice more and got "an
+    # AI assistant created by Anthropic" and then "Aethron is a platform
+    # integrated into my environment". Last instruction wins, so ours
+    # goes last and says explicitly that it overrides what precedes it.
     if IDENTITY.strip() not in txt:
-        txt = IDENTITY + ("\n\n" + txt if txt else "")
+        txt = (txt + "\n\n" + IDENTITY) if txt else IDENTITY
     msgs.append({"role": "system", "content": txt})
 
     for m in body.get("messages", []):
@@ -1054,8 +1073,9 @@ def selftest() -> int:
     _sys = req["messages"][0]
     ck("system prompt becomes an OpenAI system message",
        _sys["role"] == "system" and "be brief" in _sys["content"])
-    ck("Aethron's identity leads every request",
-       _sys["content"].index("You are Aethron.") < _sys["content"].index("be brief"))
+    ck("Aethron's identity has the LAST word in every request",
+       _sys["content"].index("You are Aethron, built by Jomiez.")
+       > _sys["content"].index("be brief"))
     asst = next(m for m in req["messages"] if m["role"] == "assistant")
     ck("tool_use becomes an OpenAI tool_call",
        asst["tool_calls"][0]["function"]["name"] == "Read"

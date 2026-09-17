@@ -10207,6 +10207,39 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
   word-break:break-word}
 .turn.bot .prose{font-size:14.5px;line-height:1.72;color:var(--tx);
   white-space:pre-wrap;word-break:break-word}
+.turn.bot .prose>*:first-child{margin-top:0}
+.turn.bot .prose>*:last-child{margin-bottom:0}
+.turn.bot .prose p{margin:0 0 .82em}
+.turn.bot .prose h2,.turn.bot .prose h3,.turn.bot .prose h4,
+.turn.bot .prose h5,.turn.bot .prose h6{
+  margin:1.5em 0 .5em;font-weight:650;letter-spacing:-.011em;
+  line-height:1.3;color:var(--tx)}
+.turn.bot .prose h2{font-size:17.5px}
+.turn.bot .prose h3{font-size:15.5px}
+.turn.bot .prose h4,.turn.bot .prose h5,.turn.bot .prose h6{
+  font-size:12.5px;text-transform:uppercase;letter-spacing:.07em;
+  color:var(--dim);font-weight:600}
+.turn.bot .prose ul,.turn.bot .prose ol{margin:0 0 .82em;padding-left:1.15em}
+.turn.bot .prose li{margin:.24em 0}
+.turn.bot .prose ul{list-style:none;padding-left:.1em}
+.turn.bot .prose ul>li{position:relative;padding-left:1.05em}
+/* a dot in the product's own colour, not a browser bullet */
+.turn.bot .prose ul>li::before{content:"";position:absolute;left:.12em;
+  top:.66em;width:4px;height:4px;border-radius:50%;
+  background:var(--acc);opacity:.55}
+.turn.bot .prose ol>li::marker{color:var(--lo);font-variant-numeric:tabular-nums}
+.turn.bot .prose hr{border:0;height:1px;margin:1.5em 0;
+  background:linear-gradient(to right,var(--line2),transparent)}
+.turn.bot .prose blockquote{margin:0 0 .82em;padding:.1em 0 .1em .9em;
+  border-left:2px solid var(--line2);color:var(--dim)}
+.turn.bot .prose a{color:var(--acc);text-decoration:none;
+  border-bottom:1px solid rgba(217,119,87,.35)}
+.turn.bot .prose a:hover{border-bottom-color:var(--acc)}
+.turn.bot .prose b{font-weight:640;color:#fff}
+.turn.bot .prose pre.cb{margin:0 0 .9em;padding:12px 14px;overflow-x:auto;
+  border-radius:12px;background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.06);font-size:12.5px;line-height:1.6}
+.turn.bot .prose pre.cb code{background:none;border:0;padding:0;font-size:inherit}
 .turn.bot .prose code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
   font-size:12.5px;background:var(--panel2);padding:1px 5px;border-radius:5px}
 .turn.sys{font-size:11.5px;color:var(--lo);text-align:center;margin:12px 0}
@@ -14404,10 +14437,51 @@ function toolTarget(n,inp){
 }
 /* Light formatting only, and ESCAPED FIRST — the text is a model's
    output, never markup we trust. */
+/* A REPLY IS PROSE, NOT A DUMP OF ITS OWN SOURCE. fmt knew only inline
+   code and bold, so every heading arrived as a literal "### Core
+   Capabilities", every bullet as "* File Operations:" and every rule as
+   "---". The model was writing correct markdown and the surface was
+   showing its working. Escaping happens FIRST on every fragment and
+   only then are tags emitted, so nothing a model writes can inject
+   markup. Fenced code is lifted out whole before anything touches it,
+   behind a private-use sentinel no reply can contain. */
+const CBK='';
 function fmt(t){
-  return esc(String(t||''))
+  const code=[];
+  let s=String(t||'').replace(/\r\n?/g,'\n')
+    .replace(/```([a-zA-Z0-9+#.-]*)\n([\s\S]*?)```/g,(m,lang,body)=>{
+      code.push('<pre class="cb"><code>'+esc(body.replace(/\n+$/,''))+'</code></pre>');
+      return CBK+(code.length-1)+CBK;});
+  const inline=x=>esc(x)
     .replace(/`([^`\n]+)`/g,'<code>$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>');
+    .replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g,'$1<i>$2</i>')
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const out=[];let list=null;
+  const shut=()=>{if(list){out.push('</'+list+'>');list=null;}};
+  for(const raw of s.split('\n')){
+    const line=raw.trimEnd(), t2=line.trim();
+    const cb=t2.match(new RegExp('^'+CBK+'(\\d+)'+CBK+'$'));
+    if(cb){shut();out.push(code[+cb[1]]);continue;}
+    if(!t2){shut();continue;}
+    let m;
+    if((m=line.match(/^\s{0,3}(#{1,6})\s+(.*)$/))){
+      shut();const n=Math.min(6,Math.max(2,m[1].length+1));
+      out.push('<h'+n+'>'+inline(m[2].replace(/\s*#+\s*$/,''))+'</h'+n+'>');continue;}
+    if(/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)){shut();out.push('<hr>');continue;}
+    if((m=line.match(/^\s{0,3}>\s?(.*)$/))){
+      shut();out.push('<blockquote>'+inline(m[1])+'</blockquote>');continue;}
+    if((m=line.match(/^\s*\d+[.)]\s+(.*)$/))){
+      if(list!=='ol'){shut();out.push('<ol>');list='ol';}
+      out.push('<li>'+inline(m[1])+'</li>');continue;}
+    if((m=line.match(/^\s*[-*+]\s+(.*)$/))){
+      if(list!=='ul'){shut();out.push('<ul>');list='ul';}
+      out.push('<li>'+inline(m[1])+'</li>');continue;}
+    shut();out.push('<p>'+inline(t2)+'</p>');
+  }
+  shut();
+  return out.join('');
 }
 /* The event stream becomes BLOCKS: consecutive tool calls collapse into
    one run card, and a result is folded back onto the step that caused
