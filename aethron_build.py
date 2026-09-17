@@ -595,6 +595,146 @@ def gemini_writer(budget_usd=0.25, model="gemini-3.6-flash",
     return write
 
 
+def _gemini_429(body):
+    """-> ('pace', seconds) when waiting on the same key helps, ('wall', 0) when it will not today.
+
+    Google sends the same words for both — "You exceeded your current quota" — and the
+    difference is only in the quota id: ...PerMinute... clears in seconds, ...PerDay... (measured:
+    GenerateRequestsPerDayPerProjectPerModel-FreeTier, quotaValue 20) does not clear today.
+    """
+    import re as _re
+    if "PerMinute" in body:
+        m = _re.search(r'"retryDelay":\s*"(\d+)', body)
+        return "pace", min(60, (int(m.group(1)) + 1) if m else 20)
+    if "PerDay" in body or "depleted" in body.lower():
+        return "wall", 0
+    import aethron_bridge as _br
+    return ("wall", 0) if _br.QUOTA_WALL_RE.search(body) else ("pace", 15)
+
+
+def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens=4000,
+                key=None, temperature=0.2, timeout=180):
+    """One call that returns TEXT, through the KEY RING — free keys first, the paid key last.
+
+    MEASURED 2026-09-15: this path took the ring's first key and read Google's free-tier quota
+    message ("...check your plan and billing details") as "credits depleted", because it
+    contains the word billing. One spent free key stopped every request while two free keys
+    that answer in two seconds sat unused. Now a key whose DAILY free allowance is spent is
+    marked for today and the next key is tried; a per-minute limit is waited out on the same
+    key; a key that does not answer is parked; the paid key is reached only after that.
+
+    THE CAP STILL GUARDS REAL MONEY: before a paid call the worst case — the prompt plus every
+    token max_tokens allows — is priced, and the call is never started if it could cross the
+    budget. A free call costs nothing, so it adds nothing to `usd`; its list price is kept in
+    `list_usd`, so no report can mistake it for money charged.
+    """
+    import json as _j
+    import time as _t
+    import urllib.request as _u
+    import urllib.error as _ue
+    import aethron_brain as _B
+    for k, v in (("calls", 0), ("in", 0), ("out", 0), ("usd", 0.0), ("list_usd", 0.0), ("free_calls", 0)):
+        ledger.setdefault(k, v)
+    if key:
+        ring = [(key, "given")]
+    else:
+        spent = set(_B._keystate()["exhausted"])
+        ring = [(k, "free") for k in _B.free_ring() if _B._fp(k) not in spent and not _B._is_cold(k)]
+        paid = _B.paid_key()
+        if paid and _B._fp(paid) not in spent and paid not in [k for k, _ in ring]:
+            ring.append((paid, "paid"))
+    if not ring:
+        ledger["stopped"] = ("no key can serve this today: every free allowance is spent and there is no "
+                             "usable paid key")
+        raise BudgetExhausted(ledger["stopped"])
+    est_in = len(prompt) // 3 + 50
+    body = _j.dumps({"model": model, "messages": [{"role": "user", "content": prompt}],
+                     "max_tokens": max_tokens, "temperature": temperature,
+                     "reasoning_effort": "low"}).encode()
+    tried = []
+    for k, tier in ring:
+        fp = _B._fp(k)
+        if tier != "free":
+            worst = est_in * GEMINI_IN + max_tokens * GEMINI_OUT
+            if ledger["usd"] + worst > budget_usd:
+                tried.append(f"{tier} key {fp}: not tried — its next call could cost up to ${worst:.4f}, "
+                             f"over the ${budget_usd:.2f} budget with ${ledger['usd']:.4f} spent")
+                continue
+            # AND THE WALLET, which the per-run budget cannot see: twenty runs of $0.20 empty a
+            # card exactly as fast as one run of $4, and nothing in a per-run cap notices.
+            left = _B.wallet()["left_usd"]
+            if worst > left:
+                tried.append(f"{tier} key {fp}: not tried — its next call could cost up to ${worst:.4f} "
+                             f"and the wallet has ${left:.4f} left (raise it with "
+                             f"aethron_brain.wallet_set)")
+                continue
+        req = _u.Request("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                         data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {k}"})
+        d, waited = None, 0
+        for attempt in range(5):
+            try:
+                with _u.urlopen(req, timeout=timeout) as resp:
+                    d = _j.loads(resp.read())
+                break
+            except _ue.HTTPError as e:
+                msg = e.read()[:2000].decode(errors="replace")
+                if e.code == 429 or "depleted" in msg.lower():
+                    kind, pause = _gemini_429(msg)
+                    if kind == "wall":
+                        if tier != "given":
+                            _B.mark_exhausted(k)
+                        tried.append(f"{tier} key {fp}: " + ("prepaid credit is depleted" if "depleted" in msg.lower()
+                                                            else "today's free allowance is spent"))
+                        break
+                    if attempt < 4 and waited + pause <= 150:
+                        waited += pause
+                        _t.sleep(pause)
+                        continue
+                    tried.append(f"{tier} key {fp}: still rate-limited after waiting {waited}s")
+                    break
+                if e.code in (500, 502, 503, 504) and attempt < 3:
+                    _t.sleep(6 * (attempt + 1))
+                    continue
+                tried.append(f"{tier} key {fp}: provider said {e.code}: {msg[:200]}")
+                break
+            except (_ue.URLError, TimeoutError, ConnectionError, OSError) as e:
+                # A key that accepts the connection and never answers is parked, not retried: the
+                # next key takes the request instead of the caller waiting out the same timeout.
+                if isinstance(e, TimeoutError) or "timed out" in str(e).lower():
+                    if tier != "given":
+                        _B.mark_cold(k)
+                    tried.append(f"{tier} key {fp}: did not answer within {timeout}s")
+                    break
+                # A CONNECTION THAT DROPS IS NOT AN ANSWER: a request that never reached the
+                # provider is safe to send again.
+                if attempt >= 3:
+                    tried.append(f"{tier} key {fp}: could not reach the provider: {e}")
+                    break
+                _t.sleep(4 * (attempt + 1))
+        if d is None:
+            continue
+        u = d.get("usage") or {}
+        p_in = int(u.get("prompt_tokens") or 0)
+        p_out = int((u.get("total_tokens") or 0) - p_in) or int(u.get("completion_tokens") or 0)
+        cost = p_in * GEMINI_IN + p_out * GEMINI_OUT
+        ledger["calls"] += 1
+        ledger["in"] += p_in
+        ledger["out"] += p_out
+        ledger["list_usd"] += cost
+        if tier == "free":
+            ledger["free_calls"] += 1
+        else:
+            ledger["usd"] += cost
+            st = _B.wallet_spend(cost)      # once: a second call would count the same money twice
+            ledger["wallet_left"] = max(0.0, st["limit_usd"] - st["spent_usd"])
+        ledger["last_key"] = f"{tier} {fp}"
+        choice = d["choices"][0]
+        if choice.get("finish_reason") == "length":
+            raise RuntimeError("the model ran out of tokens mid-reply — a cut-off plan is not applied")
+        return (choice.get("message") or {}).get("content") or ""
+    ledger["stopped"] = "no key could serve this request — " + "; ".join(tried)
+    raise BudgetExhausted(ledger["stopped"])
+
 def main(argv):
     if not argv or {"-h", "--help"} & set(argv):
         print(__doc__.split("\n\n")[0])

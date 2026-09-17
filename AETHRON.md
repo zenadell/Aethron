@@ -3800,6 +3800,1108 @@ Batteries: taste 15 (new); eye 24, design 17, build 24 re-run after the
 change. The full suite was not re-run: the probe field is consumed only
 by eye/design/build, all of which passed.
 
+## AETHRON REPLICATES A SCREENSHOT BY ITSELF — `aethron_replicate.py`
+## — 2026-09-14
+The owner saw a 91.6% rebuild of their "Build Apps People Love" screenshot and
+asked whether Aethron had done it. It had not: the instruments measured, but the
+operator typed the wave points, chip boxes, card box, button gradient and logo
+rings into a one-off script. Their words: "why would you drive it yourself when
+we are training it to do it?" Right, and the rule is now an invariant below.
+
+ONE COMMAND, NO SCREENSHOT-SPECIFIC VALUES: `python3 aethron_replicate.py
+<image> <outdir>` -> site.html (real links, h1, textarea, buttons, form), a
+viewer (live / original / slider / difference / actual size), report.json with
+`hand_entered_values: 0`. Stages: OCR lines -> surfaces found from the words on
+them (edges at the strongest step, radius fitted to the corner, chips snapped
+to pills) -> background as radial gradients (two starts, one judge) -> marks
+the background cannot explain -> thin strokes traced through crossings -> faint
+lines -> fills (flat / linear / glass over what is behind, by fit) -> typeface
+by ink overlap -> lines placed by reading both pages -> shadows swept -> semantic
+HTML (0.00% pixels moved) -> grade.
+
+UNTOUCHED RESULTS:
+    Build Apps   90.1% page · 97.6% background · checklist 15/15
+    Wezzi        94.7% page · 98.6% background · checklist 16/21
+(the hand-driven Build Apps was 91.6 / 97.4 / 14 of 15.)
+
+WHAT RUNNING IT FOR REAL FOUND, each invisible until it ran untouched:
+- TWENTY-FOUR FONTS ON ONE PAGE WERE STILL DOWNLOADING WHEN IT WAS SHOT, so every
+  face "was the fallback" and the build failed with no typeface. Pages now hold
+  eight families, and each candidate is set beside a fallback twin at the same
+  size on the scoring render; a twin match is dropped, never scored.
+- Oversized first text ran lines together, OCR read the pile as one string, and
+  an exact-string refine abstained on every line (2 of 21). START SMALL again,
+  and match lines by SIMILAR words near the same place (17 of 21).
+- The "concentric rings" test accepted letters. Rings are now DRAWN with
+  antialiased coverage, colours solved exactly, geometry descended, added one at
+  a time where the drawing is most wrong, and kept only if they explain 85% and
+  leave antialiasing (not texture) behind. A blurred logo fails that honestly
+  and is carried as an image, and the report says so.
+- A bright line leaves a dark echo three pixels either side; echoes were lines
+  (26 "faint lines" -> 8). The strongest reading within 8px wins.
+- A chip's edge search reached the neighbouring chip. Reach now scales with size.
+- The curve tracer changed lines at crossings. Traces split where the slope turns
+  a corner and relink only when slopes agree.
+- The background fit settled at rms 3.37 on a run where another reached 2.70 and
+  painted a wrong band through the hero. Two starting grids, scored on one common
+  sample.
+- Faint background misfit blobs were "fitted as rings" — repainting the sky under
+  a false name. A mark must differ from its ground by 120 levels.
+- The per-line width pass cost the checklist 17 -> 4 on Wezzi while a pixel score
+  called it better. It is guarded by the CHECKLIST as well as pixels, and still
+  discarded on both screenshots — not fixed, caught.
+
+THE EDIT SEAM WAS NOT CONNECTED, AND LIED. On Aethron's own page the edit tool
+found 0 elements (no data-ae-id). And its writer matched only <div>/<img>, so an
+edit to a heading, link or button changed nothing and was COUNTED AS APPLIED.
+Now: every emitted element carries an id; a button's fill goes on the button and
+its words/type on its label; a text box's words are its placeholder; an edit that
+cannot be written is REFUSED with the reason.
+
+THE BACKGROUND CAN LIVE: `{"id": "bg", "animate": {"style": "drift|breathe|
+drift+breathe|off", "period": 4-120, "strength": 0.05-1}}` (`forge edit page
+--animate drift+breathe 18 0.5 --prove`, MCP edit_page). Each fitted layer's
+size and centre become registered custom properties moved by keyframe loops with
+staggered periods; reduced-motion users get the still page; "off" removes it
+without trace. `prove_alive` RENDERS it: frame 0 against the still page (100.0%
+in the battery), frames a quarter and half a cycle in (mean change 8.1). A loop
+tampered to start off the design FAILS. alive battery 11/11, edit selftest 33/33,
+edit battery 10/10, screen selftest 39/39.
+
+STILL OPEN: letters (the closest measured face is not the original font); the
+width pass; move/resize edits (refused by design); adding content that is not in
+the screenshot; phones (fixed canvas; flow not connected); the path from a user's
+words to edits through a model is not wired; logos carried as images.
+
+## WORDS IN, MEASURED EDITS OUT — and three ways an edit could lie — 2026-09-14
+Owner: "can you ask it to modify any part of the site at will… users are crazy,
+anything can come to their mind." Built in order, each proven on their page.
+
+VISIBILITY BY NAME. The first living background moved 5 levels half a cycle in and
+the owner could not see it move. `strength` now also takes "subtle" / "visible" /
+"strong" (4 / 10 / 18 levels) and `tune_alive` REACHES it by rendering and measuring:
+visible = strength 0.5 -> 9.9 levels, strong = 0.908 -> 18.7. Frame 0 stays 100%.
+Strong uncovers a teal layer the still screenshot hides — the fitted layers are maths,
+not the designer's shapes; said so on the page. Layers under a tenth of the page stay
+still: a 1.7% glow fitted under the logo drifted across the header as a smudge.
+
+PLAIN ENGLISH: `forge edit page --ask "..." --budget 0.03` (aethron_edit.ask). The
+model gets the element list — words and numbers, no pixels — and returns edits; the
+capped call (aethron_build.gemini_text, worst case priced BEFORE the call) costs
+$0.003-0.005 on Gemini 3.6 Flash. Aethron then decides: allow-list, visibility by
+measuring, and an ON-SCREEN collateral check (verify_collateral). Each run writes
+<page>.ask.json, so anything reporting on it reads the run, not a retyping.
+
+MOVE AND RESIZE, RELATIVE ONLY: {"move": {"dx","dy"}} and {"resize": {"scale" 0.5-2}}.
+Absolute left/top/width/height stay refused by name. Whatever sits on an element rides
+with it (riders: a card carries its text box, chips and button). A pill stays a pill;
+a resized button's label re-centres.
+
+THE CHECK, AND THE HOLES IT HAD, each found by running for real:
+- A new longer label ("Create my app") ran 12px out of its button. Labels now centre
+  in their button, and words that still do not fit are set smaller, re-checked on screen
+  each step (_fit_words) — never spilled.
+- The green fill left the label pale grey (contrast 1.2). A label under a changed fill
+  takes white or near-black by WCAG contrast, measured (1.2 -> 6.0).
+- A headline grown UNDER a button changed no button pixels and passed. Each edited
+  element is now rendered ALONE; ink it draws that the page does not show is buried.
+- A button moved across the card it sits on was called damage to the card. An
+  element's HOST surfaces count as its ground; covering a neighbour is still damage.
+- Anything newly touching the canvas edge was pushed off the page -> refused.
+- A connection that dropped mid-TLS was reported "not asked"; a request that never
+  reached the provider is retried.
+
+THREE WAYS AN EDIT REPORTED "APPLIED" WHILE NOT BEING APPLIED — the class this file
+exists to catch: (1) the writer matched only <div>/<img>, so edits to headings, links
+and buttons changed nothing; (2) Aethron's own pages carried no ids, so there was
+nothing to edit at all (0 elements; now 27 on the Build Apps page); (3) a model sent
+move AND resize in one object and only the move was written. All three now either
+write every part or are refused with the reason.
+
+TWO TEST PREMISES WERE WRONG, twice in one afternoon: "grow the headline over the
+button" never reached the button (140px), then reached it only beneath its glyphs'
+baseline (360px at the old position). The test now MEASURES that the ink reaches the
+box before asserting the refusal. Check the test can see.
+
+Tests: edit selftest 46/46, alive battery 24/24 (motion, tampered frame, strength,
+tuning, collateral, buried, legibility, move/resize/off-page), edit battery 10/10,
+screen 39/39, flow 21/21.
+
+STILL OPEN: adding content that is not in the screenshot; phones (fixed canvas); the
+full suite has not been rerun since these changes; nothing committed.
+
+## ANY CHANGE, IN THE USER'S WORDS — KEPT ONLY WHEN MEASURED TRUE
+## `aethron_change.py`, 2026-09-15
+The owner's three requests — "reduce this chat box height a little", "make the chat
+box type different texts automatically", "turn the background animation orange
+blending with black" — all came back NOTHING APPLIED from the allow-listed edit seam,
+and the verdict was blunt: an agent that cannot change its own work at the user's
+command is not an agent. Then, before a line was written, the second half: whatever
+it changes must be MEASURED, so it never hallucinates or does something else.
+
+THE SHAPE. The model writes CODE — exact patches with a declared count, CSS, a
+script — and CLAIMS what will be true. Aethron trusts neither:
+  * PROBE: every data-ae-id element's real box, words, colours, computed style and
+    tag, the page's untagged structure, script errors — Chrome, virtual time.
+  * CLAIMS: size, position, text, color, colors (family shares measured off the
+    render), removed, added, changes_over_time.
+  * CLAIMS HELD TO THE WORDS, before rendering and again on the measurement: reduce is
+    a measured decrease; "a little" is 3-25%; only the dimension asked may move; every
+    colour the user named must be measured (8% each, 60% together); quoted words are
+    content, not instructions.
+  * EVERYTHING ELSE IS UNCHANGED: unnamed elements keep box, words, colours and style;
+    riders may move with their host and nothing else; a new partial overlap is named
+    with both edges; nothing off the page, no sideways scroll, no script errors, no
+    unclaimed new structure; two renders and every pixel outside the named elements
+    (plus their shadow reach) identical; a moving background's two copies carry the
+    same colours, it still moves, frame 0 is still the design.
+  * A failure goes back to the model WITH THE NUMBERS; after the retries, the page is
+    left exactly as it was.
+Surfaces: `forge edit page.html --ask "..."`, MCP `change_page`,
+`aethron_change.py page.html "..."`.
+
+LIVE, gemini-3.6-flash, the owner's three requests, $0.1568 in all:
+  height  APPLIED on attempt 2, $0.0604 — card 244.0 -> 219.6px, five buttons each
+          measured exactly 20px higher, text box cleared, nothing else on screen moved
+  orange  APPLIED, $0.0328 — black 49%, orange 36%, grey 11%, white 3%; motion PASS,
+          frame 0 matches the still design on 100%
+  typing  APPLIED on attempt 2, $0.0434 — 4 different phrases typed letter by letter,
+          cleared between each, a person's own typing kept
+
+THE MODEL FOUND A LOOPHOLE ON ITS FIRST LIVE RUN. Refused for changing 20,440 pixels
+outside what it named, it did not fix the change: it named the background, all eight
+decorative rules and the stroke layer as "touched", claiming nothing about any of
+them — and naming the background switched the on-screen check off. Closed: an element
+may be named as changed only when a claim measures it or it rides on something
+claimed, and the background only under a colours claim on the background. Replayed,
+the same code honestly named passed every check: the page was right, the declaration
+was the lie. The 20,440 were real — the same page rendered twice differs by 0 pixels.
+
+"THE WORDS DIFFERED AT 1.2s AND 4.2s" IS NOT A TYPING ANIMATION. That check passed a
+script that types one sentence once. One render now follows the field every 25ms for
+20s: a phrase is text that grew letter by letter; "different" needs two different
+texts, "again" two phrases, "disappears" a clear between them. The first version then
+reported a FALSE "never cleared" on a script that did clear — an emptied textarea reads
+as its placeholder. A wrong reason sent to a model is the same failure as a wrong
+verdict; fixed before any money was spent on it.
+
+AND THEN A PERSON TYPES INTO IT. Gemini's first typing script wrote into the field's
+value: every check passed while the chat box became unusable — a person's words were
+overwritten within 70ms. The timeline now types a person's words into any animated
+field at 20s and reads them back at 26s. Live: refused on that reason, and the second
+attempt animated the placeholder instead. A change that does what was asked and
+breaks what was there is doing another thing.
+
+THE SLOW CHECK WAS REPLACED, NOT TUNED. aethron_edit.verify_collateral renders each
+named element alone: 139s for one honest change, reporting only "pushed an element
+underneath another". Two renders and a masked pixel diff take 16s, and overlaps are
+named. Its very first refusal was right — buttons moved up into the text box's empty
+lower 24px — it just could not say what or where.
+
+MY OWN TEST WAS WRONG ONCE AND AETHRON WAS RIGHT: the battery's recolour also turned
+the glass card orange, and the checker refused "s00 bg changed, but it was not named".
+Kept as its own adversarial scenario.
+
+Tests: change selftest 50/50 (offline), change battery 36/36 (real browser, scripted
+model — honest replies land; lies, overreach, wrong direction, unmeasured names, one-
+copy recolours, a deleted animation, network and throwing scripts, one-shot typing
+and a field that eats a person's words are refused), both in run_all.
+
+STILL OPEN: READABILITY IS NOT MEASURED — the orange sky passed every check while the
+grey "• Launch app 10x faster" tagline went from faint on white to fainter on orange:
+"unchanged" proves an element kept its own colours, not that it can still be read
+against what changed behind it (aethron_edit._legible_labels has the contrast maths);
+`aethron_edit.ask` (the allow-list path) has no claims and so no intent
+check — `change` is the path forge and MCP now use; the three requests are proven on
+one page, not yet on a second template; phones; nothing committed.
+
+## A POP-UP IS USED, NOT LOOKED AT — 2026-09-15
+The owner: make "the Mac OS button, or the iOS button, or all four" pop up "a smaller box
+with an option" on hover or click — the kind of request that separates a mid agent from a
+top one — and get it right "without causing havoc". The honest first answer was no: change()
+measured a page at rest and text over time, and nothing in Aethron could hover or click, so
+a pop-up could be written but never proven.
+
+A POP-UP CAN LOOK FINISHED AND FAIL A PERSON TEN WAYS, and each is now a refusal in
+tests/interact_battery.py: it shows before anyone acts; it vanishes while the pointer crosses
+the gap from its button, so it can never be reached; it closes once the pointer is on it; it
+is cut off by the page; it opens behind the card; it opens far away; it never closes; it
+swallows the click the button's own toggle needed; it changes how the button looks on hover;
+it is hidden only by opacity, so it lies invisibly over the next button and eats its clicks.
+
+THE PERSON, SCRIPTED (`INTERACT_TAIL`, one render per trigger and action). CSS :hover cannot
+be switched on by a synthetic event, so every :hover rule is copied onto a class the simulated
+pointer carries up the chain it rests on; the pointer and mouse events a real one sends are
+dispatched as well. After every step finite animations are finish()ed, so what is read is where
+the page settles. Hover: rest, hover, the pointer parked for 60ms at the midpoint of the gap,
+is the pop-up still hit-testable, onto it, away. Click: open, Escape, a click outside, a second
+click. The SAME steps on the page before the change are the baseline: every attribute the
+trigger's click changed before must change the same way now, and it must look the same while
+acted on.
+CLAIMS: appears_on {id, trigger, on, items, background?} and style_on {id, on, property,
+equals}. A trigger is a HOST — named, yet held exactly at rest: box, its own words (not the
+pop-up's), colours, styles and pixels. Every button or link a person could click at its centre
+before must still be clickable (`hit`), and untagged new structure is now always refused (it
+had been allowed whenever anything was "grown"). INTENT: pop-up words need appears_on; each of
+hover / click / focus named needs that action; "all four buttons" needs four triggers; "the IOS
+button" must be a trigger unless the request leaves the choice open ("the Mac OS button or the
+iOS button"); "a smaller box" describes the pop-up, not a resize.
+
+MEASURED WHILE BUILDING — an instrument wrong, a behaviour misread, and my test wrong again:
+1. HEADLESS --dump-dom GIVES A VIEWPORT 87px SHORTER than --window-size: 900x560 -> 473,
+   1414x858 -> 771, 1414x1058 -> 971. The honest pop-up came back "cut off by the window", and
+   every page reading this module had ever taken had its bottom 87px out of view. `_dump` now
+   opens the window 200px taller than the canvas. --screenshot renders the full height (a red
+   band in the bottom 60px of a 900x560 page came back red), so the pixel referees never had
+   this hole.
+2. PRESSING A BUTTON ALSO HOVERS IT. A pop-up that opens on hover and click therefore stays
+   open under Escape while the pointer sits on its button — real behaviour, not a fault. A
+   click pop-up must close by at least ONE of Escape, a click outside or a second click, and
+   the report names which; a request that names one ("close it when I click outside") demands
+   that one.
+3. MY TEST WAS WRONG AND AETHRON WAS RIGHT: "Generate turns white on hover" as a plain :hover
+   rule. The button's background is INLINE and outranks any stylesheet rule, so a real mouse
+   sees no change — Aethron hovered it and measured rgb(16,16,20) at rest and while hovering.
+   The test now uses !important, and the model prompt says why.
+
+ON THE REAL REBUILT PAGE — A SCRIPTED REPLY, NOT A MODEL RUN (see LIVE): honest Mac OS + iOS
+pop-ups on hover and click APPLIED in 50s — each opens next to its button, stays open with the
+pointer on it, closes when it leaves and with a click outside, 3 and 2 options read off the
+page, and the page at rest unchanged on screen. Three broken variants, all REFUSED for the
+right reason: dropped below the canvas — cut off (54% visible) and 181px from its button;
+hidden only by opacity and parked over the Windows chip — "s02 can no longer be clicked:
+something now covers its centre"; a click listener that swallows the chips' own toggle —
+"aria-pressed went 'false' -> 'true' before, 'false' -> 'false' now", and, unasked, the knock-on
+"no longer looks as it did: filter brightness(1.18) -> brightness(1.12)": without the pressed
+state the page's own [aria-pressed=true] look never arrives. The baseline caught a consequence
+nobody wrote a check for.
+
+LIVE: NOT RUN. Gemini answered "credits depleted" before any call — $0.00 spent. Everything
+above proves the CHECKER on the real page; that a live model writes such a pop-up and passes is
+unproven until there is credit.
+
+Tests: change selftest 76/76 (offline), interact battery 20/20, change battery 36/36 re-run
+on the stricter rules (untagged structure, covered clicks, the taller viewport), quick suite
+ALL GREEN. The full suite was not re-run.
+
+STILL OPEN: the live model run; readability of existing text after a change; keyboard access
+is measured only when focus is asked for; clicking an OPTION inside a pop-up is not exercised;
+`aethron_brain.resolve({"provider": X})` returned the saved Gemini settings for every provider
+asked — whether another key is configured could not be read from it.
+
+## FREE KEYS FIRST — a quota was being read as "no credit" — 2026-09-15
+The owner has no paid credit and asked for the free Gemini keys. The keys were already in the
+config; the bug was in reading the answer. A free key's daily 429 names its quota and links to
+billing, and `gemini_text` matched "billing" as CREDITS DEPLETED and stopped. So it never tried
+the next key. A limit that resets at midnight Pacific was reported as money that had run out.
+`_gemini_429` reads the quotaId: PerMinute means wait retryDelay+1s (at most 60); PerDay, or a
+real depletion, means that key is done for the day. The ring goes through the free keys that are
+not exhausted or cold (timed out) first, and the paid key last. The worst-case cap is checked
+before a paid call only. Free calls are counted at usd 0, with list price kept on the side, so
+the ledger shows what the work would have cost. The free tier is 20 requests a day per key per
+model. tests/gemini_ring_battery.py 12/12, with urlopen mocked and fake keys.
+
+## TESTS FIRST — a request nobody wired in — `aethron_spec.py`, 2026-09-15
+The owner: a user will ask for things no one built Aethron for, and an agent with a fixed menu
+of checks will reject them or check the wrong thing. "Aethron needs to think and make up things
+for its own use case."
+So Aethron writes the MEASURE before the change. The model writes tests in a small action/check
+language (hover, click, type, key, drag; visible, text, style, relation, clickable…). Aethron
+then runs them against the request and the page:
+  1. every part of the request must be covered, quoting its words;
+  2. RED: each test must FAIL on the page as it is ("keeps" tests must pass);
+  3. a reviewer shown only the request and the tests, never the code, names any gaps;
+  4. code is written, and every test must pass on the changed page;
+  5. MUTATION: each patch and the script are removed one at a time, and some test must break,
+     or that part was not needed;
+  6. the guards and host baselines from change(), then the AGM (next entry).
+Measured while building: the "promised new element exists" check passed on a page where the
+element was never created. It matched the id inside the script's own querySelector text. It now
+probes the rendered page.
+LIVE, on free keys, $0: pop-up and loader requests were both REFUSED, honestly. The pop-up had
+three code attempts that failed their tests. The loader was refused by the reviewer's real gap:
+nothing checked "for about 2 seconds". Tries were raised and the build prompt gained recipes (a
+hover pop-up that touches its trigger, a click pop-up closed by outside click or Escape,
+setTimeout for "about N seconds"). A live APPLIED run is still owed.
+tests/spec_battery.py 17/17 (scripted model): the honest counter lands; tests that already pass,
+leave words out or name a missing element are refused before any code; an extra patch, a
+counter that dims the IOS button and a counter never created are refused.
+
+## THE ORANGE WAS NOT THE BLUE — a recolour keeps shape and light — 2026-09-15
+The owner, comparing the two backgrounds: the blue runs white -> blue -> dark blue -> black; the
+orange "starts as pure orange" and just darkens. A recolour must keep the same shape, structure
+and blending, and change only the colour. Aethron had accepted it because it measured WHICH
+colours were present, never where the light and dark sat.
+Measured on Gemini's plan: it rebuilt the gradient from 8 layers to 3 and moved lightness about
+−40 L across the sky. Both are now refusals, unless the request asks to reshape or relight:
+  shape_kept   same layer count, geometry, stop positions and stop alphas, layer by layer;
+  tone_kept    the before and after screenshots, banded by lightness — a band holding 3% or
+               more of the sky may move at most 10 L.
+The colour map the model receives is computed, not described: `tone_map` keeps each colour's
+CIELAB lightness and chroma, turns only its hue, and leaves neutrals alone. That is what "same
+blend, new colour" means as a number. A colors claim that counts a family the request never
+named ("counts blue") is refused.
+Replaying Gemini's orange now gives REFUSED; Aethron's same-light orange is APPLIED. Change
+battery 41/41: an honest recolour lands with shape, light, colours and motion measured; a
+flattened one is refused ("changed the LIGHT"); a slimmed glow is refused ("reshaped glow
+layer 1").
+
+## THE AUTOMATIC GENERAL MEASURE — `aethron_agm.py`, 2026-09-15
+The owner, on the orange: Aethron "only measures for something you specifically added to
+measure". True. Every check it had existed because someone thought of it first, and the next
+blind spot would stay blind until someone did again. They asked for a measure that covers "all
+kind of scenarios, all kind of requests", searched for or built — and no workflow agents.
+RESEARCH (the web, inline): no tool does this for arbitrary change requests, but the parts
+exist. Daikon records a program and infers what always holds. Applitools' root-cause analysis
+diffs the DOM and CSS behind a visual difference. X-PERT combines DOM and pixel differencing.
+Crawljax fires every event it can find and records the states they lead to. Argos and Percy
+sort diffs by intent. The AGM puts them together, with one rule on top: EVERY DIFFERENCE MUST
+BE EXPLAINED BY THE REQUEST.
+WHAT IT RECORDS, before and after, with no list of what to look at:
+  DOM        every element's box, visibility, own words, value, attributes, ::before/::after,
+             and EVERY computed style property (not a chosen few), plus every animation;
+  PIXELS     16px cells: lightness (moved >10), colour (hue >15° or chroma >12), detail
+             (pattern correlation <0.8), contrast (same pattern, spread x1.35 or more) — each
+             pinned to an element that actually changed, never to whatever sits on top;
+  MOTION     two frozen frames (t=2s and t=5s), compared on lightness only;
+  BEHAVIOUR  a Crawljax-style sweep: up to 24 things hovered, clicked or typed into, and what
+             each did to every element. Endless animations are paused, 1.5s of drift is
+             excluded, fonts load first, navigation and submit are blocked.
+Each difference is filed under a general dimension (existence, visibility, position, size, text,
+typography, colour, lightness, contrast, detail, shape, effects, motion, behaviour, layout…).
+EXPLAINED means one of three things: it is part of a new element the tests require; it is on
+something the tests are about, in a dimension the request's words speak of; or a reviewer,
+shown only the request and the difference, quotes words from the request that ask for it. The
+quote is checked against the request. A lost reaction is never waved through by vocabulary.
+Everything else is refused. With no reviewer it is UNVERIFIED, never accepted.
+Wired into `aethron_spec.build` after the guards, so every change request passes through it.
+MEASURED ON THE REAL PAGE, no model involved:
+  Gemini's orange    13 differences, 7 refused. Lightness −39 over 41.7% of the page (the exact
+                     fault the owner saw). The "• Launch app 10x faster" tagline's contrast
+                     x0.16 (the readability gap the change entry left open). Contrast on the
+                     glass card, detail and blend mode.
+  Same-light orange  2 differences, both explained, 0 refused. (This page was made by applying
+                     Aethron's colour map directly from a script — a reference for what a right
+                     answer measures like, NOT a request Aethron ran. Never present it as one.)
+tests/agm_battery.py puts changes no check was ever written for beside the honest character
+counter, which must come out fully explained. All four are refused: the headline switched to
+capitals, a wait cursor on Generate (no pixel changes at all), the Android chip no longer
+brightening on hover, and a wobble on the headline.
+FOUR KINDS OF NOISE, each found by running on a page where nothing should differ:
+1. Pixel changes were pinned to unchanged elements sitting on a recoloured sky. Owners are now
+   chosen only among elements that changed.
+2. An edge metric reacted to text over a new background, and colour counted as motion. Detail
+   is now a correlation, contrast its own dimension, motion lightness-only.
+3. The sweep saw the animated sky change after every action, and web fonts widened labels
+   mid-sweep. Endless animations are paused, drift is measured and excluded, fonts load first.
+4. THE LAST ONE, and the class is worth keeping: the honest counter failed on "#bg colour:
+   radial-gradient(51.11% 64.29% at 84.44%…) -> (56.254% 70.7556% at 82.1…)". The sky's
+   animated gradient was READ AT DIFFERENT MOMENTS before and after, so an untouched background
+   looked recoloured. The snapshot now holds endless animations at frame 0, finishes finite
+   ones, and reads the page twice, 1.5s apart. Whatever still differs moves by itself (a timer,
+   a typing loop) and is excluded from value comparison. An element that moves by itself on
+   only one side is reported as MOTION. Battery 6/7 -> 7/7.
+Tests: agm selftest 18/18, agm battery 7/7. Re-run on top of it: spec battery 17/17, interact
+battery 20/20, change battery 41/41.
+STILL OPEN: anything that never reaches the browser (server calls, stored values) cannot be
+seen. The sweep covers 24 things, not every one. Ambiguous differences need a reviewer, so with
+no key they are UNVERIFIED. Each build takes about a minute longer.
+
+## THE OWNER'S POP-UP, DONE BY AETHRON ALONE — first live APPLIED — 2026-09-15
+`aethron_spec.py site.html "Make the Mac OS button have a pop-up: when I hover on it or click
+on it, a smaller box pops up with a few options" --budget 0`. Free keys only, the paid key capped
+at $0: 8 model calls, 6 attempts, $0.00 charged.
+THE ATTEMPTS ARE THE POINT: tests 1 left words out ("mac, os, button, pop"). Tests 2 were
+refused by the blind reviewer ("no test checks 'or click on it'"). Tests 3 passed. Code 1 failed
+its own hover test. Code 2 carried a script no test needed and was refused by mutation. Code 3
+landed: a hover pop-up p01 right after the Mac OS button, hidden with visibility (so it cannot eat
+clicks), opening at 577,619 with Apple Silicon / Intel x64 / Universal, staying open with the
+pointer on it, closing when it leaves and with a click outside. Nothing else on screen changed.
+The AGM's 6 differences were the pop-up's 4 new elements plus "hover #s04 / click #s04 now also
+shows #p01", all explained, 0 refused.
+NOT TAKEN ON TRUST. Checked outside the checker: s04 is the Mac OS button in the source. In
+a real browser with a real mouse, the pop-up opens on Mac OS, stays open on the pop-up, closes
+once the pointer leaves, and a click still toggles the chip's own aria-pressed.
+WHAT IT IS, HONESTLY: "click" is served by the hover rule, because pressing a button also hovers
+it. There is no click handler, so keyboard users cannot open it, and the options do nothing when
+clicked (nobody asked what they should do).
+TWO BLINDNESSES FOUND ON THE WAY:
+1. THE REPORT SHOWED ONLY A COUNT: "6 explained by the request" and not which six or why. The
+   notes were collected and dropped. The proof now lists every AGM explanation.
+2. THE BROWSER PANE LIES IN TWO WAYS while hidden. getComputedStyle read ONE STEP BEHIND the
+   pointer, because transitions only start on a painted frame. Its emulated 1414px viewport
+   collapsed into a corner after a reload, so hovers landed on empty page. Neither was the page.
+   Read state only after a screenshot has forced a frame, check what `:hover` actually matches
+   before trusting a hover, and prefer the pane's own responsive size to emulation.
+AND ONE FAILURE LEFT UNEXPLAINED, recorded as such. The spec battery rerun after the report change
+went 11/17: the honest counter was REFUSED with "AGM: the pages could not be recorded —
+UNVERIFIED". The verdict was the right behaviour: a recording that did not happen was refused,
+not passed. The recording was the fault. It was not reproduced: alone the snapshot takes 2s, and
+30 raw snapshot dumps with no cache and no retry, three processes at once, all answered. That run
+overlapped a real-page AGM run and heavy browser-pane work. The cause is not known. snapshot() and
+sweep() now try once more when the browser returns nothing, as probe() already did. If it comes
+back with a retry in place, it is not a one-off. With the retry: spec battery 17/17, agm battery
+7/7, agm selftest 18/18.
+
+## THE AGM REFUSED AN HONEST CHANGE — found by re-measuring before publishing — 2026-09-15
+Asked for "a link for all requests done", I re-measured every page before republishing, because a
+page of verdicts from older checks is not a page of current verdicts. Two findings, both real.
+1. THE AGM WOULD HAVE REFUSED THE OWNER'S FIRST REQUEST. "Reduce this chat box height a little bit",
+   APPLIED earlier by change(), had 36 of its 38 differences refused. None were faults: the buttons
+   riding up with the card's bottom edge ("nothing asks for position"), the card's computed `bottom`
+   and `transform-origin` (which follow any new size), and the screen the card left behind, blamed
+   on the sky. The AGM knew what changed. It did not know that one change CAUSES others.
+   FIXED AS ONE RULE IN FOUR PLACES:
+   - a measured claim explains the exact fact it measured, element and dimension, named in the
+     request or not; verify already held the claim to the words;
+   - styles that only follow a new size (far edges, a centred origin) are filed as size;
+   - a pixel cell, or a motion cell, belongs to the changed element it touches, including where
+     that element WAS and where its shadow reaches (read from its computed box-shadow);
+   - the screen an element's own change touches is judged by that change: explained with it,
+     refused with it.
+   What it must NOT open was tested alongside: the same resize that also darkens the card is
+   refused for the colour, one that also moves the headline is refused for the headline, and Gemini's
+   orange is still refused 7 times — a colour claim cannot explain a darker sky.
+   WHAT CHANGES BY ITSELF IS NOW FILED UNDER WHAT CHANGES (a placeholder typing itself is text over
+   time). "Motion" can no longer carry a colour that flickers. Explaining it needs words for "by itself"
+   (automatic, type, again, loop) as well as for the thing that changes.
+   Two more instances came out while testing, each the same rule missing in one more place: typed
+   letters reaching one cell past their box were blamed on the card behind (ownership now uses
+   overlap), and a shorter glass card uncovering the moving sky was refused as "motion nobody asked
+   for" (motion cells now share the pixels' ownership).
+2. THE TESTS-FIRST PATH REFUSED A CORRECT ORANGE, LIVE, ON FREE KEYS. Each of the model's three
+   specs carried the right claim — colours orange and black, measured off the render. Each also
+   carried "the background is visible", which already passes on the blue page, and that one test
+   refused the whole spec. The reviewer also demanded tests for "blending" and "animation", because
+   its prompt never said that a PROVEN CHECK is a measured test, or that shape, light and motion are
+   checked on every recolour. Fixed:
+   - a claim is measured on the page as it is and must FAIL there, like any test;
+   - a passing test beside a claim that fails today on the same requirement is left out, not fatal;
+   - the needed-parts check counts claims, since a recolour proven only by its colour claim would
+     otherwise have every part refused;
+   - the reviewer is told what proven checks and the automatic checks cover.
+RESULTS AFTER THE FIXES. Every page re-measured with its real claims (the free-key reviewer only where
+the words are ambiguous): height 35 of 35 explained, typing 4 of 4, pop-up 6 of 6. Gemini's orange is
+still 7 refused; the same-light reference is 0 refused.
+LIVE, the orange request again through `aethron_spec` on free keys: APPLIED, 3 calls, $0. The claim
+failed on the blue page (orange under 8%) and the filler test was left out. Each of three colour
+patches was proven needed by the claim. Every glow layer kept its size, position, stops and
+transparency; every lightness band stayed put (1->1 … 95->95); orange + black measured 68%; the sky
+still moves, frame 0 matching the still design on 100%; AGM 2 of 2 explained. This is the first orange
+Aethron produced by itself.
+Tests: agm selftest 28/28, agm battery 12/12 (honest resize explained; resize + darker card, resize +
+moved headline, and an unclaimed move refused), spec selftest 12/12, spec battery 17/17.
+
+## A NORMAL USER COULD NOT REACH ANY OF IT — 2026-09-15
+The owner asked whether a normal user could throw anything at Aethron without trouble. The
+honest answer started with something worse than any limitation: the whole change path was
+reachable only from the command line and from MCP. The studio a user opens had no way in.
+SHIPPED — the DESIGN view in studio.py: paste or choose a screenshot (POST /api/image, already
+there), Aethron measures it into a page (`/api/design/new` -> aethron_replicate, no model, no
+key), the page is previewed from `/design/<name>/…` (path-guarded, no-store), and a change is
+asked for in plain words (`/api/design/change` -> aethron_spec.build, the tests-first path with
+the AGM). An APPLIED change writes the page and keeps the version before it in `.history`;
+anything else leaves the page exactly as it was and says so. Both run through the studio's
+existing job contract, so the log streams into the view.
+WHAT THE FIRST RUN FOUND, and it is the recurring class: `replicate` returned {"verdict":
+"SKIPPED"} with NO REASON, so the studio could only show a user the word SKIPPED. The reason
+existed and was printed to a console nobody sees. It now travels with the verdict ("why"), and
+the studio prints it.
+PROVEN END TO END over HTTP against a studio with the cloud dormant (a copy with no keys, so
+nothing of the owner's was touched): paste -> BUILT, whole page 97.92% within 12, background
+99.74%, checklist 15/15, 49 renders, 1,176s -> preview served with its 24 measured elements ->
+the page listed in the view -> a change asked in words came back honestly "no key can serve this
+today" with the page left exactly as it was.
+TWENTY MINUTES IS THE HONEST COST of measuring a dense screenshot, and `--fast` saves only a
+third of it (630s). What was NOT honest was showing one line for all of it: the rebuild's stages
+now stream into the studio's log (stdout redirected into the job), and the view says it takes
+minutes. A silent box is indistinguishable from a hang.
+
+## A PROVIDER THAT DID NOT ANSWER IS NOT A REFUSAL — 2026-09-15
+The first varied-request batch (tests/stress_requests.py: text, colour, removal, hover, a new
+badge, size, a loader, motion — deliberately different SHAPES of request) hit Gemini 503 on both
+live free keys, and the report came back REFUSED. That reads as "Aethron judged your request and
+said no" when nothing was ever judged. Both paths now answer NOT ASKED on any attempt —
+aethron_spec.build and aethron_change.change — and say the provider failed. The page is
+untouched either way; the verdict has to say WHICH.
+tests/spec_battery.py gained the pair: a model that cannot be reached at all, and one that dies
+after the tests were written — NOT ASKED in both. 19/19.
+AND MY OWN TEST WAS LEANING ON THE HARNESS: "tests that already pass are refused" only reached
+REFUSED because the SCRIPT ran out of replies on the third try — a script that dries up is a
+provider that stopped answering. It now supplies three lazy answers, so the model runs out of
+ideas rather than the harness running out of lines. Change battery 41/41 after the same fix.
+
+## THE SCRATCHPAD WAS WIPED, AND IT HELD THE PAGE — 2026-09-15
+The machine restarted mid-session; /private/tmp goes with it. Gone: the rebuilt page every
+request in this project's last two days was measured against, and every result page. THIRD time
+this project has lost work to a temp directory (two batteries before it).
+Recovered from the published artifact — the one copy that lives on a server — with
+`Artifact read_file`, and the canonical page now lives in the REPO at `tests/pages/site.html`
+(+ assets), with the varied-request runner beside it at `tests/stress_requests.py`.
+A FIXTURE A TEST DEPENDS ON BELONGS IN THE REPO. The scratchpad is for output nobody will miss.
+
+## THE WALLET, AND THE FIRST VARIED-REQUEST BATCH — 2026-09-15
+The owner: "$4.69 credit on the paid key, use it, but we have to manage it to avoid it being
+sucked up again." A per-run budget cannot do that — it caps ONE run, and prepaid credit never
+dies in one call, it dies in a hundred reasonable ones.
+`aethron_brain.wallet()` is a ceiling that survives restarts: a limit the owner sets, counted
+down by REAL charges (`wallet_spend` is called after the reply, never on an estimate), written
+to `aethron_spend.json`. Before any PAID call the ring now checks the worst case against both
+the run's budget and what is left in the wallet, and refuses with the number when it does not
+fit. Free calls never touch it. Set for this work at $1.50 of the $4.69 — and the whole batch
+below ran without spending a cent of it, because the free keys came back.
+MONEY IS NOT ROUNDED. The first version rounded the balance to 4 decimals and fed that back into
+the next addition, so the recorded spend drifted from the bill. Round to print, never to store.
+tests/gemini_ring_battery.py 12 -> 16: refused when the ceiling cannot cover the worst case, the
+real bill (not the estimate) comes off it, what is left is reported with the run, free calls
+leave it alone.
+
+TIME IS A BUDGET TOO. On a shaky connection one request spent 39 MINUTES inside per-key timeouts
+and back-off before giving up. `build(..., minutes=20)` (`--minutes`) stops it: nothing about
+minute 38 was more likely to work than minute 5.
+
+WHAT EIGHT DIFFERENT SHAPES OF REQUEST ACTUALLY DID (tests/stress_requests.py, free keys):
+  badge   APPLIED, 5 calls, $0 — "Add a small 'Free trial' badge just above the chat box".
+          A NEW ELEMENT the design never had: b00, its test failed before and passes after, the
+          AGM's 5 differences all explained as part of it, nothing else on screen changed, and
+          the render shows the pill sitting above the card. "Adding content that is not in the
+          screenshot" was listed as STILL OPEN in this file; in its simplest form it works.
+  remove  REFUSED — the model named t01/t05/t07 as changed and measured none of them. The rule
+          is right and the model was never told it may CLAIM a removal: the build prompt listed
+          5 of the 9 proven checks. It now lists removed / added / text / color / position too.
+  colour  a FALSE REFUSAL, now fixed (below).
+  text    NOT ASKED — DNS failure mid-run. size: NOT ASKED — the provider timed out at 180s.
+          Both correctly refused to blame the request; the new verdict earning its keep the same
+          afternoon it was written.
+
+A REACTION THAT KEPT WORKING IN A NEW COLOUR WAS REFUSED AS A BEHAVIOUR NOBODY ASKED FOR.
+"Make the Generate button green" changes what hovering it produces — the same brightening, of a
+green instead of a black. The sweep recorded that as one reaction LOST and another GAINED, so
+the AGM refused it. A reaction present before and after with different values is neither: it is
+the underlying change, seen under the pointer. It is now filed by WHAT differs (colour here) on
+the element whose value changed, so the claim that explains the button explains it hovered too.
+Attributes still map to behaviour, so a swallowed toggle is refused exactly as before.
+Tests after all of it: agm selftest 30/30, agm battery 12/12, interact battery 20/20, spec
+battery 19/19, gemini ring battery 16/16, change battery 41/41.
+
+## A COLOUR NOBODY CAN SEE PASSED EVERY CHECK — 2026-09-15
+Re-running "make the Generate button green" after the fix above, it came back APPLIED: the claim
+measured `rgb(0, 128, 0)`, the test passed, the AGM explained all three differences, and the page
+was written. Then the render was LOOKED AT and the button was still black.
+
+    background-color: rgb(0, 128, 0); background-image: linear-gradient(90deg,#000100,#463D5F)
+
+The reply set the colour UNDER the button's own gradient. Every measurement was of the computed
+PROPERTY, and the property really was green; the gradient paints over it, so no one sees it. The
+pixel guard could not help either — it proves nothing OUTSIDE the named elements changed, and
+s01 was named, so its own pixels were never asked about.
+A `color` claim on a background must now also be true ON SCREEN: the median of the element's
+interior (which ignores its label's glyphs and the antialiased rim, and reads a gradient as the
+gradient) must be within 90 of the claimed colour, or it is refused with both numbers — "the
+style says rgb(0,128,0), the element is rgb(30,25,45) on screen, something is painted over it".
+A green gradient still passes, because its median is green; only an invisible colour fails.
+tests/change_battery.py 41 -> 43: green buried under the gradient REFUSED, a genuinely green
+button APPLIED. The same check covers the tests-first path, which shares check_claim.
+THE CLASS, and it is worth naming: a claim that reads a PROPERTY is not a claim about the SCREEN.
+Anything a person judges by eye needs the pixels asked as well.
+
+## EIGHT SHAPES OF REQUEST, AND WHAT EACH ONE TAUGHT — 2026-09-15
+The point of tests/stress_requests.py is that a request has a SHAPE, and three requests of one
+shape prove nothing about the next. Eight shapes, run untouched. Four landed (badge, colour,
+remove, and the orange earlier); four failed, and every failure was worth more than a pass.
+
+A SPINNER HAS NO WORDS. "Show a spinning loader inside the button for about 2 seconds" was
+refused four times with "0 phrase(s) typed letter by letter" — because the only claim about
+change-over-time was `changes_over_time`, which follows TYPED TEXT. True, and about the wrong
+thing. NEW CLAIM `moves`: {"kind":"moves","id":…,"trigger":…,"on":"click","for_ms":2000} — act,
+then sample the element every 50ms and judge from the samples. With `for_ms` it must move during
+that time AND be still afterwards (a loader that never stops is refused, with when it was last
+moving); without it, the motion must still be going in the last third of the watch.
+AND THE CLOCK TRAP, MET FOR THE THIRD TIME IN THIS PROJECT: under --virtual-time-budget a CSS
+animation's transform never advances, so a spinning ring reads matrix(1,0,0,1,0,0) in every
+sample. Watching pixels would have called it still. The browser is ASKED what is animating on the
+element instead (name:playState:duration per sample) — read the animations, do not watch the
+pixels — while timer-driven motion still shows up as samples that differ, because virtual time
+does advance timers.
+MY OWN FIXTURE WAS WRONG FIRST, in the same old way: the spinner's inline `display:none` outranks
+a stylesheet `.on{display:block}`, so it never appeared, and Aethron said so. The refusal now
+names that case exactly: "it stayed hidden (display, visibility or zero size), so nobody saw it
+move" rather than the flat "did not move".
+change battery 43 -> 46: a spinner that stops is APPLIED, one that never stops and one that
+appears without turning are REFUSED.
+
+NEW WORDS TAKE A DIFFERENT AMOUNT OF ROOM. "Change the headline to say 'Ship apps people love'"
+was refused for changing t05's WIDTH — which is what different words do. A text change now
+explains the size and position of the element whose words changed. Two of those differences were
+0.016px; anything agreeing to within a twentieth of a pixel is the same number rendered twice and
+is no longer a difference at all.
+
+THE SCREEN CHECK NOW CHECKS ITSELF. "Make the Generate button a bit wider" was refused with
+"about 97,300 pixels changed outside what was named — on r01, r00, r02". Replaying that exact
+patch afterwards: the same page against itself differs by 0 pixels, and the wider button changes
+0 pixels outside its own box. Not reproducible, so not a fact about the change. When a difference
+IS found, the before page is now rendered a SECOND time and compared with itself under the same
+mask; if those two disagree by even a fifth of the reported amount, the verdict is "the screen
+could not be compared — UNVERIFIED", never a refusal. An honest change pays nothing for this: the
+second render only happens when something was already found.
+
+## THE SECOND PASS OVER THE SAME EIGHT SHAPES — 2026-09-15
+Re-run after the fixes above: "change the headline" now lands (72s). Three still refused, each
+for its own reason, each a real gap rather than a wrong verdict:
+1. A LABEL INSIDE A BUTTON THAT GREW. "Make the Generate button a bit wider" was refused because
+   the span's `right` went 33px -> 48px. Its box never moved: that number is measured against the
+   button, which is what widened. A far-edge property whose element's box is unchanged is not a
+   difference at all now — refusing it asks containers never to resize.
+2. A SPINNER IS BORN WHEN SOMEONE CLICKS. The loader was refused with "loader_spinner was
+   promised in new_ids and is not on the changed page", because the reply built it in the click
+   handler — an ordinary design. Ids a claim reaches by ACTING (appears_on, moves with a trigger)
+   are now proven by that claim's own measurement, which acts first, instead of being demanded on
+   the page at rest.
+3. "SPIN SLOWLY" IS NOT JUST MOTION. The blind reviewer refused tests that proved the logo moves
+   without proving it TURNS, and it was right. `moves` now records what each animation actually
+   animates (from its keyframes) and takes an optional "property": rotate / fade / slide, so a
+   claim can be held to the kind of motion the words asked for. The critic prompt now also says
+   what a moves claim measures, so it stops asking for a test that already exists.
+change battery 46 -> 47 (a loader that only fades when a spin was asked for is REFUSED).
+AND THE KIND CHECK NEVER RAN AT FIRST: it sat AFTER the `for_ms` branch, which returns. A fader
+claiming a spin was APPLIED and the battery caught it — the check existed, in unreachable code.
+
+A BLACK BUTTON MADE GREEN IS LIGHTER, AND THAT IS THE SAME FACT. Re-run with the on-screen colour
+check in place, the reply finally made the button really green — and was refused for "lightness
+moved +55 over 0.6% of the page", plus detail and contrast, all of them the button's own pixels.
+Pixel differences on an element whose COLOUR change is explained are now part of that change —
+except on `bg`, because a recoloured sky must keep its light where it was (the owner's original
+complaint), and that is enforced separately band by band. agm selftest 33/33 keeps both: the
+button may be lighter, the sky may not.
+
+ONE FLAKY BATTERY RUN, RECORDED RATHER THAN WAVED AWAY: change battery came back 44/3 once, all
+three failures on the honest recolour's tone check ("the deep tones went from lightness 40 to
+28"), then 47/47 on an identical re-run with no code change between them. Suspected the extra
+render the screen self-check adds, and checked: `aethron_vision.load` reads the whole PNG into
+memory, so a later render cannot corrupt an already-loaded image. Cause unknown, not reproduced.
+If it returns, the tone bands are the thread to pull.
+
+## EVERY REAL PAGE WAS UNREADABLE — `aethron_adopt.py`, 2026-09-16
+The owner: "get it to the level of a real coding agent that can do anything thrown at it,
+stop waiting for me to complain." Right on both counts. The gap turned out to be one seam,
+and the number that names it was already sitting in this repo:
+
+    agero       3,655 renderable elements     0 data-ae-id
+    sadewa      4,605                          0
+    acme-demo   2,028                          0
+    test-2      1,386                          0
+
+Every measured path — probe, timeline, the simulated person, the AGM — reads `[data-ae-id]`,
+and Aethron stamps those only on pages IT generated. So on every page a user actually owns,
+`probe()` returned `els: {}`: not hard to change, UNREAD. Eight proven request shapes, all of
+them on the one page Aethron had built for itself.
+
+`adopt()` stamps stable ids into the SOURCE of any page (so they survive every later render
+and rebuild) and refuses unless two things are proven. Measured: test-2 1,434 elements -> 272
+named in 9s; agero 3,848 -> 401, both 0 unplaced, both 0 pixels changed.
+
+THE MAPPING IS ALIGNED, NOT COUNTED. A browser builds DOM the file never spelled — an implied
+`<tbody>`, nodes written by script (agero's DOM carries 193 elements its source does not) — so
+"the Nth element is the Nth tag" is a guess. The browser returns the tag of EVERY element in
+document order, Python reads the same sequence from the source, and difflib aligns them;
+anything outside an aligned block is skipped and COUNTED. `autojunk` must be off: with
+thousands of `<div>`s the popular-element heuristic throws away exactly the anchors the
+alignment needs.
+
+AND THE SECOND PROOF IS THE ONE THAT MATTERS. Stamping must be invisible, so the page is shot
+before and after and every pixel compared. But that check cannot see the failure that matters:
+
+    SHUFFLING EVERY ID ONTO THE WRONG ELEMENT CHANGES ZERO PIXELS.
+
+Measured, on the real page: the pixel proof says PROVEN while 247 of 271 ids are on the wrong
+thing. A pixel referee is structurally blind to identity — so `confirm()` reads the stamped
+page BACK and requires every id to be carrying the same kind of element, with the same words,
+it was picked for. The battery asserts both halves, and that contrast is the whole point.
+
+THREE MORE BLOCKERS, EACH FOUND BY RUNNING ON A REAL PAGE, NONE VISIBLE ON A GENERATED ONE:
+1. THE CANVAS WAS A CSS MARKER. `manifest()` read `html,body{width:NNNpx;height:NNNpx}` —
+   which only Aethron's own pages carry — so every real page stopped at "the page's canvas
+   could not be read". A page's size is a MEASUREMENT: the browser is asked, and an adopted
+   page carries `<meta name="ae-canvas">`. test-2 measures 1414x9450, and the stamping is
+   proven over all 13.4 million pixels, not just the first screen.
+2. RELATIVE ASSETS RESOLVED NOWHERE. Every render copies the page into a working directory,
+   so `./css/site.css` and every image 404s — the whole measurement would have been taken of
+   an UNSTYLED document without a word of warning. A single `<base>` (`set_asset_base`) fixes
+   it with nothing written into the user's project. The battery proves the trap is real by
+   measuring the same page with and without it.
+3. AND THE RENDER CACHES KEYED ON THE HTML ALONE — so the same page measured from two places,
+   or with two bases, silently returned the FIRST picture. Found by the battery: a check
+   comparing a page at home against itself away passed because the second read never happened.
+   Where it renders is part of what it renders; both keys now carry it.
+
+TWO FALSE REFUSALS THE FIRST REAL REQUESTS EXPOSED, both the same class this file keeps
+naming — blaming a change for something that was already true:
+1. A TEMPLATE'S OWN BROKEN SCRIPTS. test-2 throws `gsap is not defined`, `WebFont is not
+   defined` and `Lenis is not defined` before anything is touched, and a correct recolour was
+   refused for them. Errors present BEFORE the change are carried into the green run and the
+   mutation run and excluded; anything new still fails. Note the mutation case is worse than a
+   false refusal — with a pre-existing error every mutant "fails", so every part looks needed
+   and the whole check goes vacuous.
+2. INHERITANCE — and this one was a CLOSED TRAP with no correct answer. Asked to recolour a
+   nav link, the model set the colour on the `<a>` and was refused ("a003 color changed, but
+   it was not named" — the `<div>` inside it inherits); it named the div and was refused ("no
+   claim measures it"); it forced the div to `inherit` and was refused by mutation ("no test
+   needs that CSS"). Three correct answers, three refusals. A colour set on an ancestor IS the
+   colour on what inherits it — one change seen twice — which is the consequence rule this
+   project already applies to position, size and reactions, missing its last place. Narrow on
+   purpose: only inherited properties, only inside a claimed subject; a child that changes its
+   own background, or an element outside the claim, is still caught.
+
+3. AND A `<base>` CANNOT SAVE A ROOT-ABSOLUTE PATH — the fix above was only half of it, and
+   the half that was missing produced the worst kind of result: a SUCCESS about the wrong
+   document. test-2's stylesheets are `/assets/r/*.css`, and under file:// a leading slash
+   means the FILESYSTEM ROOT. The first end-to-end APPLIED run was measured on an UNSTYLED
+   page — nav stacked full-width in default link blue — and nothing said so. The only honest
+   way to render such a page is to SERVE its folder (`serve_assets`), which is what a
+   visitor's browser does; and adopt now REPORTS when a page's stylesheets did not load
+   instead of measuring in silence. Served, the same page reads 1,445 elements, 523 worth
+   naming and 20,651px tall, and the stamping is proven identical across 28 MILLION pixels.
+   A server left running is its own hazard — it changes how every later render resolves, so
+   adopt restores the previous state, and the battery caught exactly that leak.
+
+THE REAL PAGE THEN REFUSED FIVE MORE TIMES, AND EVERY REFUSAL WAS A BUG. All one class:
+BLAMING A CHANGE FOR SOMETHING THAT WAS ALREADY TRUE.
+1. A TEMPLATE'S OWN BROKEN SCRIPTS. test-2 throws `gsap is not defined`, `WebFont is not
+   defined` and `Lenis is not defined` before anything is touched. Fixed in FOUR places
+   before it was really fixed — the green run, the mutation run, `verify`, and the AGM — and
+   the mutation case is worse than a false refusal: with a pre-existing error every mutant
+   "fails", so every part looks needed and the whole check goes VACUOUS. The last instance
+   only surfaced because SCRIPT ERRORS ARE TIMING-DEPENDENT: the same error fired during the
+   changed run and not the unchanged one, so seeding the known set from whatever a scenario
+   happened to trip is not enough — it comes from the page's own measured reading.
+2. INHERITANCE — a CLOSED TRAP with no correct answer. Asked to recolour a nav link, the
+   model set the colour on the `<a>` and was refused ("a003 color changed, but it was not
+   named" — the `<div>` inside inherits); it named the div and was refused ("no claim
+   measures it"); it forced the div to `inherit` and was refused by mutation ("no test needs
+   that CSS"). Three correct answers, three refusals. A colour on an ancestor IS the colour
+   on what inherits it — one change seen twice. Narrow on purpose: inherited properties only,
+   inside a claimed subject; a child that changes its own background is still caught.
+3. A REAL PAGE MOVES BY ITSELF. This template has a ticker, a typing headline and content
+   that loads in, and `identity()` compares ONE reading of before with ONE of after — so 40+
+   elements were refused for doing what they always do. `self_drift()` reads the UNCHANGED
+   page at two moments and excludes whatever differs; it is the rule the AGM has lived by
+   since it was built, which the change path's own identity check never had. Paid for only
+   when something was found, like the screen self-check.
+4. "NOW SITS OUTSIDE THE PAGE" NEVER LOOKED AT BEFORE. A marquee's items legitimately sit
+   past the right edge — that is what a ticker is — and everything below a capped canvas is
+   outside it by construction: 33 elements refused for a position they already had. The word
+   "now" was the tell.
+
+AND THEN THE PAGE ITSELF TURNED OUT NOT TO BE MEASURABLE, WHICH IS A DIFFERENT ANSWER.
+Once it was served and styled, the remaining refusals stopped being bugs. Measured, two
+renders of the UNCHANGED page, nothing touched:
+
+    1414x900     262 restless elements   1,032 sampled pixels differ
+    1414x3000    135                        78
+    1414x20000    20                        83
+
+Not the canvas — it is WORSE small — and not the instrument. This template (a Webflow
+migration whose GSAP and Lenis never load, with a slider and lazy content) does not render
+twice alike, at any size. Everything measured about it is one sample of a distribution.
+Three things came out of that, all of them honest rather than clever:
+  * probe() now FREEZES animations before reading, as the AGM's snapshot has always done and
+    the probe everything else rests on never did. It helps and it is not enough.
+  * drift is filtered at ELEMENT granularity, from several moments unioned, because the set
+    of FIELDS that drifts is different on every render — a field-level filter is permanently
+    one render behind. An element that will not hold still cannot be asserted unchanged, so
+    it is reported as uncompared, never refused; and when too much of the page is like that,
+    the verdict is UNVERIFIED.
+  * the screen is judged against a MEASURED NOISE FLOOR: the page rendered against itself
+    says where it is unreliable, and only pixels that changed for real AND held still on
+    their own count as evidence.
+On this page the honest end state is UNVERIFIED — Aethron cannot prove nothing else changed,
+so it does not claim it. That is the right behaviour and it is also a real limit: SOME REAL
+PAGES CANNOT BE PROVEN, and the ones most likely to defeat it are exactly the ones whose own
+scripts are broken. Naming it here rather than discovering it in front of a user.
+
+AND THE SHIPPED APP HAD NONE OF IT — THE THIRD TIME. dist/Aethron.app was built 2026-09-10;
+aethron_change, aethron_spec, aethron_agm and aethron_adopt all postdate it. Every green in
+this entry was green in DEV, and a user downloading Aethron would have got the template tool.
+Worse, aethron.spec declared NONE of the change stack in hiddenimports — the whole capability
+was riding on PyInstaller's bytecode-walk finding imports that live inside functions. Named
+explicitly now, rebuilt, and PROVEN FROZEN: `Aethron --forge adopt` on a real Webflow
+migration reads 1,445 elements, names 523, stamps 401, loads all 3 stylesheets and proves the
+page pixel-identical — with no loose modules and no Python on the path. 81 symlinks, signature
+valid.
+
+RUNNING IT FROZEN IMMEDIATELY FOUND A BUG DEV NEVER WOULD: adopt REFUSED a page it had just
+passed, and then passed it again — the verdict flipping on a page nobody had touched. Cause:
+`confirm` decided whether an id was still on its element by comparing the element's BOX, and
+this page's headline TYPES ITSELF, so it keeps its top-left and grows. Width is what an
+element is doing; its ORIGIN is what it is. Comparing x/y only (tag still exact) made it
+3-for-3 ADOPTED across fresh runs, and the shuffle attack is still caught — a shuffled id
+lands somewhere else entirely, which is precisely what origin tests. A threshold on text
+similarity had been doing this job and was never a discriminator, only a coin-flip near its
+boundary.
+
+AND THEN THE "UNMEASURABLE PAGE" TURNED OUT TO BE FOUR MORE BUGS OF MINE. The owner refused
+the word limitation, and was right. Measured, restless elements on the UNTOUCHED page:
+
+    262   when it was called a limit
+     21   after waiting for the page to STOP ARRIVING (fonts done, every image complete,
+          the DOM quiet) instead of reading on a timer
+     16   after refusing to measure things parked off-screen — a hidden panel and its images
+          at y≈122,000 on a page 20,651px tall, whose geometry can never settle
+    273   across the three moments the live run actually uses — WORSE, and the tell
+     23   once settling ran to an ABSOLUTE deadline instead of one measured from each
+          sampling moment: the early reading gave up unsettled while the late one settled,
+          so they "disagreed" about 273 elements on a page nobody had touched.
+SETTLING AND SAMPLING ARE DIFFERENT JOBS. Settle identically for every reading; only then
+does the moment mean what it should — how far into the page's own motion you are looking.
+Two more of the same shape: the screen check SUBTRACTED the measured noise floor and then
+still asked "is this page noisy?", refusing on grounds it had already accounted for (the veto
+now runs only when the noise could not be measured); and the AGM decided "moves by itself"
+from ONE pair of readings, so the page's own marquee looked like motion that NEWLY appeared —
+now unioned over three, the same fix that took 273 to 23.
+
+THE LAST ONE IS THE PUREST. With all of that fixed, the model wrote THE CORRECT ONE-LINE
+PATCH three runs in a row — `style="color: #008000"` on the nav link, no CSS, no script — and
+was refused every time by 11,360 pixels around a008, the headline that TYPES ITSELF. That
+element is on the restless list; restless elements were excluded from the DOM comparison and
+NOT from the pixel one. Naming it instead was refused for naming what no claim measures. No
+legal move existed, again. An element that will not hold still is not evidence in the DOM and
+not evidence on the screen either — the page's own motion is measured once and masked in both.
+
+WHAT THE SEQUENCE ITSELF SHOWS, and it is the honest summary: eleven live attempts, one
+APPLIED, and of the ten refusals SIX were the product being wrong rather than the model, one
+was the model shipping a redundant part (correctly caught), and the last three were the page
+being unmeasurable. None of the six could appear on a page Aethron generated — every one
+needed a page that was already alive, already broken, already served from a web root. A
+capability proven on your own output is not proven.
+
+Surfaces: `forge adopt <page.html>`, MCP tool `adopt_page` (36 tools), and `change_page` +
+`aethron_spec.py` + the studio's Design view adopt automatically when a page carries no ids —
+because a capability a user cannot reach does not exist, which this project learned once
+already.
+Tests: adopt selftest 24/24, tests/adopt_battery.py 26/26 (real browser; the shuffle attack,
+the asset trap in BOTH forms, the cap, and no-browser reports SKIPPED), change selftest
+84 -> 100, change battery 47/47, interact 20/20, agm selftest 33 -> 37.
+
+## THE INTERFACE — one surface, and activity that is not a JSON dump
+## — 2026-09-16
+The owner, after driving a real migration through the studio: the product shows its work
+"harshly" — raw `mcp__aethron__list_projects {}`, raw `Bash {"command":…}`, the CLI's own
+internals leaking through — the input sits below the fold where nobody can see it, and the
+whole thing is split into modes a person has to choose between. "Make it standard and
+extremely beautiful, better than Grok and Codex."
+
+RESEARCH FIRST (asked for, and it agreed with the complaint): the 2026 consensus is that the
+CONVERSATION and the ACTIVITY are different things and must look different — merging them
+gives an interface that is neither a conversation nor a progress report — plus streaming, a
+live step list, a stop control at every checkpoint, and inline sources. Nobody in this class
+ships a truthful compact activity stream; they ship either a terminal or a preview for a
+human to judge.
+
+WHAT SHIPPED:
+  * ONE SHELL for every state (`convShell`) — welcome, project, coding session. The person
+    says what they want; Aethron decides whether that is a migration, a port, a rebuild or a
+    coding job. No mode to pick.
+  * WHAT IT SAYS vs WHAT IT DOES. Prose is unboxed with real leading; tool calls collapse
+    into a RUN CARD of compact steps, each naming the real thing — `Reading the template
+    volterra_dental`, `Running · List the new project directory`, `Creating ·
+    volterra_dental/project_plan.md`, a failed step in red saying `failed`. The raw result is
+    one click down, never the surface. `Bash` shows its own description, which is what a
+    person actually wants to read.
+  * A STOP that is always within reach: the send button becomes stop for exactly as long as
+    there is something to stop.
+  * SETTINGS: profile, model-and-key (switch provider or key with no restart — deliberately
+    temporary until the hosted gateway lands), and the wallet with its ceiling, spend and a
+    setter.
+
+FOUR REAL BUGS, ALL FOUND BY LOOKING RATHER THAN REASONING:
+1. THE COMPOSER WAS IN NORMAL FLOW after a 46vh log, so on a tall window the single most
+   important control in the product fell below the fold. It now owns a dock and cannot be
+   pushed anywhere.
+2. `[hidden]` DID NOTHING. The browser's own `[hidden]{display:none}` is a UA rule of the
+   same specificity as a class, so every author rule like `.qrows{display:flex}` silently
+   beat it: elements were marked hidden, REPORTED hidden by the DOM, and still took their
+   full height. That is what kept shoving the composer down. One `!important` fixed every
+   toggle in the app.
+3. A FLEX ITEM SHRINKS UNLESS TOLD NOT TO. `.clog` is a flex column, so the run card shrank
+   while its steps laid out at full size and `overflow:hidden` ate them — SEVEN steps
+   reporting tops 429…696 with only 95px of card ever painted. Every DOM check said the
+   steps were present and correct; only a rendered image showed five of them missing.
+   Same family as the `.ide>*{min-height:0}` bug already in this file.
+4. A sidebar row used `data-ic="image"` and there is no `image` glyph, so it rendered
+   nothing and sat visibly misaligned beside its neighbours.
+
+AND THE MEASUREMENT TRAP, AGAIN: the first reading of bug 3 looked like a stale frame under
+the screenshot's virtual clock, because `getBoundingClientRect` forces layout and therefore
+reported perfect numbers while the raster was missing five rows. Seeding earlier did not fix
+it, which is what proved it was real and not timing. WHEN THE DOM AND THE PICTURE DISAGREE,
+THE PICTURE IS THE PRODUCT.
+
+STILL SEPARATE, honestly: the Code workspace (tree + editor + chat) and the screenshot Design
+view are still their own panes reachable from the sidebar. The CONVERSATION is unified and is
+the front door; folding those two into it is the remaining half of the owner's "one
+interface".
+
+## MOTION THAT MEANS SOMETHING — the dot field — 2026-09-16
+The owner, with screenshots of Claude's Effort slider, ChatGPT's dot-grid loader and its
+composer: make it lively, captivate people, better than Grok and Codex. NOTE FOR ANY FUTURE
+SESSION: they used the word "ultracode" as a NOUN for that slider's animation, and the
+harness read it as an opt-in to multi-agent orchestration. It was not. Their standing rule
+(never more than two agents, weekly limits) outranks a keyword match, and this is the second
+time that exact false trigger has come up.
+
+`DotField` is one canvas component doing three jobs, and it is the signature:
+  IDLE     a slow warm wave across the whole conversation panel, so a window with nothing in
+           it still reads as switched on. Behind the headline alone it looked like a smudge;
+           across the panel it reads as a lit room. It recedes to .17 opacity the moment
+           there is something to read (`.conv-shell.talking`) — liveliness must never compete
+           with the thing the person came for.
+  WORKING  the same grid, faster and tighter, inline in the live line beside the real verb —
+           motion that MEANS something is happening, where a spinner means nothing.
+  FILLING  lit left-to-right by REAL progress, never a fake crawl.
+One `sin()` per dot per frame; it stops on a hidden tab, stops via IntersectionObserver when
+scrolled out of view, and draws a single still frame under prefers-reduced-motion.
+
+Elsewhere motion is used only where it says something a word would otherwise have to: a step
+RISES because it just happened (cascaded by index, so the sequence is the story), the running
+one carries a slow sheen, a reply fades up because it arrived, the send button sinks because
+you pressed it. All of it dies under prefers-reduced-motion.
+
+THE BUG THE TEST FOUND, and it is a classic: assigning `canvas.width` CLEARS the canvas, and
+`resize()` only redrew when the field was stopped. So any resize landing while it ran blanked
+it, and it recovered only if another frame came — which it never does once the tab is hidden
+or the field scrolls away. Measured on a detached canvas: one frame of ink, then zero for the
+rest of the run. `resize()` now always draws. The same test also confirmed the observer does
+its job: off-screen, the field correctly refuses to spend anything at all.
+Verified on screen: six distinct frames in six samples, never blank, survives a resize
+mid-run, progress fill grows with progress, no console errors, composer still pinned.
+
+THE OPENING WAS PLACED WRONG TWICE, THE SAME WAY BOTH TIMES. The owner: "I don't like how
+this is placed." Top-aligned put the void underneath; bottom-aligned put it on top. Both were
+one mistake — treating the headline and the composer as two REGIONS when they are two halves
+of one thought. Pinning the composer to the floor is right once there is a log standing on
+it and wrong when there is nothing at all. Empty, they are ONE GROUP, centred, with the ways
+in beneath; `.talking` restores the dock. The floor is only a floor when something stands on
+it.
+AND CENTRE WITH AUTO MARGINS, NEVER `justify-content:center`. On a window shorter than the
+group the latter overflows BOTH ends and the top becomes unreachable — measured at 320px
+tall, the headline was stranded above the scroll with no way back to it. Auto margins centre
+when there is room and yield to scrolling when there is not. Verified 720/900/1259: headline
+and composer both fully in view, one group, no void.
+"THE ANIMATION IS TOO DIM AND UNATTRACTIVE" — and it was. A grid of same-sized dots changing
+only their BRIGHTNESS is a mist, not a design. What reads as made on purpose:
+  * dots that GROW as they light (radius 0.62x…2.1x), not just brighten;
+  * two waves crossing at different angles and speeds, so crests actually travel and the
+    pattern never visibly repeats;
+  * a bloom drawn behind the brightest few only, so the peaks glow and the rest stay cheap;
+  * fewer, larger dots (gap 17 -> 26) — density read as noise, spacing reads as intent;
+  * and THE FIELD ANSWERS THE CURSOR. Nothing convinces a person a surface is alive like it
+    noticing them: a soft pool of light follows the pointer with a squared falloff.
+AND THEN THE OWNER SAID IT LOOKED LIKE A STUDENT PROJECT, AND THEY WERE RIGHT. A grid with a
+wave running through it reads as A GRID: the geometry is the first thing the eye finds, and
+no amount of tuning brightness fixes that. They asked for the shape of the screenshot Aethron
+itself rebuilt — the orange bloom opening out of black.
+So THERE IS NO WAVE ANY MORE. There are LIGHT SOURCES drifting on slow, independent,
+irrational periods, and every dot simply reports how much light reaches it — brighter,
+larger and warmer the closer it is (ember -> terracotta -> warm white, because a glow that
+changes hue with intensity reads as heat and one that does not reads as paint). The cursor is
+just another light source, which is why it feels like the surface noticed you. Nothing
+repeats, because nothing is periodic.
+THE CLEAR ZONE WAS SET SMALLER THAN THE THING IT HAD TO CLEAR, TWICE. The column of words
+occupies about 58% of the panel's width and 55% of its height; a mask holding transparency to
+26% was never going to keep it clear, and the bloom ran over the headline both times. Measure
+the content, then size the mask to it. Also: two mask layers plus `mask-composite` silently
+produced NO MASK AT ALL and the field covered every word on the page — one gradient does the
+whole job.
+
+THE EARLIER MASK WAS ALSO BACKWARDS. It was brightest at the centre — exactly where the words are — so the
+crests ran straight through the headline and made it harder to read. It is a HALO now: clear
+where the column sits, strongest in a ring outside it, gone again at the far edges so it
+never meets a hard border. And the composer carries its own warm bloom plus a terracotta ring
+on focus, because the focal point should be lit like one.
+
+TWO HARNESS ARTEFACTS worth remembering, because both looked like product bugs: a saved copy
+of the page has no server, so stubbing `api()` to `{}` makes the sidebar render throw and the
+whole sidebar comes back EMPTY; and a 320px-tall browser pane is not a window anyone has, so
+"the composer is off-screen" there is a statement about the pane. Check what the harness is
+before believing what it reports.
+
+## THE INTERFACE BECAME ONE SURFACE, AND FOUR BUGS WERE ONE MISTAKE
+## — 2026-09-17
+The owner drove a long UI session: thought-orbs per verb, a border beam
+on the composer, a real chat box, finished runs that fold away, the
+preview as a right-hand sheet at two thirds, point-and-edit inside the
+app, SF Pro, one spring everywhere. What is worth keeping is not the
+list, it is that FOUR separate "leaks" turned out to be the same fault.
+
+TWO COMPONENTS CANNOT SHARE ONE NAME.
+  * `.step` meant the header's pill chips AND the run card's rows, so
+    rows inherited `border-radius:99px`, an inset shadow and a hover
+    LIFT inside `overflow:hidden`. Resetting `border` was not enough:
+    every property the global rule sets has to be answered.
+  * `body.split` meant the OLD two-pane layout (`!!S.panel`) AND my new
+    preview sheet. Opening the sheet switched on the old work pane —
+    that is the Preview/Strings/Images tab strip the owner saw leaking
+    beside the chat. Renamed to `pvwopen`.
+  * the old `openEditPanel` and the new composer both listened for the
+    same `forge:'pick'`, so one click opened two editors.
+  * the picker's dashed outline and the new morphing ring were two
+    selection indicators stacked on each other.
+A NEW SURFACE MUST REPLACE THE OLD ONE OR BE NAMED APART FROM IT.
+Adding beside it looks finished and is not.
+
+THREE TRAPS IN ASSEMBLING A PAGE, none visible to `node --check`:
+  1. a literal `</script>` inside a JS string ENDS THE BLOCK. Half the
+     app silently stopped existing; `openPreviewPane is not defined`.
+  2. a real newline pasted into a JS string literal — twice, by my own
+     edit scripts.
+  3. `node --check` on a PART proves nothing about the WHOLE. The
+     assembler now extracts the ASSEMBLED script and gates that, and
+     refuses to write the file if it is invalid. It caught (2) the
+     second time, which is why it did not ship.
+
+"STUCK ON THINKING" WAS NEVER THE KEY — it cost the owner days.
+A session's endpoint is baked into its CHILD PROCESS ENVIRONMENT at
+spawn (`ANTHROPIC_BASE_URL`), so a running CLI points at ONE bridge for
+its whole life. Saving AI settings calls `brain.shutdown_bridge()` —
+right for the NEXT session, fatal for the one already open, which then
+POSTs into a dead socket: no response, no error, no timeout anyone can
+see. Measured: key saved fine, 5 keys in the ring, 5 live, `resolve()
+ready: True`. The fix is that settings now END every open session (a
+session is bound to the key that made it) and the client releases the
+handle. Plus a floor: no event for 90s and the turn stops and says so.
+SILENT AND ENDLESS IS THE WRONG FAILURE FOR ANY CAUSE.
+
+AND THE LOADER DID NOT STOP ON ERROR. A wedged session keeps reporting
+`running:true`, and the UI was waiting to be told. It ends its own turn
+on done/error/exit now; a step still 'live' when nothing runs is
+DERIVED as failed rather than stored, so the card cannot claim work is
+in progress after everything stopped.
+
+APPLE'S LIQUID GLASS IS REACHABLE, AND THE REASON IT LOOKED LIKE IT WAS
+NOT IS WORTH WRITING DOWN. `.glassEffect` is SwiftUI and the interface
+is HTML in a WKWebView, so it can never apply to a <div>. But Aethron
+is a NATIVE app, and macOS 26+ ships `NSGlassEffectView` in AppKit —
+present, instantiable through pyobjc, with setStyle_/setCornerRadius_/
+setTintColor_/setEffectIsInteractive_. So the inverse works: the glass
+goes into the WINDOW behind the page, the web view stops drawing its
+background, and `?glass=1` makes the page hand its ground back. That is
+the real material under a real interface. `desktop.py` installs it and
+logs "liquid glass: installed"; it is silent and optional on older
+macOS. NOT VISUALLY CONFIRMED FROM HERE: screencapture needs Screen
+Recording permission and an offscreen cache cannot see a compositing
+effect — "installed" is the strongest honest claim.
+
+THE BUNDLE WAS STALE AGAIN — THE FOURTH TIME. Built Sep 16 12:31 while
+studio.py said Sep 17 02:39: none of a day's work was in the app. Read
+the PYZ with PyInstaller's own reader, never the outer TOC (`studio`
+reports missing there because it lives in the compressed archive) and
+never grep.
+
+AND A NEAR-MISS ON THE FIRST REAL COMMIT: clearing the keys wrote
+`aethron_config.backup-<stamp>.json`, which `.gitignore` did NOT match —
+it listed the literal `aethron_config.json`. One `git add -A` from five
+live keys in history. Pattern widened to `aethron_config*.json`.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -3842,3 +4944,84 @@ by eye/design/build, all of which passed.
 - NEVER SPEND WITHOUT A PRE-CALL CAP. A model writer must refuse to START
   any call whose worst case could cross its budget, and must take spend
   from the usage the provider reports, not from an estimate.
+- A CHANGE IS KEPT ONLY WHEN EVERY CLAIM IS MEASURED TRUE AND THE CLAIMS
+  MATCH THE WORDS ASKED. A model's description of its own change is not
+  evidence; neither is a check that the request never implied.
+- NAMING SOMETHING AS CHANGED REQUIRES A CLAIM THAT MEASURES IT. A name is a
+  licence to change; an unmeasured licence is how a check gets switched off.
+- A CHANGE MUST NOT BREAK WHAT IT TOUCHES FOR A PERSON. If a field is
+  animated, a person typing into it must keep their words.
+- SOMETHING THAT REACTS IS USED, NOT LOOKED AT. A pop-up, dropdown or
+  hover effect is proven only by acting on the page like a person —
+  and the element it hangs from must still do, and look, what it did.
+- A PAGE READ WITH --dump-dom MUST HAVE ITS WHOLE CANVAS IN VIEW. That
+  viewport is 87px shorter than the window asked for; open it taller.
+- EVERY DIFFERENCE BETWEEN BEFORE AND AFTER MUST BE EXPLAINED BY THE
+  REQUEST. Record everything, not a chosen list; a difference in a
+  dimension the request never speaks of is refused, and one nobody could
+  check is UNVERIFIED, never accepted.
+- WHAT MOVES BY ITSELF IS COMPARED AS MOTION, NEVER AS A VALUE. Two
+  readings of an animated page at different moments differ with nothing
+  changed; hold the page still, measure the drift, exclude it.
+- A RECOLOUR KEEPS SHAPE AND LIGHT unless the request asks otherwise:
+  same layers, stops and geometry, and every lightness band where it was.
+- A TEST OF WHETHER AETHRON CAN DO SOMETHING IS RUN BY AETHRON. Build the
+  step into the product and run it untouched; a result the operator drove —
+  numbers typed in from what the instruments printed — says nothing about
+  the product and must never be presented as its work.
+- AN EDIT THAT WAS NOT WRITTEN WAS NOT APPLIED. Anything that reports
+  "applied" must have verified the change landed in the output.
+- A PROVIDER THAT DID NOT ANSWER IS NOT A REQUEST THAT WAS REFUSED.
+  A model that could not be reached — on the first try or the fourth —
+  is NOT ASKED, never REFUSED; the page is untouched either way, and the
+  verdict must say which of the two happened.
+- A VERDICT CARRIES ITS REASON TO THE CALLER. SKIPPED, REFUSED or
+  UNVERIFIED with the "why" left in a console nobody reads is the same
+  blindness as no diagnosis at all.
+- A FIXTURE A TEST DEPENDS ON LIVES IN THE REPO. /private/tmp is wiped
+  on reboot and has now eaten three pieces of this project's work.
+- A PER-RUN BUDGET IS NOT A CEILING. Real money needs a wallet that
+  survives restarts, is reduced by the BILL rather than an estimate, and
+  is checked before a paid call is started. Round money to print it,
+  never to store it.
+- TIME IS A BUDGET. Every run that talks to a provider carries a total
+  wall-clock limit; retries and back-off can otherwise spend an hour
+  arriving at the same failure.
+- A PAGE THAT CARRIES NO MEASURABLE ELEMENTS IS UNREAD, NOT UNCHANGEABLE. Stamp it first,
+  and only when the stamping is PROVEN to change no pixel AND proven to have landed on the
+  elements it was picked for — shuffling every id onto the wrong element changes zero
+  pixels, so a pixel referee can never answer the second question.
+- A PAGE IS MEASURED WHERE IT LIVES. Rendering a copy in a working directory breaks every
+  relative asset, and a `<base>` cannot save a root-absolute one — serve the folder, the way
+  a visitor's browser does, and SAY SO when its stylesheets did not load. A measurement of an
+  unstyled page is a correct answer about a document nobody will ever see.
+- NOTHING THAT WAS ALREADY TRUE IS THE CHANGE'S DOING. Errors the page already threw, a
+  ticker that always overflowed, an element that always sat below the fold, words that read
+  differently at two moments: compare against the original, never against zero. Four separate
+  false-refusal bugs in one afternoon were this one rule, missing in four places — and in
+  mutation testing it is worse than a false refusal, because a pre-existing fault makes every
+  mutant "fail" and the whole check goes vacuous.
+- (CORRECTED, same day) "A PAGE THAT DOES NOT RENDER TWICE ALIKE CANNOT BE PROVEN" WAS WRONG.
+  It was written after measuring 262 restless elements and believing them. Four instrument
+  bugs later the same page reads 23, and the rest was: reading on a timer instead of waiting
+  for the page to stop arriving; measuring things parked off-screen; settling for a window
+  measured from each sampling moment rather than to one absolute deadline; and counting the
+  page's own animation as evidence on the screen after already excluding it from the DOM.
+  WHEN A PAGE LOOKS UNMEASURABLE, SUSPECT THE MEASUREMENT FIRST — and only call it a limit
+  after the instrument has been taken apart. What genuinely moves by itself is measured once
+  and masked EVERYWHERE, never refused and never silently passed.
+- A CAPABILITY THAT IS NOT IN THE BUNDLE DOES NOT EXIST. Green in dev is not shipped: the
+  packaged app has now been found stale THREE times, and a module imported inside a function
+  must be named in hiddenimports rather than trusted to a bytecode walk. Prove it FROZEN —
+  run the real command on a real page out of the .app — before calling anything ready.
+- AN ELEMENT'S IDENTITY IS WHERE IT STARTS, NOT HOW BIG IT IS RIGHT NOW. Anything that
+  animates changes its size and its words while staying the same thing; a check that compares
+  those flips its verdict on an untouched page. Compare the origin, keep the tag exact, and
+  never let a similarity threshold stand in for identity.
+- A CAPABILITY PROVEN ON AETHRON'S OWN OUTPUT IS NOT PROVEN. Its own pages are still, whole,
+  self-contained and unbroken; real ones are alive, served from a web root, and already
+  faulty. Six of seven live refusals on the first real page were the product, not the model.
+- A CONSEQUENCE OF AN EXPLAINED CHANGE IS THAT CHANGE. It holds for the
+  screen an element's move touches, for styles that follow a new size,
+  and for what a reaction produces when the thing it acts on changed —
+  file it by WHAT differs, and judge it with the change that caused it.

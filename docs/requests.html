@@ -1,0 +1,340 @@
+<title>Every Request, Measured</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+:root{--ground:#F3F4F7;--surface:#FFFFFF;--ink:#15171C;--muted:#586070;--line:#DCE0E7;--accent:#2F46EC;--onaccent:#FFFFFF;
+  --ok:#1C7A4C;--okbg:#E2F2E9;--no:#9B3B1C;--nobg:#F7E6DF;--was:#6B5A12;--wasbg:#F3EDD2}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--ground:#0D0F13;--surface:#151920;--ink:#E8EBF1;
+  --muted:#9AA2B1;--line:#272C36;--accent:#8A95FF;--onaccent:#0D0F13;--ok:#6CCB97;--okbg:#15301F;--no:#F09A78;--nobg:#3A1F16;
+  --was:#E3CC6E;--wasbg:#332B10}}
+:root[data-theme="dark"]{--ground:#0D0F13;--surface:#151920;--ink:#E8EBF1;--muted:#9AA2B1;--line:#272C36;--accent:#8A95FF;
+  --onaccent:#0D0F13;--ok:#6CCB97;--okbg:#15301F;--no:#F09A78;--nobg:#3A1F16;--was:#E3CC6E;--wasbg:#332B10}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:1140px;margin:0 auto;padding:40px 24px 64px}
+h1{font-size:2rem;line-height:1.15;margin:0 0 12px;font-weight:600;text-wrap:balance}
+h2{font-size:1.05rem;margin:0 0 12px;font-weight:600}
+.lede{max-width:70ch;color:var(--muted);margin:0}
+.tally{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 0;padding:0;list-style:none;font:13px/1 "IBM Plex Mono",ui-monospace,Menlo,monospace}
+.tally li{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.tally b{font-weight:500}
+.change{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:28px;padding:32px 0;border-top:1px solid var(--line)}
+.change.text-only{grid-template-columns:minmax(0,760px)}
+.changes{margin-top:28px}
+.label{font:500 12px/1 "IBM Plex Mono",ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
+.ask{font-size:1.12rem;line-height:1.4;margin:0 0 14px;font-weight:600;text-wrap:balance}
+.meta{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 16px;font:13px/1 "IBM Plex Mono",ui-monospace,Menlo,monospace}
+.chip{padding:5px 8px;border-radius:6px;background:var(--okbg);color:var(--ok)}
+.chip.no{background:var(--nobg);color:var(--no)}
+.chip.was{background:var(--wasbg);color:var(--was)}
+.cost{color:var(--muted)}
+.m{list-style:none;padding:0;margin:0 0 16px;display:grid;gap:9px}
+.m li{font-size:14.5px;padding-left:18px;position:relative}
+.m li::before{content:"";position:absolute;left:0;top:.6em;width:7px;height:7px;border-radius:2px;background:var(--ok)}
+.m.no li::before{background:var(--no)}
+.num{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:.93em;font-variant-numeric:tabular-nums}
+.note{font-size:14px;color:var(--muted);border-left:2px solid var(--no);padding:2px 0 2px 12px;margin:0 0 10px}
+.note b{color:var(--no);font-weight:600}
+.note.plain{border-left-color:var(--line)}
+.note.plain b{color:var(--ink)}
+.viewer{display:grid;gap:10px;align-content:start}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button{font:600 13px/1 "IBM Plex Sans",system-ui,sans-serif;padding:8px 12px;border-radius:7px;border:1px solid var(--line);
+  background:var(--surface);color:var(--ink);cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--onaccent)}
+.tabs button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+iframe{width:100%;aspect-ratio:1414/858;border:0;border-radius:10px;background:#06050C;display:block}
+.hint{font-size:13px;color:var(--muted);margin:0}
+footer{border-top:1px solid var(--line);padding-top:28px;color:var(--muted);font-size:14px;display:grid;gap:20px}
+footer p{max-width:74ch;margin:0}
+.links{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px}
+.links a{display:block;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);
+  text-decoration:none;font-size:14px}
+.links a:hover{border-color:var(--accent)}
+.links span{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+a{color:var(--accent)}
+@media (max-width:880px){.change{grid-template-columns:1fr}}
+</style>
+
+<main>
+  <header>
+    <h1>Every Request, Measured</h1>
+    <p class="lede">Aethron rebuilt the “Build Apps People Love” screenshot as code, then took requests in plain words.
+      A model writes each change. Aethron renders it in a real browser, measures every claim, and keeps it only when
+      the measurements prove it. Since 15 September the Automatic General Measure (AGM) also records the whole page
+      before and after, and every difference must be explained by the request. Every request is listed below with its
+      verdict as of today, refused ones included.</p>
+    <ul class="tally" aria-label="Where the requests stand">
+      <li><b>14</b> requests asked in plain words</li>
+      <li><b>10</b> applied and passing today's checks</li>
+      <li><b>3</b> refused, each for a reason worth reading</li>
+      <li><b>1</b> applied earlier, refused today</li>
+      <li><b>$1.12</b> spent in total, under a <b>$1.50</b> ceiling Aethron enforces itself</li>
+    </ul>
+  </header>
+
+  <div class="changes">
+    <section class="change">
+      <div>
+        <p class="label">Request 1 · the chat box</p>
+        <p class="ask">“Can you reduce this chat box height a little bit?”</p>
+        <p class="meta"><span class="chip">APPLIED</span><span class="cost">Gemini, paid key · $0.0604</span></p>
+        <ul class="m">
+          <li>Chat card height <span class="num">244.0 → 219.6px</span>, a measured −10%</li>
+          <li>Generate, Windows, Android, Mac OS and IOS each <span class="num">20.0px</span> higher, still inside the card</li>
+          <li>Text box shortened <span class="num">135 → 115px</span>; card width unchanged</li>
+          <li>Re-measured today by the AGM: <span class="num">35 of 35</span> differences explained</li>
+        </ul>
+        <p class="note plain"><b>Found by that re-measure:</b> the AGM's first version refused 36 of 38 of these
+          differences, because it didn't know that buttons riding up with a shorter card belong to that change. It was
+          fixed before this page was published.</p>
+      </div>
+      <div class="viewer">
+        <div class="tabs" role="group" aria-label="Page shown">
+          <button type="button" aria-pressed="true" data-src="site-height.html">Changed</button>
+          <button type="button" aria-pressed="false" data-src="site.html">Original</button>
+        </div>
+        <iframe src="site-height.html" title="Chat box height reduced" loading="lazy"></iframe>
+      </div>
+    </section>
+
+    <section class="change">
+      <div>
+        <p class="label">Request 2 · typing animation</p>
+        <p class="ask">“Can you make the chat box automatically type a text, then it disappears and types again,
+          different texts, like an automatic text typing animation?”</p>
+        <p class="meta"><span class="chip">APPLIED</span><span class="cost">Gemini, paid key · $0.0434</span></p>
+        <ul class="m">
+          <li>Followed every <span class="num">25ms</span> for <span class="num">20s</span>: 4 different phrases typed
+            letter by letter, cleared between each</li>
+          <li>Aethron typed into the box like a person — their words were still there <span class="num">6s</span> later</li>
+          <li>Re-measured today by the AGM: <span class="num">4 of 4</span> differences explained</li>
+        </ul>
+        <p class="note"><b>Refused first:</b> the animation typed into the box itself, overwriting anything a person
+          typed. Told that, the model moved it to the placeholder.</p>
+      </div>
+      <div class="viewer">
+        <div class="tabs" role="group" aria-label="Page shown">
+          <button type="button" aria-pressed="true" data-src="site-typing.html">Changed</button>
+          <button type="button" aria-pressed="false" data-src="site.html">Original</button>
+        </div>
+        <iframe src="site-typing.html" title="Chat box typing animation" loading="lazy"></iframe>
+        <p class="hint">Click the chat box and type — your words stay; the animation only writes the placeholder.</p>
+      </div>
+    </section>
+
+    <section class="change">
+      <div>
+        <p class="label">Request 3 · orange sky, Gemini's answer</p>
+        <p class="ask">“Change the background animation to orange blending with black.”</p>
+        <p class="meta"><span class="chip was">APPLIED 15 SEP</span><span class="chip no">REFUSED TODAY</span>
+          <span class="cost">Gemini, paid key · $0.0328</span></p>
+        <ul class="m no">
+          <li>The glow was rebuilt from <span class="num">8</span> layers to <span class="num">3</span> — not the same shape</li>
+          <li>Lightness fell <span class="num">−39</span> over <span class="num">42%</span> of the page: the
+            white → blue → black blend became orange that only darkens, exactly what you spotted</li>
+          <li>The “• Launch app 10x faster” line became about 6× harder to read (contrast <span class="num">×0.16</span>)</li>
+          <li>AGM: <span class="num">13</span> differences, <span class="num">7</span> nothing in the request asked for</li>
+        </ul>
+        <p class="note plain"><b>Kept on this page</b> to show what the current checks refuse. It passed the checks that
+          existed then, which only measured which colours were present.</p>
+      </div>
+      <div class="viewer">
+        <div class="tabs" role="group" aria-label="Page shown">
+          <button type="button" aria-pressed="true" data-src="site-orange.html">Gemini's answer</button>
+          <button type="button" aria-pressed="false" data-src="site.html">Original</button>
+        </div>
+        <iframe src="site-orange.html" title="Gemini's orange background, now refused" loading="lazy"></iframe>
+      </div>
+    </section>
+
+    <section class="change">
+      <div>
+        <p class="label">Request 3, again · orange sky, done by Aethron alone</p>
+        <p class="ask">“Change the background animation to orange blending with black.”</p>
+        <p class="meta"><span class="chip">APPLIED</span><span class="cost">3 calls on free keys · $0.00</span></p>
+        <ul class="m">
+          <li>Same shape: every glow layer kept its size, position, stops and transparency — only the colours changed</li>
+          <li>Same light, band by band: black <span class="num">1→1</span>, dark <span class="num">20→20</span>, deep
+            <span class="num">40→40</span>, mid <span class="num">61→61</span>, light <span class="num">78→78</span>,
+            brightest <span class="num">95→95</span></li>
+          <li>Colours measured off the render: black <span class="num">48%</span>, white <span class="num">24%</span>,
+            orange <span class="num">20%</span> — orange and black <span class="num">68%</span></li>
+          <li>Still moving; the first frame matches the still design on <span class="num">100%</span>; AGM
+            <span class="num">2 of 2</span> differences explained</li>
+        </ul>
+        <p class="note"><b>Refused first:</b> the first run (4 free calls) was refused. Beside a correct colour claim,
+          its tests carried “the background is visible”, which already passed on the blue page, and that one test sank
+          the rest. That rule was wrong; it was fixed, and this run applied.</p>
+        <p class="note plain"><b>Look for yourself:</b> the orange is soft, closer to peach than vivid orange, because
+          every colour kept its own strength and the original glow's blues were pale. The chat card's shadow is still
+          blue: it belongs to the card, not the background animation, so it wasn't touched. Either can be its own
+          request, e.g. “make the orange more vivid” or “make the card's shadow match the sky”.</p>
+      </div>
+      <div class="viewer">
+        <div class="tabs" role="group" aria-label="Page shown">
+          <button type="button" aria-pressed="true" data-src="site-orange-live.html">Changed</button>
+          <button type="button" aria-pressed="false" data-src="site-orange.html">Gemini's answer</button>
+          <button type="button" aria-pressed="false" data-src="site.html">Original</button>
+        </div>
+        <iframe src="site-orange-live.html" title="Orange blending with black, same shape and light" loading="lazy"></iframe>
+      </div>
+    </section>
+
+    <section class="change text-only">
+      <div>
+        <p class="label">Request 4 · pop-up, first try</p>
+        <p class="ask">“Can you make the Mac OS button or the iOS button, or all four buttons, have a pop-up? If I hover on
+          it or click on it, it should pop up a smaller box with options.”</p>
+        <p class="meta"><span class="chip no">REFUSED</span><span class="cost">7 calls on free keys · $0.00</span></p>
+        <ul class="m no">
+          <li>The first tests only covered hovering; the blind reviewer said nothing checked “or click on it”</li>
+          <li>Then three code attempts each made a pop-up that <b>closed as soon as the pointer moved onto it</b>, so a
+            person could never reach its options</li>
+          <li>Nothing was kept — the page was left exactly as it was</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="change text-only">
+      <div>
+        <p class="label">Request 5 · loader</p>
+        <p class="ask">“When I click Generate, show a spinning loader inside the button for about 2 seconds, then show a
+          small message under the chat box saying ‘Your app is on its way’.”</p>
+        <p class="meta"><span class="chip no">REFUSED</span><span class="cost">3 calls on free keys · $0.00</span></p>
+        <ul class="m no">
+          <li>The tests left the message requirement out</li>
+          <li>The rewritten tests were refused by the blind reviewer: nothing checked that the loader stops after
+            “about 2 seconds”</li>
+          <li>No code was written, because the tests themselves did not pass review</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="change">
+      <div>
+        <p class="label">Request 6 · pop-up, done by Aethron alone</p>
+        <p class="ask">“Make the Mac OS button have a pop-up: when I hover on it or click on it, a smaller box pops up with
+          a few options.”</p>
+        <p class="meta"><span class="chip">APPLIED</span><span class="cost">8 calls on free keys · $0.00</span></p>
+        <ul class="m">
+          <li>Opens right under Mac OS with <b>Apple Silicon</b>, <b>Intel x64</b> and <b>Universal</b></li>
+          <li>Stays open with the pointer on it; closes when the pointer leaves, and on a click outside</li>
+          <li>Clicking Mac OS still toggles the chip; nothing else on screen changed; AGM <span class="num">6 of 6</span>
+            differences explained</li>
+          <li>Checked outside Aethron with a real mouse in a browser: opens, stays, closes</li>
+        </ul>
+        <p class="note"><b>Refused five times on the way:</b> its tests left words out; the reviewer said nothing checked
+          “click”; its first code failed its own hover test; its second carried a script nothing needed.</p>
+        <p class="note plain"><b>What it doesn't do:</b> “click” works only because pressing also hovers — there is no
+          click handler, so keyboard users can't open it, and the options do nothing yet. This request was worded more
+          narrowly than request 4.</p>
+      </div>
+      <div class="viewer">
+        <div class="tabs" role="group" aria-label="Page shown">
+          <button type="button" aria-pressed="true" data-src="site-popup-live.html">Changed</button>
+          <button type="button" aria-pressed="false" data-src="site.html">Original</button>
+        </div>
+        <iframe src="site-popup-live.html" title="Mac OS pop-up" loading="lazy"></iframe>
+        <p class="hint">Point at Mac OS inside the page, then move onto the box.</p>
+      </div>
+    </section>
+  </div>
+
+    <section class="change">
+      <div>
+        <p class="label">Eight more shapes · one after another</p>
+        <p class="ask">Text, colour, removal, size, a new badge, a hover glow, a loader, a spinning logo</p>
+        <p class="meta"><span class="chip">7 APPLIED</span><span class="chip no">1 REFUSED</span>
+          <span class="cost">free keys, then the paid key · $0.96 of a $1.50 ceiling</span></p>
+        <ul class="m">
+          <li><b>“Add a small ‘Free trial’ badge just above the chat box”</b> — a new element the design
+            never had. Its test failed before and passes after; the AGM's 5 differences are all part of
+            it. <span class="num">$0.00</span>, on free keys</li>
+          <li><b>“Remove the ‘• Launch app 10x faster’ line”</b> — claimed removed, measured gone</li>
+          <li><b>“Change the headline to say ‘Ship apps people love’”</b> — new words, and the width they
+            take allowed with them</li>
+          <li><b>“Make the Generate button a bit wider”</b> — <span class="num">150 → 165px</span>, its
+            label left exactly where it was</li>
+          <li><b>“When I click Generate, show a spinning loader for about 2 seconds”</b> — watched every
+            <span class="num">50ms</span>: it turns on click, and it stops</li>
+          <li><b>“Make the Generate button green”</b> — measured <span class="num">rgb(0,128,0)</span> in
+            the style <i>and</i> on screen</li>
+        </ul>
+        <p class="note"><b>Still refused:</b> “make the logo spin slowly” — the spin overrides what
+          clicking the logo used to do, and Aethron will not trade one behaviour for another silently.</p>
+      </div>
+      <div class="viewer">
+        <div class="tabs" role="group" aria-label="Page shown">
+          <button type="button" aria-pressed="true" data-src="site-loader.html">Loader</button>
+          <button type="button" aria-pressed="false" data-src="site-badge.html">Badge</button>
+          <button type="button" aria-pressed="false" data-src="site-text.html">Headline</button>
+          <button type="button" aria-pressed="false" data-src="site-size.html">Wider</button>
+          <button type="button" aria-pressed="false" data-src="site-remove.html">Removed</button>
+          <button type="button" aria-pressed="false" data-src="site-colour.html">Green</button>
+          <button type="button" aria-pressed="false" data-src="site.html">Original</button>
+        </div>
+        <iframe src="site-loader.html" title="A loader that spins for two seconds" loading="lazy"></iframe>
+        <p class="hint">Click Generate inside the page — the ring turns, then stops.</p>
+      </div>
+    </section>
+
+    <section class="change text-only">
+      <div>
+        <p class="label">What running them found</p>
+        <p class="ask">Four faults, none of which a passing test would have shown</p>
+        <ul class="m no">
+          <li><b>A colour nobody could see passed every check.</b> Green was set <i>under</i> the button's
+            gradient: the property said green, the button looked identical. Colour is now measured on the
+            rendered pixels, not just the style.</li>
+          <li><b>A spinner could not be claimed at all.</b> Every loader request was refused with “0 phrases
+            typed letter by letter”, because the only motion claim measured typed words. There is now a
+            claim that watches a thing move — and asks the browser what is animating, since under the
+            clock these renders use, a spinning ring reads as motionless.</li>
+          <li><b>New words were refused for taking different room</b>, some of it by
+            <span class="num">0.016</span> of a pixel.</li>
+          <li><b>A refusal that could not be reproduced.</b> 97,300 pixels “changed” for a 20px-wider
+            button; replaying that exact edit changed none. A difference is now checked against a second
+            render of the same page before it may refuse anything.</li>
+        </ul>
+        <p class="note plain"><b>Money:</b> a ceiling that survives restarts, counted down by real bills and
+          checked before any paid call. Free calls never touch it. You can see and change it in the studio.</p>
+      </div>
+    </section>
+
+  <footer>
+    <p>How a change is kept: the model writes the code and states what will be true afterwards. Aethron measures each
+      statement and holds it to the words asked. It uses the page like a person for anything that reacts. The AGM then
+      requires every other difference on the page to be explained by the request. Anything that fails goes back to the
+      model with the numbers; if it still fails, the page is left untouched.</p>
+    <section>
+      <h2>Earlier work on this project</h2>
+      <ul class="links">
+        <li><a href="https://claude.ai/code/artifact/122b71df-1e9d-4ef1-802d-1a632b4a8985" target="_blank" rel="noopener">Build Apps People Love replica<span>screenshot rebuilt by Aethron, 14 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/4ccda591-ac02-476d-810b-cee82e82a92c" target="_blank" rel="noopener">The smart way to manage replica<span>screenshot rebuild, 14 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/04107ec6-e04d-4106-8b39-a42bafdcff40" target="_blank" rel="noopener">Northwind pricing page<span>first live brief-to-page run, 14 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/4f8771d9-bf3a-4ff7-b942-2a4d33b5ee11" target="_blank" rel="noopener">Wezzi — Rebuilt as Code<span>12 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/d3a65532-f7c2-4f3f-bf62-d533c7e493b2" target="_blank" rel="noopener">Fintrixity Rebuilt<span>12 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/e51978cd-9cc5-49bd-8045-2c2da9efcf61" target="_blank" rel="noopener">Wezzi Rebuilt<span>11 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/de2cb1b5-93a9-43b6-acf3-58bf663c1eb0" target="_blank" rel="noopener">The Model Stops Drawing<span>11 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/28838e2b-7e8f-4585-afd5-37ac4befb388" target="_blank" rel="noopener">Six Lines Of Twenty-One<span>11 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/e0281cc9-7268-4a58-983e-69e80826142f" target="_blank" rel="noopener">Can A Cheap Model Do This<span>10 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/13ebeb9f-ccf3-4fc9-a596-378225512031" target="_blank" rel="noopener">Wezzi Rebuild Comparison<span>10 Sep</span></a></li>
+        <li><a href="https://claude.ai/code/artifact/7ccbad55-7379-49c3-b4b0-1f277e5a686e" target="_blank" rel="noopener">Aethron as a Coding Platform<span>10 Sep</span></a></li>
+      </ul>
+    </section>
+  </footer>
+</main>
+
+<script>
+document.querySelectorAll('.viewer').forEach(function (v) {
+  var frame = v.querySelector('iframe');
+  v.querySelectorAll('.tabs button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      v.querySelectorAll('.tabs button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      frame.src = b.dataset.src;
+    });
+  });
+});
+</script>
+
+</body></html>

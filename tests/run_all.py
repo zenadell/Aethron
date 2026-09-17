@@ -28,7 +28,13 @@ SUITES = [
                 "aethron_edit.py", "aethron_screen.py",
                 "aethron_web.py", "aethron_eye.py", "aethron_design.py",
                 "aethron_build.py", "aethron_flow.py",
-                "aethron_generate.py", "tests/run_all.py"], False),
+                "aethron_generate.py", "aethron_gradient.py",
+                "aethron_surface.py", "aethron_replicate.py",
+                "aethron_change.py", "tests/change_battery.py", "tests/interact_battery.py",
+                "aethron_spec.py", "tests/spec_battery.py", "tests/gemini_ring_battery.py",
+                "aethron_agm.py", "tests/agm_battery.py", "aethron_adopt.py",
+                "tests/adopt_battery.py",
+                "tests/alive_battery.py", "tests/run_all.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("self-update (in-place, never a second copy)",
@@ -59,6 +65,36 @@ SUITES = [
     # and proves an ALLOWED edit that damages the page is caught too.
     ("edit (can a model change the page without breaking it?)",
      [PY, "aethron_edit.py", "--selftest"], False),
+    # ANY change in the user's words, written as code — and kept only when every claim
+    # the model makes is measured true and matches the words it was given.
+    ("change (claims held to the request, offline)",
+     [PY, "aethron_change.py", "--selftest"], False),
+    ("change battery (honest replies land, lying ones are refused)",
+     [PY, "tests/change_battery.py"], True),
+    # Something that OPENS is used like a person uses it — hovered, reached, left, clicked,
+    # Escaped — and must not break the button it hangs from or cover the one beside it.
+    ("interact battery (does a pop-up work for a person?)",
+     [PY, "tests/interact_battery.py"], True),
+    # A request nobody built a check for: tests first, shown failing today, reviewed blind,
+    # then code every test must pass and every part of which must be needed.
+    ("spec (tests held to the request, offline)",
+     [PY, "aethron_spec.py", "--selftest"], False),
+    ("spec battery (a change nobody wired lands; fakes are refused)",
+     [PY, "tests/spec_battery.py"], True),
+    ("gemini ring battery (free keys first, no quota read as no credit)",
+     [PY, "tests/gemini_ring_battery.py"], False),
+    # The Automatic General Measure: record everything, diff everything, every difference must be
+    # explained by the request — including kinds of change nobody wrote a check for.
+    ("agm (every difference filed and explained, offline)",
+     [PY, "aethron_agm.py", "--selftest"], False),
+    ("agm battery (finds what no purpose-built check could)",
+     [PY, "tests/agm_battery.py"], True),
+    # Every measured path reads [data-ae-id], and Aethron stamped those only on pages it
+    # built itself — so a user's own site was unreadable and therefore unchangeable.
+    ("adopt (any page becomes measurable, offline)",
+     [PY, "aethron_adopt.py", "--selftest"], False),
+    ("adopt battery (and ids on the WRONG elements change no pixels)",
+     [PY, "tests/adopt_battery.py"], True),
     # The owner's correction: a rebuild that matches a screenshot
     # perfectly has faithfully reproduced its blur and its complete
     # absence of behaviour. This asks whether the output is a WEBSITE.
@@ -81,6 +117,10 @@ SUITES = [
      [PY, "tests/flow_battery.py"], True),
     ("edit battery (is collateral damage actually noticed?)",
      [PY, "tests/edit_battery.py"], True),
+    # A background that moves is only a feature if frame 0 is still the
+    # fitted design and the motion is measured, not assumed.
+    ("alive battery (does the background move, and rest on the design?)",
+     [PY, "tests/alive_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and
@@ -139,10 +179,19 @@ def _run(cmd):
 def main():
     quick = "--quick" in sys.argv
     rows, failed, unproven = [], 0, 0
+    # SAY WHAT IS HAPPENING WHILE IT HAPPENS. The table was printed only at the very end, so
+    # a forty-minute run produced not one line until it finished — indistinguishable from a
+    # hang, which is the worst thing a test harness can look like, and the same
+    # reporting-blindness this project has now recorded five times. One line per suite, and
+    # one before it starts, so a stall names the suite it stalled in.
+    total = sum(1 for _, _, s in SUITES if not (quick and s))
+    done = 0
     for name, cmd, slow in SUITES:
         if quick and slow:
             rows.append((name, "skipped", 0))
             continue
+        done += 1
+        print(f"[{done}/{total}] {name} …", flush=True)
         ok, out, dt, slept = _run(cmd)
         if slept:
             # A RESULT THAT CROSSED A SLEEP IS NOT A RESULT. Measured
@@ -183,6 +232,7 @@ def main():
             note = why.split("SKIPPED", 1)[-1].lstrip(" —-:")
             rows.append((name, ("SKIP  " + note)[:78], dt))
             unproven += 1
+            print(f"      SKIP ({dt:.0f}s) — {note[:60]}", flush=True)
             continue
         failed += not ok
         # KEEP THE WHOLE STORY OF A FAILURE. Only the last twelve lines
@@ -202,6 +252,8 @@ def main():
         rows.append((name, ("PASS  " + summary.strip())[:78] if ok
                      else ("FAIL  " + "\n".join(tail[-12:]))[:1200] + saved,
                      dt))
+        print(f"      {'PASS' if ok else 'FAIL'} ({dt:.0f}s) "
+              f"{summary.strip()[:58]}", flush=True)
     print("\n" + "=" * 70)
     for name, res, dt in rows:
         print(f"{name:52} {dt:5.1f}s  {res}")

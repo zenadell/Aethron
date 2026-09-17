@@ -209,6 +209,58 @@ def mark_exhausted(key: str) -> None:
             pass
 
 
+WALLET = ROOT / "aethron_spend.json"   # real money, counted down across runs
+DEFAULT_WALLET = 1.00                  # what an unconfigured Aethron may spend, ever
+
+
+def wallet(cfg: dict = None) -> dict:
+    """What Aethron is still allowed to spend, in dollars.
+
+    A per-run budget caps ONE run. It cannot stop twenty runs from emptying a card, which is
+    how prepaid credit actually disappears: never in one call, always in a hundred reasonable
+    ones. The ceiling lives here instead — counted down by REAL usage, written to disk, so it
+    survives restarts and is enforced by the code rather than remembered by whoever is driving.
+    """
+    cfg = {**load(), **(cfg or {})}
+    try:
+        st = json.loads(WALLET.read_text(encoding="utf-8"))
+    except Exception:
+        st = {}
+    limit = (os.environ.get("AETHRON_WALLET_USD") or cfg.get("wallet_usd")
+             or st.get("limit_usd") or DEFAULT_WALLET)
+    # NOT ROUNDED. A rounded balance fed back into the next addition drifts away from the bill,
+    # and money is the one number in this project that may not be approximated. Round to print.
+    limit, spent = float(limit), float(st.get("spent_usd") or 0.0)
+    return {"limit_usd": limit, "spent_usd": spent, "left_usd": max(0.0, limit - spent),
+            "calls": int(st.get("calls") or 0), "since": st.get("since") or _today()}
+
+
+def wallet_spend(usd: float) -> dict:
+    """Record money the provider actually charged. Called AFTER a paid reply, never before —
+    an estimate must gate the call, but only the bill may reduce what is left."""
+    w = wallet()
+    st = {"limit_usd": w["limit_usd"], "spent_usd": w["spent_usd"] + max(0.0, float(usd)),
+          "calls": w["calls"] + 1, "since": w["since"]}
+    try:
+        WALLET.write_text(json.dumps(st, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return st
+
+
+def wallet_set(limit_usd: float, keep_spent: bool = False) -> dict:
+    """Set the ceiling. By default the count starts again from zero."""
+    w = wallet()
+    st = {"limit_usd": round(float(limit_usd), 4),
+          "spent_usd": w["spent_usd"] if keep_spent else 0.0,
+          "calls": w["calls"] if keep_spent else 0, "since": _today()}
+    try:
+        WALLET.write_text(json.dumps(st, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+    return st
+
+
 def free_ring(cfg: dict = None) -> list:
     """The free keys, in order. `api_keys` is exactly this list."""
     cfg = {**load(), **(cfg or {})}

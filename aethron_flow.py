@@ -585,6 +585,15 @@ def flow(html, name="site", verbose=True, src=None,
     ir = SC.page_ir(html, name)
     canvas = ir["canvas"]
     els = ir["elements"]
+    # A BACKGROUND THAT IS ALREADY CODE STAYS CODE. The replicate command writes the
+    # page's light as radial gradients in percentages, which scale with any width; the
+    # plate below was built for rebuilds whose ground was a picture, and running it here
+    # turned a pure-code background — the thing the owner asked about — back into a PNG.
+    css_bg = None
+    _pm = re.search(r"\.page\{[^}]*?background:(radial-gradient\(.*?)\}", html, re.S)
+    if _pm and "url(" not in _pm.group(1):
+        css_bg = _pm.group(1).strip()
+    alive = re.search(r"<style data-ae-alive[^>]*>.*?</style>", html, re.S)
     rects = measure(src) if src else {}
     if rects:
         for e in els:
@@ -625,7 +634,10 @@ def flow(html, name="site", verbose=True, src=None,
     # So flow builds its own plate from the ORIGINAL, coarse enough that
     # there is nothing legible left to ghost.
     ground = None
-    if original:
+    if css_bg:
+        say(f"  background kept as code: {css_bg.count('radial-gradient(')} radial gradient(s)"
+            + (" and their motion" if alive else "") + " — no picture of the page")
+    if original and not css_bg:
         try:
             _txt, _solid = [], []
             for e in els:
@@ -652,7 +664,7 @@ def flow(html, name="site", verbose=True, src=None,
                 f"({len(pb) / 1024:.0f}KB) — nothing left to ghost")
         except Exception as e:                       # pragma: no cover
             say(f"  the background could not be rebuilt ({e})")
-    if ground is None:
+    if ground is None and not css_bg:
         for e in back:
             bg = e["style"].get("background-image", "")
             m = re.search(r"url\(([^)]+)\)", bg)
@@ -751,6 +763,11 @@ def flow(html, name="site", verbose=True, src=None,
     elif isinstance(ground, dict) and ground.get("ref"):
         _ground_ref = ground["ref"]
 
+    shell_bg = ""
+    bg_size = f"100% min({canvas['h'] / canvas['w'] * 100:.3f}vw,{canvas['h']}px)"
+    if css_bg:
+        shell_bg = (f"background:{css_bg};background-size:{bg_size};"
+                    "background-repeat:no-repeat;background-position:top center;")
     body_css = f"""
 *,*::before,*::after{{box-sizing:border-box}}
 html{{-webkit-text-size-adjust:100%}}
@@ -766,7 +783,7 @@ body{{margin:0;background:{ir['background']};min-height:100vh;
  max-width:{canvas['w']}px;margin:0 auto;
  {"background-image:url(" + _ground_ref + ");"
   "background-size:100% auto;background-position:top center;"
-  "background-repeat:no-repeat;" if _ground_ref else ""}}}
+  "background-repeat:no-repeat;" if _ground_ref else shell_bg}}}
 /* THE CONTAINER IS THE CANVAS, AND THE MARGINS ARE THE MEASURED ONES.
    Writing max-width:{col} here with the measured side padding starved
    the page to {max(0, col - 2 * L)}px of content under border-box, and
@@ -836,6 +853,12 @@ button{{border:0;cursor:pointer}}
     # a perfect framework port for being graded off file://.
     out = out.replace('src="/assets/', 'src="assets/') \
              .replace("url(/assets/", "url(assets/")
+    if alive and css_bg:
+        # the motion moves the same glows on the element that now holds them
+        _blk = alive.group(0).replace(".page{", ".shell{")
+        _blk = _blk.replace(";animation:", f";background-size:{bg_size};background-repeat:no-repeat;"
+                                           "background-position:top center;animation:", 1)
+        out = out.replace("</head>", _blk + "</head>", 1)
     return {"html": out, "column": [L, R], "bands": len(bs),
             "ground_bytes": (ground or {}).get("bytes"),
             "paragraphs": merged,

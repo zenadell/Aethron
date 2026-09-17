@@ -46,6 +46,17 @@ a = Analysis(
         "aethron_vision",
         # Figma: a design file is an L0 source like a live site is.
         "aethron_figma", "aethron_figma_grade",
+        # THE CHANGE STACK. A user's own words turned into code, kept only when measured
+        # true — and the seam that makes it work on a page Aethron did NOT build. Every one
+        # of these is imported INSIDE a function (forge.cmd_adopt, studio's design job,
+        # forge_mcp's handlers), and the bundle that shipped before them was six days stale:
+        # the whole capability existed in dev and in nothing a user could download. Named
+        # explicitly rather than trusted to bytecode-walking, because this file's history
+        # has that exact lesson twice already.
+        "aethron_adopt", "aethron_change", "aethron_spec", "aethron_agm",
+        "aethron_replicate", "aethron_surface", "aethron_gradient",
+        "aethron_edit", "aethron_screen", "aethron_flow", "aethron_web",
+        "aethron_eye", "aethron_design", "aethron_build", "aethron_generate",
         "statistics",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
         "fontTools.pens.transformPen", "brotli",

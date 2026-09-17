@@ -59,6 +59,18 @@ FROZEN = bool(getattr(sys, "frozen", False))
 HOME = Path(os.environ.get("AETHRON_HOME", ROOT)).resolve()
 PROJECTS = HOME / "projects"
 LIBRARY = HOME / "library"   # design cards: fingerprints, never files
+PAGES = HOME / "pages"       # a screenshot, measured into a page, changed in words
+
+
+def design_pages():
+    """Every page a screenshot became, newest first."""
+    out = []
+    if not PAGES.exists():
+        return out
+    for p in sorted(PAGES.glob("*/site.html"), key=lambda f: -f.stat().st_mtime):
+        out.append({"name": p.parent.name, "when": int(p.stat().st_mtime),
+                    "bytes": p.stat().st_size})
+    return out
 WORKSPACES = HOME / "workspaces"   # code workspaces (not migrations)
 
 # The coding layer is optional at import time: a broken/absent
@@ -688,6 +700,16 @@ OVERLAY_JS = """<script data-forge-editor>(function(){
 var PICKING=true,HOVERMODE='freeze';  // freeze | sticky | live
 window.__forgeState=function(){return {picking:PICKING,hover:HOVERMODE}};
 window.addEventListener('message',function(e){
+  /* THE RING IS DRAWN OUTSIDE THIS DOCUMENT, so only this side knows
+     where the element actually is after a resize. Without this the ring
+     keeps the geometry it had when you hovered — the owner watched it
+     stay small after the window grew, and had to re-hover to fix it. */
+  if(e.data&&e.data.forge==='remeasure'){
+    var q=cur&&cur.getBoundingClientRect?cur.getBoundingClientRect():null;
+    parent.postMessage({forge:'hover',rect:q?{t:q.top,b:q.bottom,
+      l:q.left,r:q.right}:null},'*');
+    return;
+  }
   if(e.data&&e.data.forge==='mode'){
     PICKING=!!e.data.picking;
     if(e.data.hover){
@@ -744,7 +766,12 @@ function stickyEnter(x,y){
 }
 window.__forgeHover=stickyEnter;
 var st=document.createElement('style');
-st.textContent='.__forge-hl{outline:2px dashed #f59e0b !important;'+
+/* THE RING IS DRAWN BY THE PARENT NOW, so this in-page outline was a
+   SECOND indicator sitting under the first — the bulky dashed box the
+   owner could see beneath the new one. Kept as a no-op class so every
+   existing add/remove call still works, and so the legacy preview tab
+   (which has no parent ring) still shows something. */
+st.textContent='.__forge-hl{outline:1px solid rgba(217,119,87,.35) !important;'+
  'outline-offset:2px;cursor:crosshair !important}'+
  '.__forge-target{outline:3px solid #34d399 !important;'+
  'outline-offset:2px}'+
@@ -821,6 +848,17 @@ document.addEventListener('mousemove',function(e){
   var el=p?p.el:null;
   if(cur&&cur!==el)cur.classList.remove('__forge-hl');
   if(el)el.classList.add('__forge-hl');
+  /* ONE RING, MORPHING. A dashed outline stamped on each element in turn
+     snaps from thing to thing; the parent draws a single ring instead
+     and springs it between them, which is the same idea as Apple's
+     glassEffectID morph and reads as one object moving rather than a
+     border being switched on and off. The rect goes out on every move
+     because only the parent can animate across the iframe boundary. */
+  if(el!==cur||!el){
+    var q=el?el.getBoundingClientRect():null;
+    parent.postMessage({forge:'hover',rect:q?{t:q.top,b:q.bottom,
+      l:q.left,r:q.right}:null},'*');
+  }
   cur=el;
 },true);
 function cssPath(el){
@@ -873,15 +911,17 @@ document.addEventListener('click',function(e){
   }
   var p=findPick(e.clientX,e.clientY);
   if(!p)return;
+  var _r=p.el&&p.el.getBoundingClientRect?p.el.getBoundingClientRect():null;
+  var _rect=_r?{t:_r.top,b:_r.bottom,l:_r.left,r:_r.right}:null;
   e.preventDefault();e.stopPropagation();
   if(p.kind==='images')
-    parent.postMessage({forge:'pick',kind:'images',srcs:p.srcs,
+    parent.postMessage({forge:'pick',kind:'images',srcs:p.srcs,x:e.clientX,y:e.clientY,rect:_rect,
       el:elInfoFull(p.el)},'*');
   else if(p.kind==='container')
-    parent.postMessage({forge:'pick',kind:'container',huge:!!p.huge,
+    parent.postMessage({forge:'pick',kind:'container',huge:!!p.huge,x:e.clientX,y:e.clientY,rect:_rect,
       el:elInfoFull(p.el)},'*');
   else
-    parent.postMessage({forge:'pick',kind:'string',text:p.text,
+    parent.postMessage({forge:'pick',kind:'string',text:p.text,x:e.clientX,y:e.clientY,rect:_rect,
       texts:p.texts,el:elInfoFull(p.el)},'*');
 },true);
 })();</script>"""
@@ -1044,6 +1084,31 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/auth/me":
                 s = self._session()
                 return self.send_json({"email": s["email"]} if s else {}, 200)
+            if u.path == "/api/design/list":
+                return self.send_json({"pages": design_pages()})
+            if u.path == "/api/wallet":
+                import aethron_brain as _brain
+                return self.send_json(_brain.wallet())
+            if u.path.startswith("/design/"):
+                # The page itself, for the preview frame. Served from HOME/pages,
+                # never from anywhere a crafted name could reach.
+                rel = urllib.parse.unquote(u.path[len("/design/"):])
+                p = (PAGES / rel).resolve()
+                if not str(p).startswith(str(PAGES.resolve())) or not p.is_file():
+                    return self.fail("no such page", 404)
+                body = p.read_bytes()
+                kind = {".html": "text/html; charset=utf-8", ".png": "image/png",
+                        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                        ".webp": "image/webp", ".svg": "image/svg+xml",
+                        ".json": "application/json", ".css": "text/css",
+                        ".js": "text/javascript"}
+                self.send_response(200)
+                self.send_header("Content-Type",
+                                 kind.get(p.suffix.lower(), "application/octet-stream"))
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return self.wfile.write(body)
             if u.path == "/api/auth/google/start":
                 # DIRECT flow: our own Google client → the consent screen
                 # reads "Aethron", and it works from a native app window
@@ -1604,8 +1669,29 @@ class Handler(BaseHTTPRequestHandler):
                 if not brain:
                     return self.fail("AI settings unavailable")
                 saved = brain.save(body.get("ai") or {})
-                brain.shutdown_bridge()   # next session picks up the change
-                self.send_json({"ok": True, "ai": {**saved, "api_key":
+                # THE BUG THIS FIXES, AND IT COST DAYS:
+                # a session's endpoint is baked into its child process
+                # environment at spawn (ANTHROPIC_BASE_URL), so a running
+                # CLI points at ONE bridge for its whole life. Saving
+                # settings shuts that bridge down — correctly, the next
+                # session must not reuse it — but any session already
+                # open then POSTs into a dead socket. No response, no
+                # error, no timeout the user can see: the turn simply
+                # hangs on "Thinking" forever.
+                # A session is bound to the key it started with, so the
+                # honest thing is to end it. The next prompt opens a
+                # fresh one on the new endpoint.
+                ended = 0
+                for _k, _s in list(CODE_SESSIONS.items()):
+                    try:
+                        _s.close()
+                        ended += 1
+                    except Exception:
+                        pass
+                    CODE_SESSIONS.pop(_k, None)
+                brain.shutdown_bridge()   # only now is it safe to stop
+                self.send_json({"ok": True, "ended": ended,
+                                "ai": {**saved, "api_key":
                                 ("set" if saved.get("api_key") else "")}})
             # ---- code layer -----------------------------------------
             elif u.path == "/api/code/start":
@@ -1956,6 +2042,118 @@ class Handler(BaseHTTPRequestHandler):
                 filled = extract_json(body.get("text", ""))
                 applied, errors = merge_fill(d, filled)
                 self.send_json({"applied": applied, "errors": errors})
+            elif u.path == "/api/wallet":
+                # THE CEILING IS THE OWNER'S TO SET. It counts down by real charges and survives
+                # restarts, so it is the one number that decides whether a card can be emptied.
+                import aethron_brain as _brain
+                try:
+                    limit = float(body.get("limit_usd"))
+                except (TypeError, ValueError):
+                    return self.fail("give the ceiling in dollars, e.g. 2.50")
+                if not 0 <= limit <= 1000:
+                    return self.fail("a ceiling between $0 and $1000, please")
+                _brain.wallet_set(limit, keep_spent=bool(body.get("keep_spent")))
+                return self.send_json(_brain.wallet())
+            elif u.path == "/api/design/new":
+                # A SCREENSHOT BECOMES A PAGE. Every number in it is measured off
+                # the image — a model reading a size off a picture is right about
+                # 8% of the time, so no model is asked for one.
+                img = Path(str(body.get("image") or ""))
+                if not img.is_file():
+                    return self.fail("paste or choose an image first")
+                name = re.sub(r"[^a-z0-9-]+", "-",
+                              str(body.get("name") or img.stem).lower()).strip("-") or "page"
+                out = PAGES / name
+                fast = bool(body.get("fast"))
+
+                def job(append):
+                    import aethron_replicate as R
+                    import contextlib
+                    append(f"measuring {img.name} …")
+
+                    class Stream(io.TextIOBase):
+                        """The rebuild says what it is doing; without this it said it to a
+                        console no user has, and the view showed one line for fifteen minutes.
+                        A silent box is indistinguishable from a hang."""
+                        buf = ""
+
+                        def write(self, s):
+                            self.buf += s
+                            while "\n" in self.buf:
+                                line, self.buf = self.buf.split("\n", 1)
+                                if line.strip():
+                                    append(line.rstrip())
+                            return len(s)
+                    with contextlib.redirect_stdout(Stream()):
+                        rep = R.replicate(img, out, fast=fast)
+                    for k in ("verdict", "why", "identical", "background", "checklist",
+                              "hand_entered_values"):
+                        if rep.get(k) is not None:
+                            append(f"  {k}: {rep[k]}")
+                    if rep.get("verdict") != "BUILT":
+                        append("\nNOT BUILT — the page was not handed over.")
+                    return rep.get("verdict") == "BUILT"
+                return self.send_json({"job": start_fn_job(
+                    job, f"building a page from {img.name}\n"), "name": name})
+            elif u.path == "/api/design/change":
+                # ANY CHANGE, IN THE USER'S OWN WORDS. Tests are written first, the
+                # code must pass them, and every difference on the page must be
+                # explained by the request — or the page is left exactly as it was.
+                name = str(body.get("name") or "")
+                page = PAGES / name / "site.html"
+                if not page.is_file():
+                    return self.fail("no such page")
+                ask = str(body.get("request") or "").strip()
+                if not ask:
+                    return self.fail("say what you want changed")
+                budget = float(body.get("budget") or 0)
+
+                def job(append):
+                    import aethron_adopt as AD
+                    import aethron_change as AC
+                    import aethron_spec as SP
+                    work = Path(tempfile.mkdtemp(prefix="ae-studio-change-"))
+                    append(f"“{ask}”\n")
+                    # ANY PAGE, NOT ONLY THE ONES AETHRON BUILT. A page carrying no
+                    # measurable elements is unread, not unchangeable — stamp it first,
+                    # and only if the stamping is proven invisible and proven to have
+                    # landed on the elements it was picked for.
+                    if AD.needs_adopting(page.read_text(encoding="utf-8")):
+                        append("this page has no measurable elements yet — reading it "
+                               "in a browser and naming them…\n")
+                        rep = AD.adopt(page, write=True, log=lambda *a: append(
+                            " ".join(str(x) for x in a) + "\n"))
+                        out = []
+                        AD.report(rep, out.append)
+                        append("\n".join(out) + "\n")
+                        if not rep.get("verdict", "").startswith(("ADOPTED", "ALREADY")):
+                            append("\nNOT ASKED — the page could not be made measurable, "
+                                   "so nothing was asked of a model and it is untouched.")
+                            return False
+                    AC.set_asset_base(page.parent)
+                    AC.serve_assets(page.parent)
+                    try:
+                        res = SP.build(page.read_text(encoding="utf-8"), ask, work,
+                                       budget_usd=budget)
+                    finally:
+                        # The studio outlives the job. A folder left served would keep a
+                        # local port open on the user's project and silently decide how
+                        # every later render resolves its assets.
+                        AC.set_asset_base(None)
+                        AC.stop_serving()
+                    append(SP.report(res))
+                    if res.get("verdict") == "APPLIED":
+                        hist = PAGES / name / ".history"
+                        hist.mkdir(exist_ok=True)
+                        (hist / f"{time.time():.6f}.html").write_text(
+                            page.read_text(encoding="utf-8"), encoding="utf-8")
+                        page.write_text(res["html"], encoding="utf-8")
+                        append("\nthe page was changed; the version before it is in "
+                               ".history")
+                    else:
+                        append("\nthe page was left exactly as it was.")
+                    return res.get("verdict") == "APPLIED"
+                return self.send_json({"job": start_fn_job(job, "")})
             elif u.path == "/api/heal":
                 # deterministic self-heal for broken fills (zero-effect
                 # or hydration-revert): flex upgrade / source-casing /
@@ -2994,6 +3192,23 @@ INDEX_HTML = r"""<!doctype html>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 :root{
+/* ── THE SYSTEM FACE ────────────────────────────────────────────────
+   On macOS `-apple-system` resolves to SF Pro — the actual typeface
+   iOS and macOS are set in, already on the machine, correctly hinted
+   and optically sized. Aethron was loading Inter from Google Fonts,
+   which is a very good face DESIGNED to look like it. Wearing a copy
+   of Apple's font while asking to feel like Apple is the wrong way
+   round: ask for the system and a Mac hands you the real one. Inter
+   stays as the fallback so Windows and Linux still look deliberate. */
+--ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",
+     "Segoe UI Variable Text",Inter,system-ui,sans-serif;
+--display:-apple-system,BlinkMacSystemFont,"SF Pro Display",Inter,
+     system-ui,sans-serif;
+/* iOS rounds bigger than the web habitually does, and the corners are
+   CONCENTRIC: an inner radius equals the outer minus the gap between
+   them, which is why nested cards there never look like two unrelated
+   rectangles. */
+--r-xs:8px;--r-sm:11px;--r-md:14px;--r-lg:20px;--r-xl:26px;--r-pill:999px;
 --bg:#0b0b0c;--panel:#151417;--panel2:#1c1b1f;--field:#100f11;
 --line:#26252a;--line2:#35333a;
 --tx:#eceaf0;--dim:#a5a2ad;--lo:#78757f;--u:4px;
@@ -3012,7 +3227,7 @@ border:3px solid var(--bg)}
 ::-webkit-scrollbar-thumb:hover{background:rgba(148,163,184,.3)}
 ::-webkit-scrollbar-track{background:transparent}
 body{display:flex;height:100vh;background:var(--bg);color:var(--tx);
-font:14px/1.55 Inter,-apple-system,system-ui,sans-serif;overflow:hidden;
+font:14px/1.55 var(--ui);overflow:hidden;
 -webkit-font-smoothing:antialiased;letter-spacing:.005em}
 button,input,select,textarea{font:inherit}
 .ic{flex:none;pointer-events:none}
@@ -3047,7 +3262,16 @@ display:flex;align-items:center;gap:8px}
 .brand .bmark{width:20px;height:20px;object-fit:contain;flex:none}
 .brand b{color:var(--tx)}
 .brand span{color:var(--dim);font-weight:500;font-size:13px}
-#plist{flex:1;overflow-y:auto;padding:10px}
+#plist{flex:1;overflow-y:auto;padding:10px;display:flex;
+  flex-direction:column}
+/* An empty list is a moment to explain the product, not a place to put
+   one grey line at the top of 900px of nothing. */
+.sideempty{margin:auto;padding:24px 14px;text-align:center;color:var(--lo);
+  font-size:12.5px;line-height:1.65}
+.sideempty .mk{display:block;margin:0 auto 12px;width:30px;height:30px;
+  border-radius:9px;display:grid;place-items:center;
+  background:var(--panel2);color:var(--dim)}
+.sideempty b{display:block;color:var(--dim);font-weight:500;margin-bottom:4px}
 .pitem{padding:11px 12px;border-radius:var(--r);cursor:pointer;display:flex;
 justify-content:space-between;align-items:center;gap:8px;
 border:1px solid transparent;transition:all .18s var(--ease);
@@ -3145,17 +3369,30 @@ background:rgba(28,27,25,.85);backdrop-filter:blur(14px);z-index:5}
 #ptitle{font-weight:700;font-size:15px;letter-spacing:-.015em}
 .steps{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;
 align-items:center}
-.step{display:flex;align-items:center;gap:6px;font-size:12.5px;
+/* SCOPED, BECAUSE `.step` MEANS TWO DIFFERENT THINGS NOW. These are the
+   header's PILL CHIPS. The run card's rows, added with the conversation,
+   reuse the same class name — and unscoped, they inherited this pill's
+   `border-radius:99px` (the new rule resets `border` but never the
+   radius) and this `:hover`, which lifts the row 1px and turns it
+   terracotta INSIDE a card with `overflow:hidden`. Measured on the run
+   card: every row computed 99px. A class name is an interface; two
+   components cannot share one. */
+.steps .step,.stepchips .step{display:flex;align-items:center;gap:6px;
+font-size:12.5px;
 padding:6.5px 13px;border:1px solid var(--line2);border-radius:99px;
 cursor:pointer;color:var(--dim);font-weight:500;
 transition:all .16s var(--ease)}
-.step:hover{border-color:rgba(217,119,87,.55);color:var(--acc2);
+.steps .step:hover,.stepchips .step:hover{
+border-color:rgba(217,119,87,.55);color:var(--acc2);
 transform:translateY(-1px)}
-.step.done{color:var(--ok);border-color:rgba(74,222,128,.3);
+.steps .step.done,.stepchips .step.done{color:var(--ok);
+border-color:rgba(74,222,128,.3);
 background:rgba(74,222,128,.06)}
-.step.run{color:var(--acc2);border-color:rgba(217,119,87,.55);
+.steps .step.run,.stepchips .step.run{color:var(--acc2);
+border-color:rgba(217,119,87,.55);
 background:rgba(217,119,87,.10)}
-.step.run::before{content:"";width:9px;height:9px;border-radius:50%;
+.steps .step.run::before,.stepchips .step.run::before{content:"";
+width:9px;height:9px;border-radius:50%;
 border:2px solid var(--acc);border-top-color:transparent;
 animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(1turn)}}
@@ -3390,9 +3627,9 @@ input:focus,textarea:focus,select:focus{border-color:var(--tx);
 .empty{display:flex;min-height:70vh;padding:56px 24px;overflow:auto;
   text-align:left;color:var(--dim)}
 .focal{margin:auto;width:100%;max-width:600px}
-.focal h1{font-size:32px;line-height:1.18;letter-spacing:-.02em;
+.focal h1,#welcome h1{font-size:32px;line-height:1.18;letter-spacing:-.02em;
   font-weight:600;color:var(--tx);margin:0 0 12px}
-.focal .sub{font-size:13px;line-height:1.6;color:var(--dim);
+.focal .sub,#welcome .sub{font-size:13px;line-height:1.6;color:var(--dim);
   margin:0 0 32px;max-width:52ch}
 
 .startrow{display:flex;gap:8px;align-items:center;margin-bottom:12px}
@@ -3404,7 +3641,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--tx);
 .startrow button.primary [data-ic]{transform:rotate(90deg)}
 
 .startmeta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
-  font-size:12px;color:var(--lo);margin-bottom:40px}
+  font-size:12px;color:var(--lo);margin-bottom:22px}
 .startmeta input{height:32px;padding:0 10px;font-size:12px;
   background:transparent;border:1px solid var(--line);border-radius:8px;
   color:var(--tx)}
@@ -3432,11 +3669,1266 @@ input:focus,textarea:focus,select:focus{border-color:var(--tx);
 .srows{margin:16px 0 0;padding:0 6px}
 .srows .qrow{padding:11px 8px;font-size:12.5px}
 
-@media (max-width:900px){.focal h1{font-size:24px}}
+@media (max-width:900px){.focal h1,#welcome h1{font-size:24px}}
 
-/* the conversation lives where the welcome was */
-.clog{max-height:46vh;overflow:auto;margin:0 0 16px;display:flex;
-  flex-direction:column;gap:10px}
+/* ══ THE CONVERSATION ═══════════════════════════════════════════════
+   ONE SURFACE. The person says what they want in their own words and
+   Aethron works out whether that is a migration, a framework port, a
+   screenshot rebuild or a coding job — there is no mode to choose and
+   nothing to switch to.
+
+   TWO THINGS ARE KEPT APART, because they are different things and
+   merging them gives an interface that is neither a conversation nor a
+   progress report:
+     WHAT IT SAYS    prose, unboxed, generous leading — a reply
+     WHAT IT DOES    compact steps in a run card, each naming the REAL
+                     file or command, folded away until asked for
+   Raw tool JSON and the CLI's own chatter are never the surface. They
+   are the truth underneath it, one click down.
+
+   AND THE COMPOSER IS PINNED. It used to sit in normal flow after a
+   46vh log, so on a tall window it fell below the fold — the single
+   most important control in the product, invisible unless you thought
+   to scroll. It now owns its own dock and cannot be pushed anywhere. */
+#content.conv-host{flex:1;min-height:0;display:flex;flex-direction:column;
+  padding:0;overflow:hidden}
+.conv-shell{display:flex;flex-direction:column;flex:1;min-height:0}
+.conv-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;
+  padding:26px 24px 6px;scroll-behavior:smooth}
+/* ══ THE OPENING ═══════════════════════════════════════════════════
+   BEFORE THERE IS A CONVERSATION THERE IS NO DOCK. Pinning the composer
+   to the floor is right once there is a log above it and wrong before
+   there is anything at all: it strands the composer at the bottom of
+   the window, far from the words it belongs to, with a dead void
+   between them. First it was top-aligned and the void was underneath;
+   then bottom-aligned and the void was on top. Both were the same
+   mistake — treating two halves of one thought as two regions.
+   Empty, they are ONE GROUP, centred: headline, the thing you type in,
+   and the ways in. The floor is only a floor when something stands on
+   it. */
+/* Centred with AUTO MARGINS, not justify-content. On a window shorter
+   than the group, `justify-content:center` overflows both ends and the
+   top becomes unreachable — measured at 320px tall, the composer sat
+   outside the viewport with no way to scroll to it. Auto margins centre
+   when there is room and yield to scrolling when there is not. */
+.conv-shell:not(.talking){overflow-y:auto}
+.conv-shell:not(.talking) .conv-scroll{flex:0 0 auto;overflow:visible;
+  padding:0 24px;margin-top:auto}
+.conv-shell:not(.talking) .conv-dock{margin-bottom:auto}
+.conv-shell:not(.talking) .conv-dock{background:none;padding:14px 24px 0}
+.conv-shell:not(.talking) .conv-wrap{max-width:680px}
+/* the group breathes in on arrival rather than simply being there */
+.conv-shell:not(.talking) #welcome,
+.conv-shell:not(.talking) .conv-dock{
+  animation:fadeup .6s cubic-bezier(.22,.9,.28,1) both}
+.conv-shell:not(.talking) .conv-dock{animation-delay:.07s}
+.conv-wrap{width:100%;max-width:760px;margin:0 auto}
+.conv-dock{flex:none;padding:8px 24px 16px;
+  background:linear-gradient(to top,var(--bg) 62%,transparent)}
+
+/* the composer */
+/* THE COMPOSER IS THE FOCAL POINT, so it carries its own light: a warm
+   bloom beneath it that lifts it off the field, and a ring that answers
+   the moment you put the cursor in it. */
+.composer{position:relative;display:flex;gap:8px;align-items:flex-end;
+  padding:8px 8px 8px 14px;
+  background:var(--field);border:1px solid var(--line2);border-radius:16px;
+  transition:border-color .22s var(--ease),box-shadow .28s var(--ease),
+             transform .22s cubic-bezier(.22,.9,.28,1)}
+.composer::before{content:"";position:absolute;inset:-34px -18px -26px;
+  z-index:-1;pointer-events:none;border-radius:34px;
+  background:radial-gradient(56% 120% at 50% 62%,
+    rgba(217,119,87,.17),transparent 72%);
+  opacity:.75;transition:opacity .4s var(--ease)}
+.composer:focus-within{border-color:rgba(217,119,87,.55);
+  box-shadow:0 0 0 3px rgba(217,119,87,.13),0 10px 34px rgba(0,0,0,.34);
+  transform:translateY(-1px)}
+.composer:focus-within::before{opacity:1}
+/* ── border-beam, from libraries.dev ────────────────────────────────
+   MIT License · Copyright (c) 2026 Jakub Antalik
+   https://github.com/Jakubantalik/Libraries.dev
+
+   This is the author's OWN generated CSS — produced by running his
+   `generateBeamCSS` for the `pulse-inner` variant at his tuned dark
+   values (duration 2.3, stroke 1.54, inner 0.44, bloom 0.66,
+   saturation 1.2, brightness 0.75) — plus his shared 30fps pulse
+   driver, type-stripped. Not re-derived by hand.
+   TWO THINGS ARE OURS, both deliberate: the palette is turned into the
+   ember band (hue only — his lightness and saturation are untouched,
+   which is the same rule this project enforces on any recolour), and
+   the hue oscillator is narrowed from a full 360 circle to 26 degrees,
+   because a full sweep walks a warm brand through green and blue.
+   ──────────────────────────────────────────────────────────────────── */
+
+@property --bw1-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bh1-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bw2-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bh2-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bw3-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bh3-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bgh-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bop-tl-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bop-tr-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bop-bl-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bop-br-ae {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --bx1-ae {
+  syntax: "<length>";
+  initial-value: 0px;
+  inherits: true;
+}
+
+@property --by1-ae {
+  syntax: "<length>";
+  initial-value: 0px;
+  inherits: true;
+}
+
+@property --bx2-ae {
+  syntax: "<length>";
+  initial-value: 0px;
+  inherits: true;
+}
+
+@property --by2-ae {
+  syntax: "<length>";
+  initial-value: 0px;
+  inherits: true;
+}
+
+@property --bx3-ae {
+  syntax: "<length>";
+  initial-value: 0px;
+  inherits: true;
+}
+
+@property --by3-ae {
+  syntax: "<length>";
+  initial-value: 0px;
+  inherits: true;
+}
+
+@property --beam-opacity-ae {
+  syntax: "<number>";
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --beam-hue-ae {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: true;
+}
+
+[data-beam="ae"] {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+[data-beam="ae"][data-active] {
+  animation: beam-fade-in-ae 0.6s ease forwards;
+}
+
+[data-beam="ae"][data-fading] {
+  animation: beam-fade-out-ae 0.5s ease forwards;
+}
+
+[data-beam="ae"][data-active]::after,
+[data-beam="ae"][data-fading]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  padding: 1px;
+  clip-path: inset(0 round 18px);
+  background: radial-gradient(ellipse calc(70px * var(--bw1-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(40px * var(--bh1-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(33% + var(--bx1-ae)) calc(-7.4% + var(--by1-ae)), rgba(255, 199, 50, var(--bop-tl-ae)), transparent),
+    radial-gradient(ellipse calc(60px * var(--bw2-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(35px * var(--bh2-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(12% + var(--bx2-ae)) calc(-5% + var(--by2-ae)), rgba(255, 147, 40, var(--bop-tl-ae)), transparent),
+    radial-gradient(ellipse calc(40px * var(--bw3-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(70px * var(--bh3-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(2.1% + var(--bx3-ae)) calc(68.3% + var(--by3-ae)), rgba(200, 104, 50, var(--bop-bl-ae)), transparent),
+    radial-gradient(ellipse calc(20px * var(--bw1-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(35px * var(--bh1-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(2.1% + var(--bx1-ae)) calc(68.3% + var(--by1-ae)), rgba(185, 97, 30, var(--bop-bl-ae)), transparent),
+    radial-gradient(ellipse calc(180px * var(--bw2-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(32px * var(--bh2-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(74.4% + var(--bx2-ae)) calc(100% + var(--by2-ae)), rgba(255, 174, 70, var(--bop-br-ae)), transparent),
+    radial-gradient(ellipse calc(85px * var(--bw3-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(26px * var(--bh3-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(55% + var(--bx3-ae)) calc(100% + var(--by3-ae)), rgba(255, 147, 40, var(--bop-br-ae)), transparent),
+    radial-gradient(ellipse calc(74px * var(--bw1-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(32px * var(--bh1-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(93.9% + var(--bx1-ae)) calc(0% + var(--by1-ae)), rgba(255, 77, 40, var(--bop-tr-ae)), transparent),
+    radial-gradient(ellipse calc(26px * var(--bw2-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(42px * var(--bh2-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(100% + var(--bx2-ae)) calc(27.1% + var(--by2-ae)), rgba(240, 179, 50, var(--bop-tr-ae)), transparent),
+    radial-gradient(ellipse calc(52px * var(--bw3-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(48px * var(--bh3-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(100% + var(--bx3-ae)) calc(27.1% + var(--by3-ae)), rgba(240, 163, 40, var(--bop-tr-ae)), transparent);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 2;
+  will-change: opacity, filter;
+  opacity: calc(var(--beam-opacity-ae) * 1.54 * var(--beam-stroke-opacity, 1) * var(--beam-strength, 1));
+  filter: hue-rotate(calc(var(--beam-hue-base, 0deg) + var(--beam-hue-ae))) brightness(0.75) saturate(1.20);
+}
+
+[data-beam="ae"][data-active]::before,
+[data-beam="ae"][data-fading]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  clip-path: inset(0 round 18px);
+  background: radial-gradient(ellipse calc(65px * var(--bw1-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(35px * var(--bh1-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(33% + var(--bx1-ae)) calc(-7.4% + var(--by1-ae)), rgba(255, 199, 50, var(--bop-tl-ae)), transparent),
+    radial-gradient(ellipse calc(55px * var(--bw2-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(30px * var(--bh2-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(12% + var(--bx2-ae)) calc(-5% + var(--by2-ae)), rgba(255, 147, 40, var(--bop-tl-ae)), transparent),
+    radial-gradient(ellipse calc(35px * var(--bw3-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(65px * var(--bh3-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(2.1% + var(--bx3-ae)) calc(68.3% + var(--by3-ae)), rgba(200, 104, 50, var(--bop-bl-ae)), transparent),
+    radial-gradient(ellipse calc(15px * var(--bw1-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(30px * var(--bh1-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(2.1% + var(--bx1-ae)) calc(68.3% + var(--by1-ae)), rgba(185, 97, 30, var(--bop-bl-ae)), transparent),
+    radial-gradient(ellipse calc(173px * var(--bw2-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(28px * var(--bh2-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(74.4% + var(--bx2-ae)) calc(100% + var(--by2-ae)), rgba(255, 174, 70, var(--bop-br-ae)), transparent),
+    radial-gradient(ellipse calc(80px * var(--bw3-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(22px * var(--bh3-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(55% + var(--bx3-ae)) calc(100% + var(--by3-ae)), rgba(255, 147, 40, var(--bop-br-ae)), transparent),
+    radial-gradient(ellipse calc(69px * var(--bw1-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(28px * var(--bh1-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(93.9% + var(--bx1-ae)) calc(0% + var(--by1-ae)), rgba(255, 77, 40, var(--bop-tr-ae)), transparent),
+    radial-gradient(ellipse calc(22px * var(--bw2-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(38px * var(--bh2-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(100% + var(--bx2-ae)) calc(27.1% + var(--by2-ae)), rgba(240, 179, 50, var(--bop-tr-ae)), transparent),
+    radial-gradient(ellipse calc(47px * var(--bw3-ae) * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(44px * var(--bh3-ae) * var(--bgh-ae) * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at calc(100% + var(--bx3-ae)) calc(27.1% + var(--by3-ae)), rgba(240, 163, 40, var(--bop-tr-ae)), transparent),
+    radial-gradient(ellipse 60px 60px at 0% 0%, rgba(255, 255, 255, calc(0.18 * var(--bop-tl-ae))), transparent 70%),
+    radial-gradient(ellipse 60px 60px at 100% 0%, rgba(255, 255, 255, calc(0.18 * var(--bop-tr-ae))), transparent 70%),
+    radial-gradient(ellipse 60px 60px at 0% 100%, rgba(255, 255, 255, calc(0.18 * var(--bop-bl-ae))), transparent 70%),
+    radial-gradient(ellipse 60px 60px at 100% 100%, rgba(255, 255, 255, calc(0.18 * var(--bop-br-ae))), transparent 70%);
+  -webkit-mask-image:
+    linear-gradient(white, transparent 28px, transparent calc(100% - 28px), white),
+    linear-gradient(to right, white, transparent 28px, transparent calc(100% - 28px), white);
+  -webkit-mask-composite: source-over;
+  mask-image:
+    linear-gradient(white, transparent 28px, transparent calc(100% - 28px), white),
+    linear-gradient(to right, white, transparent 28px, transparent calc(100% - 28px), white);
+  mask-composite: add;
+  pointer-events: none;
+  z-index: 1;
+  will-change: opacity, filter;
+  opacity: calc(var(--beam-opacity-ae) * 0.44 * var(--beam-inner-opacity, 1) * var(--beam-strength, 1));
+  filter: hue-rotate(calc(var(--beam-hue-base, 0deg) + var(--beam-hue-ae))) brightness(0.75) saturate(1.20);
+}
+
+[data-beam="ae"] [data-beam-bloom] {
+  display: none;
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  clip-path: inset(0 round 18px);
+  background: radial-gradient(ellipse calc(84px * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(48px * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at 33% -7.4%, rgba(255, 199, 50, 0.76), transparent),
+    radial-gradient(ellipse calc(72px * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(42px * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at 12% -5%, rgba(255, 147, 40, 0.76), transparent),
+    radial-gradient(ellipse calc(48px * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(84px * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at 2.1% 68.3%, rgba(200, 104, 50, 0.76), transparent),
+    radial-gradient(ellipse calc(216px * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(38px * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at 74.4% 100%, rgba(255, 174, 70, 0.76), transparent),
+    radial-gradient(ellipse calc(102px * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(31px * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at 55% 100%, rgba(255, 147, 40, 0.76), transparent),
+    radial-gradient(ellipse calc(89px * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(38px * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at 93.9% 0%, rgba(255, 77, 40, 0.76), transparent),
+    radial-gradient(ellipse calc(62px * var(--pulse-glow-sx, 1) * var(--pulse-glow-boost, 1)) calc(58px * var(--pulse-glow-sy, 1) * var(--pulse-glow-boost, 1)) at 100% 27.1%, rgba(240, 163, 40, 0.76), transparent);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  padding: 1px;
+  pointer-events: none;
+  z-index: 3;
+  will-change: opacity;
+  opacity: 0;
+}
+
+[data-beam="ae"][data-active] [data-beam-bloom],
+[data-beam="ae"][data-fading] [data-beam-bloom] {
+  display: block;
+  opacity: calc(var(--beam-opacity-ae) * 0.66 * var(--beam-bloom-opacity, 1) * var(--beam-strength, 1));
+  filter: blur(8px) hue-rotate(calc(var(--beam-hue-base, 0deg) + var(--beam-hue-ae))) brightness(0.75) saturate(1.20);
+}
+
+@keyframes beam-fade-in-ae { to { --beam-opacity-ae: 1; } }
+@keyframes beam-fade-out-ae { from { --beam-opacity-ae: 1; } to { --beam-opacity-ae: 0; } }
+
+[data-beam="ae"][data-paused],
+[data-beam="ae"][data-paused]::after,
+[data-beam="ae"][data-paused]::before,
+[data-beam="ae"][data-paused] [data-beam-bloom] {
+  animation-play-state: paused !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-beam="ae"][data-active],
+  [data-beam="ae"][data-fading],
+  [data-beam="ae"][data-active]::after,
+  [data-beam="ae"][data-fading]::after,
+  [data-beam="ae"][data-active]::before,
+  [data-beam="ae"][data-fading]::before,
+  [data-beam="ae"][data-active] [data-beam-bloom],
+  [data-beam="ae"][data-fading] [data-beam-bloom] {
+    animation: none !important;
+  }
+}
+
+
+
+/* ── and the LINE variant, for a project sitting idle ───────────────
+   Same generator, same MIT source, `size: 'line'` at his tuned 3.1s —
+   a single travelling glow along the bottom edge instead of a ring.
+   Pure CSS, no driver: the pulse family needs the oscillators, this
+   one does not. Its hue drift is already only +/-13 degrees, so unlike
+   the pulse variant it needed no clamping to stay in the warm family.
+
+   THE THREE STATES, and each says something different:
+     nothing started    the ring, breathing   "ready, nothing running"
+     Aethron working    the ring, breathing   "this is live"
+     a project at rest  the bottom line       "loaded, waiting on you"
+   */
+
+@property --beam-x-ln {
+  syntax: "<number>";
+  initial-value: 0;
+  inherits: true;
+}
+
+@property --beam-w-ln {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --beam-h-ln {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --beam-spike-ln {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --beam-spike2-ln {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --beam-edge-ln {
+  syntax: "<number>";
+  initial-value: 1;
+  inherits: true;
+}
+
+@property --beam-opacity-ln {
+  syntax: "<number>";
+  initial-value: 0;
+  inherits: true;
+}
+
+[data-beam="ln"] {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+[data-beam="ln"][data-active] {
+  animation:
+    beam-travel-ln 3.1s linear infinite,
+    beam-edge-fade-ln 3.1s linear infinite,
+    beam-breathe-ln 4.0s ease-in-out infinite,
+    beam-spike-ln 4.1s ease-in-out infinite,
+    beam-spike2-ln 5.3s ease-in-out infinite,
+    beam-fade-in-ln 0.6s ease forwards;
+}
+
+[data-beam="ln"][data-fading] {
+  animation:
+    beam-travel-ln 3.1s linear infinite,
+    beam-edge-fade-ln 3.1s linear infinite,
+    beam-breathe-ln 4.0s ease-in-out infinite,
+    beam-spike-ln 4.1s ease-in-out infinite,
+    beam-spike2-ln 5.3s ease-in-out infinite,
+    beam-fade-out-ln 0.5s ease forwards;
+}
+
+[data-beam="ln"][data-active]::after,
+[data-beam="ln"][data-fading]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 17px;
+  padding: 1px;
+  clip-path: inset(0 round 18px);
+  background: radial-gradient(
+        ellipse calc(24px * var(--beam-w-ln)) calc(28px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) calc(100% + 2px),
+        rgba(255, 255, 255, 0.38) 0%,
+        rgba(255, 255, 255, 0.12) 30%,
+        transparent 65%
+      ), radial-gradient(ellipse calc(36px * var(--beam-w-ln)) calc(36px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) calc(100% + 2px), rgb(255, 50, 100), transparent),
+       radial-gradient(ellipse calc(30px * var(--beam-w-ln)) calc(32px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 39px) calc(100%), rgb(40, 180, 220), transparent),
+       radial-gradient(ellipse calc(33px * var(--beam-w-ln)) calc(28px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 36px) calc(100% + 2px), rgb(50, 200, 80), transparent),
+       radial-gradient(ellipse calc(29px * var(--beam-w-ln)) calc(34px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 54px) calc(100%), rgb(180, 40, 240), transparent),
+       radial-gradient(ellipse calc(27px * var(--beam-w-ln)) calc(30px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 51px) calc(100% - 1px), rgb(255, 160, 30), transparent),
+       radial-gradient(ellipse calc(36px * var(--beam-w-ln)) calc(24px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 21px) calc(100% + 1px), rgb(100, 70, 255), transparent),
+       radial-gradient(ellipse calc(30px * var(--beam-w-ln)) calc(22px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 21px) calc(100%), rgb(40, 140, 255), transparent),
+       radial-gradient(ellipse calc(25px * var(--beam-w-ln)) calc(28px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 66px) calc(100% + 1px), rgb(240, 50, 180), transparent),
+       radial-gradient(ellipse calc(23px * var(--beam-w-ln)) calc(30px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 66px) calc(100% - 1px), rgb(30, 185, 170), transparent);
+  -webkit-mask:
+    radial-gradient(
+      ellipse calc(78px * var(--beam-w-ln)) calc(60px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) 100%,
+      white 0%, rgba(255, 255, 255, 0.5) 45%, transparent 100%
+    ),
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: source-in, xor;
+  mask:
+    radial-gradient(
+      ellipse calc(78px * var(--beam-w-ln)) calc(60px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) 100%,
+      white 0%, rgba(255, 255, 255, 0.5) 45%, transparent 100%
+    ),
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: intersect, exclude;
+  pointer-events: none;
+  z-index: 2;
+  opacity: calc(var(--beam-opacity-ln) * var(--beam-edge-ln) * 0.46 * var(--beam-stroke-opacity, 1) * var(--beam-strength, 1));
+  animation: beam-hue-shift-ln 12s ease-in-out infinite;
+}
+
+[data-beam="ln"][data-active]::before,
+[data-beam="ln"][data-fading]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 18px;
+  background: radial-gradient(ellipse calc(33px * var(--beam-w-ln)) calc(30px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) calc(100%), rgba(255, 199, 50, 0.48), transparent),
+    radial-gradient(ellipse calc(24px * var(--beam-w-ln)) calc(26px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 39px) calc(100% - 3px), rgba(220, 124, 40, 0.42), transparent),
+    radial-gradient(ellipse calc(27px * var(--beam-w-ln)) calc(24px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 36px) calc(100%), rgba(200, 104, 50, 0.48), transparent),
+    radial-gradient(ellipse calc(23px * var(--beam-w-ln)) calc(28px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 54px) calc(100% - 2px), rgba(240, 163, 40, 0.42), transparent),
+    radial-gradient(ellipse calc(24px * var(--beam-w-ln)) calc(24px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 51px) calc(100% - 1px), rgba(255, 73, 30, 0.50), transparent),
+    radial-gradient(ellipse calc(30px * var(--beam-w-ln)) calc(20px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 21px) calc(100%), rgba(255, 174, 70, 0.45), transparent),
+    radial-gradient(ellipse calc(25px * var(--beam-w-ln)) calc(18px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 21px) calc(100% - 2px), rgba(255, 147, 40, 0.40), transparent),
+    radial-gradient(ellipse calc(21px * var(--beam-w-ln)) calc(24px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% + 66px) calc(100%), rgba(240, 179, 50, 0.45), transparent),
+    radial-gradient(ellipse calc(18px * var(--beam-w-ln)) calc(26px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100% - 66px) calc(100% - 1px), rgba(185, 97, 30, 0.52), transparent);
+  box-shadow: inset 0 0 9px 1px rgba(255,255,255,0.3);
+  -webkit-mask-image:
+    radial-gradient(
+      ellipse calc(78px * var(--beam-w-ln)) calc(60px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) 100%,
+      white 0%, rgba(255, 255, 255, 0.5) 45%, transparent 100%
+    ),
+    linear-gradient(white, transparent 28px, transparent calc(100% - 28px), white),
+    linear-gradient(to right, white, transparent 28px, transparent calc(100% - 28px), white);
+  -webkit-mask-composite: source-in, source-over;
+  mask-image:
+    radial-gradient(
+      ellipse calc(78px * var(--beam-w-ln)) calc(60px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) 100%,
+      white 0%, rgba(255, 255, 255, 0.5) 45%, transparent 100%
+    ),
+    linear-gradient(white, transparent 28px, transparent calc(100% - 28px), white),
+    linear-gradient(to right, white, transparent 28px, transparent calc(100% - 28px), white);
+  mask-composite: intersect, add;
+  pointer-events: none;
+  z-index: 1;
+  opacity: calc(var(--beam-opacity-ln) * var(--beam-edge-ln) * 0.24 * var(--beam-inner-opacity, 1) * var(--beam-strength, 1));
+  clip-path: inset(0 round 18px);
+  animation: beam-hue-shift-ln 12s ease-in-out infinite;
+}
+
+[data-beam="ln"] [data-beam-bloom] {
+  display: none;
+  position: absolute;
+  inset: 0;
+  border-radius: 17px;
+  clip-path: inset(0 round 18px);
+  padding: 0;
+  -webkit-mask: radial-gradient(
+    ellipse calc(84px * var(--beam-w-ln)) calc(110px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) 100%,
+    white 0%, rgba(255, 255, 255, 0.5) 35%, transparent 100%
+  );
+  -webkit-mask-composite: source-over;
+  mask: radial-gradient(
+    ellipse calc(84px * var(--beam-w-ln)) calc(110px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) 100%,
+    white 0%, rgba(255, 255, 255, 0.5) 35%, transparent 100%
+  );
+  mask-composite: add;
+  background: radial-gradient(ellipse calc(0.8px * var(--beam-spike-ln) * var(--beam-spike-mul, 1)) calc(92px * var(--beam-h-ln) * var(--beam-spike-mul, 1)) at 8% calc(100% - 2px), rgb(255, 60, 80), rgb(255, 60, 80) 30%, transparent 88%),
+       radial-gradient(ellipse calc(10px * var(--beam-spike2-ln) * var(--beam-spike-mul, 1)) calc(35px * var(--beam-h-ln) * var(--beam-spike-mul, 1)) at 22% calc(100% - 4px), rgba(190, 105, 40, 0.98), rgba(190, 105, 40, 0.49) 50%, transparent 95%),
+       radial-gradient(ellipse calc(2px * (2 - var(--beam-spike-ln)) * var(--beam-spike-mul, 1)) calc(72px * var(--beam-h-ln) * var(--beam-spike-mul, 1)) at 36% calc(100% - 3px), rgb(100, 70, 255), rgba(255, 174, 70, 1) 40%, transparent 90%),
+       radial-gradient(ellipse calc(14px * var(--beam-spike2-ln) * var(--beam-spike-mul, 1)) calc(28px * var(--beam-h-ln) * var(--beam-spike-mul, 1)) at 50% calc(100% - 2px), rgba(255, 82, 40, 0.59), rgba(255, 82, 40, 0.29) 55%, transparent 96%),
+       radial-gradient(ellipse calc(1.2px * (2 - var(--beam-spike2-ln)) * var(--beam-spike-mul, 1)) calc(85px * var(--beam-h-ln) * var(--beam-spike-mul, 1)) at 64% calc(100% - 4px), rgb(50, 200, 100), rgba(200, 106, 50, 1) 35%, transparent 89%),
+       radial-gradient(ellipse calc(7px * var(--beam-spike-ln) * var(--beam-spike-mul, 1)) calc(45px * var(--beam-h-ln) * var(--beam-spike-mul, 1)) at 78% calc(100% - 2px), rgba(240, 169, 50, 0.91), rgba(240, 169, 50, 0.45) 48%, transparent 94%),
+       radial-gradient(ellipse calc(0.6px * (2 - var(--beam-spike-ln)) * var(--beam-spike-mul, 1)) calc(60px * var(--beam-h-ln) * var(--beam-spike-mul, 1)) at 92% calc(100% - 3px), rgb(40, 140, 255), rgba(255, 147, 40, 1) 42%, transparent 91%),
+       radial-gradient(ellipse calc(21px * var(--beam-spike-ln)) calc(15px * var(--beam-spike2-ln)) at calc(var(--beam-x-ln) * 100%) calc(100% + 1px), rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0.9) 20%, rgba(255, 255, 255, 0.5) 50%, transparent 100%),
+       radial-gradient(ellipse calc(42px * var(--beam-w-ln)) calc(40px * var(--beam-h-ln)) at calc(var(--beam-x-ln) * 100%) 100%, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.12) 25%, rgba(255, 255, 255, 0.03) 55%, transparent 80%);
+  
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+}
+
+[data-beam="ln"][data-active] [data-beam-bloom],
+[data-beam="ln"][data-fading] [data-beam-bloom] {
+  display: block;
+  opacity: calc(var(--beam-opacity-ln) * var(--beam-edge-ln) * 0.38 * var(--beam-bloom-opacity, 1) * var(--beam-strength, 1));
+  animation: beam-hue-shift-bloom-ln 8s ease-in-out infinite;
+}
+
+@keyframes beam-travel-ln {
+  0%   { --beam-x-ln: 0.06;  --beam-w-ln: 0.5; }
+  10%  { --beam-x-ln: 0.15;  --beam-w-ln: 0.8; }
+  20%  { --beam-x-ln: 0.25;  --beam-w-ln: 1.1; }
+  30%  { --beam-x-ln: 0.35;  --beam-w-ln: 1.3; }
+  40%  { --beam-x-ln: 0.44;  --beam-w-ln: 1.45; }
+  50%  { --beam-x-ln: 0.5;   --beam-w-ln: 1.5; }
+  60%  { --beam-x-ln: 0.56;  --beam-w-ln: 1.45; }
+  70%  { --beam-x-ln: 0.65;  --beam-w-ln: 1.3; }
+  80%  { --beam-x-ln: 0.75;  --beam-w-ln: 1.1; }
+  90%  { --beam-x-ln: 0.85;  --beam-w-ln: 0.8; }
+  100% { --beam-x-ln: 0.94;  --beam-w-ln: 0.5; }
+}
+
+@keyframes beam-edge-fade-ln {
+  0%    { --beam-edge-ln: 0; }
+  12.5% { --beam-edge-ln: 0; }
+  32.5% { --beam-edge-ln: 1; }
+  67.5% { --beam-edge-ln: 1; }
+  87.5% { --beam-edge-ln: 0; }
+  100%  { --beam-edge-ln: 0; }
+}
+
+@keyframes beam-breathe-ln {
+  0%, 100% { --beam-h-ln: 0.8; }
+  25%      { --beam-h-ln: 1.25; }
+  55%      { --beam-h-ln: 0.85; }
+  80%      { --beam-h-ln: 1.3; }
+}
+
+@keyframes beam-spike-ln {
+  0%   { --beam-spike-ln: 0.8; }
+  25%  { --beam-spike-ln: 1.3; }
+  50%  { --beam-spike-ln: 0.9; }
+  75%  { --beam-spike-ln: 1.4; }
+  100% { --beam-spike-ln: 0.8; }
+}
+
+@keyframes beam-spike2-ln {
+  0%   { --beam-spike2-ln: 1.2; }
+  25%  { --beam-spike2-ln: 0.7; }
+  50%  { --beam-spike2-ln: 1.4; }
+  75%  { --beam-spike2-ln: 0.8; }
+  100% { --beam-spike2-ln: 1.2; }
+}
+
+@keyframes beam-fade-in-ln {
+  to { --beam-opacity-ln: 1; }
+}
+
+@keyframes beam-fade-out-ln {
+  from { --beam-opacity-ln: 1; }
+  to { --beam-opacity-ln: 0; }
+}
+
+@keyframes beam-hue-shift-ln {
+  0% { filter: hue-rotate(calc(var(--beam-hue-base, 0deg) - 13deg)) brightness(1.00) saturate(1.20); }
+  50% { filter: hue-rotate(calc(var(--beam-hue-base, 0deg) + 13deg)) brightness(1.00) saturate(1.20); }
+  100% { filter: hue-rotate(calc(var(--beam-hue-base, 0deg) - 13deg)) brightness(1.00) saturate(1.20); }
+}
+
+@keyframes beam-hue-shift-bloom-ln {
+  0% { filter: blur(8px) hue-rotate(calc(var(--beam-hue-base, 0deg) - 23deg)) brightness(1.00) saturate(1.20); }
+  50% { filter: blur(8px) hue-rotate(calc(var(--beam-hue-base, 0deg) + 23deg)) brightness(1.00) saturate(1.20); }
+  100% { filter: blur(8px) hue-rotate(calc(var(--beam-hue-base, 0deg) - 23deg)) brightness(1.00) saturate(1.20); }
+}
+
+[data-beam="ln"][data-paused],
+[data-beam="ln"][data-paused]::after,
+[data-beam="ln"][data-paused]::before,
+[data-beam="ln"][data-paused] [data-beam-bloom] {
+  animation-play-state: paused !important;
+}
+
+
+/* ── THE OTHER THREE VIEWS ──────────────────────────────────────────
+   Code, Design and Library were built before any of this and still
+   wore the old shapes: square-ish cards, flat rows, no motion, a
+   different rhythm from the conversation they sit beside. They are the
+   same product, so they take the same tokens — the system face, the
+   shape scale, the glass on anything that floats, the one spring — and
+   stop looking like a different application the sidebar happens to
+   open. */
+.libwrap,.setwrap,#codewrap,.designwrap{max-width:860px;margin:0 auto;
+  padding:34px 26px 64px}
+.libwrap h2,.designwrap h2,#codewrap h2{font-family:var(--display);
+  font-size:26px;font-weight:600;letter-spacing:-.025em;margin:0 0 6px}
+.libwrap .hint,.designwrap .hint,#codewrap .hint,.pane .hint{
+  font-size:13px;line-height:1.6;color:var(--dim);margin:0 0 24px;
+  max-width:60ch}
+/* the cards in every one of them */
+.libcard,.designcard,.pane,.libmatch{
+  background:linear-gradient(180deg,rgba(255,255,255,.04),
+    rgba(255,255,255,.008) 46%,transparent 70%),rgba(23,22,26,.5);
+  -webkit-backdrop-filter:blur(18px) saturate(1.35);
+  backdrop-filter:blur(18px) saturate(1.35);
+  border:1px solid rgba(255,255,255,.075);
+  border-radius:var(--r-lg);padding:16px 18px;
+  animation:springup .5s var(--spring) both;
+  transition:transform var(--s-fast) var(--spring),
+             border-color var(--s-fast) var(--ease-out)}
+.libcard:hover,.designcard:hover{transform:translateY(-2px);
+  border-color:rgba(255,255,255,.14)}
+.libwrap input,.libwrap textarea,.designwrap input,
+#codewrap input,.pane input,.pane textarea{
+  border-radius:var(--r-sm);background:rgba(0,0,0,.26);
+  border:1px solid rgba(255,255,255,.08);color:var(--tx);
+  padding:9px 12px;font:inherit;font-size:13.5px}
+.libwrap input:focus,.designwrap input:focus,.pane input:focus,
+.pane textarea:focus{outline:none;border-color:rgba(217,119,87,.5);
+  box-shadow:0 0 0 3px rgba(217,119,87,.12)}
+.empty{display:flex;min-height:60vh;padding:48px 24px}
+.empty .focal{margin:auto}
+
+/* ── WHEN THE WINDOW ITSELF IS GLASS ────────────────────────────────
+   Launched through the native shell, an NSGlassEffectView sits in the
+   window BEHIND this page and the web view is told to stop drawing its
+   own background. None of that is visible unless the PAGE also stops
+   painting over it — an opaque body is an opaque body however good the
+   material underneath is. So `?glass=1` hands the ground back to the
+   system: the page paints only what it actually draws, and the real
+   Apple material shows through everywhere else.
+   This is the one honest way to get Liquid Glass into a web-rendered
+   interface: not by imitating it in CSS, but by getting out of its way. */
+html.native-glass,html.native-glass body{background:transparent!important}
+html.native-glass aside{background:rgba(18,17,20,.42)}
+html.native-glass aside::before{opacity:.5}
+html.native-glass header{background:rgba(18,17,20,.30)}
+html.native-glass .conv-dock{background:linear-gradient(to top,
+  rgba(11,11,12,.55) 55%,transparent)}
+html.native-glass .composer{background:rgba(16,15,17,.45)}
+html.native-glass .run,html.native-glass .prow:hover{
+  background:rgba(21,20,23,.45)}
+html.native-glass .setwrap .card{background:rgba(23,22,26,.34)}
+html.native-glass .dotf.hero{opacity:.38}
+
+/* ── THE SHAPE SCALE, APPLIED ───────────────────────────────────────
+   iOS rounds considerably harder than web convention and keeps the
+   family consistent: chrome is softest, inline content firmer, pills
+   fully round. Applied through the tokens so the scale can be tuned in
+   one place instead of chasing forty literals. Glass is spent only on
+   things that FLOAT — a sheet, a popover, a card that sits above the
+   page. Putting material on inline content is the commonest way this
+   look goes wrong: everything turns to soup and nothing reads as
+   raised. */
+.composer{border-radius:var(--r-xl)}
+.pcard,.setwrap .card,.selbox,.pvw-bar{border-radius:var(--r-lg)}
+.run,.askbar,.pvw-stage{border-radius:var(--r-md)}
+.cpill,.pvw-seg button,.selbox .send,.selbox .ghost{border-radius:var(--r-sm)}
+.turn.you .bubble{border-radius:20px 20px 6px 20px}
+.pill,.tag{border-radius:var(--r-pill)}
+.setwrap .card{background:
+   linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.008) 46%,
+     transparent 70%),rgba(23,22,26,.5);
+  -webkit-backdrop-filter:blur(18px) saturate(1.35);
+  backdrop-filter:blur(18px) saturate(1.35);
+  border:1px solid rgba(255,255,255,.075)}
+
+/* ── AND THINGS ARRIVE, THEY DO NOT APPEAR ──────────────────────────
+   The same spring that moves the sheet moves everything that enters,
+   so a reply, a step and a card all land with one physics. */
+@keyframes springup{
+  from{opacity:0;transform:translateY(10px) scale(.985)}
+  to{opacity:1;transform:none}}
+.turn{animation:springup .5s var(--spring) both}
+.run{animation:springup .46s var(--spring) both}
+.step{animation:springup .4s var(--spring) both}
+.pcard{animation:springup .55s var(--spring) both}
+@media (prefers-reduced-motion:reduce){
+  .turn,.run,.step,.pcard{animation:none!important}}
+
+/* ── THE MOTION SYSTEM ──────────────────────────────────────────────
+   iOS does not ease, it SPRINGS, and the tell is not the curve on one
+   element — it is that everything shares the same one, so the whole
+   interface feels like a single physical system rather than a set of
+   parts each animating to its own taste. One curve, three durations.
+   AND CONTROLS ANSWER THE FINGER. Every button on iOS scales down the
+   instant you press and springs back when you let go; that single
+   detail carries most of the "premium" feeling people attribute to the
+   glass. It costs one rule. */
+:root{
+  --s-fast:.22s;--s-mid:.38s;--s-slow:.62s;
+  --ease-out:cubic-bezier(.22,.9,.28,1)}
+button,.qrow,.prow,.cpill,.step,.runsum,.pshot,input,textarea,select{
+  transition-timing-function:var(--spring);
+  transition-duration:var(--s-fast)}
+button:active,.cpill:active,.qrow:active,.prow:active,.runsum:active{
+  transform:scale(.965)}
+.composer .cbtn:active{transform:scale(.9)}
+.pshot:active{transform:scale(.985)}
+/* a press should never fight a spring that is still settling */
+button,.cpill,.qrow,.prow,.runsum,.pshot{will-change:transform}
+@media (prefers-reduced-motion:reduce){
+  button:active,.cpill:active,.qrow:active,.prow:active,
+  .runsum:active,.pshot:active,.composer .cbtn:active{transform:none}}
+
+/* ── AND IT GETS OUT OF THE WAY WHEN THERE IS NO ROOM ───────────────
+   The ambient field belongs to a wide empty panel. Beside an open
+   preview the column is ~480px of solid content, and a lit field
+   behind it is not atmosphere, it is noise — which is exactly what the
+   owner saw. It goes out when the sheet opens and fades down on any
+   narrow window, well before the layout itself breaks. */
+
+/* ── GLASS ──────────────────────────────────────────────────────────
+   The owner asked for Apple's liquid glass, and the honest version of
+   that in CSS is four things layered, not one blur:
+     the PANE      a real backdrop blur with saturation, so what is
+                   behind it bends and brightens rather than greying out
+     THICKNESS     a lit rim along the top inner edge and a dark one
+                   along the bottom, which is what makes a sheet read as
+                   having depth instead of being a translucent rectangle
+     the SHADOW    the object's own drop shadow, tight and low, so it
+                   sits ON the page rather than in it
+     the SPECULAR  one soft diagonal highlight
+   What CSS cannot do is Apple's refraction — real edge bending needs a
+   displacement map, and doing it with an SVG filter on the backdrop is
+   unreliable across browsers today. This is the closest honest thing,
+   and it is not a claim to have matched them. */
+.glass{position:relative;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.055),
+      rgba(255,255,255,.012) 38%,rgba(255,255,255,0) 62%),
+    rgba(23,22,26,.58);
+  -webkit-backdrop-filter:blur(22px) saturate(1.45);
+  backdrop-filter:blur(22px) saturate(1.45);
+  border:1px solid rgba(255,255,255,.085);border-radius:18px;
+  box-shadow:0 18px 40px -18px rgba(0,0,0,.78),
+             0 2px 10px -4px rgba(0,0,0,.5)}
+.glass::before{content:"";position:absolute;inset:0;border-radius:inherit;
+  pointer-events:none;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.14),
+             inset 0 14px 26px -18px rgba(255,255,255,.22),
+             inset 0 -1px 0 rgba(0,0,0,.5),
+             inset 0 -16px 26px -18px rgba(0,0,0,.55)}
+.glass::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  pointer-events:none;
+  background:linear-gradient(115deg,transparent 30%,
+    rgba(255,255,255,.06) 45%,transparent 58%)}
+
+/* ── the project, as an object you can see ───────────────────────── */
+.pcard{display:flex;gap:16px;padding:14px;margin:0 0 22px;
+  animation:fadeup .45s cubic-bezier(.22,.9,.28,1) both}
+.pshot{position:relative;flex:none;width:232px;height:146px;
+  border-radius:11px;overflow:hidden;cursor:pointer;
+  background:#0d0d0f;border:1px solid rgba(255,255,255,.07)}
+.pshot iframe{position:absolute;top:0;left:0;width:1280px;height:800px;
+  border:0;transform:scale(.1812);transform-origin:0 0;
+  pointer-events:none;filter:saturate(.95)}
+.pveil{position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent 55%,rgba(0,0,0,.45));
+  transition:opacity .25s var(--ease)}
+.pshot:hover .pveil{opacity:.4}
+.pside{display:flex;flex-direction:column;gap:6px;min-width:0;
+  justify-content:center}
+.pname{font-size:16px;font-weight:590;letter-spacing:-.02em;color:var(--tx)}
+.pmeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  font-size:11.5px;color:var(--lo)}
+.pacts{display:flex;gap:7px;margin-top:8px;flex-wrap:wrap}
+@media (max-width:760px){.pcard{flex-direction:column}
+  .pshot{width:100%;height:170px}
+  .pshot iframe{transform:scale(.34)}}
+
+/* ── THE PREVIEW, INSIDE AETHRON ───────────────────────────────────
+   Point-and-edit belongs in the product, not in a browser tab: the
+   moment you send someone out to Chrome you have lost the selection,
+   the conversation and the undo history. So the built site is shown
+   here, on a glass sheet over the conversation, and the picker that
+   already exists is armed on it. */
+/* ── IT TAKES THE RIGHT TWO THIRDS, NOT THE WHOLE SCREEN ───────────
+   Covering everything meant losing the conversation the moment you
+   wanted to look at the page — which is exactly when you want to say
+   something about it. The sheet is a right-hand panel; the chat keeps
+   the left third and stays live, so you can watch a change land while
+   you are still talking about it.
+   THE MOTION IS A SPRING, NOT AN EASE. `linear()` samples a real
+   spring curve, so it arrives with the slight overshoot-and-settle iOS
+   has rather than the flat decelerate of a cubic-bezier. Both sides run
+   the SAME curve and duration, so the panel and the column that yields
+   to it move as one object rather than two things that happen to be
+   animating. */
+:root{--spring:linear(0,.006,.025 2.8%,.101 6.1%,.539 18.9%,.721 25.3%,
+  .849 31.5%,.937 38.1%,.968 41.8%,.991 45.7%,1.006 50.1%,1.015 55%,
+  1.012 72.5%,1);
+  /* two thirds of the room LEFT OF IT, not of the whole window — the
+     sidebar is 264px and taking 66vw of everything left the chat a
+     sliver once you subtracted it. */
+  --pvw-w:calc((100vw - 264px) * .64)}
+.pvw{position:fixed;top:0;right:0;bottom:0;width:var(--pvw-w);
+  z-index:600;display:flex;flex-direction:column;
+  padding:16px 16px 14px;gap:11px;
+  background:rgba(8,8,9,.55);
+  -webkit-backdrop-filter:blur(26px) saturate(1.3);
+  backdrop-filter:blur(26px) saturate(1.3);
+  box-shadow:-24px 0 60px -30px rgba(0,0,0,.9),
+             inset 1px 0 0 rgba(255,255,255,.07);
+  transform:translateX(100%);
+  transition:transform .62s var(--spring)}
+.pvw.in{transform:translateX(0)}
+/* the conversation yields rather than disappears */
+body.pvwopen main{margin-right:var(--pvw-w);
+  transition:margin-right .62s var(--spring)}
+body main{transition:margin-right .62s var(--spring)}
+/* the column is whatever is left, not a fixed 560 — at 1600 the room
+   beside the sheet is ~481px, so a 560 wrap clipped the card's last
+   button off the edge. */
+body.pvwopen .conv-wrap{max-width:100%}
+/* the column is narrower now, so the opening line has to stop shouting */
+body.pvwopen #welcome h1{font-size:25px;line-height:1.2}
+body.pvwopen #welcome .sub{font-size:13px;max-width:46ch}
+body.pvwopen .pacts{gap:6px}
+body.pvwopen .pacts .cpill{flex:1 1 auto;justify-content:center}
+body.pvwopen .pcard{flex-direction:column}
+body.pvwopen .pshot{width:100%;height:150px}
+body.pvwopen .pshot iframe{transform:scale(.28)}
+@media (max-width:1100px){:root{--pvw-w:100vw}
+  body.pvwopen main{margin-right:0}}
+@media (prefers-reduced-motion:reduce){
+  .pvw,body main,body.pvwopen main{transition:none}}
+.pvw-bar{display:flex;align-items:center;gap:10px;flex:none;
+  padding:9px 12px;border-radius:14px}
+.pvw-name{font-size:13.5px;font-weight:590;letter-spacing:-.01em;
+  color:var(--tx)}
+.pvw-name span{color:var(--lo);font-weight:400;margin-left:8px;
+  font-size:11.5px}
+.pvw-seg{display:flex;gap:3px;padding:3px;border-radius:11px;
+  background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.06)}
+.pvw-seg button{height:25px;padding:0 12px;font-size:11.5px;border:0;
+  border-radius:8px;background:none;color:var(--dim);box-shadow:none;
+  font-weight:500}
+.pvw-seg button:hover{color:var(--tx);background:rgba(255,255,255,.05);
+  transform:none;box-shadow:none}
+.pvw-seg button.on{background:var(--acc);color:#fff;box-shadow:none}
+.pvw-seg button.on:hover{background:var(--acc);color:#fff}
+.pvw-bar .sp{margin-left:auto}
+.pvw-stage{flex:1;min-height:0;border-radius:var(--r-md);overflow:hidden;
+  position:relative;background:#fff}
+/* a sheet showing OUR interface, not someone's site, keeps our ground */
+.pvw-stage.dark{background:rgba(14,13,16,.55);overflow:auto;
+  -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.07)}
+.pvw-stage.dark .pane,.pvw-stage.dark .empty{margin:0}
+.pvw-stage iframe{width:100%;height:100%;border:0;display:block}
+.pvw-hint{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
+  font-size:11.5px;color:var(--tx);padding:7px 14px;border-radius:99px;
+  background:rgba(16,15,17,.82);border:1px solid rgba(255,255,255,.09);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  pointer-events:none;animation:fadeup .4s var(--ease) both}
+
+/* the ring that follows you around the page. It springs between
+   elements, breathes while it waits, and never sits on a hard corner —
+   a dashed 2px outline is a debugging tool, not a design. */
+.selring{position:absolute;pointer-events:none;border-radius:9px;
+  opacity:0;transform:scale(.97);
+  border:1.5px solid var(--acc2);
+  box-shadow:0 0 0 1px rgba(217,119,87,.28),
+             0 0 22px -4px rgba(217,119,87,.55),
+             inset 0 0 14px -6px rgba(217,119,87,.5);
+  transition:left .34s var(--spring),top .34s var(--spring),
+             width .34s var(--spring),height .34s var(--spring),
+             opacity .18s ease,transform .3s var(--spring)}
+.selring.on{opacity:1;transform:scale(1);animation:ringbreath 2.4s ease-in-out infinite}
+@keyframes ringbreath{
+  0%,100%{box-shadow:0 0 0 1px rgba(217,119,87,.28),
+    0 0 22px -4px rgba(217,119,87,.55),inset 0 0 14px -6px rgba(217,119,87,.5)}
+  50%{box-shadow:0 0 0 1px rgba(217,119,87,.42),
+    0 0 34px -2px rgba(217,119,87,.75),inset 0 0 18px -6px rgba(217,119,87,.7)}}
+@media (prefers-reduced-motion:reduce){
+  .selring{transition:opacity .15s ease;animation:none}
+  .selring.on{animation:none}}
+
+/* ── SAY IT IN YOUR OWN WORDS, TO ONE THING ────────────────────────
+   The old path was a command: pick an element, choose a property, type
+   a value. This is a sentence about a specific element — the selector
+   is carried for you, so the words can be ordinary ones. */
+.selbox{position:fixed;z-index:620;width:340px;max-width:calc(100vw - 32px);
+  padding:12px;border-radius:18px;transform-origin:50% 0;
+  animation:selpop .44s var(--spring) both}
+@keyframes selpop{
+  from{opacity:0;transform:translateY(-8px) scale(.92)}
+  to{opacity:1;transform:none}}
+.selbox textarea,.selbox .row{position:relative;z-index:1}
+@media (prefers-reduced-motion:reduce){.selbox{animation:none}}
+.selbox .what{display:flex;align-items:center;gap:7px;font-size:11px;
+  color:var(--lo);margin-bottom:9px;letter-spacing:.02em}
+.selbox .what b{color:var(--acc2);font-weight:500;
+  max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.selbox textarea{width:100%;min-height:58px;max-height:150px;resize:none;
+  background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.08);
+  border-radius:11px;padding:9px 11px;color:var(--tx);font:inherit;
+  font-size:13px;line-height:1.5}
+.selbox textarea:focus{outline:none;border-color:rgba(217,119,87,.5);
+  box-shadow:0 0 0 3px rgba(217,119,87,.12)}
+.selbox .row{display:flex;align-items:center;gap:8px;margin-top:9px}
+.selbox .row .sp{margin-left:auto}
+.selbox .send{height:28px;padding:0 13px;border-radius:9px;border:0;
+  background:var(--acc);color:#fff;font-size:12px;font-weight:500;
+  box-shadow:none}
+.selbox .send:hover{background:var(--acc);filter:brightness(1.08);
+  transform:none;box-shadow:none}
+.selbox .ghost{height:28px;padding:0 11px;border-radius:9px;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
+  color:var(--tx);font-size:12px;box-shadow:none}
+.selbox .ghost:hover{background:rgba(255,255,255,.09);transform:none;
+  box-shadow:none;color:var(--tx)}
+
+/* Aethron's half of the exchange BEFORE anything runs: the part only
+   the person can supply, asked in the dock rather than by starting the
+   work and finding out. */
+.askbar{font-size:12.5px;line-height:1.55;color:var(--dim);
+  padding:9px 13px;margin-bottom:8px;border-radius:12px;
+  background:rgba(217,119,87,.07);border:1px solid rgba(217,119,87,.16);
+  animation:fadeup .3s cubic-bezier(.22,.9,.28,1) both}
+
+/* ── THE CHAT BOX ───────────────────────────────────────────────────
+   One row with a button on the end is a search field, not the front
+   door of a product that can migrate a site, port a framework or write
+   code. It is a real composer now: what you type on top, and the
+   controls that decide HOW it runs underneath, inside the same box. */
+.composer{display:block;padding:13px 13px 10px;border-radius:18px;
+  align-items:stretch;gap:0}
+.composer > [data-beam-bloom]{position:absolute;inset:0;border-radius:inherit;
+  pointer-events:none}
+.composer textarea{width:100%;min-height:24px;max-height:210px;padding:2px 2px 0;
+  font-size:14.5px;line-height:1.55}
+.cbar{display:flex;align-items:center;gap:7px;margin-top:9px;
+  position:relative;z-index:3}
+.cpill{display:inline-flex;align-items:center;justify-content:center;
+  height:27px;padding:0 10px;font-size:11.5px;font-weight:500;cursor:pointer;
+  border-radius:9px;background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.07);color:var(--dim);
+  box-shadow:none;white-space:nowrap;gap:6px;
+  transition:color .16s var(--ease),background .16s var(--ease)}
+.cpill:hover{color:var(--tx);background:rgba(255,255,255,.07);
+  border-color:rgba(255,255,255,.12);transform:none;box-shadow:none}
+.cpill .cv{color:var(--lo);font-weight:400}
+.cbar .cbtn{margin-left:auto;width:30px;height:30px;border-radius:9px}
+.composer .cbtn .ic,.composer .cbtn [data-ic]{transform:none}
+@media (max-width:640px){.cpill.opt{display:none}}
+
+/* ── A FINISHED RUN FOLDS AWAY ──────────────────────────────────────
+   Every turn used to leave its whole step list open forever, so three
+   requests meant three stacked logs and the reply you actually wanted
+   was somewhere below them. A run that is still going stays open,
+   because that is the thing you are watching; a finished one collapses
+   to one line you can open again. */
+.runsum{display:flex;align-items:center;gap:10px;padding:10px 13px;
+  width:100%;background:none;border:0;border-radius:0;box-shadow:none;
+  text-align:left;font-size:12.5px;color:var(--dim);cursor:pointer;
+  font-weight:400;transition:background var(--dur,180ms) var(--ease)}
+.runsum:hover{background:var(--panel2);transform:none;box-shadow:none;
+  color:var(--tx);border-color:transparent}
+.runsum .rs-n{color:var(--tx);font-weight:500}
+.runsum .rs-bad{color:var(--err)}
+.runsum .rs-c{margin-left:auto;color:var(--lo);font-size:11px;
+  display:inline-flex;align-items:center;gap:6px}
+.runsum .ic{transition:transform .22s var(--ease)}
+.run.open .runsum .ic{transform:rotate(180deg)}
+.composer textarea{flex:1;min-height:26px;max-height:190px;padding:7px 0;
+  font:inherit;font-size:14.5px;line-height:1.5;resize:none;overflow:auto;
+  background:transparent;border:0;color:var(--tx)}
+.composer textarea:focus{outline:none}
+.composer .cbtn{width:34px;height:34px;flex:none;padding:0;border-radius:11px;
+  display:grid;place-items:center;border:0;cursor:pointer;
+  background:var(--acc);color:#fff}
+.composer .cbtn[disabled]{opacity:.35;cursor:default}
+.composer .cbtn [data-ic]{transform:rotate(90deg)}
+.composer .cbtn.stop{background:var(--panel2);color:var(--tx);
+  border:1px solid var(--line2)}
+.composer .cbtn.stop [data-ic]{transform:none}
+.dockmeta{display:flex;align-items:center;gap:10px;justify-content:center;
+  font-size:11px;color:var(--lo);margin-top:8px;min-height:14px}
+.dockmeta .dot{width:3px;height:3px;border-radius:50%;background:var(--lo)}
+
+/* what it SAYS */
+.clog{display:flex;flex-direction:column}
+/* A FLEX ITEM SHRINKS UNLESS TOLD NOT TO, and a run card that shrinks
+   still lays its steps out at full size — they simply fall outside the
+   box and `overflow:hidden` eats them. Measured: seven steps reporting
+   tops 429…696 while only 95px of card ever painted, so five of them
+   were invisible while every DOM check said they were fine. This is the
+   same family as the `.ide>*{min-height:0}` bug already in this file. */
+.clog>*{flex:0 0 auto}
+.turn{margin:2px 0 16px}
+.turn.you{display:flex;justify-content:flex-end}
+.turn.you .bubble{background:var(--panel2);border:1px solid var(--line);
+  border-radius:15px 15px 5px 15px;padding:10px 14px;max-width:84%;
+  font-size:14px;line-height:1.55;color:var(--tx);white-space:pre-wrap;
+  word-break:break-word}
+.turn.bot .prose{font-size:14.5px;line-height:1.72;color:var(--tx);
+  white-space:pre-wrap;word-break:break-word}
+.turn.bot .prose code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:12.5px;background:var(--panel2);padding:1px 5px;border-radius:5px}
+.turn.sys{font-size:11.5px;color:var(--lo);text-align:center;margin:12px 0}
+/* a warning a person can read, with the log where it belongs: available,
+   not shouted. Left-aligned and boxed because it is a thing that
+   happened, not a passing note. */
+.turn.sys.bad{max-width:560px;margin:14px auto;text-align:left;
+  font-size:13px;line-height:1.6;color:var(--tx);
+  padding:12px 14px;border-radius:var(--r-md);
+  background:rgba(229,105,94,.07);border:1px solid rgba(229,105,94,.22)}
+.errdet{margin-top:9px}
+.errdet summary{font-size:11.5px;color:var(--lo);cursor:pointer;
+  list-style:none}
+.errdet summary::-webkit-details-marker{display:none}
+.errdet summary:hover{color:var(--dim)}
+.errdet div{margin-top:7px;font-family:var(--mono);font-size:11px;
+  line-height:1.55;color:var(--dim);white-space:pre-wrap;
+  max-height:220px;overflow:auto;word-break:break-word}
+.turn.sys.bad{color:var(--err)}
+
+/* thinking — present, never shouting */
+.think{margin:2px 0 14px}
+.think summary{font-size:12px;color:var(--lo);cursor:pointer;list-style:none;
+  display:inline-flex;align-items:center;gap:6px}
+.think summary::-webkit-details-marker{display:none}
+.think summary:hover{color:var(--dim)}
+.think .body{font-size:12.5px;line-height:1.65;color:var(--dim);
+  white-space:pre-wrap;margin-top:8px;padding-left:12px;
+  border-left:1px solid var(--line)}
+
+/* what it DOES */
+.run{border:1px solid var(--line);border-radius:13px;background:var(--panel);
+  margin:2px 0 16px;overflow:hidden}
+/* A ROW IS NOT A BUTTON-SHAPED THING. It IS a <button>, so it inherits
+   the global button rule — which rounds it 9px, gives it an inset
+   shadow, and LIFTS IT 1px on hover. Stacked flush inside a card with
+   `overflow:hidden`, that reads as little boxes that twitch under the
+   pointer. Resetting `border` alone was not enough: every property the
+   global rule sets has to be answered here. */
+.step{display:flex;align-items:center;gap:10px;padding:9px 13px;
+  font-size:12.5px;width:100%;background:none;border:0;text-align:left;
+  border-radius:0;box-shadow:none;font-weight:400;
+  color:var(--dim);cursor:pointer;
+  transition:background var(--dur,180ms) var(--ease)}
+.step:hover{background:var(--panel2);transform:none;box-shadow:none;
+  color:var(--dim);border-color:transparent}
+.step+.step,.stepdet+.step{border-top:1px solid var(--line)}
+.step .sdot{width:6px;height:6px;border-radius:50%;flex:none;
+  background:var(--line2)}
+.step.ok .sdot{background:#5c9a6b}
+.step.bad .sdot{background:var(--err)}
+.step.live .sdot{background:var(--acc);animation:beat 1.1s ease-in-out infinite}
+@keyframes beat{0%,100%{opacity:1;transform:scale(1)}
+  50%{opacity:.45;transform:scale(.72)}}
+.step .sv{color:var(--tx);font-weight:500;flex:none}
+.step .st{color:var(--dim);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-width:0;flex:1}
+.step .sx{flex:none;color:var(--lo);font-size:11px}
+.step.bad .sv{color:var(--err)}
+.stepdet{padding:0 13px 11px 29px;font-size:11.5px;line-height:1.6;
+  color:var(--dim);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto}
+.stepdet.bad{color:var(--err)}
+
+/* ══ MOTION ════════════════════════════════════════════════════════
+   Motion here is never decoration: every one of these says something
+   that would otherwise need a word. A step SLIDES IN because it just
+   happened. A reply FADES UP because it arrived. The send button
+   SINKS because you pressed it. Nothing loops for its own sake, and
+   the whole layer switches off under prefers-reduced-motion — a
+   captivating interface that gives somebody a migraine is not one. */
+@keyframes rise{from{opacity:0;transform:translateY(7px)}
+  to{opacity:1;transform:none}}
+@keyframes fadeup{from{opacity:0;transform:translateY(10px)}
+  to{opacity:1;transform:none}}
+@keyframes sweep{from{background-position:-160% 0}
+  to{background-position:260% 0}}
+.turn{animation:fadeup .42s cubic-bezier(.22,.9,.28,1) both}
+.run{animation:fadeup .38s cubic-bezier(.22,.9,.28,1) both}
+/* each step lands after the one above it — the cascade IS the story */
+.step{animation:rise .34s cubic-bezier(.22,.9,.28,1) both}
+.step:nth-child(1){animation-delay:.00s}.step:nth-child(3){animation-delay:.03s}
+.step:nth-child(5){animation-delay:.06s}.step:nth-child(7){animation-delay:.09s}
+.step:nth-child(9){animation-delay:.12s}.step:nth-child(11){animation-delay:.15s}
+.step:nth-child(13){animation-delay:.18s}
+/* the one still running is lit by a slow sheen crossing its row */
+.step.live{background-image:linear-gradient(100deg,transparent 38%,
+  rgba(217,119,87,.10) 50%,transparent 62%);background-size:220% 100%;
+  animation:rise .34s cubic-bezier(.22,.9,.28,1) both,
+            sweep 2.1s linear infinite}
+.composer .cbtn{transition:transform .14s cubic-bezier(.22,.9,.28,1),
+  background .18s var(--ease),filter .18s var(--ease)}
+.composer .cbtn:hover{filter:brightness(1.08)}
+.composer .cbtn:active{transform:scale(.92)}
+.qrow{transition:color var(--dur,180ms) var(--ease),
+  background var(--dur,180ms) var(--ease),
+  padding-left var(--dur,180ms) var(--ease)}
+.qrow:hover{padding-left:16px}
+.stepdet{animation:rise .2s ease both}
+@media (prefers-reduced-motion:reduce){
+  .turn,.run,.step,.stepdet{animation:none!important}
+  .step.live{background-image:none}
+}
+
+/* ══ THE DOT FIELD ═════════════════════════════════════════════════
+   The signature. One component, three jobs:
+     IDLE     a slow shimmer behind the opening words, so a window with
+              nothing in it still feels switched on rather than dead
+     WORKING  a wave travelling through the grid while a turn runs —
+              motion that MEANS something is happening, not a spinner
+              that means nothing
+     FILLING  the same grid lit left-to-right by real progress
+   It is a canvas because a few hundred dots repainting at 60fps is
+   free there and ruinous in the DOM. It stops when the tab is hidden,
+   stops when it scrolls out of view, and never starts at all under
+   prefers-reduced-motion — liveliness is not worth a battery or a
+   headache. */
+.dotf{display:block}
+.dotf.inline{width:74px;height:16px;flex:none}
+/* the thought-orb: a discrete object beside the verb, where the hero
+   field is the light in the whole room. Different jobs, same ramp. */
+.orb{display:block;flex:none}
+.nowline .orb{margin:0 1px}
+/* THE AMBIENT FIELD belongs to the whole panel, not to one paragraph.
+   As a band behind the headline it read as a smudge; across the panel it
+   reads as a room with the lights on. It is strongest when there is
+   nothing to read and recedes the moment there is — liveliness must
+   never compete with the thing the person came for. */
+.dotf.hero{position:absolute;inset:0;width:100%;height:100%;z-index:0;
+  pointer-events:none;opacity:1;
+  transition:opacity 1.1s cubic-bezier(.4,0,.2,1);
+  /* A HALO, NOT A WASH. The first mask was brightest at the centre —
+     which is exactly where the words are, so the crests ran straight
+     through the headline and made it harder to read. The field belongs
+     AROUND the content: clear where the column sits, strongest in a
+     ring outside it, gone again at the far edges so it never hits a
+     hard border. */
+  /* The light shapes itself now, so the mask does one job only: keep the
+     column of words clear, and fade at the very edge so the field never
+     meets a hard border. */
+  /* ONE LAYER. Two layers plus mask-composite silently produced no mask
+     at all and the field ran straight over every word on the page.
+     A single gradient does the whole job: clear where the column sits,
+     opaque outside it. */
+  /* MEASURED, NOT GUESSED: the column of words occupies about 58% of the
+     panel's width and 55% of its height, so transparency has to HOLD that
+     far out before the field is allowed to appear at all. Twice I set a
+     clear zone smaller than the thing it was meant to clear. */
+  /* AND IT FADES BACK OUT. The comment above already said the field
+     should be "gone again at the far edges so it never meets a hard
+     border" — the gradient did the opposite, running to solid #000 at
+     100%, so the field was BRIGHTEST exactly where the panel clips it
+     and every render ended in a hard rectangular cut at the top-left
+     and bottom-right. The ramp now rises through the ring and falls
+     away again before the edge, which is what a halo is. */
+  /* THE CLEAR ZONE WAS A CIRCLE, AND PEOPLE COULD SEE IT. A radial mask
+     cuts a literal disc out of the field, so the light can never enter
+     it and what a person reads is a big black circle with dots orbiting
+     outside — the owner described exactly that without knowing it was
+     the mask. The thing being kept clear is not a disc, it is a COLUMN
+     of words: tall, narrow, rectangular. So the mask is horizontal now.
+     The field lives in the margins either side, fades out before it
+     meets the window edge, and there is no circle anywhere in it. */
+  -webkit-mask-image:linear-gradient(to right,
+     transparent 0,rgba(0,0,0,.45) 3%,#000 7%,#000 10%,
+     rgba(0,0,0,.28) 13%,transparent 17%,transparent 83%,
+     rgba(0,0,0,.28) 87%,#000 90%,#000 93%,rgba(0,0,0,.45) 97%,
+     transparent 100%);
+  mask-image:linear-gradient(to right,
+     transparent 0,rgba(0,0,0,.45) 3%,#000 7%,#000 10%,
+     rgba(0,0,0,.28) 13%,transparent 17%,transparent 83%,
+     rgba(0,0,0,.28) 87%,#000 90%,#000 93%,rgba(0,0,0,.45) 97%,
+     transparent 100%)}
+/* OFF, NOT DIMMED. At .30 the field still ran behind the reply and the
+   run card and made them harder to read — the owner watched it happen.
+   The rule this file already states is that liveliness must never
+   compete with the thing the person came for, and a conversation IS
+   that thing. It lights an empty room; the moment there is something
+   to read it goes out entirely, and comes back on a new project. */
+.conv-shell.talking .dotf.hero{opacity:0}
+/* AND IT LIVES HERE, AFTER THE BASE RULE — not three hundred lines
+   earlier, where `.dotf.hero{opacity:1}` simply overrode it at equal
+   specificity and the field kept running behind the text on every
+   narrow window. Same weight means the later rule wins; the fix is
+   position, not `!important`.
+   MEASURED, NOT DIMMED: the mask keeps a clear COLUMN and the field
+   lives in the margins either side, so once the column fills the panel
+   there are no margins and fading only puts faint dots on the words
+   instead of bright ones. The panel is the window minus a 264px
+   sidebar and the column is 760px, so the margins run out near 1280. */
+body.pvwopen .dotf.hero{opacity:0}
+@media (max-width:1440px){.dotf.hero{opacity:.6}}
+@media (max-width:1280px){.dotf.hero{opacity:0}}
+.conv-shell{position:relative}
+.conv-scroll,.conv-dock{position:relative;z-index:1}
+.herowrap{position:relative}
+
+/* the live line — what is happening RIGHT NOW */
+.nowline{display:flex;align-items:center;gap:11px;padding:11px 2px;
+  font-size:13px;color:var(--dim)}
+.nowline .sv{color:var(--tx);font-weight:500}
+.nowline .ac{margin-left:auto;font-size:11px;color:var(--lo)}
+
+/* HIDDEN MEANS HIDDEN. The browser's own `[hidden]{display:none}` is a
+   UA rule of the same specificity as any class, so every author rule
+   like `.qrows{display:flex}` silently beat it: elements were marked
+   hidden, reported hidden, and still took up their full height — which
+   is exactly what kept pushing the composer down the window. */
+[hidden]{display:none!important}
+
+/* settings — the PANE owns the scroll, so the last card is reachable */
+#content.set-host{flex:1;min-height:0;overflow-y:auto;display:block}
+.setwrap{max-width:660px;margin:0 auto;padding:34px 24px 60px}
+.seth{font-size:26px;font-family:var(--display);letter-spacing:-.02em;font-weight:600;color:var(--tx);
+  margin:0 0 20px}
+.setwrap .card{margin-bottom:16px}
+.setwrap .card h3{display:flex;align-items:center;gap:8px}
+.kv{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;
+  color:var(--dim)}
+.kv:last-of-type{border-bottom:0}
+.kv b{color:var(--tx);font-weight:500}
+.rowbtns{display:flex;gap:8px;align-items:center;margin-top:12px}
+.meter{height:5px;border-radius:3px;background:var(--panel2);overflow:hidden;
+  margin:10px 0 2px}
+.meter i{display:block;height:100%;background:var(--acc)}
+
 .startrow textarea{flex:1;min-height:44px;max-height:180px;padding:12px 14px;
   font:inherit;font-size:15px;line-height:1.45;resize:none;overflow:auto;
   background:var(--field);border:1px solid var(--line2);border-radius:10px;
@@ -3487,12 +4979,12 @@ header{background:rgba(11,11,12,.5);backdrop-filter:blur(20px);
    Optically-tightened display type with a top-lit gradient fill: bright
    at the cap line, settling to warm grey at the baseline. It reads as
    lit from above, matching the ambient layer.                        */
-.focal h1{font-size:40px;line-height:1.1;letter-spacing:-.035em;
+.focal h1,#welcome h1{font-size:40px;line-height:1.1;letter-spacing:-.035em;
   font-weight:600;margin:0 0 14px;
   background:linear-gradient(176deg,#fff 8%,#e6e2df 45%,#a8a29d 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
   -webkit-text-fill-color:transparent}
-.focal .sub{font-size:14px;line-height:1.65;color:#8b8792;
+.focal .sub,#welcome .sub{font-size:14px;line-height:1.65;color:#8b8792;
   margin:0 0 36px;max-width:50ch;letter-spacing:-.005em}
 
 /* ══ THE COMPOSER — the one lit object ═══════════════════════════════ */
@@ -3652,13 +5144,13 @@ header{background:var(--g-1);backdrop-filter:none;-webkit-backdrop-filter:none;
 section#content{background:var(--g-2)}
 
 /* ── TYPE: 400 / 510 / 590. Never 700. Tracking tightens with size. ── */
-.focal h1{font-size:34px;line-height:1.15em;letter-spacing:-.035em;
+.focal h1,#welcome h1{font-size:34px;font-family:var(--display);line-height:1.15em;letter-spacing:-.035em;
   font-weight:590;color:var(--t-1);
   background:none;-webkit-text-fill-color:currentColor;margin:0 0 14px}
-.focal h1 em{font-style:italic;color:var(--t-1)}
-.focal .sub{font-size:15px;line-height:1.62em;letter-spacing:-.014em;
+.focal h1 em,#welcome h1 em{font-style:italic;color:var(--t-1)}
+.focal .sub,#welcome .sub{font-size:15px;line-height:1.62em;letter-spacing:-.014em;
   color:var(--t-2);max-width:60ch;margin:0 0 var(--s-8,32px)}
-#ptitle{font-size:20px;line-height:1.3em;letter-spacing:-.028em;font-weight:590}
+#ptitle{font-size:20px;font-family:var(--display);line-height:1.3em;letter-spacing:-.028em;font-weight:590}
 
 /* ── THE COMPOSER: one slab. Focus is a brightening hairline. ──────── */
 .startrow{max-width:780px;margin:0 auto;gap:10px;align-items:flex-end}
@@ -3723,7 +5215,9 @@ section#content[data-split="1"]{display:grid;grid-template-columns:1fr 0fr;
 body.split section#content[data-split="1"]{grid-template-columns:1fr minmax(380px,46%)}
 section#content>*{min-height:0;min-width:0}      /* the grid-overflow trap */
 
-.conv{display:flex;flex-direction:column;overflow:auto;padding:0 24px}
+/* The pane does NOT scroll — the log inside it does. When this scrolled,
+   the composer scrolled away with it. */
+.conv{display:flex;flex-direction:column;overflow:hidden;padding:0;min-height:0}
 .work{display:grid;grid-template-rows:44px 1fr;min-height:0;overflow:hidden;
   background:var(--g-1);box-shadow:-1px 0 0 0 var(--edge-1);opacity:0;
   transition:opacity var(--d-menu,200ms) var(--eo)}
@@ -3961,14 +5455,22 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
   <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
   <div id="plist"></div>
   <div class="srows">
-    <button class="qrow" onclick="S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}refresh()">
+    <button class="qrow" onclick="newProject()">
       <span data-ic="plus"></span><span class="ql">New project</span>
       <span class="qc" data-ic="up"></span></button>
     <button class="qrow" id="codebtn" onclick="openCode()">
       <span data-ic="terminal"></span><span class="ql">Code workspace</span>
       <span class="qc" data-ic="up"></span></button>
+<!-- "Design from a screenshot" used to live here. It is the same
+     action as attaching a screenshot in the conversation, and two doors
+     to one capability is exactly what let the old editor leak into the
+     new one. The view itself is untouched and still reachable in code;
+     only the duplicate entrance is gone. -->
     <button class="qrow" id="libbtn" onclick="openLibrary()">
       <span data-ic="library"></span><span class="ql">Design library</span>
+      <span class="qc" data-ic="up"></span></button>
+    <button class="qrow" id="setbtn" onclick="openSettings()">
+      <span data-ic="gear"></span><span class="ql">Settings</span>
       <span class="qc" data-ic="up"></span></button>
   </div>
   </aside>
@@ -3981,22 +5483,35 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
   <div id="progress"><div class="lbl" id="prog-lbl">working…</div>
     <div class="bar"><div class="fill" id="prog-fill"></div></div></div>
   <nav id="tabs"></nav>
-  <section id="content"><div class="empty"><div class="focal">
+  <section id="content" class="conv-host"><div class="conv-shell" id="convshell">
+   <canvas class="dotf hero"></canvas>
+   <div class="conv-scroll" id="convscroll"><div class="conv-wrap">
      <div id="welcome">
      <h1>Every template you buy<br>can be entirely yours.</h1>
-     <p class="sub">Paste a live Framer or Webflow URL and tell Aethron what it
-      should become. It rebrands every string, swaps the images, strips the
-      badge &mdash; and hands back a site you fully own.</p>
+     <p class="sub">Paste a live Framer or Webflow URL, drop in a screenshot,
+      or just say what you want built. Aethron works out whether that is a
+      migration, a port, a rebuild or a coding job &mdash; and does it here.</p>
      </div>
      <div id="chatlog" class="clog" hidden></div>
-     <div class="startrow">
+   </div></div>
+   <div class="conv-dock"><div class="conv-wrap">
+     <div class="composer" data-beam="ae"><span data-beam-bloom></span>
        <textarea id="npurl" rows="1"
         placeholder="Paste a template URL, or tell Aethron what you want…"
         oninput="growTa(this)"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
-       <button class="primary" id="sendbtn" onclick="consoleSend()"
-        aria-label="Send"><span data-ic="up"></span></button>
+       <div class="cbar">
+         <label class="cpill" for="npfile"
+          title="an export, a zip, or pages you saved separately"><span
+          data-ic="file" data-ics="13"></span>attach</label>
+         <button class="cpill opt" onclick="openSettings()"
+          title="change the model or the key"><span data-ic="key"
+          data-ics="13"></span><span class="cv" id="cbarmodel">model</span></button>
+         <button class="cbtn" id="sendbtn" onclick="consoleSend()"
+          aria-label="Send" title="Send"><span data-ic="up"></span></button>
+       </div>
      </div>
+     <div class="dockmeta" id="dockmeta"></div>
      <div class="startmeta">
        <input id="npname" placeholder="Project name (optional)">
        <span class="or">or</span>
@@ -4005,21 +5520,32 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
         choose an export, a zip, or saved pages</label>
      </div>
      <div class="qrows">
-       <button class="qrow" onclick="openLibrary()">
-         <span data-ic="library"></span><span class="ql">Match a plan against
-         your design library</span><span class="qc" data-ic="up"></span></button>
+       <button class="qrow" onclick="quick('Migrate ','Paste the live Framer or Webflow URL, and tell me the brand it should become.')">
+         <span data-ic="zap"></span><span class="ql">Migrate a live site</span>
+         <span class="qc" data-ic="up"></span></button>
+       <button class="qrow" onclick="quick('Rebuild this screenshot as ','Attach or paste the screenshot, then say which framework you want.')">
+         <span data-ic="image"></span><span class="ql">Rebuild a screenshot into real code</span>
+         <span class="qc" data-ic="up"></span></button>
        <button class="qrow" onclick="openCode()">
          <span data-ic="terminal"></span><span class="ql">Open the coding
          workspace</span><span class="qc" data-ic="up"></span></button>
-       <button class="qrow" onclick="startTour(0)">
-         <span data-ic="help"></span><span class="ql">Show me around</span>
-         <span class="qc" data-ic="up"></span></button>
-     </div></div></div></section>
+     </div>
+   </div></div>
+ </div></section>
 </main>
 <script>
 const $=id=>document.getElementById(id);
+/* set before anything renders, so no frame is painted opaque first */
+if(location.search.indexOf('glass=1')>=0)
+  document.documentElement.classList.add('native-glass');
 const ICONS={
 terminal:'<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
+image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+stop:'<rect x="6" y="6" width="12" height="12" rx="2"/>',
+key:'<path d="m15.5 7.5 3 3L22 7l-3-3"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/>',
+coins:'<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/>',
 file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/>',
 send:'<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
 lock:'<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
@@ -4045,6 +5571,7 @@ snow:'<line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"
 pin:'<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1z"/>',
 up:'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
 rocket:'<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+x:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
 help:'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'};
 const I=(n,s=14)=>`<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;
 document.querySelectorAll('[data-ic]').forEach(n=>{n.outerHTML=I(n.dataset.ic,+(n.dataset.ics||14))});
@@ -4067,7 +5594,7 @@ async function refresh(keepTab){
   renderSidebar();
   if(S.cur){
     S.info=S.projects.find(p=>p.name===S.cur)||null;
-    if(!S.info){S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
+    if(!S.info){S.view='';S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
   }
   renderHeader();
   if(!keepTab)renderTab();
@@ -4082,9 +5609,13 @@ function renderSidebar(){
        <span>${p.filled}/${p.total} filled</span></div>
       <div class="pbar"><i style="width:${pct}%"></i></div></div>
      <span class="del" onclick="event.stopPropagation();delProject('${p.name}')">✕</span>
-     </div>`}).join('')||'<div class="hint" style="padding:8px">no projects yet</div>';
+     </div>`}).join('')||'<div class="sideempty"><span class="mk">'+I('package',15)+'</span>'
+      +'<b>No projects yet</b>Paste a template URL, or say what you want '
+      +'built. Whatever you start appears here.</div>';
 }
 async function select(name){
+  /* a sheet showing the LAST project must not survive into this one */
+  closePvw&&closePvw();
   S.cur=name;S.cm=null;S.tab='chat';S.view='project';
   const lb=$('libbtn');if(lb)lb.classList.remove('sel');
   await refresh();
@@ -4094,7 +5625,7 @@ async function select(name){
 async function delProject(name){
   if(!confirm(`Delete project "${name}"? pristine/, copy_map and site/ all go.`))return;
   await api('/api/projects/delete',{name});
-  if(S.cur===name){S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
+  if(S.cur===name){S.view='';S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
   refresh();
   checkUpdate();
 }
@@ -4261,7 +5792,7 @@ function updateMenuItem(){
     ${I('download',14)}<span>Update to ${esc(UPD.latest||'')}</span></button>`;
 }
 function renderHeader(){
-  $('ptitle').textContent=S.view==='library'?'Design library'
+  $('ptitle').textContent=S.view==='settings'?'Settings':S.view==='library'?'Design library'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
   if(!S.cur){$('steps').innerHTML='';$('tabs').innerHTML='';return;}
   const done={fetch:S.info?.fetched,inventory:S.info?.inventoried,
@@ -4533,6 +6064,140 @@ async function showZeroFx(){
   }catch(e){alert(e.message)}
 }
 
+// ---------- design: a screenshot becomes a page, and words change it ----------
+// Everything here goes through Aethron's own checks: the page is MEASURED off the
+// image, and a change is kept only when every claim about it is measured true.
+const DESIGN={name:'',pages:[],log:'',busy:false,wired:false};
+
+async function openDesign(){
+  S.view='design';S.cur=null;S.cm=null;S.panel=false;S.tab='';
+  {const _c=document.getElementById('content');if(_c)_c.dataset.split='';}
+  document.querySelectorAll('.libbtn').forEach(b=>b.classList.remove('sel'));
+  const b=$('designbtn');if(b)b.classList.add('sel');
+  if(!DESIGN.wired){          // ON THE DOCUMENT, not the element: this view is
+    DESIGN.wired=true;        // re-rendered constantly and a per-node handler dies.
+    document.addEventListener('paste',ev=>{
+      if(S.view!=='design')return;
+      const it=[...(ev.clipboardData||{items:[]}).items||[]]
+        .find(i=>i.type&&i.type.startsWith('image/'));
+      if(it)designNew(it.getAsFile());
+    });
+  }
+  renderSidebar();renderHeader();renderTab();
+}
+
+function designSay(t){DESIGN.log=(DESIGN.log?DESIGN.log+'\n':'')+t;
+  const el=$('dlog');if(el){el.textContent=DESIGN.log;el.scrollTop=el.scrollHeight;}}
+
+async function designWatch(job){
+  let j,seen=0;
+  do{
+    await new Promise(r=>setTimeout(r,900));
+    j=await api('/api/job?id='+job);
+    const fresh=(j.log||'').slice(seen);seen=(j.log||'').length;
+    if(fresh.trim()){DESIGN.log+=fresh;const el=$('dlog');
+      if(el){el.textContent=DESIGN.log;el.scrollTop=el.scrollHeight;}}
+  }while(!j.done);
+  return j;
+}
+
+async function designNew(file){
+  if(!file||DESIGN.busy)return;
+  DESIGN.busy=true;DESIGN.log='';designSay('reading the screenshot…');
+  try{
+    const up=await api('/api/image',{data:await b64of(file)});
+    const name=(file.name||'page').replace(/\.[a-z]+$/i,'');
+    const r=await api('/api/design/new',{image:up.path,name});
+    const j=await designWatch(r.job);
+    DESIGN.name=r.name;
+    if(!j.ok)designSay('\nAethron did not hand this page over — nothing was kept.');
+  }catch(e){designSay('failed: '+e.message);}
+  DESIGN.busy=false;renderTab();
+}
+
+async function designChange(){
+  const box=$('dask');const ask=box?box.value.trim():'';
+  if(!ask||DESIGN.busy)return;
+  DESIGN.busy=true;DESIGN.log='';designSay('writing the tests first…');
+  if(box)box.value='';
+  try{
+    const r=await api('/api/design/change',{name:DESIGN.name,request:ask,budget:0});
+    const j=await designWatch(r.job);
+    if(j.ok){const f=$('dframe');if(f)f.src='/design/'+DESIGN.name+'/site.html?'+Date.now();}
+  }catch(e){designSay('failed: '+e.message);}
+  DESIGN.busy=false;
+}
+
+async function showWallet(){
+  try{
+    const w=await api('/api/wallet');const el=$('dwallet');
+    if(el)el.textContent='$'+w.left_usd.toFixed(2)+' of $'+w.limit_usd.toFixed(2)+' left';
+  }catch(e){}
+}
+async function designWallet(){
+  const w=await api('/api/wallet').catch(()=>null);if(!w)return;
+  const v=prompt('How much may Aethron spend on paid model calls, in total?\\n\\n'
+    +'$'+w.spent_usd.toFixed(4)+' of $'+w.limit_usd.toFixed(2)+' has been spent over '+w.calls
+    +' paid calls. Free calls never touch this.\\n\\nNew ceiling in dollars:', w.limit_usd.toFixed(2));
+  if(v===null)return;
+  try{await api('/api/wallet',{limit_usd:parseFloat(v)});await showWallet();}
+  catch(e){alert(e.message);}
+}
+
+async function renderDesign(c){
+  c.dataset.split='';
+  let r={pages:[]};
+  try{r=await api('/api/design/list');}catch(e){}
+  DESIGN.pages=r.pages||[];
+  if(DESIGN.name&&!DESIGN.pages.some(p=>p.name===DESIGN.name))DESIGN.name='';
+  if(!DESIGN.name&&DESIGN.pages.length)DESIGN.name=DESIGN.pages[0].name;
+  const esc=s=>String(s).replace(/[<>&"]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[m]));
+  const tabs=DESIGN.pages.map(p=>`<button class="qrow" style="margin:0;width:auto;
+      ${p.name===DESIGN.name?'border-color:var(--acc);color:var(--acc2)':''}"
+      onclick="DESIGN.name='${esc(p.name)}';renderTab()">${esc(p.name)}</button>`).join('');
+  c.innerHTML=`
+  <div style="padding:20px;display:grid;gap:16px;max-width:1120px">
+    <div>
+      <div style="font-weight:700;font-size:17px;letter-spacing:-.01em">Design from a screenshot</div>
+      <p style="color:var(--dim);max-width:74ch;margin:6px 0 0;font-size:13.5px">
+        Paste or choose a screenshot. Aethron measures it and writes the page — every colour,
+        size and position read off the image rather than guessed. Then ask for changes in your
+        own words: the tests are written first, and a change is kept only when the measurements
+        prove it and nothing else on the page moved.</p>
+      <p style="color:var(--dim);max-width:74ch;margin:6px 0 0;font-size:12.5px">
+        Measuring a screenshot takes several minutes — it fits the background layer by layer and
+        reads every line of type. The log below shows each stage as it happens.</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <input type="file" id="dfile" accept="image/*" style="display:none"
+             onchange="designNew(this.files[0])">
+      <button class="primary" onclick="$('dfile').click()">New page from a screenshot</button>
+      <span style="color:var(--dim);font-size:12.5px">…or just paste one (⌘V)</span>
+      <span style="flex:1"></span>
+      <button class="qrow" style="margin:0;width:auto" onclick="designWallet()"
+        title="what Aethron may still spend on paid model calls, across every run">
+        <span id="dwallet" style="font:12.5px ui-monospace,Menlo,monospace">wallet…</span></button>
+    </div>
+    ${DESIGN.pages.length?`<div style="display:flex;gap:8px;flex-wrap:wrap">${tabs}</div>`:''}
+    ${DESIGN.name?`
+      <iframe id="dframe" src="/design/${esc(DESIGN.name)}/site.html"
+        style="width:100%;aspect-ratio:1414/858;border:1px solid var(--line);
+               border-radius:10px;background:#06050C"></iframe>
+      <div style="display:flex;gap:8px">
+        <input id="dask" placeholder="what should change? e.g. make the Generate button green"
+          style="flex:1;padding:10px 12px;border-radius:9px;border:1px solid var(--line);
+                 background:var(--panel2);color:var(--tx);font:inherit"
+          onkeydown="if(event.key==='Enter')designChange()">
+        <button class="primary" onclick="designChange()">Ask</button>
+      </div>`
+    :`<div class="empty">no pages yet — paste a screenshot to make one</div>`}
+    <pre id="dlog" style="white-space:pre-wrap;font:12px/1.5 ui-monospace,Menlo,monospace;
+      color:var(--dim);background:var(--panel2);border:1px solid var(--line);
+      border-radius:10px;padding:12px;max-height:340px;overflow:auto;margin:0">${esc(DESIGN.log)}</pre>
+  </div>`;
+  showWallet();
+}
+
 // ---------- design library ----------
 async function openLibrary(){
   S.view='library';S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}
@@ -4632,13 +6297,9 @@ async function delLibrary(id){
 const CODE={key:'',since:0,events:[],tree:[],file:'',dirty:false,
             poll:0,status:null,showai:false,ws:{project:'',workspace:''}};
 
-async function openCode(){
-  S.view='code';S.tab='';
-  document.querySelectorAll('.libbtn').forEach(b=>b.classList.remove('sel'));
-  const b=$('codebtn');if(b)b.classList.add('sel');
-  if(S.cur)CODE.ws={project:S.cur,workspace:''};
-  renderHeader();renderTab();
-}
+/* (the old openCode lived here and replaced the whole view; the sheet
+   version above supersedes it — two definitions and the later one wins,
+   which is a coin toss nobody should be making at read time.) */
 const wsq=()=>CODE.ws.project?'project='+encodeURIComponent(CODE.ws.project)
                              :'workspace='+encodeURIComponent(CODE.ws.workspace);
 const wsBody=o=>Object.assign({},CODE.ws,o||{});
@@ -4836,19 +6497,61 @@ async function sendCode(){
   if(!CODE.key)return alert('start a session first');
   ta.value='';
   CODE.events.push({type:'you',text});renderChat();
+  CODE.lastEv=Date.now();
   try{await api('/api/code/send',{key:CODE.key,text});}
   catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
 }
+/* One place stops a turn, so the log, the composer and the field can
+   never disagree about whether something is still happening. */
+function endTurn(){
+  if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
+  renderChat(); syncComposer(); syncHero();
+}
+/* NOTHING SHOULD EVER SPIN FOREVER WITH NOTHING TO SHOW. The key bug is
+   fixed below, but "silent and endless" is the wrong failure mode for
+   ANY cause — a wedged child, a provider that never answers, a socket
+   that went away. If a turn produces no event at all for this long, say
+   so and stop, rather than leaving a person watching an orb. */
+const STALL_MS=90000;
 async function pollCode(){
   if(!CODE.key)return;
+  if(CODE.poll){
+    CODE.lastEv=CODE.lastEv||Date.now();
+    if(Date.now()-CODE.lastEv>STALL_MS){
+      CODE.events.push({type:'error',text:
+        'No response from the provider for 90 seconds, so Aethron stopped '
+        +'waiting. Nothing was changed. If you just saved a new key, send '
+        +'the message again \u2014 this one was still on the old session.'});
+      endTurn(); return;
+    }
+  }
   try{
     const r=await api('/api/code/events?key='+encodeURIComponent(CODE.key)
                       +'&since='+CODE.since);
     if(r.events&&r.events.length){
-      CODE.events.push(...r.events);CODE.since=r.n;renderChat();
+      CODE.events.push(...r.events);CODE.since=r.n;CODE.lastEv=Date.now();
+      renderChat();
       if(r.events.some(e=>['tool_result','done'].includes(e.type)))loadTree();
+      /* AN ERROR ENDS THE TURN, AND THE UI MUST NOT WAIT TO BE TOLD.
+         A wedged session can keep reporting running:true forever — after
+         a 429 it did — so the orb kept spinning, the card kept saying
+         Running and the button stayed a stop long after the reply had
+         failed. The client ends its own turn the moment a done, error or
+         exit arrives; the server catching up later changes nothing. */
+      if(r.events.some(e=>['done','error','exit'].includes(e.type)))
+        endTurn();
     }
-    if(!r.running&&CODE.key){clearInterval(CODE.poll);CODE.poll=0;}
+    if(!r.running&&CODE.key){
+      clearInterval(CODE.poll);CODE.poll=0;
+      /* AND REDRAW. The live line ("Thinking", the orb, the step count)
+         is part of the LOG, and renderChat only ran when new events
+         arrived — so the final poll, the one that discovers the turn is
+         over, cleared the flag and left the line on screen until
+         something unrelated happened to re-render. That is why it sat
+         there after the reply had already landed. */
+      renderChat();
+    }
+    syncComposer();            // stop becomes send the moment it is over
   }catch(e){}
 }
 
@@ -4860,40 +6563,467 @@ async function pollCode(){
    Rooting the session in the project dir also means forge.json is
    present, so PROJECT_RULES and the site/ + pristine/ write-deny come
    into force automatically. */
+/* ONE SHELL, EVERY STATE. The welcome, the project conversation and the
+   coding session are the same surface with different opening words —
+   because to the person using it they ARE the same thing: say what you
+   want, watch it happen. The composer lives in its own dock at the
+   bottom and is never pushed anywhere by what is above it. */
+function convShell(o){
+  o=o||{};
+  return `<div class="conv-shell${CODE.events.length?' talking':''}" id="convshell">
+    <canvas class="dotf hero"></canvas>
+    <div class="conv-scroll" id="convscroll">
+      <div class="conv-wrap">
+        ${o.top||''}
+        <div id="welcome" ${CODE.events.length?'hidden':''}>
+          <h1>${o.title||''}</h1>
+          <p class="sub">${o.sub||''}</p>
+        </div>
+        <div id="chatlog" class="clog" ${CODE.events.length?'':'hidden'}></div>
+      </div>
+    </div>
+    <div class="conv-dock"><div class="conv-wrap">
+      <div class="composer" data-beam="ae"><span data-beam-bloom></span>
+        <textarea id="npurl" rows="1" placeholder="${esc(o.hint||'')}"
+         oninput="growTa(this)"
+         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
+        <div class="cbar">
+          <label class="cpill" for="npfile"
+           title="an export, a zip, or pages you saved separately">${I('file',13)}attach</label>
+          <button class="cpill opt" onclick="openSettings()"
+           title="change the model or the key">${I('key',13)}<span
+           class="cv" id="cbarmodel">model</span></button>
+          ${CODE.poll
+            ?`<button class="cbtn stop" onclick="stopTurn()" aria-label="Stop"
+                title="Stop">${I('stop',15)}</button>`
+            :`<button class="cbtn" onclick="consoleSend()" aria-label="Send"
+                title="Send"><span data-ic="up"></span></button>`}
+        </div>
+      </div>
+      <div class="dockmeta" id="dockmeta"></div>
+      ${o.extra||''}
+      <div class="qrows" id="qrows" ${CODE.events.length?'hidden':''}>${
+        (o.quick||[]).map(q=>`<button class="qrow" onclick="quick(${
+          JSON.stringify(q.ask).replace(/"/g,'&quot;')},${
+          JSON.stringify(q.need||'').replace(/"/g,'&quot;')})">
+          <span data-ic="${q.icon}"></span><span class="ql">${esc(q.label)}</span>
+          <span class="qc" data-ic="up"></span></button>`).join('')}</div>
+    </div></div></div>`;
+}
+/* ══ SETTINGS ═══════════════════════════════════════════════════════
+   Who you are, what Aethron is using to think, and what it has spent.
+   The key switcher is here deliberately and temporarily: while this is
+   being driven hard by its owner, changing provider or key must take
+   one click and no restart. It comes out when the hosted gateway lands
+   and nobody has to hold a key at all. */
+async function renderSettings(c){
+  c.dataset.split='';c.classList.remove('conv-host');c.classList.add('set-host');
+  renderHeader&&renderHeader();
+  c.innerHTML='<div class="empty"><div class="focal">'
+    +'<h1>Settings</h1><div class="hint">loading…</div></div></div>';
+  let me={},wallet={};
+  try{me=await api('/api/auth/me')}catch(e){}
+  try{wallet=await api('/api/wallet')}catch(e){}
+  const acc=me&&(me.email||me.user||me.id),
+        plan=(me&&me.plan)||'beta';
+  const left=wallet&&wallet.left_usd, lim=wallet&&wallet.limit_usd,
+        spent=wallet&&wallet.spent_usd;
+  c.innerHTML=`<div class="setwrap">
+    <h1 class="seth">Settings</h1>
+
+    <section class="card">
+      <h3>${I('user',14)} Profile</h3>
+      <div class="kv"><span>Signed in as</span><b>${esc(acc||'not signed in')}</b></div>
+      <div class="kv"><span>Plan</span><b>${esc(plan)}</b></div>
+      <div class="kv"><span>Projects</span><b>${(S.projects||[]).length}</b></div>
+      ${acc?`<div class="rowbtns"><button onclick="signOut()">Sign out</button></div>`
+           :`<div class="hint">This copy is running without the cloud layer,
+              so nothing about you leaves this machine.</div>`}
+    </section>
+
+    <section class="card">
+      <h3>${I('key',14)} Model and key</h3>
+      <div class="hint">Whatever you set here powers everything — rebranding
+        copy, writing code, measuring a change. Switch provider or key at any
+        time; nothing needs restarting.</div>
+      ${aiSettingsHtml()}
+    </section>
+
+    <section class="card">
+      <h3>${I('coins',14)} Spending</h3>
+      ${typeof left==='number'?`
+        <div class="kv"><span>Ceiling</span><b>$${Number(lim).toFixed(2)}</b></div>
+        <div class="kv"><span>Spent</span><b>$${Number(spent).toFixed(4)}</b></div>
+        <div class="kv"><span>Left</span><b>$${Number(left).toFixed(4)}</b></div>
+        <div class="meter"><i style="width:${Math.max(0,Math.min(100,
+           (Number(spent)/Math.max(0.0001,Number(lim)))*100)).toFixed(1)}%"></i></div>
+        <div class="rowbtns">
+          <input id="wlimit" type="number" step="0.5" min="0"
+            value="${Number(lim).toFixed(2)}" style="width:110px">
+          <button onclick="setWallet()">Set ceiling</button></div>
+        <div class="hint">A ceiling that survives restarts. It is checked
+          BEFORE a paid call starts and counted down by the real bill, not an
+          estimate — free keys never touch it.</div>`
+      :`<div class="hint">No wallet is configured for this copy.</div>`}
+    </section>
+  </div>`;
+  bindAiSettings();
+}
+async function setWallet(){
+  const v=parseFloat(($('wlimit')||{}).value);
+  if(!(v>=0))return;
+  try{await api('/api/wallet',{limit_usd:v});renderTab();}
+  catch(e){alert(e.message)}
+}
+async function signOut(){
+  try{await api('/api/auth/logout',{})}catch(e){}
+  location.reload();
+}
+/* ── LEAVING A VIEW IS PART OF ENTERING ONE ─────────────────────────
+   Every opener sets S.view — settings, library, code, design — and the
+   New project button set everything EXCEPT that, so from Settings it
+   cleared the project, re-rendered, and renderTab() saw S.view still
+   reading 'settings' and put you straight back. The button looked
+   dead. It was doing its job and being overruled by one stale field.
+   Everything that returns to the front door goes through here now. */
+function newProject(){
+  S.view=''; S.cur=null; S.cm=null; S.panel=false; S.tab='chat';
+  closePvw&&closePvw();
+  const c=document.getElementById('content');
+  if(c)c.dataset.split='';
+  document.body.classList.remove('pvwopen');
+  refresh();
+}
+function openSettings(){S.view='settings';S.cur=null;S.panel=false;renderTab();renderSidebar&&renderSidebar();}
+
+/* ── THE PROJECT, VISIBLE ─────────────────────────────────────────
+   Selecting a project used to show a conversation about a thing you
+   could not see. The site is BUILT and already served from this origin
+   at /edit/<name>/, so the card shows the real page — not a screenshot
+   of it, not a placeholder — scaled down and inert, with the two doors
+   a person actually wants: look at it properly, or point at something
+   and change it. That second one is how hand-editing is reached now;
+   before this it was a tab you had to already know about. */
+function projectCard(){
+  if(!S.cur)return '';
+  const i=S.info||{}, plat=(i.platform||'').toUpperCase(),
+        n=i.strings||0, f=i.filled||0,
+        pages=(i.pages&&i.pages.length)||0;
+  return `<div class="pcard glass">
+    <div class="pshot" onclick="openPreviewPane(false)" title="open the preview">
+      <iframe src="/edit/${encodeURIComponent(S.cur)}/" tabindex="-1"
+        scrolling="no" aria-hidden="true"></iframe>
+      <span class="pveil"></span>
+    </div>
+    <div class="pside">
+      <div class="pname">${esc(S.cur)}</div>
+      <div class="pmeta">${plat?`<span class="tag">${esc(plat)}</span>`:''}
+        ${n?`<span>${f} of ${n} strings filled</span>`:''}
+        ${pages?`<span>&middot; ${pages} page${pages>1?'s':''}</span>`:''}</div>
+      <div class="pacts">
+        <button class="cpill" onclick="openPreviewPane(false)">${I('play',13)}Preview</button>
+        <button class="cpill" onclick="openPreviewPane(true)">${I('pencil',13)}Point and edit</button>
+        <button class="cpill opt" onclick="openInBrowser()">${I('compass',13)}Open in browser</button>
+      </div>
+    </div></div>`;
+}
+/* ── THE PREVIEW SHEET ─────────────────────────────────────────────
+   Inside Aethron, over the conversation. Browse behaves like a browser;
+   Select arms the picker that already ships in the edit mount — the one
+   that walks the full elementsFromPoint stack, so a thing sitting behind
+   a transparent overlay is still reachable, which is most of a Framer
+   page. */
+let PVW={edit:false,pick:null};
+/* ── ONE SHEET, MANY CONTENTS ───────────────────────────────────────
+   The preview taught the shape: the conversation keeps the left third
+   and stays live, the work opens beside it, Escape and Close get you
+   out. Anything that used to be a separate MODE belongs here instead —
+   a mode takes the whole window and takes the conversation with it,
+   which is the thing that made this product feel like several
+   applications wearing one sidebar. */
+function openSheet(o){
+  closePvw();
+  const d=document.createElement('div');
+  d.className='pvw'; d.id='pvw';
+  d.innerHTML=`<div class="pvw-bar glass">
+      <span class="pvw-name">${esc(o.name||'')}<span>${esc(o.sub||'')}</span></span>
+      ${o.bar||''}
+      <span class="sp"></span>
+      ${o.actions||''}
+      <button class="cpill" onclick="closePvw()">${I('x',13)}Close</button>
+    </div>
+    <div class="pvw-stage${o.dark?' dark':''}" id="pvwstage">${o.body||''}</div>`;
+  document.body.appendChild(d);
+  let opened=false;
+  const open=()=>{ if(opened)return; opened=true;
+    d.classList.add('in'); document.body.classList.add('pvwopen');
+    syncHero(); };
+  requestAnimationFrame(()=>requestAnimationFrame(open));
+  setTimeout(open,120);
+  document.addEventListener('keydown',pvwKey);
+  if(o.onMount)o.onMount(document.getElementById('pvwstage'));
+  return d;
+}
+function openPreviewPane(edit){
+  if(!S.cur)return;
+  PVW.edit=!!edit;
+  const d=openSheet({
+    name:S.cur, sub:'the built site',
+    bar:`<div class="pvw-seg" id="pvwseg">
+        <button class="${edit?'':'on'}" onclick="pvwMode(false)">Browse</button>
+        <button class="${edit?'on':''}" onclick="pvwMode(true)">Select</button>
+      </div>`,
+    actions:`<button class="cpill opt" onclick="openInBrowser()">${
+        I('compass',13)}Open in browser</button>`,
+    body:`<iframe id="pvwframe" src="/edit/${encodeURIComponent(S.cur)}/"></iframe>
+      <div class="selring" id="selring"></div>
+      <div class="pvw-hint" id="pvwhint"></div>`});
+  const f=$('pvwframe');
+  if(f)f.onload=()=>pvwMode(PVW.edit);
+}
+/* THE CODE WORKSPACE IS A SHEET NOW, NOT A PLACE YOU GO. It used to
+   replace the whole view, so opening it meant leaving the conversation
+   — the same fault the preview had. The files open beside the chat and
+   close again without losing anything. */
+async function openCode(){
+  if(S.cur)CODE.ws={project:S.cur,workspace:''};
+  openSheet({name:'Code workspace',
+    sub:S.cur||'a fresh workspace', dark:true,
+    body:'<div class="empty">opening the workspace\u2026</div>',
+    onMount:async stage=>{ try{ await renderCode(stage); }
+      catch(e){ stage.innerHTML='<div class="pane"><h3>Could not open</h3>'
+        +'<div class="hint">'+esc(e.message)+'</div></div>'; } }});
+}
+function pvwKey(e){if(e.key==='Escape'){if($('selbox'))closeSel();else closePvw();}}
+function closePvw(){
+  const d=$('pvw');
+  document.body.classList.remove('pvwopen');
+  syncHero();
+  closeSel(); document.removeEventListener('keydown',pvwKey);
+  if(!d)return;
+  d.classList.remove('in');            // let it spring out before it goes
+  const gone=()=>d.remove();
+  d.addEventListener('transitionend',gone,{once:true});
+  setTimeout(gone,800);                // never leave it stranded
+}
+function pvwMode(edit){
+  PVW.edit=!!edit; closeSel();
+  const f=$('pvwframe'); if(!f||!f.contentWindow)return;
+  f.contentWindow.postMessage({forge:'mode',picking:!!edit,hover:'freeze'},'*');
+  const seg=$('pvwseg');
+  if(seg)[...seg.children].forEach((b,i)=>b.classList.toggle('on',(i===1)===!!edit));
+  const h=$('pvwhint');
+  if(h)h.textContent=edit
+    ?'Click anything on the page \u2014 text, an image, a whole section'
+    :'Browsing. Switch to Select to change something.';
+}
+/* WHAT WAS PICKED, IN WORDS. The picker hands back the element plus six
+   ancestors; a person does not want a CSS selector, and neither does the
+   change path — it locates by the words an element contains, which is
+   what survives a rebuild. */
+function pickLabel(m){
+  if(m.kind==='images'){
+    const u=(m.srcs&&m.srcs[0])||''; 
+    return {what:'this image',ref:'the image '+u.split('/').pop().split('?')[0]};
+  }
+  if(m.kind==='container'){
+    const e=(m.el&&m.el[0])||{};
+    const n=e.name||e.id||(e.classes||[]).slice(0,2).join('.')||e.tag||'section';
+    return {what:'this section',ref:'the '+(e.tag||'section')+' "'+n+'"'};
+  }
+  const t=(m.text||'').trim().replace(/\s+/g,' ');
+  return {what:t.slice(0,48)||'this text',ref:'the text that says "'+t.slice(0,120)+'"'};
+}
+window.addEventListener('message',ev=>{
+  const m=ev.data;
+  if(m&&m.forge==='hover'&&$('selring')){
+    const ring=$('selring'), st=$('pvw').querySelector('.pvw-stage');
+    if(!m.rect){ring.classList.remove('on');return;}
+    const b=st.getBoundingClientRect(), R=m.rect;
+    ring.style.left=R.l+'px'; ring.style.top=R.t+'px';
+    ring.style.width=(R.r-R.l)+'px'; ring.style.height=(R.b-R.t)+'px';
+    ring.classList.add('on');
+    return;
+  }
+  if(!m||m.forge!=='pick'||!$('pvw'))return;
+  PVW.pick=m;
+  const L=pickLabel(m);
+  closeSel();
+  const b=document.createElement('div');
+  b.className='selbox glass'; b.id='selbox';
+  b.innerHTML=`<div class="what">${I('pencil',12)}<b>${esc(L.what)}</b></div>
+    <textarea id="selta" placeholder="Say what should change here\u2026"></textarea>
+    <div class="row"><span class="sp"></span>
+      <button class="ghost" onclick="closeSel()">Cancel</button>
+      <button class="send" onclick="selSend()">Ask Aethron</button></div>`;
+  document.body.appendChild(b);
+  /* anchored to the click, then pulled back inside the window */
+  /* BESIDE THE THING, NOT ON TOP OF IT. Anchoring to the cursor put the
+     box over the element a person had just chosen, which is the one
+     thing it must never cover. Sit under the element's own box when
+     there is room, above it when there is not. */
+  const st=$('pvw').querySelector('.pvw-stage').getBoundingClientRect();
+  const R=m.rect, H=200;
+  const x=st.left+(R?(R.l+R.r)/2:(m.x||st.width/2));
+  let y=R?st.top+R.b+12:st.top+(m.y||st.height/2)+14;
+  if(y+H>innerHeight-12&&R)y=st.top+R.t-H-4;
+  b.style.left=Math.max(12,Math.min(innerWidth-352,x-170))+'px';
+  b.style.top=Math.max(12,Math.min(innerHeight-H+10,y))+'px';
+  const ta=$('selta'); if(ta)ta.focus();
+});
+function closeSel(){const b=$('selbox'); if(b)b.remove();}
+/* The sheet is a share of the window, so every resize moves the page
+   inside it. Ask once the dust settles — the ring then springs to the
+   new geometry on its own, which is the whole point of animating it
+   rather than drawing it. */
+addEventListener('resize',()=>{
+  clearTimeout(window._ringT);
+  window._ringT=setTimeout(()=>{
+    const f=$('pvwframe');
+    if(f&&f.contentWindow)f.contentWindow.postMessage({forge:'remeasure'},'*');
+  },140);
+});
+/* ONE SENTENCE, ABOUT ONE ELEMENT. The selection becomes the subject and
+   the person's own words become the request; everything downstream is the
+   measured change path, unchanged. */
+function selSend(){
+  const ta=$('selta'); const words=(ta&&ta.value||'').trim();
+  if(!words||!PVW.pick)return;
+  const L=pickLabel(PVW.pick);
+  const ask=`On ${S.cur}, change ${L.ref}: ${words}`;
+  closeSel(); closePvw();
+  const box=$('npurl');
+  if(box){box.value=ask; growTa(box);}
+  consoleSend();
+}
+async function openInBrowser(){
+  if(!S.cur)return;
+  try{const {port}=await api('/api/preview',{project:S.cur});
+      window.open('http://127.0.0.1:'+port+'/','_blank');}
+  catch(e){note&&note('could not start the preview: '+e.message);}
+}
+/* The front door, rebuilt rather than remembered. Same words the page
+   ships with, so returning here is indistinguishable from launching. */
+function renderWelcome(c){
+  if(!c)return;
+  c.dataset.split='';
+  c.className='conv-host';
+  c.innerHTML=convShell({
+    title:'Every template you buy<br>can be entirely yours.',
+    sub:`Paste a live Framer or Webflow URL, drop in a screenshot, or just
+      say what you want built. Aethron works out whether that is a
+      migration, a port, a rebuild or a coding job &mdash; and does it here.`,
+    hint:'Paste a template URL, or tell Aethron what you want\u2026',
+    extra:`<div class="startmeta" id="startmeta">
+        <input id="npname" placeholder="Project name (optional)">
+        <span class="or">or</span>
+        <label class="fpick"><input id="npfile" type="file"
+         accept=".html,.htm,.zip" multiple>${I('file',13)}
+         choose an export, a zip, or saved pages</label>
+      </div>`,
+    quick:[
+      {icon:'zap',label:'Migrate a live site',
+       ask:'Migrate ',
+       need:'Paste the live Framer or Webflow URL, and tell me the brand it should become.'},
+      {icon:'image',label:'Rebuild a screenshot into real code',
+       ask:'Rebuild this screenshot as ',
+       need:'Attach or paste the screenshot, then say which framework you want.'}]});
+  bindStick(); renderChat(); mountDots(c); mountOrbs(c); syncComposer();
+}
 function renderChatTab(c){
   if(!c)return;              // never take the whole layout down with it
   const n=(S.info&&S.info.strings)||0, f=(S.info&&S.info.filled)||0;
-  c.innerHTML=`<div class="empty"><div class="focal">
-    <div id="welcome" ${CODE.events.length?'hidden':''}>
-      <h1>What should <em>${esc(S.cur)}</em> become?</h1>
-      <p class="sub">Describe the brand and Aethron rebrands every string,
-       fits the byte-locked slots, rebuilds and checks the result. Ask it to
-       port the site to Astro, Next or Vue, swap a logo, or fix what a
-       check flagged.${n?` &mdash; ${f} of ${n} strings filled so far.`:''}</p>
-    </div>
-    <div id="chatlog" class="clog" ${CODE.events.length?'':'hidden'}></div>
-    <div class="startrow">
-      <textarea id="npurl" rows="1"
-       placeholder="Tell Aethron what to do with ${esc(S.cur)}…"
-       oninput="growTa(this)"
-       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
-      <button class="primary" onclick="consoleSend()" aria-label="Send">
-        <span data-ic="up"></span></button>
-    </div>
-    <div class="qrows">
-      <button class="qrow" onclick="quick('Rebrand this whole site. Ask me for the brand first if you do not have it.')">
-        <span data-ic="wand"></span><span class="ql">Rebrand every string</span>
-        <span class="qc" data-ic="up"></span></button>
-      <button class="qrow" onclick="quick('Build, then verify, then probe. Report exactly what fails.')">
-        <span data-ic="check"></span><span class="ql">Build and check it</span>
-        <span class="qc" data-ic="up"></span></button>
-      <button class="qrow" onclick="quick('Port this site to Astro and grade the port against the original.')">
-        <span data-ic="package"></span><span class="ql">Port to another framework</span>
-        <span class="qc" data-ic="up"></span></button>
-    </div></div></div>`;
-  renderChat();
+  c.innerHTML=convShell({
+    top:projectCard(),
+    title:`What should <em>${esc(S.cur)}</em> become?`,
+    sub:`Describe the brand and Aethron rebrands every string, fits the
+      byte-locked slots, rebuilds and checks the result. Ask it to port the
+      site to Astro, Next or Vue, swap a logo, edit a page, or fix what a
+      check flagged.${n?` &mdash; ${f} of ${n} strings filled so far.`:''}`,
+    hint:`Tell Aethron what to do with ${S.cur}…`,
+    quick:[
+      {icon:'wand',label:'Rebrand every string',
+       ask:'Rebrand this whole site to',
+       need:'What is the new brand called, and what tone should the copy take?'},
+      {icon:'check',label:'Build and check it',
+       ask:'Build, then verify, then probe. Report exactly what fails.',
+       need:'Press Enter to run it, or add anything you want checked first.'},
+      {icon:'package',label:'Port to another framework',
+       ask:'Port this site to',
+       need:'Which framework \u2014 astro, next, vue, svelte? Astro is the proven one.'}]});
+  bindStick();renderChat();mountDots(c);mountOrbs(c);
 }
-function quick(t){const ta=$('npurl');if(!ta)return;ta.value=t;consoleSend()}
+/* A STOP THAT IS ALWAYS WITHIN REACH. An agent doing the wrong thing
+   expensively, with no way to interrupt it but closing the window, is
+   the worst moment this product can have. The send button becomes a
+   stop button for exactly as long as there is something to stop. */
+async function stopTurn(){
+  try{await api('/api/code/stop',{key:CODE.key});}catch(e){}
+  if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
+  CODE.key='';
+  CODE.events.push({type:'sys',text:'stopped'});
+  syncComposer();renderChat();
+}
+/* The composer is rebuilt only where it changes, so typing is never
+   interrupted by a poll landing mid-word. */
+function syncComposer(){
+  /* the beam is set BEFORE the early return below, which fires whenever
+     the button already matches — otherwise the ring would only ever
+     light on the frame the button happened to change */
+  const cm=document.querySelector('.composer');
+  /* working, or nothing started yet, both glow; a project that has
+     finished its work sits on the quiet bottom line instead. */
+  beamMode(cm, CODE.poll ? 'pulse' : (S.cur ? 'line' : 'pulse'));
+  const mn=$('cbarmodel');
+  if(mn&&CODE.model)mn.textContent=CODE.model;
+  const b=document.querySelector('.composer .cbtn');if(!b)return;
+  const busy=!!CODE.poll, isStop=b.classList.contains('stop');
+  if(busy===isStop)return;
+  b.outerHTML=busy
+    ?`<button class="cbtn stop" onclick="stopTurn()" aria-label="Stop"
+        title="Stop">${I('stop',15)}</button>`
+    :`<button class="cbtn" onclick="consoleSend()" aria-label="Send"
+        title="Send"><span data-ic="up"></span></button>`;
+  document.querySelectorAll('.composer [data-ic]').forEach(n=>{
+    n.outerHTML=I(n.dataset.ic,+(n.dataset.ics||14));});
+}
+/* ONE PLACE DECIDES WHETHER THE ROOM IS LIT. Opacity alone would leave
+   it painting sixty times a second behind something invisible, so the
+   field is stopped outright — and the three reasons to stop it are the
+   same three the CSS fades it for, kept together so they cannot drift
+   apart. */
+function syncHero(){
+  const hero=document.querySelector('canvas.dotf.hero');
+  const hf=hero&&FIELDS.get(hero);
+  if(!hf)return;
+  const talking=!!(CODE.events&&CODE.events.length);
+  const cramped=document.body.classList.contains('pvwopen')
+               || window.innerWidth<1280;   // no margins left to live in
+  (talking||cramped)?hf.stop():hf.start();
+}
+addEventListener('resize',()=>{clearTimeout(syncHero._t);
+  syncHero._t=setTimeout(syncHero,180);});
+
+/* Whether to follow the log is the READER's business, not the log's. */
+function bindStick(){
+  const sc=$('convscroll');if(!sc)return;
+  CODE.stick=true;
+  sc.onscroll=()=>{CODE.stick=
+    sc.scrollHeight-sc.scrollTop-sc.clientHeight<60;};
+}
+/* A SUGGESTION IS A DIRECTION, NOT AN INSTRUCTION. Clicking one used to
+   call consoleSend() straight away, so Aethron started working — and
+   spending — before anyone had said which site, which brand, which
+   framework. It now fills the composer and ASKS for the part only the
+   person knows. Nothing runs until they press Enter themselves. */
+function quick(t,need){
+  const ta=$('npurl');if(!ta)return;
+  ta.value=t.endsWith(' ')?t:t+' ';
+  growTa(ta); ta.focus();
+  try{ta.setSelectionRange(ta.value.length,ta.value.length);}catch(e){}
+  const bar=$('askbar');
+  if(bar){bar.innerHTML=need?esc(need):'';bar.hidden=!need;}
+}
 function growTa(el){el.style.height='auto';
   el.style.height=Math.min(el.scrollHeight,180)+'px'}
 
@@ -4919,6 +7049,7 @@ async function consoleSend(){
       CODE.key=r.key;
     }
     CODE.events.push({type:'you',text});renderChat();
+    CODE.lastEv=Date.now();
     await api('/api/code/send',{key:CODE.key,text});
     if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
   }catch(e){
@@ -4945,37 +7076,1776 @@ const TOOLWORDS={
   generate_logo:'Drawing the wordmark',serve_preview:'Starting a preview',
   replace_image_slots:'Swapping images',remove_element:'Removing an element',
   undo:'Undoing',list_projects:'Looking at your projects'};
-const toolWord=n=>TOOLWORDS[String(n||'').replace(/^mcp__aethron__/,'')]
-  ||String(n||'').replace(/^mcp__aethron__/,'').replace(/_/g,' ');
-function activityHtml(){
+/* ══ THE DOT FIELD ═════════════════════════════════════════════════
+   A grid of dots whose brightness is a function of a travelling wave,
+   a per-dot shimmer, and (optionally) how far a real job has got. The
+   maths is deliberately cheap — one sin() per dot per frame — because
+   this runs behind everything else the app is doing.
+
+   Three rules it will not break:
+     * prefers-reduced-motion means it draws ONE still frame and stops;
+     * a hidden tab or a field scrolled out of view costs nothing;
+     * it never draws over anything interactive.                      */
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+class DotField{
+  constructor(cv,o){
+    o=o||{};
+    this.cv=cv; this.cx=cv.getContext('2d');
+    this.gap=o.gap||9; this.r=o.r||1.15;
+    this.speed=o.speed||1; this.amp=o.amp||1; this.base=o.base||.10;
+    this.tint=o.tint||[217,119,87];       // the brand is the light source
+    this.cool=o.cool||[150,160,190];
+    this.progress=null; this.t=Math.random()*40; this.on=false; this.raf=0;
+    this.seen=true; this.px=null; this.py=null; this.reach=o.reach||150;
+    this.orbit=!!o.orbit;
+    this.resize();
+    this._ro=new ResizeObserver(()=>this.resize()); this._ro.observe(cv);
+    if('IntersectionObserver' in window){
+      this._io=new IntersectionObserver(es=>{
+        this.seen=es[0].isIntersecting; this.seen?this.start():this.stop();
+      },{threshold:0}); this._io.observe(cv);
+    }
+    document.addEventListener('visibilitychange',()=>{
+      document.hidden?this.stop():(this.seen&&this.start());});
+  }
+  resize(){
+    const d=Math.min(devicePixelRatio||1,2),
+          w=this.cv.clientWidth||1,h=this.cv.clientHeight||1;
+    this.cv.width=Math.round(w*d); this.cv.height=Math.round(h*d);
+    this.w=w; this.h=h; this.d=d;
+    /* ALWAYS redraw. Assigning width/height CLEARS the canvas, and
+       redrawing only when stopped left a blank field whenever a resize
+       landed while running and the next frame never came — a hidden
+       tab, a scroll out of view. Measured: one frame of ink, then zero
+       for the rest of the run. */
+    this.draw();
+  }
+  set(o){Object.assign(this,o||{}); if(!this.on)this.draw();}
+  start(){
+    if(this.on||REDUCED){this.draw();return;}
+    this.on=true; const step=()=>{
+      if(!this.on)return;
+      this.t+=0.016*this.speed; this.draw(); this.raf=requestAnimationFrame(step);
+    }; this.raf=requestAnimationFrame(step);
+  }
+  stop(){this.on=false; if(this.raf)cancelAnimationFrame(this.raf); this.raf=0;}
+  /* A DOT THAT ONLY CHANGES BRIGHTNESS IS A MIST. What reads as designed
+     is a dot that GROWS as it lights, crests that actually travel, and a
+     glow on the peaks — and a field that answers the cursor, because
+     nothing convinces a person a surface is alive like it noticing them.
+     Two waves at different angles and speeds interfere, so the pattern
+     never repeats visibly and never looks mechanical. */
+  /* LIGHT, NOT A PATTERN. A grid with a wave running through it reads as
+     a grid — the geometry is the first thing the eye finds, and that is
+     what made it look like an exercise rather than a design. So there is
+     no wave. There are LIGHT SOURCES drifting on slow independent paths,
+     and every dot simply reports how much light reaches it: brighter,
+     larger, and warmer the closer it is. The shape that comes out is the
+     one from the screenshot Aethron rebuilt — an ember bloom opening out
+     of black — and because the sources move on irrational periods it
+     never repeats and never looks mechanical.
+     Colour ramps ember -> terracotta -> warm white with intensity, which
+     is what makes a glow read as heat rather than as paint. */
+  draw(){
+    const c=this.cx,g=this.gap,d=this.d,W=this.w,H=this.h;
+    if(!W||!H)return;
+    c.setTransform(d,0,0,d,0,0);
+    c.clearRect(0,0,W,H);
+    const t=this.t, m=Math.min(W,H), px=this.px, py=this.py;
+    /* THE LIGHT ORBITS THE WORDS — it does not sit under them.
+       The hero mask keeps the middle 58% clear, so a source placed
+       INSIDE that zone can only ever show as the part of itself that
+       spills past the edge: one lopsided patch, which is precisely
+       what made the field read as a dot grid parked in the left
+       margin instead of a bloom around the content. Measured: the
+       brightest of the three sat at 0.30W, well inside the clear
+       ellipse, and its whole visible contribution was that band.
+       On a ring OUTSIDE the clear zone the same three sources light
+       the halo all the way round, and because their angular speeds
+       are unrelated the lit side keeps moving and never repeats.
+       The inline field carries no mask and is 16px tall, so an orbit
+       would swing its sources clean off the strip — it keeps the
+       drifting placement. */
+    const B = this.orbit ? (()=>{
+      /* With a COLUMN masked out instead of a disc, the sources belong
+         in the side margins rather than on a ring — an orbit now spends
+         half its time behind the words where nothing shows. */
+      const orb=(ph,sp,rr,aa)=>{
+        const sway=Math.sin(t*sp+ph);
+        return {x:W*(sway<0?0.16+0.10*Math.cos(t*sp*1.3+ph)
+                          :0.84-0.10*Math.cos(t*sp*1.3+ph)),
+                y:H*(0.5+0.42*Math.sin(t*sp*0.79+ph*1.7)),
+                r:m*rr, a:aa};};
+      return [orb(0.0,0.113,0.66,1.00),orb(2.3,0.081,0.54,0.84),
+              orb(4.4,0.147,0.46,0.62)];
+    })() : [
+      {x:W*(0.30+0.13*Math.sin(t*0.183)), y:H*(0.40+0.15*Math.cos(t*0.127)),
+       r:m*0.62, a:1.00},
+      {x:W*(0.74+0.11*Math.cos(t*0.101)), y:H*(0.63+0.13*Math.sin(t*0.157)),
+       r:m*0.50, a:0.78},
+      {x:W*(0.52+0.16*Math.sin(t*0.071)), y:H*(0.18+0.10*Math.cos(t*0.113)),
+       r:m*0.42, a:0.55}];
+    if(px!=null)B.push({x:px,y:py,r:this.reach,a:1.15});
+    const cols=Math.ceil(W/g)+1, rows=Math.ceil(H/g)+1,
+          ox=(W-(cols-1)*g)/2, oy=(H-(rows-1)*g)/2;
+    for(let j=0;j<rows;j++){
+      for(let i=0;i<cols;i++){
+        const x=ox+i*g, y=oy+j*g;
+        let lit=0;
+        for(let k=0;k<B.length;k++){
+          const b=B[k], dx=(x-b.x)/b.r, dy=(y-b.y)/b.r, dd=dx*dx+dy*dy;
+          if(dd<1){ const f=1-dd; lit+=b.a*f*f*f*f; }  // tight core, soft rim
+        }
+        if(this.progress!=null){
+          const frac=(i+0.5)/cols;
+          lit=frac<this.progress?0.95:0.04;
+        }
+        // a slow breath so even unlit air is never quite dead
+        const breath=0.5+0.5*Math.sin(t*0.8+i*0.21+j*0.17);
+        let v=this.base*(0.55+0.45*breath)+this.amp*Math.min(1.25,lit)*0.80;
+        if(v<=0.02)continue;
+        if(v>1)v=1;
+        // ember -> terracotta -> warm white, by how much light lands
+        const q=Math.min(1,lit), warm=q*q;
+        const cr=Math.round(96+121*q+38*warm),
+              cg=Math.round(44+ 75*q+95*warm),
+              cb=Math.round(32+ 55*q+103*warm);
+        const rad=this.r*(0.55+1.75*Math.min(1,lit));
+        if(v>0.34){   // only the hot ones pay for a halo
+          c.fillStyle='rgba('+cr+','+cg+','+cb+','+(v*0.13).toFixed(3)+')';
+          c.beginPath(); c.arc(x,y,rad*3.4,0,6.2832); c.fill();
+        }
+        c.fillStyle='rgba('+cr+','+cg+','+cb+','+v.toFixed(3)+')';
+        c.beginPath(); c.arc(x,y,rad,0,6.2832); c.fill();
+      }
+    }
+  }
+  /* The pointer is tracked on the field's OWN offset parent, so a cursor
+     anywhere over the panel lights the field beneath it. */
+  follow(host){
+    if(!host)return;
+    const move=e=>{
+      const b=this.cv.getBoundingClientRect();
+      this.px=e.clientX-b.left; this.py=e.clientY-b.top;
+      if(!this.on&&!REDUCED)this.draw();
+    };
+    host.addEventListener('pointermove',move,{passive:true});
+    host.addEventListener('pointerleave',()=>{this.px=this.py=null;},{passive:true});
+  }
+  destroy(){this.stop(); this._ro&&this._ro.disconnect(); this._io&&this._io.disconnect();}
+}
+/* Canvases are re-created on every render, so mounting is idempotent and
+   keyed off the node itself. */
+const FIELDS=new WeakMap();
+function mountDots(root){
+  (root||document).querySelectorAll('canvas.dotf').forEach(cv=>{
+    if(FIELDS.has(cv))return;
+    const hero=cv.classList.contains('hero');
+    const f=new DotField(cv, hero
+      ? {gap:22,r:1.30,speed:.52,amp:1.15,base:.055,reach:200,orbit:true}
+      : {gap:8,r:1.0,speed:1.6,amp:1.15,base:.12,reach:0});
+    FIELDS.set(cv,f);
+    if(hero)f.follow(cv.parentElement);
+    f.start();
+  });
+}
+
+/* border-beam pulse driver — MIT, Jakub Antalik; type-stripped. */
+                                                     
+
+/**
+ * Shared breathing driver for the Pulse effects.
+ *
+ * The pulse breathing (size / drift / per-quadrant opacity / height) and the
+ * slow hue drift used to run as ~15 per-instance CSS `@property` keyframe
+ * animations at the display refresh rate (60–120 Hz). Because each value feeds
+ * the painted gradients/filters, that repainted the breathing layers 60–120×/s.
+ *
+ * The motion is very slow (1.6–6.4 s periods), so instead every registered
+ * instance is driven from a SINGLE shared requestAnimationFrame loop throttled
+ * to ~30 fps. This halves the paint frequency on 60 Hz displays and quarters it
+ * on 120 Hz, with no perceptible change to the breathing.
+ *
+ * Each oscillator ping-pongs a CSS custom property between `a` and `b` with an
+ * ease-in-out (cosine) curve over `period` seconds, offset by `delay` seconds so
+ * otherwise-identical oscillators desync (matching the former CSS keyframes +
+ * animation-delay).
+ */
+
+                         
+                  
+                            
+ 
+
+const instances = new Set               ();
+let rafId                = null;
+let lastFrame = 0;
+
+// ~30 fps. Subtract a small slack so a frame that lands a hair early still runs.
+const FRAME_INTERVAL = 1000 / 30 - 2;
+
+const TWO_PI = Math.PI * 2;
+
+function now()         {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+/** Cosine ease-in-out factor in [0, 1]: 0 at phase 0/1, 1 at phase 0.5. */
+function pingPong(phase        )         {
+  return (1 - Math.cos(TWO_PI * phase)) / 2;
+}
+
+function frame(ts        )       {
+  rafId = requestAnimationFrame(frame);
+
+  if (ts - lastFrame < FRAME_INTERVAL) return;
+  lastFrame = ts;
+
+  const tSec = ts / 1000;
+
+  instances.forEach(({ el, config }) => {
+    for (const osc of config.oscillators) {
+      // Match CSS animation-delay semantics: a positive delay starts later.
+      const phase = (tSec - osc.delay) / osc.period;
+      const value = osc.a + (osc.b - osc.a) * pingPong(phase);
+      el.style.setProperty(
+        osc.prop,
+        osc.unit === 'px' ? `${value.toFixed(2)}px` : value.toFixed(4)
+      );
+    }
+
+    if (config.hue) {
+      const { prop, range, period, continuous } = config.hue;
+      // `continuous` rotates a full circle (0→range, looping) so every color
+      // sweeps through every edge; otherwise drift between -range and +range.
+      const value = continuous
+        ? ((tSec / period) % 1) * range
+        : -range + 2 * range * pingPong(tSec / period);
+      el.style.setProperty(prop, `${value.toFixed(2)}deg`);
+    }
+  });
+}
+
+function startLoop()       {
+  if (rafId == null) {
+    lastFrame = 0;
+    rafId = requestAnimationFrame(frame);
+  }
+}
+
+function stopLoopIfIdle()       {
+  if (instances.size === 0 && rafId != null) {
+    cancelAnimationFrame(rafId);
+    rafId = null;
+  }
+}
+
+/**
+ * Register an element to be driven by the shared pulse loop.
+ *
+ * @returns a cleanup function that unregisters the instance (and stops the
+ *          shared loop once no instances remain).
+ */
+function registerPulseInstance(
+  el             ,
+  config                   
+)             {
+  const instance                = { el, config };
+  instances.add(instance);
+  startLoop();
+
+  return () => {
+    instances.delete(instance);
+    stopLoopIfIdle();
+  };
+}
+
+const BEAM_CFG={"oscillators": [{"prop": "--bw1-ae", "a": 0.72, "b": 1.308, "period": 2.3400000000000003, "delay": 0, "unit": ""}, {"prop": "--bh1-ae", "a": 1.252, "b": 0.762, "period": 3.2760000000000002, "delay": 0, "unit": ""}, {"prop": "--bx1-ae", "a": -33, "b": 29.7, "period": 3.04, "delay": 0, "unit": "px"}, {"prop": "--by1-ae", "a": 18.150000000000002, "b": -23.099999999999998, "period": 3.04, "delay": 0, "unit": "px"}, {"prop": "--bw2-ae", "a": 1.28, "b": 0.762, "period": 2.8600000000000003, "delay": 0, "unit": ""}, {"prop": "--bh2-ae", "a": 0.776, "b": 1.294, "period": 2.1060000000000003, "delay": 0, "unit": ""}, {"prop": "--bx2-ae", "a": 26.400000000000002, "b": -29.7, "period": 3.5719999999999996, "delay": 0, "unit": "px"}, {"prop": "--by2-ae", "a": -33, "b": 21.45, "period": 3.5719999999999996, "delay": 0, "unit": "px"}, {"prop": "--bw3-ae", "a": 0.832, "b": 1.322, "period": 2.548, "delay": 0, "unit": ""}, {"prop": "--bh3-ae", "a": 1.21, "b": 0.72, "period": 3.6399999999999997, "delay": 0, "unit": ""}, {"prop": "--bx3-ae", "a": -19.8, "b": 33, "period": 2.755, "delay": 0, "unit": "px"}, {"prop": "--by3-ae", "a": -28.05, "b": 14.85, "period": 2.755, "delay": 0, "unit": "px"}, {"prop": "--bgh-ae", "a": 0.6599999999999999, "b": 1.34, "period": 2.4, "delay": 0, "unit": ""}, {"prop": "--bop-tl-ae", "a": 0.52, "b": 1, "period": 1.9, "delay": 0, "unit": ""}, {"prop": "--bop-tr-ae", "a": 0.52, "b": 1, "period": 2.508, "delay": 0.532, "unit": ""}, {"prop": "--bop-bl-ae", "a": 0.52, "b": 1, "period": 1.5959999999999999, "delay": 1.045, "unit": ""}, {"prop": "--bop-br-ae", "a": 0.52, "b": 1, "period": 3.002, "delay": 1.577, "unit": ""}], "hue": {"prop": "--beam-hue-ae", "range": 26, "period": 16, "continuous": false}};
+
+/* Turning it on is two things: the CSS state, and registering with the
+   shared driver so its 17 oscillators are actually moving. Registering
+   without the attribute gives a still beam; the attribute without the
+   driver gives a frozen gradient. */
+function beamOn(el,on){beamMode(el,on?'pulse':'off');}
+/* 'pulse' is the ring and needs the shared oscillator driver; 'line' is
+   the bottom-edge travel and is pure CSS, so registering it would spend
+   17 property writes a frame on something nothing reads. */
+const BEAM_STOP=new WeakMap();
+function beamMode(el,mode){
+  if(!el)return;
+  if(el.dataset.mode===mode)return;
+  el.dataset.mode=mode;
+  /* registerPulseInstance RETURNS its own cleanup — there is no
+     unregister function to call, and calling one there was is how this
+     threw on the first state change. Keep the closure it hands back. */
+  const stop=BEAM_STOP.get(el);
+  if(stop){stop();BEAM_STOP.delete(el);}
+  if(mode==='off'){el.removeAttribute('data-active');
+    el.removeAttribute('data-beam');return;}
+  el.setAttribute('data-beam',mode==='line'?'ln':'ae');
+  el.setAttribute('data-active','');
+  el.removeAttribute('data-fading');
+  if(mode==='pulse')BEAM_STOP.set(el,registerPulseInstance(el,BEAM_CFG));
+}
+
+/* ── thinking-orbs engine, vendored ─────────────────────────────────
+   MIT License · Copyright (c) 2026 Jakub Antalik
+   https://github.com/Jakubantalik/thinking-orbs
+
+   Vendored rather than npm-installed because Aethron's studio is a single
+   stdlib-only file with no build step and no node on a user's machine.
+   The GEOMETRY below is the author's, type-stripped and concatenated,
+   unchanged — it reproduces all 72 of the project's own golden vectors
+   to 1e-4. Aethron's changes are confined to the PAINTER, which is our
+   own code further down: the original is strictly monochrome and this
+   product is not.
+   ──────────────────────────────────────────────────────────────────── */
+
+/* ── engine/core.ts ───────────────────────────────────────── */
+// Shared primitives for the dotted 3D thought-orbs. Ported from inkform
+// (PlotterLab's HalftoneSphere lineage): honestly 3D — rotated,
+// depth-shaded, z-sorted. Depth is carried by dot size and ink weight
+// alone. Plain 2D canvas fills only: no ctx.filter, no SVG filters, so
+// every mode renders identically in Chrome, Safari and Firefox.
+
+                      
+            
+            
+            
+            
+                                                                      
+                
+             
+ 
+
+/** A stroked edge between two projected points (the `connecting` web). */
+                       
+             
+             
+             
+             
+                                                   
+                
+             
+            
+ 
+
+/**
+ * One rendered instant: a complete, final set of draw instructions.
+ * `dots` is already z-sorted into draw order and radius-clamped; `lines`
+ * are drawn first. Nothing here needs further interpretation, which is what
+ * makes a frame portable to any 2D renderer.
+ */
+                           
+              
+                
+ 
+
+                                                                                      
+
+function lerp(a        , b        , f        )         {
+  return a + (b - a) * f;
+}
+
+function frac(x        )         {
+  return x - Math.floor(x);
+}
+
+/** Value noise on a 2D lattice — smooth, deterministic, cheap. */
+function vnoise(x        , y        )         {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  let fx = x - xi;
+  let fy = y - yi;
+  fx = fx * fx * (3 - 2 * fx);
+  fy = fy * fy * (3 - 2 * fy);
+  const a = hashD(xi, yi);
+  const b = hashD(xi + 1, yi);
+  const c = hashD(xi, yi + 1);
+  const d = hashD(xi + 1, yi + 1);
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+
+/** Deterministic hash in [0, 1). */
+function hashD(a        , b        )         {
+  const h = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
+  return h - Math.floor(h);
+}
+
+/** Stable directions on a unit sphere (Fibonacci lattice). */
+function fibDir(i        , n        )                           {
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  const y = 1 - (2 * (i + 0.5)) / n;
+  const rad = Math.sqrt(1 - y * y);
+  const a = i * golden;
+  return [rad * Math.cos(a), y, rad * Math.sin(a)];
+}
+
+/** Shortest signed angular distance, wrapped to (-π, π]. */
+function angleDelta(a        , b        )         {
+  return Math.atan2(Math.sin(a - b), Math.cos(a - b));
+}
+
+/** Shared spin + tilt + orthographic projection. */
+function makeProj(yaw        , tilt        , cx        , cy        , scale        )            {
+  const st = Math.sin(tilt);
+  const ct = Math.cos(tilt);
+  const sy = Math.sin(yaw);
+  const cyw = Math.cos(yaw);
+  return (x, y, z) => {
+    const x1 = x * cyw + z * sy;
+    const z1 = -x * sy + z * cyw;
+    const y1 = y * ct - z1 * st;
+    const z2 = y * st + z1 * ct;
+    return [cx + x1 * scale, cy - y1 * scale, z2];
+  };
+}
+
+/**
+ * Painter: z-sort far→near, matte grayscale dots. On dark substrates the
+ * ink value is mirrored (1 - white) so near dots read bright — the same
+ * depth language on an inverted substrate.
+ */
+function paint(ctx                          , dots       , dark         , rMin = 0.3)       {
+  for (const d of dots) {
+    const alpha = d.a ?? 1;
+    const w = Math.min(1, Math.max(0, d.white));
+    const g = Math.round((dark ? 1 - w : w) * 255);
+    ctx.fillStyle = `rgba(${g},${g},${g},${alpha})`;
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** Stroke pass for edge-based modes. Runs before `paint` so nodes sit on top. */
+function paintLines(ctx                          , lines        , dark         )       {
+  for (const l of lines) {
+    const alpha = l.a ?? 1;
+    const w = Math.min(1, Math.max(0, l.white));
+    const g = Math.round((dark ? 1 - w : w) * 255);
+    ctx.strokeStyle = `rgba(${g},${g},${g},${alpha})`;
+    ctx.lineWidth = l.w;
+    ctx.beginPath();
+    ctx.moveTo(l.x1, l.y1);
+    ctx.lineTo(l.x2, l.y2);
+    ctx.stroke();
+  }
+}
+
+/**
+ * Turn raw mode output into a finished frame: drop invisible marks, clamp
+ * radii to the mode's floor, and z-sort far→near into draw order.
+ *
+ * This runs in the GEOMETRY step, not the painter, so a frame is a complete
+ * set of draw instructions: every value is final and the array order is the
+ * order to draw in. That is what lets the RN and SwiftUI ports share this
+ * output verbatim — a port draws the list, it never re-derives anything —
+ * and what lets the golden-vector tests compare numbers instead of pixels.
+ */
+function finalizeFrame(dots       , lines        , rMin = 0.3)           {
+  const visible        = [];
+  for (const d of dots) {
+    if ((d.a ?? 1) < 0.02) continue;
+    d.r = Math.max(rMin, d.r);
+    visible.push(d);
+  }
+  visible.sort((a, b) => a.z - b.z);
+  return { dots: visible, lines: lines.filter((l) => (l.a ?? 1) >= 0.02) };
+}
+
+/** Paint a finished frame. Lines first, so nodes sit on top of their edges. */
+function paintFrame(ctx                          , frame          , dark         )       {
+  if (frame.lines.length) paintLines(ctx, frame.lines, dark);
+  paint(ctx, frame.dots, dark);
+}
+
+/**
+ * Dot radii were tuned for a 300pt frame; sub-linear scaling keeps small
+ * spinners legible. Lower pow = radii shrink less with size.
+ */
+function radiusScale(size        , pow        )         {
+  return (size / 300) ** pow;
+}
+
+/* ── engine/profiles.ts ───────────────────────────────────────── */
+// Density profiles + the multiplier machinery that scales them. The base
+// rows are inkform's `fine` profiles; each shipped preset (state × size)
+// applies count / radius multipliers on top, resolved once per mount.
+
+                           
+                                    
+ 
+
+// 2-D lattices (rings × dots-per-ring) come in pairs — each side takes
+// √scale so the TOTAL dot count scales by `scale`; flat lists scale
+// linearly. `iconD` sets the morph outline's sampling density.
+const COUNT_PAIRS                                           = [
+  ['latRings', 'lonDensity'],
+  ['rings', 'lonDensity'],
+  ['lanes', 'segs']
+];
+const COUNT_KEYS = ['orbitN', 'ghostN', 'nodeN', 'strandN', 'signals']         ;
+const ICON_DENSITY_KEYS = ['iconD']         ;
+
+// Every key that sets a dot's rendered radius — scaling all of them keeps
+// a dot's near/far falloff intact while shrinking or growing the mark.
+const RADIUS_KEYS = [
+  'rBase',
+  'rDepth',
+  'rActive',
+  'rDot',
+  'ghostR',
+  'partR',
+  'partRDepth',
+  'nodeR',
+  'nodeRDepth'
+]         ;
+
+function scaleCounts(opts          , scale        )           {
+  const out           = { ...opts };
+  const done = new Set        ();
+  const rt = Math.sqrt(scale);
+  for (const [a, b] of COUNT_PAIRS) {
+    const va = out[a];
+    const vb = out[b];
+    if (va != null && vb != null && !done.has(a) && !done.has(b)) {
+      out[a] = Math.max(2, Math.round(va * rt));
+      out[b] = Math.max(2, Math.round(vb * rt));
+      done.add(a);
+      done.add(b);
+    }
+  }
+  for (const k of COUNT_KEYS) {
+    const v = out[k];
+    // 0 means the mode opted out of that layer entirely (ring has no ghost
+    // sphere) — scaling must not resurrect it as a single stray dot
+    if (v != null && v !== 0 && !done.has(k)) out[k] = Math.max(1, Math.round(v * scale));
+  }
+  for (const k of ICON_DENSITY_KEYS) {
+    const v = out[k];
+    if (v != null) out[k] = Math.max(0.02, v * scale);
+  }
+  return out;
+}
+
+function scaleRadii(opts          , scale        )           {
+  const out           = { ...opts };
+  for (const k of RADIUS_KEYS) {
+    const v = out[k];
+    if (v != null) out[k] = v * scale;
+  }
+  // remember the multiplier itself — spacing-derived radii (the morph
+  // outline) use it, since they aren't based on any single radius key
+  out.rSizeMul = (out.rSizeMul ?? 1) * scale;
+  return out;
+}
+
+/** Base (fine) profiles per mode, before preset multipliers. */
+const BASE_PROFILES                           = {
+  globe: {
+    latRings: 17,
+    lonDensity: 44,
+    rBase: 0.6,
+    rDepth: 1.7,
+    rBoost: 1.0,
+    inkFar: 0.62,
+    inkSpan: 0.54,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  orbits: {
+    orbitN: 12,
+    ghostN: 40,
+    ghostR: 0.9,
+    ghostA: 0.5,
+    particles: 3,
+    partR: 1.2,
+    partRDepth: 1.6,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  rubik: {
+    latRings: 15,
+    lonDensity: 40,
+    moveCount: 14,
+    rBase: 0.6,
+    rDepth: 1.7,
+    rActive: 0.3,
+    inkFar: 0.62,
+    inkSpan: 0.54,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  wave: {
+    rings: 15,
+    lonDensity: 40,
+    rBase: 0.6,
+    rDepth: 1.7,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  web: {
+    nodeN: 30,
+    thr: 0.72,
+    signals: 5,
+    nodeR: 1.4,
+    nodeRDepth: 1.8,
+    lineW: 0.8,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  braid: {
+    strandN: 52,
+    turns: 3.0,
+    ghostN: 150,
+    rBase: 1.2,
+    rDepth: 1.8,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  ribbon: {
+    lanes: 5,
+    segs: 88,
+    ghostN: 150,
+    rBase: 1.1,
+    rDepth: 1.7,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  // ring shares ribbon's painter; faceOn cancels the camera tilt and moves
+  // the undulation onto the radius, and there is no ghost sphere behind it
+  ring: {
+    lanes: 5,
+    segs: 88,
+    ghostN: 0,
+    faceOn: 1,
+    rBase: 1.1,
+    rDepth: 1.7,
+    rsPow: 0.6,
+    rMin: 0.3
+  },
+  morph: {
+    rDot: 0.021,
+    iconD: 1,
+    rMin: 0.25
+  }
+};
+
+/* ── engine/orbits.ts ───────────────────────────────────────── */
+// Orbits: particles on tilted orbits — the "working" state. No nucleus
+// (the tuned preset runs coreless): just ghost paths and the particles
+// doing the work.
+
+const frameOrbits            = (size, t, o) => {
+  const cx = size / 2;
+  const cy = size / 2;
+  const R = (size / 2) * 0.82;
+  const pt = makeProj(t * 0.12, 0.3, cx, cy, 1);
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+
+  const dots        = [];
+  const orbitN = o.orbitN ?? 12;
+  const ghostN = o.ghostN ?? 40;
+  const particles = o.particles ?? 3;
+
+  // orbits: each a tilted circle — a ghost path + running particles
+  for (let orb = 0; orb < orbitN; orb++) {
+    const h1 = hashD(orb, 1.7);
+    const h2 = hashD(orb, 5.2);
+    const h3 = hashD(orb, 8.9);
+    const ro = R * (0.45 + 0.52 * h1);
+    const th = h1 * 2 * Math.PI;
+    const phi = Math.acos(2 * h2 - 1);
+    // orbit plane basis (u, v ⟂ normal n)
+    const nx = Math.sin(phi) * Math.cos(th);
+    const ny = Math.cos(phi);
+    const nz = Math.sin(phi) * Math.sin(th);
+    let ux = -ny;
+    let uy = nx;
+    const uz = 0;
+    const ul = Math.max(1e-6, Math.sqrt(ux * ux + uy * uy));
+    ux /= ul;
+    uy /= ul;
+    const vx = ny * uz - nz * uy;
+    const vy = nz * ux - nx * uz;
+    const vz = nx * uy - ny * ux;
+    const speed = (0.25 + 0.55 * h3) * (h3 > 0.5 ? 1 : -1);
+
+    // ghost path
+    for (let k = 0; k < ghostN; k++) {
+      const a = (k / ghostN) * 2 * Math.PI;
+      const [px, py, z] = pt(
+        (ux * Math.cos(a) + vx * Math.sin(a)) * ro,
+        (uy * Math.cos(a) + vy * Math.sin(a)) * ro,
+        (uz * Math.cos(a) + vz * Math.sin(a)) * ro
+      );
+      const depth = (z / ro + 1) / 2;
+      dots.push({
+        x: px,
+        y: py,
+        z,
+        r: (o.ghostR ?? 0.9) * rs,
+        white: 0.72,
+        a: (o.ghostA ?? 0.5) * (0.4 + 0.6 * depth)
+      });
+    }
+    // the particles doing the work
+    for (let m = 0; m < particles; m++) {
+      const a = t * speed + (m / particles) * 2 * Math.PI + h2 * 6;
+      const [px, py, z] = pt(
+        (ux * Math.cos(a) + vx * Math.sin(a)) * ro,
+        (uy * Math.cos(a) + vy * Math.sin(a)) * ro,
+        (uz * Math.cos(a) + vz * Math.sin(a)) * ro
+      );
+      const depth = (z / ro + 1) / 2;
+      dots.push({
+        x: px,
+        y: py,
+        z,
+        r: ((o.partR ?? 1.2) + (o.partRDepth ?? 1.6) * depth) * rs,
+        white: 0.3 - 0.22 * depth
+      });
+    }
+  }
+  return finalizeFrame(dots, [], o.rMin);
+};
+
+/* ── engine/lattice.ts ───────────────────────────────────────── */
+// The sphere-lattice modes: globe (searching), rubik (solving) and
+// wave (listening). All draw a lat/long dot field with mode-specific
+// motion, then hand off to the shared z-sorted painter.
+
+// --- the shared solver heartbeat (rubik) ------------------------------
+// Rapid eased moves scramble, then replay in reverse (palindrome) so
+// everything clicks back to solved, rests, repeats.
+
+                
+                  
+             
+             
+              
+ 
+
+function solveCycle(time        , count        , slotDur        , rest        ) {
+  const cyc = 2 * count * slotDur + rest;
+  const tc = time % cyc;
+  const amount = new Array        (count).fill(0);
+  let active = -1;
+  if (tc < 2 * count * slotDur) {
+    const slot = Math.floor(tc / slotDur);
+    const p = (tc - slot * slotDur) / slotDur;
+    const cl = Math.min(1, p / 0.7);
+    const ep = 1 - (1 - cl) ** 3; // machine ease-out
+    if (slot < count) {
+      for (let i = 0; i < slot; i++) amount[i] = 1;
+      amount[slot] = ep;
+      active = slot;
+    } else {
+      const u = 2 * count - 1 - slot;
+      for (let i = 0; i < u; i++) amount[i] = 1;
+      amount[u] = 1 - ep;
+      active = u;
+    }
+  }
+  return { amount, active };
+}
+
+function applyMoves(
+  pt3                          ,
+  moves        ,
+  sc                                      
+)                                    {
+  let [x, y, z] = pt3;
+  let inActive = false;
+  for (let i = 0; i < moves.length; i++) {
+    if (sc.amount[i] <= 0) continue;
+    const mv = moves[i];
+    const coord = mv.axis === 0 ? x : mv.axis === 1 ? y : z;
+    if (coord < mv.lo || coord >= mv.hi) continue;
+    if (i === sc.active) inActive = true;
+    const a = mv.ang * sc.amount[i];
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    if (mv.axis === 0) {
+      const y2 = y * ca - z * sa;
+      z = y * sa + z * ca;
+      y = y2;
+    } else if (mv.axis === 1) {
+      const x2 = x * ca + z * sa;
+      z = -x * sa + z * ca;
+      x = x2;
+    } else {
+      const x2 = x * ca - y * sa;
+      y = x * sa + y * ca;
+      x = x2;
+    }
+  }
+  return [x, y, z, inActive];
+}
+
+function makeMoves(count        )         {
+  const moves         = [];
+  for (let i = 0; i < count; i++) {
+    const axis = Math.min(2, Math.floor(hashD(i, 2.3) * 3))             ;
+    const lo = -1.0 + 0.5 * Math.min(3, Math.floor(hashD(i, 5.9) * 4));
+    const dir = hashD(i, 7.7) < 0.5 ? 1 : -1;
+    moves.push({ axis, lo, hi: lo + 0.5, ang: (dir * Math.PI) / 2 });
+  }
+  return moves;
+}
+
+// --- Globe: lat/long field, a scan meridian sweeps — searching --------
+
+const frameGlobe            = (size, t, o) => {
+  const spin = 0.5;
+  const cx = size / 2;
+  const cy = size / 2;
+  const radius = (size / 2) * 0.82;
+  const tilt = 0.4 + 0.06 * Math.sin(t * 0.35);
+  const pt = makeProj(t * spin, tilt, cx, cy, radius);
+  // scan sweeps relative to the spin; scanMul scales that relative rate
+  const scan = t * (spin + (1.7 - spin) * (o.scanMul ?? 1));
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+  const dimBase = o.dimBase ?? 1;
+
+  const dots        = [];
+  const latRings = o.latRings ?? 17;
+  const lonDensity = o.lonDensity ?? 44;
+  for (let li = 0; li <= latRings; li++) {
+    const lat = -Math.PI / 2 + (li / latRings) * Math.PI;
+    const cosLat = Math.cos(lat);
+    const sinLat = Math.sin(lat);
+    const lonCount = Math.max(1, Math.round(Math.abs(cosLat) * lonDensity));
+    for (let lj = 0; lj < lonCount; lj++) {
+      const lon = (lj / lonCount) * 2 * Math.PI;
+      const [px, py, z] = pt(cosLat * Math.cos(lon), sinLat, cosLat * Math.sin(lon));
+      const depth = (z + 1) / 2;
+      // the scan: a moving meridian read as a size ripple, not a shine
+      const d = angleDelta(lon + t * spin, scan);
+      const boost = Math.exp(-(d * d) / 0.18) * Math.max(0, z);
+      dots.push({
+        x: px,
+        y: py,
+        z,
+        r: ((o.rBase ?? 0.6) + (o.rDepth ?? 1.7) * depth + (o.rBoost ?? 1) * boost) * rs,
+        white: (o.inkFar ?? 0.62) - (o.inkSpan ?? 0.54) * depth,
+        // dimBase < 1 fades un-scanned dots so the meridian reads clearly
+        a: dimBase + (1 - dimBase) * Math.min(1, boost)
+      });
+    }
+  }
+  return finalizeFrame(dots, [], o.rMin);
+};
+
+// --- Rubik: bands twist in quarter turns, scramble → solve — solving --
+
+const frameRubik            = (size, t, o) => {
+  const cx = size / 2;
+  const cy = size / 2;
+  const R = (size / 2) * 0.82;
+  const pt = makeProj(t * 0.55, 0.35 + 0.1 * Math.sin(t * 0.9), cx, cy, R);
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+  const moveCount = o.moveCount ?? 14;
+  const moves = makeMoves(moveCount);
+  const sc = solveCycle(t, moveCount, 0.42, 1.2);
+
+  const dots        = [];
+  const latRings = o.latRings ?? 15;
+  const lonDensity = o.lonDensity ?? 40;
+  for (let li = 0; li <= latRings; li++) {
+    const lat = -Math.PI / 2 + (li / latRings) * Math.PI;
+    const cosLat = Math.cos(lat);
+    const sinLat = Math.sin(lat);
+    const lonCount = Math.max(1, Math.round(Math.abs(cosLat) * lonDensity));
+    for (let lj = 0; lj < lonCount; lj++) {
+      const lon = (lj / lonCount) * 2 * Math.PI;
+      const [x, y, z, inActive] = applyMoves([cosLat * Math.cos(lon), sinLat, cosLat * Math.sin(lon)], moves, sc);
+      const [px, py, zr] = pt(x, y, z);
+      const depth = (zr + 1) / 2;
+      // the band being turned inks a touch darker — the "hand"
+      dots.push({
+        x: px,
+        y: py,
+        z: zr,
+        r: ((o.rBase ?? 0.6) + (o.rDepth ?? 1.7) * depth + (inActive ? (o.rActive ?? 0.3) : 0)) * rs,
+        white: (o.inkFar ?? 0.62) - (o.inkSpan ?? 0.54) * depth - (inActive ? 0.14 : 0)
+      });
+    }
+  }
+  return finalizeFrame(dots, [], o.rMin);
+};
+
+// --- Wave: a waveform rolls through the rings — listening -------------
+
+const frameWave            = (size, t, o) => {
+  const cx = size / 2;
+  const cy = size / 2;
+  // 0.76 base × 1.15 — the undulation pulls the sphere inward, so wave read
+  // ~15% smaller than the other lattice modes; scaled up to match them
+  const R = (size / 2) * 0.874;
+  const pt = makeProj(t * 0.18, 0.38, cx, cy, 1);
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+
+  const dots        = [];
+  const rings = o.rings ?? 15;
+  const lonDensity = o.lonDensity ?? 40;
+  for (let ri = 0; ri <= rings; ri++) {
+    const lat = -Math.PI / 2 + (ri / rings) * Math.PI;
+    const cosLat = Math.cos(lat);
+    const sinLat = Math.sin(lat);
+    // two waves, different tempi — organic, never quite repeating
+    const w = 0.62 * Math.sin(t * 2.1 - ri * 0.52) + 0.38 * Math.sin(t * 1.27 + ri * 0.83);
+    const rr = R * (0.88 + 0.105 * w);
+    const lonCount = Math.max(1, Math.round(Math.abs(cosLat) * lonDensity));
+    for (let lj = 0; lj < lonCount; lj++) {
+      const lon = (lj / lonCount) * 2 * Math.PI;
+      const [px, py, z] = pt(cosLat * Math.cos(lon) * rr, sinLat * rr, cosLat * Math.sin(lon) * rr);
+      const depth = (z / R + 1) / 2;
+      const crest = Math.max(0, w);
+      dots.push({
+        x: px,
+        y: py,
+        z,
+        r: ((o.rBase ?? 0.6) + (o.rDepth ?? 1.7) * depth) * (1 + 0.4 * crest) * rs,
+        white: 0.66 - 0.56 * depth - 0.1 * crest
+      });
+    }
+  }
+  return finalizeFrame(dots, [], o.rMin);
+};
+
+/* ── engine/ribbon.ts ───────────────────────────────────────── */
+// Ribbon: an undulating sash of parallel strands rides a great circle —
+// the "composing" state. The tuned preset freezes the 3D tumble
+// (spin 0), leaving the traveling undulation on a fixed band.
+//
+// The same painter also drives "breathing" (ring), via the `faceOn` flag:
+// a face-on circle whose radius — not its out-of-plane offset — undulates,
+// so it reads as a ring slowly morphing rather than a sash in orbit.
+
+const frameRibbon            = (size, t, o) => {
+  const cx = size / 2;
+  const cy = size / 2;
+  const R = (size / 2) * 0.78;
+  // spin scales the 3D tumble; spin=0 freezes the band's orientation,
+  // leaving only the traveling undulation
+  const spin = o.spin ?? 1;
+  const camTilt = 0.3;
+  const pt = makeProj(t * 0.1 * spin, camTilt, cx, cy, 1);
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+
+  const dots        = [];
+  const ghostN = o.ghostN ?? 150;
+  for (let i = 0; i < ghostN; i++) {
+    const d = fibDir(i, ghostN);
+    const [px, py, z] = pt(d[0] * R, d[1] * R, d[2] * R);
+    const depth = (z / R + 1) / 2;
+    dots.push({ x: px, y: py, z, r: 0.8 * rs, white: 0.78, a: 0.1 + 0.22 * depth });
+  }
+
+  // The band plane, precessing (frozen when spin=0). The projection squashes
+  // the band's great circle vertically by cos(ta + camTilt); face-on sets
+  // ta = -camTilt so that term is 1 and the band reads as a true circle
+  // rather than ribbon's tilted ellipse.
+  const ya = t * 0.24 * spin;
+  const ta = o.faceOn ? -camTilt : 0.55 + 0.3 * Math.sin(t * 0.18) * spin;
+  const ux = Math.cos(ya);
+  const uy = 0;
+  const uz = Math.sin(ya);
+  const vx = -uz * Math.sin(ta);
+  const vy = Math.cos(ta);
+  const vz = ux * Math.sin(ta);
+  // plane normal n = u × v
+  const nx = uy * vz - uz * vy;
+  const ny = uz * vx - ux * vz;
+  const nz = ux * vy - uy * vx;
+
+  // Radial lobes swell past R, so pull the base radius in by (most of) the
+  // wobble amplitude. The silhouette then stays inside the frame however far
+  // the deformation is pushed, while lobes keep getting deeper relative to
+  // the mean radius.
+  const wobAmp = 0.23 * (o.wobMul ?? 1);
+  const baseR = o.faceOn ? R / (1 + 0.85 * wobAmp) : R;
+
+  const baseLanes = o.lanes ?? 5;
+  const segs = o.segs ?? 88;
+  const lanes = Math.max(1, Math.round(baseLanes * (o.bandMul ?? 1)));
+  for (let w = 0; w < lanes; w++) {
+    const laneOff = (w - (lanes - 1) / 2) * 0.075;
+    const edge = Math.abs(w - (lanes - 1) / 2) / Math.max(1, (lanes - 1) / 2);
+    for (let k = 0; k < segs; k++) {
+      const a = (k / segs) * 2 * Math.PI;
+      // the undulation: two traveling waves along the band; wobMul
+      // scales the deformation — 0 is a clean band
+      const wob =
+        (0.16 * Math.sin(a * 3 - t * 1.7 + w * 0.22) + 0.07 * Math.sin(a * 5 + t * 1.1)) * (o.wobMul ?? 1);
+      // A normal-direction wobble is cancelled by the re-normalisation below:
+      // the point lands back on the sphere, so the silhouette is pinned at R
+      // and the deformation can only ever pull dots inward. Face-on instead
+      // modulates the in-plane RADIUS, so lobes genuinely swell outward and
+      // pinch inward. Ribbon keeps the original out-of-plane sash wobble.
+      const radial = o.faceOn ? 1 + wob : 1;
+      const off = o.faceOn ? laneOff : laneOff + wob;
+      const x = ux * Math.cos(a) + vx * Math.sin(a) + nx * off;
+      const y = uy * Math.cos(a) + vy * Math.sin(a) + ny * off;
+      const z = uz * Math.cos(a) + vz * Math.sin(a) + nz * off;
+      const l = Math.sqrt(x * x + y * y + z * z);
+      const rr = baseR * radial;
+      const [px, py, zr] = pt((x / l) * rr, (y / l) * rr, (z / l) * rr);
+      const depth = (zr / R + 1) / 2;
+      dots.push({
+        x: px,
+        y: py,
+        z: zr,
+        r: ((o.rBase ?? 1.1) + (o.rDepth ?? 1.7) * depth) * (1 - 0.25 * edge) * rs,
+        white: 0.52 - 0.44 * depth + 0.18 * edge,
+        a: 0.4 + 0.6 * depth
+      });
+    }
+  }
+  return finalizeFrame(dots, [], o.rMin);
+};
+
+/* ── engine/morph.ts ───────────────────────────────────────── */
+// Morph: a dotted outline cycling circle → triangle → square → circle —
+// the "shaping" state. Each shape is a continuous closed path
+// parameterised by arc length (top-centre start, clockwise). Every
+// frame the engine blends the two neighbouring paths, then lays the
+// dots EVENLY along the blended outline — spacing stays uniform at
+// every instant of the morph, holds and transitions alike. Plain
+// circle fills only: no canvas/SVG filters, fully cross-browser.
+
+function smoothE(x        )         {
+  return x * x * (3 - 2 * x);
+}
+
+function polyPath(verts                                          )       {
+  const V = verts.length;
+  const L           = [];
+  let total = 0;
+  for (let i = 0; i < V; i++) {
+    const a = verts[i];
+    const b = verts[(i + 1) % V];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    L.push(l);
+    total += l;
+  }
+  return (f) => {
+    let target = f * total;
+    let i = 0;
+    while (target > L[i] && i < V - 1) {
+      target -= L[i];
+      i++;
+    }
+    const a = verts[i];
+    const b = verts[(i + 1) % V];
+    const ff = L[i] ? Math.min(1, target / L[i]) : 0;
+    return [a[0] + (b[0] - a[0]) * ff, a[1] + (b[1] - a[1]) * ff];
+  };
+}
+
+const CIRCLE       = (f) => {
+  const a = -Math.PI / 2 + f * 2 * Math.PI;
+  return [Math.cos(a) * 0.24, Math.sin(a) * 0.24];
+};
+const TRIANGLE = polyPath([
+  [0.0, -0.26],
+  [0.24, 0.16],
+  [-0.24, 0.16]
+]);
+// 5-vertex walk so the path STARTS at top-centre like the other shapes
+const SQUARE = polyPath([
+  [0, -0.2],
+  [0.2, -0.2],
+  [0.2, 0.2],
+  [-0.2, 0.2],
+  [-0.2, -0.2]
+]);
+const CYCLE         = [CIRCLE, TRIANGLE, SQUARE];
+
+// low floor keeps sparse outlines possible while never degenerating
+function morphN(d        )         {
+  return Math.max(6, Math.round(34 * d));
+}
+
+const HOLD = 1.4;
+const MORPH = 0.9;
+const SEG = HOLD + MORPH;
+
+// This state was tuned in inkform, which paints it through a blur +
+// threshold "goo" filter; we draw plain circles instead, since `ctx.filter`
+// and SVG filter refs are not safe to rely on across Chrome / Safari /
+// Firefox. The dot GEOMETRY is identical either way — the threshold just
+// yields a hard edge where a plain fill has an antialiased one, so these
+// dots read a touch softer than inkform's. Don't "correct" for that by
+// shrinking the radius: it makes the mark genuinely smaller than the tuning.
+
+const frameMorph            = (size, t, o) => {
+  const K = CYCLE.length;
+  const tc = t % (SEG * K);
+  const k = Math.floor(tc / SEG);
+  const local = tc - k * SEG;
+  const m = local > HOLD ? smoothE((local - HOLD) / MORPH) : 0;
+  const sprd = o.spread ?? 1;
+
+  // blend the two shape PATHS at m, then measure the blended outline
+  const pA = CYCLE[k];
+  const pB = CYCLE[(k + 1) % K];
+  const M = 160;
+  const pts                          = [];
+  for (let i = 0; i < M; i++) {
+    const f = i / M;
+    const a = pA(f);
+    const b = pB(f);
+    pts.push([(a[0] + (b[0] - a[0]) * m) * sprd, (a[1] + (b[1] - a[1]) * m) * sprd]);
+  }
+  const L           = [];
+  let total = 0;
+  for (let i = 0; i < M; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % M];
+    const l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    L.push(l);
+    total += l;
+  }
+
+  // dot radius depends ONLY on rDot (the size knob); the count sets the
+  // gaps. Formed shapes breathe a little (uniform pulse).
+  const n = morphN(o.iconD ?? 1);
+  const re = (o.rDot ?? 0.021) * 1.35 * sprd;
+  const pulse = 1 + 0.02 * Math.sin(local * 3.1);
+
+  const dots        = [];
+  const c2 = size / 2;
+  let seg = 0;
+  let acc = 0;
+  for (let k2 = 0; k2 < n; k2++) {
+    const target = (k2 / n) * total;
+    while (acc + L[seg] < target && seg < M - 1) {
+      acc += L[seg];
+      seg++;
+    }
+    const a = pts[seg];
+    const b = pts[(seg + 1) % M];
+    const f = L[seg] ? Math.min(1, (target - acc) / L[seg]) : 0;
+    const x = (a[0] + (b[0] - a[0]) * f) * pulse;
+    const y = (a[1] + (b[1] - a[1]) * f) * pulse;
+    dots.push({
+      x: c2 + x * size,
+      y: c2 + y * size,
+      z: 0,
+      r: Math.max(0.35, re * size),
+      white: 0.1
+    });
+  }
+  return finalizeFrame(dots, [], o.rMin);
+};
+
+/* ── engine/braid.ts ───────────────────────────────────────── */
+// Braid: three strands plait around the sphere — the "weaving" state.
+// Each strand runs pole to pole on a helix, and a radial breathing term
+// makes them trade places, reading as the over/under of a plait.
+
+const frameBraid            = (size, t, o) => {
+  const cx = size / 2;
+  const cy = size / 2;
+  const R = (size / 2) * 0.76;
+  const pt = makeProj(t * 0.4, 0.3, cx, cy, 1);
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+
+  const dots        = [];
+  const ghostN = o.ghostN ?? 150;
+  for (let i = 0; i < ghostN; i++) {
+    const d = fibDir(i, ghostN);
+    const [px, py, z] = pt(d[0] * R, d[1] * R, d[2] * R);
+    const depth = (z / R + 1) / 2;
+    dots.push({ x: px, y: py, z, r: 0.8 * rs, white: 0.78, a: 0.1 + 0.22 * depth });
+  }
+
+  const strandN = o.strandN ?? 52;
+  const turns = o.turns ?? 3;
+  for (let s = 0; s < 3; s++) {
+    const phase = (s / 3) * 2 * Math.PI;
+    for (let i = 0; i < strandN; i++) {
+      // u walks pole to pole; the frac() drift slides the whole strand along
+      const u = (frac(i / strandN + t * 0.045) * 2 - 1) * 0.96;
+      const surf = Math.sqrt(Math.max(0, 1 - u * u));
+      const endFade = Math.min(1, (1 - Math.abs(u)) / 0.1);
+      const a = u * Math.PI * turns + phase;
+      // radial breathing: strands trade places — the over/under of a plait
+      const weave = 1 + 0.075 * Math.sin(u * Math.PI * turns * 2 + phase * 2 + t * 0.8);
+      const rr = surf * R * weave;
+      const [px, py, zr] = pt(Math.cos(a) * rr, u * R * weave, Math.sin(a) * rr);
+      const depth = (zr / R + 1) / 2;
+      dots.push({
+        x: px,
+        y: py,
+        z: zr,
+        r: ((o.rBase ?? 1.2) + (o.rDepth ?? 1.8) * depth) * rs,
+        white: 0.55 - 0.45 * depth,
+        a: endFade * (0.45 + 0.55 * depth)
+      });
+    }
+  }
+  return finalizeFrame(dots, [], o.rMin);
+};
+
+/* ── engine/web.ts ───────────────────────────────────────── */
+// Web: a constellation wires itself — the "connecting" state. Nodes drift
+// on the sphere under slow value noise; any pair closer than `thr` grows an
+// edge, and bright packets run along randomly re-picked node pairs.
+
+const frameWeb            = (size, t, o) => {
+  const cx = size / 2;
+  const cy = size / 2;
+  const R = (size / 2) * 0.8 * (o.spread ?? 1);
+  // note the projector carries the radius as its scale, so node vectors stay
+  // unit-length and distances below are in unit-sphere space
+  const pt = makeProj(t * 0.12, 0.32, cx, cy, R);
+  const rs = radiusScale(size, o.rsPow ?? 0.6);
+
+  const nodeN = o.nodeN ?? 30;
+  const thr = o.thr ?? 0.72;
+  const nodeR = o.nodeR ?? 1.4;
+  const nodeRDepth = o.nodeRDepth ?? 1.8;
+
+  // nodes: fib lattice + slow noise wander, renormalised to the surface
+  const nodes                                  = [];
+  for (let i = 0; i < nodeN; i++) {
+    const d = fibDir(i, nodeN);
+    const x = d[0] + 0.3 * (vnoise(i * 0.31 + 9, t * 0.24) - 0.5) * 2;
+    const y = d[1] + 0.3 * (vnoise(i * 0.53 + 27, t * 0.21) - 0.5) * 2;
+    const z = d[2] + 0.3 * (vnoise(i * 0.77 + 55, t * 0.27) - 0.5) * 2;
+    const l = Math.sqrt(x * x + y * y + z * z);
+    nodes.push([x / l, y / l, z / l]);
+  }
+
+  const lines         = [];
+  const dots        = [];
+
+  // edges between close neighbours, alpha by proximity + depth
+  for (let i = 0; i < nodeN; i++) {
+    for (let j = i + 1; j < nodeN; j++) {
+      const dx = nodes[i][0] - nodes[j][0];
+      const dy = nodes[i][1] - nodes[j][1];
+      const dz = nodes[i][2] - nodes[j][2];
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      if (dist >= thr) continue;
+      const [x1, y1, z1] = pt(nodes[i][0], nodes[i][1], nodes[i][2]);
+      const [x2, y2, z2] = pt(nodes[j][0], nodes[j][1], nodes[j][2]);
+      const depth = ((z1 + z2) / 2 + 1) / 2;
+      lines.push({
+        x1,
+        y1,
+        x2,
+        y2,
+        white: 0.42,
+        a: (1 - dist / thr) * (0.3 + 0.55 * depth),
+        w: Math.max(0.6, (o.lineW ?? 0.8) * rs)
+      });
+    }
+  }
+
+  for (let i = 0; i < nodeN; i++) {
+    const [px, py, z] = pt(nodes[i][0], nodes[i][1], nodes[i][2]);
+    const depth = (z + 1) / 2;
+    const pulse = 1 + 0.25 * Math.sin(t * 1.4 + i * 2.7);
+    dots.push({
+      x: px,
+      y: py,
+      z,
+      r: (nodeR + nodeRDepth * depth) * pulse * rs,
+      white: 0.55 - 0.45 * depth
+    });
+  }
+
+  // signals: bright packets running between paired nodes
+  const signals = o.signals ?? 5;
+  for (let s = 0; s < signals; s++) {
+    const seg = Math.floor(t * 0.55 + s * 7.31);
+    const a = Math.floor(hashD(seg, s * 3.1 + 1.7) * nodeN);
+    const b = Math.floor(hashD(seg, s * 5.7 + 4.2) * nodeN);
+    if (a === b) continue;
+    const f = frac(t * 0.55 + s * 7.31);
+    const x = lerp(nodes[a][0], nodes[b][0], f);
+    const y = lerp(nodes[a][1], nodes[b][1], f);
+    const z = lerp(nodes[a][2], nodes[b][2], f);
+    const l = Math.max(1e-6, Math.sqrt(x * x + y * y + z * z));
+    const [px, py, zr] = pt(x / l, y / l, z / l);
+    const depth = (zr + 1) / 2;
+    dots.push({
+      x: px,
+      y: py,
+      z: zr,
+      r: (nodeR * 1.5 + nodeRDepth * depth) * rs,
+      white: 0.05,
+      a: 0.5 + 0.5 * depth
+    });
+  }
+
+  return finalizeFrame(dots, lines, o.rMin);
+};
+
+/* ── engine/registry.ts ───────────────────────────────────────── */
+// Mode key → geometry builder. Kept separate from the presets so tree
+// shaking can in principle drop unused modes in custom builds.
+
+
+
+
+
+
+
+/**
+ * The portable surface: pure geometry, no canvas. The React Native port
+ * imports exactly these functions, so its output is identical to the web's
+ * by construction rather than by re-implementation.
+ */
+const MODE_FRAMES                             = {
+  orbits: frameOrbits,
+  globe: frameGlobe,
+  rubik: frameRubik,
+  wave: frameWave,
+  web: frameWeb,
+  braid: frameBraid,
+  ribbon: frameRibbon,
+  // ring shares ribbon's geometry — the `faceOn` profile flag switches it
+  ring: frameRibbon,
+  morph: frameMorph
+};
+
+/** Canvas painters, derived from the geometry. The 2D-canvas binding. */
+const MODE_DRAWS                            = Object.fromEntries(
+  Object.entries(MODE_FRAMES).map(([key, frame]) => [
+    key,
+    ((ctx, size, t, dark, opts) => paintFrame(ctx, frame(size, t, opts), dark))            
+  ])
+)                             ;
+
+/* ── presets.ts ───────────────────────────────────────── */
+// The shipped tunings: nine states × two sizes, baked from the inkform
+// mini-page tuning session. `count`/`size` are multipliers over the base
+// fine profiles; `speed` multiplies the shared clock. Resolved once per
+// (state, size) pair and cached — the render loop sees plain numbers.
+
+const STATE_TO_MODE                            = {
+  working: 'orbits',
+  searching: 'globe',
+  solving: 'rubik',
+  listening: 'wave',
+  connecting: 'web',
+  weaving: 'braid',
+  composing: 'ribbon',
+  breathing: 'ring',
+  shaping: 'morph'
+};
+
+                         
+                
+                
+               
+                                                       
+                   
+ 
+
+/** Exported so `scripts/extract-spec.ts` can emit them for the native ports. */
+const PRESETS                                           = {
+  orbits: {
+    64: { speed: 1.885, count: 1, size: 1 },
+    20: { speed: 3.9, count: 0.238, size: 2.4 }
+  },
+  globe: {
+    64: { speed: 2.015, count: 0.42, size: 1.15, extra: { scanMul: 4.08, dimBase: 0.45 } },
+    20: { speed: 2.665, count: 0.105, size: 1.75, extra: { scanMul: 4.335, dimBase: 0.45 } }
+  },
+  rubik: {
+    64: { speed: 1.82, count: 0.35, size: 1.05 },
+    20: { speed: 1.95, count: 0.088, size: 1.9 }
+  },
+  wave: {
+    64: { speed: 4.388, count: 0.341, size: 1 },
+    20: { speed: 3.998, count: 0.105, size: 1.6 }
+  },
+  web: {
+    64: { speed: 3.315, count: 1.35, size: 0.95 },
+    20: { speed: 6.63, count: 0.25, size: 1.52 }
+  },
+  braid: {
+    64: { speed: 1.625, count: 0.5, size: 1 },
+    20: { speed: 2.75, count: 0.1125, size: 1.36 }
+  },
+  ribbon: {
+    64: { speed: 2.34, count: 0.25, size: 0.85, extra: { spin: 0, bandMul: 3.9, wobMul: 1 } },
+    20: { speed: 3.12, count: 0.051, size: 1.073, extra: { spin: 0, bandMul: 4.94, wobMul: 1 } }
+  },
+  ring: {
+    64: { speed: 3.24, count: 0.25, size: 0.956, extra: { spin: 0, bandMul: 3.627, wobMul: 0.368 } },
+    20: { speed: 3.78, count: 0.028, size: 1.622, extra: { spin: 0, bandMul: 3.968, wobMul: 0.565 } }
+  },
+  morph: {
+    64: { speed: 2.405, count: 0.702, size: 0.395, extra: { spread: 1.45 } },
+    20: { speed: 2.08, count: 0.53, size: 1.011, extra: { spread: 1.45 } }
+  }
+};
+
+                           
+                
+                
+                 
+ 
+
+const cache = new Map                  ();
+
+/** Resolve a (state, size) pair to its mode + fully-scaled draw options. */
+function resolvePreset(state          , size         )           {
+  const key = `${state}-${size}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+
+  const mode = STATE_TO_MODE[state];
+  const preset = PRESETS[mode][size];
+  let opts           = { ...BASE_PROFILES[mode] };
+  if (preset.count !== 1) opts = scaleCounts(opts, preset.count);
+  if (preset.size !== 1) opts = scaleRadii(opts, preset.size);
+  if (preset.extra) opts = { ...opts, ...preset.extra };
+
+  const resolved           = { mode, speed: preset.speed, opts };
+  cache.set(key, resolved);
+  return resolved;
+}
+
+/* ── Aethron's painter and mount ─────────────────────────────────────
+   The geometry above is Jakub Antalik's, unmodified. Everything below
+   is ours, and it exists because of one difference: thinking-orbs is
+   deliberately MONOCHROME, and Aethron's whole identity is the ember
+   bloom on black. Grey orbs beside a terracotta field would read as a
+   component borrowed from somewhere else.
+   So the ink value the geometry reports is run through the SAME ramp
+   the hero field uses — ember -> terracotta -> warm white with depth —
+   and the orb becomes the same light as the room it sits in.
+
+   AND IT HAS TO MEAN SOMETHING. The library ships nine states because
+   an agent does nine distinguishable kinds of work; Aethron's run card
+   already names exactly that in words. Mapping one to the other is the
+   whole reason to take this: until now every verb got the identical
+   74x16 dot strip, which told a person only THAT something was
+   happening. */
+const ORB_STATE={
+  // reading and looking: a scan meridian sweeping a dotted globe
+  Reading:'searching',Searching:'searching','Looking for':'searching',
+  'Searching the web':'searching',
+  // a command: particles on tilted orbits
+  Running:'working',
+  // pulling things in and wiring them up: a constellation assembling
+  Fetching:'connecting','Naming elements':'connecting',
+  // writing something new: an undulating sash
+  Creating:'composing',Planning:'composing',
+  // something taking form: a dotted outline circle -> triangle -> square
+  Editing:'shaping',Starting:'shaping',
+  // many parts plaited into one: three strands braiding
+  Building:'weaving','Working on':'weaving',
+  // scramble, then click back solved
+  Checking:'solving',Healing:'solving','Running the page':'solving',
+  // nothing named yet
+  Thinking:'listening'};
+const orbState=v=>ORB_STATE[v]||'breathing';
+
+/* ONE CLOCK. Every orb on the page reads the same elapsed time, so two
+   indicators never drift apart — the library's own rule, kept. */
+let ORB_T0=null, ORB_RAF=0;
+const ORB_LIVE=new Set();
+function orbTick(){
+  ORB_RAF=0;
+  if(!ORB_LIVE.size)return;
+  const now=performance.now();
+  if(ORB_T0===null)ORB_T0=now;
+  const el=(now-ORB_T0)/1000;
+  for(const o of ORB_LIVE)o.draw(el);
+  ORB_RAF=requestAnimationFrame(orbTick);
+}
+function orbWake(){if(!ORB_RAF&&ORB_LIVE.size)ORB_RAF=requestAnimationFrame(orbTick);}
+
+class Orb{
+  constructor(cv,state,size){
+    this.cv=cv; this.cx=cv.getContext('2d');
+    this.size=size||20;
+    this.set(state);
+    this.seen=true;
+    const d=Math.min(devicePixelRatio||1,2);   // the library's cap, kept
+    cv.width=Math.round(this.size*d); cv.height=Math.round(this.size*d);
+    cv.style.width=this.size+'px'; cv.style.height=this.size+'px';
+    this.d=d;
+    if('IntersectionObserver' in window){
+      this._io=new IntersectionObserver(es=>{
+        this.seen=es[0].isIntersecting; this.seen?this.start():this.stop();
+      },{threshold:0}); this._io.observe(cv);
+    }
+    document.addEventListener('visibilitychange',()=>{
+      document.hidden?this.stop():(this.seen&&this.start());});
+  }
+  set(state){
+    this.state=state;
+    const r=resolvePreset(state,this.size===64?64:20);
+    this.mode=r.mode; this.speed=r.speed; this.opts=r.opts;
+    if(REDUCED)this.draw(1.7);   // one representative frame, then nothing
+  }
+  start(){ if(REDUCED){this.draw(1.7);return;} ORB_LIVE.add(this); orbWake(); }
+  stop(){ ORB_LIVE.delete(this); }
+  draw(el){
+    const c=this.cx, S=this.size, d=this.d;
+    c.setTransform(d,0,0,d,0,0);
+    c.clearRect(0,0,S,S);
+    const f=MODE_FRAMES[this.mode](S, el*this.speed, this.opts);
+    /* the library draws its lines first so nodes sit on top; keep that */
+    for(const l of f.lines){
+      const q=1-Math.min(1,Math.max(0,l.white));
+      c.strokeStyle=ORB_INK(q,(l.a==null?1:l.a)*0.9);
+      c.lineWidth=l.w; c.beginPath();
+      c.moveTo(l.x1,l.y1); c.lineTo(l.x2,l.y2); c.stroke();
+    }
+    for(const p of f.dots){
+      const q=1-Math.min(1,Math.max(0,p.white));   // dark substrate: near = bright
+      c.fillStyle=ORB_INK(q,p.a==null?1:p.a);
+      c.beginPath(); c.arc(p.x,p.y,p.r,0,6.2832); c.fill();
+    }
+  }
+  destroy(){this.stop(); this._io&&this._io.disconnect();}
+}
+/* the hero field's ramp, to the letter, so both read as one light */
+function ORB_INK(q,a){
+  const warm=q*q;
+  const r=Math.round(96+121*q+38*warm),
+        g=Math.round(44+ 75*q+95*warm),
+        b=Math.round(32+ 55*q+103*warm);
+  return 'rgba('+r+','+g+','+b+','+(a<0?0:a>1?1:a).toFixed(3)+')';
+}
+const ORBS=new WeakMap();
+function mountOrbs(root){
+  (root||document).querySelectorAll('canvas.orb').forEach(cv=>{
+    const want=cv.dataset.state||'breathing',
+          size=+(cv.dataset.size||20);
+    const had=ORBS.get(cv);
+    if(had){ if(had.state!==want)had.set(want); return; }
+    const o=new Orb(cv,want,size);
+    ORBS.set(cv,o); o.start();
+  });
+}
+
+/* THE CODING TOOLS SPEAK TOO. The template verbs above were only half of
+   it: the same session runs Read, Write, Edit, Bash and the rest, and
+   those were reaching the surface as their raw class names next to a
+   blob of JSON. A person does not want to read `Bash {"command":...}`;
+   they want to know a command is running and WHICH. */
+const VERBS={Read:'Reading',Write:'Creating',Edit:'Editing',
+  MultiEdit:'Editing',NotebookEdit:'Editing',Bash:'Running',
+  Grep:'Searching',Glob:'Looking for',WebFetch:'Fetching',
+  WebSearch:'Searching the web',TodoWrite:'Planning',Task:'Working on'};
+function toolVerb(n){
+  const raw=String(n||'');
+  if(VERBS[raw])return VERBS[raw];
+  const a=raw.replace(/^mcp__[a-z_]+__/,'');
+  return TOOLWORDS[a]||a.replace(/_/g,' ').replace(/^./,c=>c.toUpperCase());
+}
+/* AND THE TARGET IS THE REAL ONE. Whatever the tool was actually
+   pointed at — this file, this command, this page — never a summary
+   invented for the display. */
+function toolTarget(n,inp){
+  inp=inp||{};const raw=String(n||'');
+  const tail=p=>String(p||'').split('/').filter(Boolean).slice(-2).join('/');
+  if(raw==='Bash')return String(inp.description||inp.command||'').slice(0,90);
+  for(const k of ['file_path','page','path'])if(inp[k])return tail(inp[k]);
+  for(const k of ['pattern','query','request','name','project','workspace'])
+    if(inp[k])return String(inp[k]).slice(0,74);
+  if(inp.url)return String(inp.url).replace(/^https?:\/\//,'').slice(0,64);
+  if(inp.old_url)return tail(inp.old_url);
+  return '';
+}
+/* Light formatting only, and ESCAPED FIRST — the text is a model's
+   output, never markup we trust. */
+function fmt(t){
+  return esc(String(t||''))
+    .replace(/`([^`\n]+)`/g,'<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>');
+}
+/* The event stream becomes BLOCKS: consecutive tool calls collapse into
+   one run card, and a result is folded back onto the step that caused
+   it instead of landing as its own wall of text. */
+function convBlocks(evs){
+  const out=[];let run=null,n=0;
+  for(const e of evs){
+    if(e.type==='tool'){
+      if(!run){run={kind:'run',steps:[]};out.push(run);}
+      run.steps.push({i:n++,name:e.name,input:e.input,
+        /* DERIVED, NOT STORED: if the turn is over and this step never
+           got its result, it did not finish — showing it as live is the
+           card claiming work is in progress after everything stopped. */
+        state:CODE.poll?'live':'bad'});
+      continue;
+    }
+    if(e.type==='tool_result'){
+      if(run)for(let i=run.steps.length-1;i>=0;i--){
+        const s=run.steps[i];
+        if(s.state==='live'){s.state=(e.ok===false?'bad':'ok');
+          s.detail=e.text||'';break;}
+      }
+      continue;
+    }
+    run=null;
+    if(e.type==='you')out.push({kind:'you',text:e.text});
+    else if(e.type==='text'&&String(e.text||'').trim())
+      out.push({kind:'bot',text:e.text});
+    else if(e.type==='thinking'&&String(e.text||'').trim())
+      out.push({kind:'think',text:e.text});
+    else if(e.type==='ready')
+      out.push({kind:'sys',text:'Connected to '+(e.model||'the model')});
+    else if(e.type==='error')out.push({kind:'sys',...humanErr(e.text)});
+    else if(e.type==='done'&&e.error)
+      out.push({kind:'sys',...humanErr(e.text)});
+    else if(e.type==='exit'&&e.code)
+      out.push({kind:'sys',text:'the session ended',bad:true});
+  }
+  return out;
+}
+/* ── SAY WHAT HAPPENED, NOT WHAT THE SERVER SAID ────────────────────
+   A provider's error body is written for a developer reading a log, and
+   printing it whole is how a person ends up staring at a JSON blob with
+   a rate-limit URL in it. The cases that actually occur get a sentence
+   and the fix; the raw text is kept, one click down, because when it is
+   NOT one of these the detail is the only thing that helps. */
+function humanErr(raw){
+  const t=String(raw||'');
+  const has=(...k)=>k.every(x=>t.toLowerCase().includes(x));
+  let msg=null;
+  if(/\b429\b/.test(t)&&has('quota'))
+    msg="Today's free quota on this key is spent. Aethron will use the "
+       +"next key automatically; to keep going now, switch provider or "
+       +"key in Settings.";
+  else if(/\b429\b/.test(t))
+    msg='The provider is rate-limiting this key. Waiting a moment usually clears it.';
+  else if(/\b401\b|\b403\b/.test(t)||has('api key'))
+    msg='That key was refused. Check it in Settings.';
+  else if(has('timed out')||has('timeout'))
+    msg='The provider stopped answering before it finished. Nothing was changed.';
+  else if(has('getaddrinfo')||has('connection')||has('network')||has('dns'))
+    msg='Could not reach the provider. Aethron did not ask, so nothing was changed.';
+  else if(has('credit')||has('billing'))
+    msg='This key has no credit left. Switch provider or top it up in Settings.';
+  return msg?{text:msg,bad:true,detail:t}:{text:t,bad:true};
+}
+CODE.open=CODE.open||{};
+function toggleStep(id){
+  CODE.open[id]=!CODE.open[id];
+  const d=$(id);if(d)d.hidden=!CODE.open[id];
+}
+CODE.openRun=CODE.openRun||{};
+function toggleRun(k){
+  CODE.openRun[k]=!runOpen(k);
+  renderChat();
+}
+function runOpen(k){
+  const b=CODE.openRun[k];
+  return b===undefined?!RUN_DONE[k]:b;
+}
+const RUN_DONE={};
+function runHtml(b){
+  /* A run is finished when nothing in it is still live — no extra
+     bookkeeping needed, because a step leaves `live` the moment its
+     result lands. */
+  const done=b.steps.every(x=>x.state!=='live');
+  const key='r'+(b.steps[0]?b.steps[0].i:0);
+  RUN_DONE[key]=done;
+  const open=runOpen(key);
+  const bad=b.steps.filter(x=>x.state==='bad').length;
+  if(done&&!open){
+    return `<div class="run"><button class="runsum"
+      onclick="toggleRun('${key}')">
+      ${I(bad?'alert':'check',13)}
+      <span class="rs-n">${b.steps.length} step${b.steps.length>1?'s':''}</span>
+      ${bad?`<span class="rs-bad">${bad} failed</span>`:''}
+      <span class="st">${esc(toolVerb(b.steps[b.steps.length-1].name))}</span>
+      <span class="rs-c">show${I('up',12)}</span></button></div>`;
+  }
+  return '<div class="run'+(done?' open':'')+'">'+(done?`<button
+      class="runsum" onclick="toggleRun('${key}')">
+      ${I(bad?'alert':'check',13)}
+      <span class="rs-n">${b.steps.length} step${b.steps.length>1?'s':''}</span>
+      ${bad?`<span class="rs-bad">${bad} failed</span>`:''}
+      <span class="rs-c">hide${I('up',12)}</span></button>`:'')
+    +b.steps.map(s=>{
+    const id='sd'+s.i,det=String(s.detail||'').trim(),
+          tgt=toolTarget(s.name,s.input);
+    return `<button class="step ${s.state}" onclick="toggleStep('${id}')">
+      <span class="sdot"></span><span class="sv">${esc(toolVerb(s.name))}</span>
+      <span class="st">${esc(tgt)}</span>
+      ${det?`<span class="sx">${s.state==='bad'?'failed':'detail'}</span>`:''}
+      </button>${det?`<div class="stepdet${s.state==='bad'?' bad':''}"
+      id="${id}" ${CODE.open[id]?'':'hidden'}>${esc(det.slice(0,4000))}</div>`:''}`;
+  }).join('')+'</div>';
+}
+/* ONE LINE FOR RIGHT NOW. Not a spinner with no subject: the verb and
+   the thing it is pointed at, and how far in we are. */
+function nowHtml(){
   if(!CODE.poll)return '';
   let last=null;
-  for(const e of CODE.events) if(e.type==='tool')last=e;
+  for(const e of CODE.events)if(e.type==='tool')last=e;
   const done=CODE.events.filter(e=>e.type==='tool_result').length;
-  return `<div class="activity"><span class="spin"></span>
-    <span class="aw">${esc(last?toolWord(last.name):'Thinking')}</span>
+  /* THE INDICATOR NOW SAYS WHICH KIND OF WORK. Every verb used to get
+     the identical dot strip, which told a person only THAT something
+     was happening. The orb's state is derived from the verb itself, so
+     searching looks like searching and building looks like building. */
+  const verb=last?toolVerb(last.name):'Thinking';
+  return `<div class="nowline"><canvas class="orb" data-size="20"
+      data-state="${orbState(verb)}"></canvas>
+    <span class="sv">${esc(verb)}</span>
+    <span class="st">${esc(last?toolTarget(last.name,last.input):'')}</span>
     ${done?`<span class="ac">${done} step${done>1?'s':''} done</span>`:''}</div>`;
 }
 function renderChat(){
   const box=$('chatlog');if(!box)return;
-  const rows=CODE.events.map(e=>{
-    if(e.type==='you')return `<div class="msg you">${esc(e.text)}</div>`;
-    if(e.type==='text')return `<div class="msg bot">${esc(e.text)}</div>`;
-    if(e.type==='thinking')return `<div class="msg think">${esc(e.text)}</div>`;
-    if(e.type==='tool')return `<div class="msg tool">${I('terminal',12)}
-      <b>${esc(e.name)}</b> <code>${esc(JSON.stringify(e.input||{}).slice(0,160))}</code></div>`;
-    if(e.type==='tool_result')return `<div class="msg res${e.ok?'':' bad'}">${
-      esc((e.text||'').slice(0,300))}</div>`;
-    if(e.type==='ready')return `<div class="msg sys">session ready · ${esc(e.model||'')}
-      · ${(e.tools||[]).length} tools · mcp: ${esc((e.mcp||[]).join(', ')||'none')}</div>`;
-    if(e.type==='done')return `<div class="msg sys">${e.error?'ERROR: '+esc(e.text)
-      :'turn complete'}${e.cost_usd?' · $'+Number(e.cost_usd).toFixed(4):''}</div>`;
-    if(e.type==='exit')return `<div class="msg sys">session ended (${e.code})</div>`;
-    if(e.type==='error')return `<div class="msg res bad">${esc(e.text||'')}</div>`;
-    return '';
-  }).join('');
-  box.innerHTML=rows+activityHtml();
-  box.scrollTop=1e9;
+  const talking=!!CODE.events.length;
+  box.hidden=!talking;
+  /* THE WELCOME BECOMES THE CONVERSATION. Openers, suggestions and the
+     file picker are scaffolding for the first message; once there IS a
+     conversation they are only pushing the composer down the window. */
+  for(const sel of ['welcome','qrows'])
+    {const e=$(sel);if(e)e.hidden=talking;}
+  const shell=$('convshell');
+  if(shell)shell.classList.toggle('talking',talking);
+  syncHero();
+  document.querySelectorAll('.conv-dock .startmeta,.conv-dock .qrows')
+    .forEach(e=>{e.hidden=talking});
+  box.innerHTML=convBlocks(CODE.events).map(b=>
+      b.kind==='you' ?`<div class="turn you"><div class="bubble">${esc(b.text)}</div></div>`
+    : b.kind==='bot' ?`<div class="turn bot"><div class="prose">${fmt(b.text)}</div></div>`
+    : b.kind==='think'?`<details class="think"><summary>${I('sparkles',12)
+        }Aethron thought this through</summary><div class="body">${esc(b.text)}</div></details>`
+    : b.kind==='run' ? runHtml(b)
+    : b.text        ?`<div class="turn sys${b.bad?' bad':''}">${esc(b.text)}${
+        b.detail?`<details class="errdet"><summary>what the provider said</summary>
+          <div>${esc(b.detail)}</div></details>`:''}</div>`
+    : '').join('')+nowHtml();
+  dockMeta(); mountDots(box); mountOrbs(box);
+  /* Follow the conversation only while the reader is already at the
+     bottom. Yanking the view down while someone is reading back through
+     a run is the rudest thing a live log can do. */
+  const sc=$('convscroll');
+  if(sc&&(CODE.stick===undefined||CODE.stick))sc.scrollTop=sc.scrollHeight;
+}
+/* The quiet line under the composer: what this session has cost, and
+   what it is connected to. Money is never hidden and never shouted. */
+function dockMeta(){
+  const m=$('dockmeta');if(!m)return;
+  let spent=0,model='';
+  for(const e of CODE.events){
+    if(e.type==='done'&&e.cost_usd)spent+=Number(e.cost_usd)||0;
+    if(e.type==='ready'&&e.model)model=e.model;
+  }
+  const bits=[];
+  if(model)bits.push(esc(model));
+  if(spent)bits.push('$'+spent.toFixed(4)+' this session');
+  if(CODE.poll)bits.push('working…');
+  m.innerHTML=bits.length?bits.join('<span class="dot"></span>'):'';
 }
 
 let RT=0; // render token: async renderers must not overwrite a newer tab
@@ -5050,9 +8920,19 @@ window.addEventListener('unhandledrejection', ev=>{
 
 function renderTab(){
   const c=$('content');
+  if(S.view!=='settings')c.classList.remove('set-host');
+  if(S.view==='settings')return renderSettings(c);
   if(S.view==='code')return renderCode(c);
+  if(S.view==='design')return renderDesign(c);
   if(S.view==='library')return renderLibrary(c);
-  if(!S.cur){return}
+  /* THE FRONT DOOR HAD NO RENDERER. This branch used to `return` and
+     leave whatever was already in #content — which is fine on a fresh
+     load, where the welcome is static HTML, and wrong the moment any
+     view has overwritten it. Settings, Library, Code and Design all do.
+     So "New project" cleared the project, cleared the view, re-rendered
+     — and renderTab bailed out one line in, leaving Settings on screen.
+     The button was never broken; there was simply nothing to draw. */
+  if(!S.cur)return renderWelcome(c);
   const t=++RT;
   // TWO PANES THAT COEXIST — the fix for the real problem.
   //
@@ -5140,6 +9020,16 @@ async function loadAi(){
 async function saveAi(st){
   const r=await api('/api/ai/settings',{ai:st});
   AI.settings={...AI.settings,...st};
+  /* The server just ended every open session, because each one is bound
+     to the key it started with. Let go of the handle here too — holding
+     a dead key is what made the next prompt hang instead of starting
+     fresh on the new one. */
+  if(CODE.key){
+    CODE.key=''; CODE.since=0; CODE.events=[];
+    if(window.endTurn)endTurn();
+  }
+  if(r&&r.ended&&window.note)
+    note('key saved \u00b7 the open session ended, the next message starts a fresh one');
   return r;
 }
 function aiCfg(){return {}}   // server-side settings; no client override
@@ -5587,9 +9477,17 @@ function harvestRoutes(){
 }
 
 // ── visual editor: picks arrive from the /edit iframe ──────────────
+/* THE OLD PANEL AND THE NEW SHEET BOTH LISTEN FOR A PICK, so selecting
+   one element opened two things: the new composer beside it AND the old
+   property panel over the conversation. The sheet owns the pick while
+   it is open; this listener is the fallback for the legacy preview tab,
+   which still exists and still works. Two editors cannot share one
+   event any more than two components can share one class name — the
+   same fault as `split`, one layer down. */
 window.addEventListener('message',async ev=>{
   const m=ev.data;
   if(!m||m.forge!=='pick'||!S.cur)return;
+  if(document.getElementById('pvw'))return;
   try{
     if(m.kind==='container')
       return openEditPanel('container',
@@ -5887,6 +9785,7 @@ function endTour(){
 
 refresh();
 loadAi();          // the one AI setting, before anything asks for it
+mountDots();       // the room is lit before anyone asks it to be
 if(!localStorage.forge_tour)setTimeout(()=>startTour(0),700);
 </script></body></html>
 """

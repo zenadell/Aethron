@@ -340,12 +340,88 @@ def t_edit_page(a):
     html = page.read_text()
     if a.get("list") or not a.get("edits"):
         return _j.dumps(AE.manifest(html), indent=1)[:60000]
-    out, applied, refused = AE.apply(html, a["edits"])
+    edits = a["edits"]
+    notes = []
+    for e in edits if isinstance(edits, list) else []:
+        an = e.get("animate") if isinstance(e, dict) else None
+        if isinstance(an, dict) and an.get("strength") in AE.ALIVE_TARGETS:
+            canvas = AE.manifest(html)["canvas"]
+            if canvas.get("w"):
+                word = an["strength"]
+                an["strength"], tried = AE.tune_alive(html, an.get("style", "drift"), an.get("period", 18),
+                                                      word, page.parent, canvas["w"], canvas["h"])
+                notes.append(f"MOTION TUNED to '{word}' by measuring: {tried} => strength {an['strength']}")
+    out, applied, refused = AE.apply(html, edits)
     dest = Path(a.get("out") or page)
     dest.write_text(out)
     lines = [f"{len(applied)} applied, {len(refused)} refused -> {dest}"]
     lines += [f"REFUSED  {w}" for w in refused]
+    lines += notes
+    if any("animate" in e for e in applied):
+        canvas = AE.manifest(out)["canvas"]
+        if canvas.get("w"):
+            proof = AE.prove_alive(out, dest.parent, canvas["w"], canvas["h"])
+            lines.append("MOTION " + _j.dumps(proof))
     return "\n".join(lines)
+
+
+def t_adopt_page(a):
+    """Stamp measurable ids onto any page, and prove the stamping changed nothing."""
+    sys.path.insert(0, str(ROOT))
+    import aethron_adopt as AD
+    page = Path(str(a["page"]))
+    if not page.is_file():
+        return f"FAILED no such page: {page}"
+    rep = AD.adopt(page, int(a.get("width") or 1414), int(a.get("height") or 900),
+                   int(a.get("cap") or AD.MAX_ELEMENTS),
+                   write=not a.get("dry_run"), log=lambda *x: None)
+    out = []
+    AD.report(rep, out.append)
+    return "\n".join(out)
+
+
+def t_change_page(a):
+    """Any change, in the user's words — written as code, kept only if MEASURED true."""
+    import json as _j
+    import shutil as _sh
+    import tempfile as _tf
+    sys.path.insert(0, str(ROOT))
+    import aethron_spec as CH
+    page = Path(str(a["page"]))
+    if not page.is_file():
+        return f"FAILED no such page: {page}"
+    budget = float(a.get("budget_usd") or 0.05)
+
+    # ANY PAGE, NOT ONLY THE ONES AETHRON BUILT. The measure reads [data-ae-id]; a page
+    # carrying none is unread, not unchangeable. Stamped first, and only if the stamping is
+    # PROVEN invisible and proven to have landed on the right elements.
+    import aethron_adopt as AD
+    import aethron_change as AC
+    note = ""
+    page = page.resolve()
+    if AD.needs_adopting(page.read_text()):
+        rep = AD.adopt(page, write=True, log=lambda *x: None)
+        if not rep.get("verdict", "").startswith(("ADOPTED", "ALREADY")):
+            return (f"NOT ASKED — this page could not be made measurable "
+                    f"({rep.get('why')}), so nothing was asked of a model and the page "
+                    f"is untouched.")
+        note = (f"adopted first: {rep.get('stamped', 0)} element(s) named, "
+                f"{rep['proof']['pixels_changed']} pixel(s) changed by the stamping\n")
+    # Relative assets resolve against the page's real home, and the folder is SERVED so
+    # root-absolute paths mean what they mean to a visitor.
+    AC.set_asset_base(page.parent)
+    AC.serve_assets(page.parent)
+
+    work = Path(_tf.mkdtemp(prefix="ae-change-"))
+    r = CH.build(page.read_text(), str(a["request"]), work, budget_usd=budget)
+    _sh.rmtree(work, ignore_errors=True)
+    dest = Path(a.get("out") or page)
+    if r["verdict"] == "APPLIED":
+        dest.write_text(r["html"])
+    dest.with_name(dest.stem + ".change.json").write_text(
+        _j.dumps({k: v for k, v in r.items() if k != "html"}, indent=1, default=str))
+    return note + CH.report(r) + (f"\n-> {dest}" if r["verdict"] == "APPLIED"
+                                  else "\npage left unchanged")
 
 
 def t_convert(a):
@@ -1000,10 +1076,19 @@ TOOLS = [
      "Call with no `edits` to get the element list (ids, kinds, words, "
      "colours) — then name elements by id. Allowed: text, color, "
      "background, font_size, font_weight, font_family, letter_spacing, "
-     "border_radius, opacity, hidden. REFUSED: left, top, width, "
+     "border_radius, opacity, hidden (a button takes both its label's "
+     "and its box's; a text box's text is its placeholder). The page's "
+     "ground also takes {\"id\": \"bg\", \"animate\": {\"style\": "
+     "\"drift|breathe|drift+breathe|off\", \"period\": 4-120, "
+     "\"strength\": 0.05-1 or \"subtle|visible|strong\" (reached by "
+     "rendering and measuring)}} to make its fitted background move — the "
+     "result is rendered to prove frame 0 is still the design and that it "
+     "moves. REFUSED: left, top, width, "
      "height, position, transform, z-index — those were measured from "
      "the original's pixels and a model reading a size off an image is "
-     "right about 8% of the time.",
+     "right about 8% of the time. For ANY other change (a size, a "
+     "position, a new behaviour, a recoloured moving background) use "
+     "change_page, which measures the result.",
      {"type": "object", "properties": {
         "page": {"type": "string", "description": "path to page.html"},
         "edits": {"type": "array", "description":
@@ -1012,6 +1097,47 @@ TOOLS = [
         "out": {"type": "string", "description":
                 "OPTIONAL write here instead of in place"}},
       "required": ["page"]}, t_edit_page),
+    ("adopt_page", "Make a page Aethron did NOT build measurable, so every other tool "
+     "here can read and change it. The measure reads data-ae-id; a migration, a user's "
+     "own site or any hand-written page carries none, so it was unreadable rather than "
+     "hard to change. This stamps stable ids into the source and REFUSES unless both are "
+     "proven: the picture did not change (every pixel compared) and every id landed on "
+     "the element it was picked for — shuffling ids onto the wrong elements changes zero "
+     "pixels, so the pixel proof alone cannot see it. change_page does this on its own; "
+     "call this directly to inspect what a page offers before changing it.",
+     {"type": "object", "properties": {
+        "page": {"type": "string", "description": "path to the .html file"},
+        "width": {"type": "number", "description": "OPTIONAL viewport width (default 1414)"},
+        "height": {"type": "number", "description": "OPTIONAL viewport height (default 900)"},
+        "cap": {"type": "number", "description":
+                "OPTIONAL most elements to name (default 400); the measure records every "
+                "computed style of each, so this bounds the cost"},
+        "dry_run": {"type": "boolean", "description":
+                    "OPTIONAL measure and report without writing the file"}},
+      "required": ["page"]}, t_adopt_page),
+    ("change_page", "ANY change to a rebuilt page, in the user's own words — "
+     "size, position, words, colours, new or removed elements, scripts such "
+     "as a typing animation, a recoloured moving background, pop-ups and "
+     "dropdowns on hover or click, colours that change on hover. Anything "
+     "that reacts is USED like a person uses it — hovered, the pointer "
+     "carried onto what opened, clicked, Escape, a click outside — and the "
+     "trigger must keep doing what it did. The model "
+     "writes code AND claims what will be true; Aethron renders the result "
+     "and MEASURES every claim (pixels, boxes, colours, words at two moments "
+     "in time), holds the claims to the request (reduce means a measured "
+     "decrease, 'a little' is bounded, a named colour must be measured), and "
+     "requires everything not named to measure exactly as before. Failures "
+     "go back to the model with the measured numbers; if it still fails the "
+     "page is left unchanged and the reasons are returned.",
+     {"type": "object", "properties": {
+        "page": {"type": "string", "description": "path to page.html"},
+        "request": {"type": "string", "description":
+                    "what the user asked for, in their words"},
+        "budget_usd": {"type": "number", "description":
+                       "OPTIONAL spend cap for this request (default 0.15)"},
+        "out": {"type": "string", "description":
+                "OPTIONAL write here instead of in place"}},
+      "required": ["page", "request"]}, t_change_page),
     ("generate_backend", "Generate backend/app.py (content API + site "
      "server; copy_map is the database) + AGENT_GUIDE.md for handoff.",
      S(P, ["project"]), t_pipeline("backend")),

@@ -5367,6 +5367,36 @@ def cmd_audit(argv):
     sys.exit(2)
 
 
+def cmd_adopt(argv):
+    """Make a page Aethron did not build measurable, so it can be changed.
+
+    Every measured path in this project reads `[data-ae-id]`, and Aethron stamped those
+    only on pages it generated itself. Measured 2026-09-16 on this repo's own migrations:
+    agero 3,655 renderable elements and ZERO ids, sadewa 4,605 and zero. So a user's own
+    site was not "hard to change", it was unreadable — probe() returned no elements at all
+    and every request stopped at "the page's canvas could not be read".
+
+    This stamps stable ids into the SOURCE (so they survive every later render and rebuild)
+    and refuses unless two things are PROVEN: the picture did not change, every pixel
+    compared; and every id landed on the element it was picked for. The second check is not
+    a formality — shuffling every id onto the wrong element changes zero pixels, so the
+    pixel proof alone cannot see it.
+    """
+    import argparse
+    import aethron_adopt as AD
+    ap = argparse.ArgumentParser(prog="forge adopt")
+    ap.add_argument("page", help="the .html file to make measurable")
+    ap.add_argument("--width", type=int, default=1414)
+    ap.add_argument("--height", type=int, default=900)
+    ap.add_argument("--cap", type=int, default=AD.MAX_ELEMENTS,
+                    help="most elements to name (the measure records every style of each)")
+    ap.add_argument("--dry-run", action="store_true", help="measure and report, write nothing")
+    a = ap.parse_args(argv)
+    rep = AD.adopt(a.page, a.width, a.height, a.cap, write=not a.dry_run)
+    AD.report(rep)
+    return 0 if rep.get("verdict", "").startswith(("ADOPTED", "ALREADY")) else 1
+
+
 def cmd_vision(argv):
     """Measure a screenshot before any model is allowed to guess at it.
 
@@ -5507,6 +5537,19 @@ def cmd_screenshot(argv):
     sys.exit(0 if v["verdict"] == "PASS" else 1)
 
 
+def _carry_page_assets(page, dest, html):
+    """A PAGE WRITTEN ELSEWHERE TAKES ITS PICTURES WITH IT. Relative images stayed behind,
+    and the copied page showed a broken logo where the original showed the logo."""
+    if dest.parent.resolve() == page.parent.resolve():
+        return
+    import shutil as _sh
+    for src in set(re.findall(r'src="(?!https?:|data:|/)([^"]+)"', html)):
+        a, b = page.parent / src, dest.parent / src
+        if a.is_file() and not b.exists():
+            b.parent.mkdir(parents=True, exist_ok=True)
+            _sh.copy(a, b)
+
+
 def cmd_edit(argv):
     """Change what a rebuilt page SAYS and how it LOOKS — never where.
 
@@ -5520,6 +5563,23 @@ def cmd_edit(argv):
         forge edit page.html --set t04 text "Start free"
         forge edit page.html --set f00 background "#B9FF66"
         forge edit page.html --apply edits.json --out new.html
+        forge edit page.html --animate drift+breathe 10 visible --prove
+        forge edit page.html --animate off
+        forge edit page.html --ask "reduce the chat box height a little"
+
+    --ask takes ANY change in plain words. The model writes the code and says
+    what will be true afterwards; Aethron renders the result and measures every
+    claim, holds the claims to the words (reduce = a measured decrease, "a
+    little" is bounded, a named colour is measured), requires everything not
+    named to be unchanged on screen, and leaves the page untouched if it fails.
+    Pop-ups, dropdowns and hover or click effects are USED like a person uses
+    them, and must not break the button they hang from or cover the one beside it.
+
+    --animate STYLE PERIOD STRENGTH makes the page's fitted background move
+    (drift, breathe or drift+breathe; seconds per cycle 4-120; strength
+    0.05-1, or subtle / visible / strong, which Aethron reaches by
+    rendering and measuring how much the sky actually changes). --prove renders it and measures that frame 0 is still the
+    design and that it really moves.
     """
     if not argv or {"-h", "--help"} & set(argv):
         print(cmd_edit.__doc__)
@@ -5544,10 +5604,63 @@ def cmd_edit(argv):
                 bits.append(e["color"])
             print("  " + "  ".join(bits))
         return
+    if "--ask" in argv:
+        # ANY CHANGE, MEASURED. The model writes code; Aethron measures every claim it
+        # makes, holds the claims to the words used, and undoes anything that fails.
+        # TESTS FIRST, for requests nobody built a check for: the model writes tests that must
+        # fail today, a reviewer checks them against the words, then code every test must pass.
+        import aethron_spec as SP
+        import tempfile as _tf
+        words = argv[argv.index("--ask") + 1]
+        budget = float(argv[argv.index("--budget") + 1]) if "--budget" in argv else 0.05
+        dest = Path(argv[argv.index("--out") + 1]) if "--out" in argv else page
+        work = Path(_tf.mkdtemp(prefix="ae-change-"))
+        r = SP.build(html, words, work, budget_usd=budget)
+        shutil.rmtree(work, ignore_errors=True)
+        print(SP.report(r))
+        led = r["ledger"]
+        print(f"  spend: {led.get('calls', 0)} call(s), {led.get('free_calls', 0)} on free keys, "
+              f"${led.get('usd', 0):.4f} charged of ${budget:.2f}")
+        # THE RECORD OF WHAT WAS ASKED AND WHAT WAS DONE travels with the page, so anything
+        # that reports on it reads the run's own output instead of a person retyping it.
+        rep = {k: v for k, v in r.items() if k != "html"}
+        rep.update({"request": words, "budget_usd": budget, "page": str(page)})
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.with_name(dest.stem + ".ask.json").write_text(json.dumps(rep, indent=1, default=str))
+        if r["verdict"] == "APPLIED":
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(r["html"])
+            _carry_page_assets(page, dest, r["html"])
+            print(f"  -> {dest}")
+        sys.exit(0 if r["verdict"] == "APPLIED" else 1)
     edits = []
     if "--apply" in argv:
         edits = json.loads(Path(argv[argv.index("--apply") + 1]).read_text())
         edits = edits.get("edits", edits) if isinstance(edits, dict) else edits
+    while "--animate" in argv:
+        i = argv.index("--animate")
+        ground = next((e["id"] for e in AE.manifest(html)["elements"]
+                       if e["kind"] == "ground"), None)
+        style = argv[i + 1]
+        if style == "off":
+            spec, n = {"style": "off"}, 2
+        else:
+            raw = argv[i + 3]
+            try:
+                strength = float(raw)
+            except ValueError:
+                strength = raw
+            if isinstance(strength, str) and strength in AE.ALIVE_TARGETS:
+                canvas = AE.manifest(html)["canvas"]
+                strength, tried = AE.tune_alive(html, style, float(argv[i + 2]), raw,
+                                                page.parent, canvas["w"], canvas["h"])
+                print(f"motion tuned to '{raw}' by measuring: " + ", ".join(
+                    f"strength {a} -> {b} levels" if b is not None else str(a) for a, b in tried)
+                    + f"  => strength {strength}")
+            spec, n = {"style": style, "period": float(argv[i + 2]),
+                       "strength": strength}, 4
+        edits.append({"id": ground, "animate": spec})
+        del argv[i:i + n]
     while "--set" in argv:
         i = argv.index("--set")
         eid, prop, val = argv[i + 1], argv[i + 2], argv[i + 3]
@@ -5561,8 +5674,17 @@ def cmd_edit(argv):
     for why in refused:
         print(f"  REFUSED  {why}")
     dest = Path(argv[argv.index("--out") + 1]) if "--out" in argv else page
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(out)
+    _carry_page_assets(page, dest, out)
     print(f"{len(applied)} applied, {len(refused)} refused -> {dest}")
+    if "--prove" in argv and any("animate" in e for e in applied):
+        canvas = AE.manifest(out)["canvas"]
+        proof = AE.prove_alive(out, dest.parent, canvas["w"], canvas["h"])
+        print(f"motion {proof['verdict']}: " + ", ".join(
+            f"{k} {v}" for k, v in proof.items() if k != "verdict" and v != ""))
+        if proof["verdict"] == "FAIL":
+            sys.exit(1)
     sys.exit(1 if refused else 0)
 
 
@@ -5700,6 +5822,7 @@ def cmd_convert(argv):
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "convert": cmd_convert, "figma": cmd_figma,
             "vision": cmd_vision, "screenshot": cmd_screenshot,
+            "adopt": cmd_adopt,
             "edit": cmd_edit,
             "audit": cmd_audit,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,

@@ -163,9 +163,68 @@ def main():
             pass
 
     studio.FOCUS_APP = raise_window
+
+    def install_liquid_glass():
+        """Put the REAL system material in the window, behind the page.
+
+        Aethron's interface is HTML in a WKWebView, so SwiftUI's
+        `.glassEffect` can never apply to a <div> — but this is a native
+        app, so the inverse works: NSGlassEffectView goes into the window
+        as the bottom-most view and the page (launched with ?glass=1)
+        stops painting its own ground. What shows through is the actual
+        macOS 26+ Liquid Glass material, drawn by the system, not a CSS
+        impression of it.
+
+        Silent and optional by design: on an older macOS the class does
+        not exist and the app looks exactly as it did before.
+        """
+        try:
+            import objc
+            from Foundation import NSObject
+            from AppKit import (NSApp, NSColor, NSViewWidthSizable,
+                                NSViewHeightSizable, NSWindowBelow)
+            try:
+                GLASS = objc.lookUpClass('NSGlassEffectView')
+            except Exception:
+                _log("liquid glass: not on this macOS")
+                return
+
+            class _Install(NSObject):
+                # AppKit refuses layout changes from a background thread
+                # once the main thread has touched it, and by now it has.
+                def go_(self, _):
+                    wins = [w for w in NSApp.windows() if w.isVisible()]
+                    if not wins:
+                        _log("liquid glass: no window yet"); return
+                    win = wins[-1]
+                    root = win.contentView()
+                    g = GLASS.alloc().initWithFrame_(root.bounds())
+                    g.setStyle_(0)                       # Regular
+                    g.setCornerRadius_(0)
+                    try: g.setEffectIsInteractive_(True)
+                    except Exception: pass
+                    g.setAutoresizingMask_(
+                        NSViewWidthSizable | NSViewHeightSizable)
+                    root.addSubview_positioned_relativeTo_(
+                        g, NSWindowBelow, None)
+                    win.setOpaque_(False)
+                    win.setBackgroundColor_(NSColor.clearColor())
+                    _log("liquid glass: installed")
+
+            def later():
+                time.sleep(2.5)          # after the first paint
+                _Install.alloc().init()\
+                    .performSelectorOnMainThread_withObject_waitUntilDone_(
+                        'go:', None, False)
+            threading.Thread(target=later, daemon=True).start()
+        except Exception as e:
+            _log(f"liquid glass: skipped ({type(e).__name__}: {e})")
+
     try:
-        webview.create_window("Aethron", url, width=1280, height=840,
-                              min_size=(940, 620))
+        install_liquid_glass()
+        webview.create_window("Aethron", url + "?glass=1",
+                              width=1280, height=840,
+                              min_size=(940, 620), transparent=True)
         # THE REASON LOGIN NEVER STUCK. pywebview defaults
         # private_mode=True, and on macOS that branch CLEARS every
         # website data type from epoch on each launch (read the cocoa

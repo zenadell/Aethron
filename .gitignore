@@ -25,7 +25,11 @@ dist/
 .claude/
 
 # baked cloud keys (per-developer, never committed)
-aethron_config.json
+# EVERY form of it, not just the exact filename. A timestamped backup
+# of this file holds live API keys and was NOT matched by the literal
+# name — one `git add -A` away from putting five keys in history.
+aethron_config*.json
+aethron_spend.json
 
 # admin console secrets (service_role, netlify token) — never commit
 aethron_admin_config.json
@@ -40,3 +44,8 @@ aethron_keys.json
 
 # full output of suites that failed in the last run_all
 tests/.last-failures/
+
+# runtime output, not source
+aethron.log
+uploads/
+tests/.stress/
