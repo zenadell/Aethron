@@ -136,11 +136,16 @@ PRICES = {
     "deepseek-chat": (0.27, 1.10), "deepseek-reasoner": (0.55, 2.19),
     "gemini-2.5-flash": (0.30, 2.50), "gemini-2.5-pro": (1.25, 10.0),
     "gpt-5": (1.25, 10.0), "gpt-5-mini": (0.25, 2.0),
+    # checked on ai.google.dev/gemini-api/docs/pricing 2026-09-22:
+    # 0.75/3.75 through 2026-12-31, then 1.50/7.50 — all three flashes
+    "gemini-3.8-flash": (0.75, 3.75),
     "gemini-3.7-flash": (0.75, 3.75), "gemini-3.6-flash": (0.75, 3.75),
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini-3.1-pro-preview": (2.00, 12.0),
 }
+
+UNKNOWN_PRICE = max(PRICES.values(), key=lambda p: p[0] + p[1])
 
 # MONEY IS THE LIMIT THAT MEANS SOMETHING.
 #
@@ -265,9 +270,14 @@ def usage_report() -> dict:
 def _account(model: str, inp: int, out: int):
     USED["input"] += inp
     USED["output"] += out
-    price = PRICES.get((model or "").split("/")[-1])
-    if price:
-        USED["usd"] += (inp * price[0] + out * price[1]) / 1_000_000
+    # AN UNKNOWN MODEL IS PRICED HIGH, NEVER AT ZERO. A model missing from
+    # PRICES used to add $0 per call, so choosing a newer model than this
+    # table knew about switched the money cap off without a word — which
+    # is exactly what switching the owner to gemini-3.8-flash would have
+    # done. Counting an unknown model at the dearest known rate means the
+    # cap trips early rather than never.
+    price = PRICES.get((model or "").split("/")[-1]) or UNKNOWN_PRICE
+    USED["usd"] += (inp * price[0] + out * price[1]) / 1_000_000
 
 
 def _budget_check(body: dict) -> str:

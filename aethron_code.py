@@ -173,6 +173,36 @@ _RISKY_BASH = [
 ]
 
 
+# GOING AROUND THE PIPELINE IS NOT A QUESTION FOR THE PERSON — IT IS A NO.
+# In a live migration Gemini 3.8 ran `find /Users -name jomiez`, `lsof` on
+# Aethron's own processes, and python scripts reading copy_map.json and
+# forge.py source straight off disk, then spent ten minutes "debugging"
+# the engine over a flaky runtime check. That is the rogue-agent incident
+# again: every guard (byte budgets, seals, snapshots, the checks) lives in
+# the mcp__aethron__ tools, and a direct read or write skips all of them.
+# These are refused without a card, with the tool to use instead, so the
+# agent is steered back rather than the owner being asked to referee.
+_PIPELINE_BYPASS = _re.compile(
+    r"copy_map\.json|forge\.json|/pristine\b|\.framercms|\bforge(_mcp)?\.py\b"
+    r"|Aethron/projects|\blsof\b|\bps\s+(aux|-e|-A)|\bfind\s+(/|~)|\bmdfind\b")
+_BYPASS_REPLY = (
+    "Refused by Aethron: that goes around Aethron's own tools. Project "
+    "files are read and changed only through mcp__aethron__ tools — "
+    "get_content to read copy, set_content_bulk to write it, build, verify "
+    "and probe to check it. Those enforce the byte budgets, seals and "
+    "snapshots a direct read or edit skips. If a check reports a problem, "
+    "report it plainly; do not inspect Aethron's engine to explain it.")
+
+
+def permission_bypass(tool_name, tool_input) -> str:
+    """The refusal to send back, or "" when the action stays in bounds."""
+    inp = tool_input if isinstance(tool_input, dict) else {}
+    if str(tool_name or "") == "Bash":
+        if _PIPELINE_BYPASS.search(str(inp.get("command") or "")):
+            return _BYPASS_REPLY
+    return ""
+
+
 def permission_risk(tool_name, tool_input, workspace=None) -> str:
     """"" when the action is routine, otherwise the plain reason to ask.
 
@@ -724,6 +754,9 @@ class CodeSession:
         # command is approved here and never becomes a card; Manual still
         # asks about everything, because that is what Manual means.
         if self.permission_policy == "semi_manual":
+            refusal = permission_bypass(tool_name, tool_input)
+            if refusal:
+                return {"behavior": "deny", "message": refusal}
             why = permission_risk(tool_name, tool_input, self.workspace)
             if not why:
                 return {"behavior": "allow", "updatedInput": tool_input}

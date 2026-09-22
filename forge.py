@@ -4454,6 +4454,32 @@ def cmd_probe(args):
                 continue
             got = _render_page(browser, f"http://127.0.0.1:{port}/{page}",
                                budget_ms=budget, offline=offline)
+
+            # A FAILURE THAT DOES NOT REPRODUCE IS NOT A FACT. In a live
+            # 17-page run two pages reported "content DISAPPEARS after JS"
+            # with `Failed to fetch dynamically imported module`, and both
+            # rendered clean when probed alone a minute later. The flake
+            # sent the migration agent into Aethron's own engine source,
+            # hunting a bug that was not there. So a page that looks broken
+            # is rendered once more; only a failure that happens twice is
+            # reported as one, and a single flake is said out loud.
+            def _looks_broken(g):
+                t = _visible_text(g["dom"])
+                fatal = any(any(k in (m or "").lower() for k in CONSOLE_FATAL)
+                            and (not src or "127.0.0.1" in src)
+                            for m, src in g["console"])
+                return fatal or (len(ssr) >= 200 and len(t) < 0.4 * len(ssr))
+            if _looks_broken(got):
+                with lock:
+                    requests.clear()
+                again = _render_page(browser,
+                                     f"http://127.0.0.1:{port}/{page}",
+                                     budget_ms=budget, offline=offline)
+                if not _looks_broken(again):
+                    got = again
+                    r["flaked_once"] = True
+                    print("NOTE the first render failed and a second did not "
+                          "— not reproducible, so not counted as a failure")
             with lock:
                 reqs = list(requests)
             dom_text = _visible_text(got["dom"])

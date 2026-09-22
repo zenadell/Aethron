@@ -5108,6 +5108,42 @@ prompt. The tools are proven inside the app and the agent->tools wiring
 by the code selftest, but the keys were gone, so the model has not been
 watched doing it.
 
+## "COMPLETED AND VERIFIED" — FOR A PROJECT NEVER BUILT — 2026-09-22
+The owner's first run with working tools ended in a detailed success
+report: verify PASSED, probe 17/17, logo rendered, backend generated.
+The disk said 0 of 798 entries filled and no site. The CLI's own
+transcript said all 17 calls had SUCCEEDED and the model simply stopped
+after reading the copy, then described work it never did. The screen
+said "17 failed". Every surface was wrong in a different direction.
+- THE CARD: a step was created as `CODE.poll?'live':'bad'`, so after a
+  turn every redraw made every step 'bad' before results (which update
+  only live steps) could land. Results were also matched to "the last
+  live step", wrong for parallel calls. Now: born live, matched by id,
+  unanswered-and-over decided once after the whole log is read.
+- THE VERDICT: a prompt rule ("nothing you say decides success") is not
+  a check. /api/project/truth reads the project from disk and runs the
+  engine's verify; when a turn ends the chat shows THAT, and sends the
+  agent back (at most twice) when copy is unfilled, the site is unbuilt,
+  verify fails, or verify MEASURES >=50% of the copy still word-for-word
+  the template's — a filled COUNT cannot see that (130 written looked
+  like progress while 76% of every page was unchanged).
+- THE ROAMING: with the tools working, gemini-3.8-flash ran `find /Users`,
+  `lsof` on Aethron itself and read forge.py source to "debug" a runtime
+  check — the rogue-agent incident again. Semi-manual now refuses, with
+  no card, any Bash that goes around the pipeline (copy_map/forge.json/
+  pristine/.framercms/forge.py/Aethron/projects, lsof, ps, find / or ~),
+  telling the model which mcp__aethron__ tool to use instead.
+- THE FLAKE that started it: two pages "wiped by hydration" in a 17-page
+  probe rendered clean alone a minute later. probe now renders a broken-
+  looking page once more; only a failure that happens twice is one.
+- THE MODEL: gemini-3.8-flash is priced like 3.6/3.7 (0.75/3.75 to
+  2026-12-31). A model missing from PRICES used to count $0 — switching
+  to a newer model silently turned the money cap off. Unknown models are
+  now counted at the dearest known rate.
+NOT PROVEN, stated plainly: a clean live run of the owner's prompt
+end to end with the truth check and push-back — the second live run was
+interrupted before it made a call.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5240,6 +5276,9 @@ watched doing it.
   with `immutable` carries a content hash in its URL, or a fixed build
   is served correctly while the page keeps running the broken copy it
   already has.
+- THE REPLY IS NOT THE RESULT. When an agent turn ends, what is shown as
+  the outcome is measured from the project on disk, never the model's
+  own summary of its work.
 - NOTHING A PERSON SAVES LIVES INSIDE THE APP. The bundle is replaced
   by every update; settings, keys and state belong in AETHRON_HOME.
 - A TOOL THAT SHELLS OUT MUST WORK FROZEN. Inside the app sys.executable

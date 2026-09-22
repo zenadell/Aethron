@@ -1305,6 +1305,47 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(updater.check(timeout=8) if updater else
                                {"available": False,
                                 "why": "updater unavailable"})
+            elif u.path == "/api/project/truth":
+                # WHAT THE PROJECT SAYS, NOT WHAT THE MODEL SAYS. A console
+                # turn ended with Gemini reporting "verify PASSED, probe
+                # 17/17, logo rendered, backend generated" for a project
+                # whose copy was 0 of 581 filled and which had never been
+                # built. The prose is not evidence; the files are. This is
+                # read from disk and from the engine's own verify, so the
+                # verdict under a reply can never be the reply's own claim.
+                d = self.project_dir(q)
+                if not d:
+                    return
+                info = project_info(d)
+                verdict, template_share = "", None
+                if info["built"]:
+                    try:
+                        r = subprocess.run(forge_argv("verify"), cwd=d,
+                                           capture_output=True, text=True,
+                                           timeout=90)
+                        out = r.stdout + r.stderr
+                        lines = [l for l in out.splitlines() if "VERDICT" in l]
+                        verdict = lines[-1].strip() if lines else ""
+                        # "76% of the copy is still word-for-word the
+                        # template's" — a filled COUNT cannot see this: 130
+                        # entries written looks like progress while most of
+                        # every page still carries the old words.
+                        m = re.search(r"MEASURED (\d+)% of the copy", out)
+                        template_share = int(m.group(1)) if m else None
+                    except Exception as e:
+                        verdict = f"verify could not run: {type(e).__name__}"
+                probe = ""
+                pf = d / "site" / ".forge-probe.json"
+                if pf.exists():
+                    try:
+                        pj = json.loads(pf.read_text(encoding="utf-8"))
+                        probe = str(pj.get("verdict") or "")
+                    except Exception:
+                        probe = ""
+                self.send_json({**info, "verify": verdict, "probe": probe,
+                                "template_share": template_share,
+                                "pages_built": len(list((d / "site").glob("*.html")))
+                                if info["built"] else 0})
             elif u.path == "/api/projects":
                 PROJECTS.mkdir(parents=True, exist_ok=True)
                 out = []
@@ -10271,6 +10312,19 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
   font:inherit;font-size:14.5px;line-height:1.5;resize:none;overflow:auto;
   background:transparent;border:0;color:var(--tx)}
 .composer textarea:focus{outline:none}
+.truth{margin:6px 0 4px;padding:13px 15px;border-radius:14px;
+  border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025)}
+.truth.short{border-color:rgba(232,160,90,.32);background:rgba(232,160,90,.05)}
+.truth.good{border-color:rgba(121,227,154,.26)}
+.truth-h{display:flex;align-items:center;gap:8px;font-size:13px}
+.truth-h span{margin-left:auto;color:var(--lo);font-family:ui-monospace,monospace;font-size:11.5px}
+.truth.short .truth-h .ic{color:#e8a05a}.truth.good .truth-h .ic{color:#79e39a}
+.truth-rows{display:grid;gap:5px;margin:10px 0 2px}
+.truth-rows div{display:flex;gap:12px;font-size:12.5px}
+.truth-rows i{font-style:normal;color:var(--lo);width:92px;flex:none}
+.truth-rows em{font-style:normal;color:var(--tx)}
+.truth-why{margin-top:9px;font-size:11.5px;color:var(--lo)}
+.truth .ghost{margin-top:10px}
 #ptitle .ptnote{font-size:12px;font-weight:500;color:var(--lo);margin-left:8px;letter-spacing:0}
 /* THE CHAT BOX IS THE FRAME; THE TEXT INSIDE IT HAS NONE. The global
    input:focus rule draws a 3px ring and a border, and it reached into the
@@ -12243,6 +12297,7 @@ document.addEventListener('drop',ev=>{
   if(f&&/^image\//.test(f.type)){ ev.preventDefault(); attachImage(f,ta); }
 });
 async function sendCode(){
+  CODE.nudges=0;
   const ta=$('chatta'),text=ta.value.trim();
   if(!text)return;
   if(!CODE.key)return alert('start a session first');
@@ -12321,7 +12376,85 @@ async function stopForSilence(tool){
    project arrives wearing the Live mode · New badge) and the header names
    it. The view is NOT switched: the conversation is still running, and
    yanking it away mid-turn would hide the very work being described. */
+/* THE CHECKS DECIDE, NOT THE AGENT — now in the conversation too.
+   Asked to migrate lewius into jomiez, Gemini called 17 tools (all of
+   them succeeded), stopped after READING the copy, and then wrote a full
+   success report: "verify PASSED", "probe 17/17", "logo rendered",
+   "backend generated". None of it had happened — 0 of 581 strings filled,
+   no site built. The brief already said "nothing you say decides
+   success"; a rule in a prompt is not a check.
+   So when a turn ends, Aethron reads the project it touched FROM DISK and
+   shows that as the verdict. If the migration stopped short, it sends the
+   agent back with the measured gap — at most twice per request, so a
+   model that cannot finish is reported honestly instead of looping. */
+const NUDGE_MAX=2;
+function turnProjects(){
+  /* the projects this request touched, newest last */
+  let from=0;
+  for(let i=CODE.events.length-1;i>=0;i--)
+    if(CODE.events[i].type==='you'&&!CODE.events[i].auto){from=i;break;}
+  const names=[],made=new Set();
+  for(const e of CODE.events.slice(from)){
+    if(e.type!=='tool'||!/^mcp__aethron__/.test(e.name||''))continue;
+    const inp=e.input||{};
+    const nm=String(inp.project||(/create_project$/.test(e.name)?inp.name:'')||'').trim();
+    if(!nm)continue;
+    if(/(create_project|inventory|set_plan|set_content_bulk)$/.test(e.name))made.add(nm);
+    if(!names.includes(nm))names.push(nm);
+  }
+  return {names,migrating:made};
+}
+async function checkTruth(){
+  const {names,migrating}=turnProjects();
+  const name=names[names.length-1];
+  if(!name)return;
+  let t;
+  try{t=await api('/api/project/truth?project='+encodeURIComponent(name));}
+  catch(e){return;}
+  const gaps=[];
+  if(t.total&&!t.filled)gaps.push(`none of the ${t.total} copy entries are filled`);
+  else if(t.total&&t.filled<t.total*0.05)gaps.push(`only ${t.filled} of ${t.total} copy entries are filled`);
+  if(!t.built)gaps.push('the site has not been built');
+  if(t.built&&/FAIL|problem/i.test(t.verify||''))gaps.push('verify reports: '+t.verify);
+  if(t.built&&t.template_share!=null&&t.template_share>=50)
+    gaps.push(`${t.template_share}% of the page copy still reads word-for-word as the template's — rewrite it in the brand's words`);
+  CODE.events.push({type:'truth',project:name,t,gaps});
+  renderChat(); refresh(true).catch(()=>{});
+  if(!gaps.length||!migrating.has(name))return;
+  CODE.nudges=(CODE.nudges||0)+1;
+  if(CODE.nudges>NUDGE_MAX)return;
+  const text=`Aethron checked the project "${name}" on disk and the migration is not finished: `
+    +gaps.join('; ')+'. Continue now: fill the entries with set_content_bulk using the brand '
+    +'plan, then build, verify and probe. Report only what those tools actually return — '
+    +'do not describe any step you have not run.';
+  CODE.events.push({type:'you',text,auto:true});renderChat();
+  CODE.lastEv=Date.now();CODE.slowNote='';
+  try{await api('/api/code/send',{key:CODE.key,text});
+    if(!CODE.poll)CODE.poll=setInterval(pollCode,900);}
+  catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
+}
+function truthHtml(b){
+  const t=b.t||{}, ok=!b.gaps.length;
+  const rows=[
+    ['Copy filled', t.total?`${t.filled} of ${t.total}`:'not inventoried'],
+    ['Site built', t.built?`yes — ${t.pages_built} page${t.pages_built===1?'':'s'}`:'no'],
+    ['Verify', t.verify||(t.built?'not run':'—')],
+    ...(t.template_share!=null?[['Still template', `${t.template_share}% of the copy`]]:[]),
+  ];
+  return `<section class="truth ${ok?'good':'short'}">
+    <div class="truth-h">${I(ok?'check':'alert',14)}<b>${ok?'Checked on disk':'Not finished yet'}</b>
+      <span>${esc(b.project)}</span></div>
+    <div class="truth-rows">${rows.map(r=>`<div><i>${esc(r[0])}</i><em>${esc(r[1])}</em></div>`).join('')}</div>
+    ${ok?`<button class="ghost" onclick="select('${esc(b.project)}')">Open ${esc(b.project)}</button>`
+       :`<div class="truth-why">This is measured from the project’s files, not taken from the reply above.</div>`}
+  </section>`;
+}
 function followNewProject(evs){
+  /* counts are only as fresh as the last read; re-read after any Aethron
+     tool result so "0/0 filled" cannot outlive the inventory that filled it */
+  if(evs.some(e=>e.type==='tool_result')&&CODE.events.some(x=>x.type==='tool'&&/^mcp__aethron__/.test(x.name||''))){
+    clearTimeout(window._sbT);window._sbT=setTimeout(()=>refresh(true).catch(()=>{}),1500);
+  }
   const made=[];
   for(const e of evs){
     if(e.type!=='tool_result'||e.ok===false)continue;
@@ -12357,8 +12490,10 @@ async function pollCode(){
          Running and the button stayed a stop long after the reply had
          failed. The client ends its own turn the moment a done, error or
          exit arrives; the server catching up later changes nothing. */
-      if(r.events.some(e=>['done','error','exit'].includes(e.type)))
+      if(r.events.some(e=>['done','error','exit'].includes(e.type))){
         endTurn();
+        if(r.events.some(e=>e.type==='done'&&!e.error))checkTruth();
+      }
     }
     if(!r.running&&CODE.key){
       clearInterval(CODE.poll);CODE.poll=0;
@@ -13060,6 +13195,7 @@ function growTa(el){el.style.height='auto';
    creates it with the same mcp__aethron__* tools it uses for
    everything else. */
 async function consoleSend(){
+  CODE.nudges=0;
   const ta=$('npurl'), text=(ta&&ta.value||'').trim();
   if(!text)return;
   const w=$('welcome'), log=$('chatlog'),
@@ -14742,6 +14878,7 @@ function fmt(t){
    one run card, and a result is folded back onto the step that caused
    it instead of landing as its own wall of text. */
 function convBlocks(evs){
+  const allSteps=[],stepById={};
   const out=[];let run=null,n=0;const permissions={};
   for(const e of evs){
     if(e.type==='permission'){
@@ -14763,22 +14900,30 @@ function convBlocks(evs){
     }
     if(e.type==='tool'){
       if(!run){run={kind:'run',steps:[]};out.push(run);}
-      run.steps.push({i:n++,name:e.name,input:e.input,
-        /* DERIVED, NOT STORED: if the turn is over and this step never
-           got its result, it did not finish — showing it as live is the
-           card claiming work is in progress after everything stopped. */
-        state:CODE.poll?'live':'bad'});
+      /* EVERY STEP STARTS LIVE; ITS RESULT DECIDES. It used to start as
+         `CODE.poll?'live':'bad'` — so once a turn was over, every redraw
+         created every step already 'bad', the results (which only update
+         live steps) had nothing to land on, and seventeen successful
+         calls were shown as seventeen failures the moment the run ended. */
+      const st={i:n++,id:e.id||'',name:e.name,input:e.input,state:'live'};
+      run.steps.push(st);allSteps.push(st);
+      if(st.id)stepById[st.id]=st;
       continue;
     }
     if(e.type==='tool_result'){
-      if(run)for(let i=run.steps.length-1;i>=0;i--){
-        const s=run.steps[i];
-        if(s.state==='live'){s.state=(e.ok===false?'bad':'ok');
-          s.detail=e.text||'';break;}
-      }
+      /* MATCHED BY ID. "The last live step" is wrong the moment a model
+         calls tools in parallel — five calls then five results — and it
+         pinned results to the wrong steps. Only an id-less result falls
+         back to the newest step still waiting. */
+      let s=stepById[e.id||''];
+      if(!s&&run)for(let i=run.steps.length-1;i>=0;i--)
+        if(run.steps[i].state==='live'){s=run.steps[i];break;}
+      if(s&&s.state==='live'){s.state=(e.ok===false?'bad':'ok');s.detail=e.text||'';}
       continue;
     }
     run=null;
+    if(e.type==='truth'){out.push({kind:'truth',project:e.project,t:e.t,gaps:e.gaps||[]});continue;}
+    if(e.type==='you'&&e.auto){out.push({kind:'sys',text:'Aethron sent the agent back: the project on disk is not finished.'});continue;}
     if(e.type==='you')out.push({kind:'you',text:e.text});
     else if(e.type==='text'&&String(e.text||'').trim())
       out.push({kind:'bot',text:e.text});
@@ -14792,6 +14937,10 @@ function convBlocks(evs){
     else if(e.type==='exit'&&e.code)
       out.push({kind:'sys',text:'the session ended',bad:true});
   }
+  /* ONLY NOW is "never answered" a fact: the whole log has been read and
+     nothing is still running. A step without a result at that point did
+     not finish; while a turn is live it is simply still going. */
+  if(!CODE.poll)for(const st of allSteps)if(st.state==='live')st.state='bad';
   return out;
 }
 function permissionInputText(value){
@@ -14971,6 +15120,7 @@ function renderChat(){
         }Aethron thought this through</summary><div class="body">${esc(b.text)}</div></details>`
     : b.kind==='run' ? runHtml(b)
     : b.kind==='permission' ? permissionHtml(b)
+    : b.kind==='truth' ? truthHtml(b)
     : b.text        ?`<div class="turn sys${b.bad?' bad':''}">${esc(b.text)}${
         b.detail?`<details class="errdet"><summary>what the provider said</summary>
           <div>${esc(b.detail)}</div></details>`:''}</div>`
