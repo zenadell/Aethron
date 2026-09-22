@@ -10304,6 +10304,7 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
   color:var(--tx);border-color:transparent}
 .runsum .rs-n{color:var(--tx);font-weight:500}
 .runsum .rs-bad{color:var(--err)}
+.runsum .rs-blk{color:var(--lo)}
 .runsum .rs-c{margin-left:auto;color:var(--lo);font-size:11px;
   display:inline-flex;align-items:center;gap:6px}
 .runsum .ic{transition:transform .22s var(--ease)}
@@ -10446,6 +10447,8 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
   background:var(--line2)}
 .step.ok .sdot{background:#5c9a6b}
 .step.bad .sdot{background:var(--err)}
+.step.blocked .sdot{background:transparent;box-shadow:inset 0 0 0 1.5px var(--lo)}
+.step.blocked .sv,.step.blocked .st{color:var(--lo)}
 .step.live .sdot{background:var(--acc);animation:beat 1.1s ease-in-out infinite}
 @keyframes beat{0%,100%{opacity:1;transform:scale(1)}
   50%{opacity:.45;transform:scale(.72)}}
@@ -11255,6 +11258,7 @@ const $=id=>document.getElementById(id);
 if(location.search.indexOf('glass=1')>=0)
   document.documentElement.classList.add('native-glass');
 const ICONS={
+more:'<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
 search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
 terminal:'<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
 image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
@@ -11569,7 +11573,7 @@ function renderHeader(){
       : `<button class="big" onclick="runAll()"
            title="fetch, inventory and build, in order">
            ${I('zap')}${busy?'Preparing…':'Prepare'}</button>`)
-   +`<details class="omenu"><summary title="more">${I('tab',15)}</summary>
+   +`<details class="omenu"><summary title="more">${I('more',15)}</summary>
       <div class="omlist">`
    + menu.map(m=>m?`<button onclick="this.closest('details').open=false;${m[2]}">
         ${I(m[1],14)}<span>${m[0]}</span></button>`:'<hr>').join('')
@@ -11591,7 +11595,7 @@ function renderHeader(){
         onclick="openWork('${t}')">${l}</button>`).join('')
     +`<span class="tabgap"></span>`
     +`<button class="pchip ghost" title="model, key and project settings"
-        onclick="openWork('plan')">${I('cur',13)} Settings</button>`;
+        onclick="openWork('plan')">${I('gear',13)} Settings</button>`;
 }
 
 async function doUndo(){
@@ -14918,7 +14922,12 @@ function convBlocks(evs){
       let s=stepById[e.id||''];
       if(!s&&run)for(let i=run.steps.length-1;i>=0;i--)
         if(run.steps[i].state==='live'){s=run.steps[i];break;}
-      if(s&&s.state==='live'){s.state=(e.ok===false?'bad':'ok');s.detail=e.text||'';}
+      // A REFUSAL IS NOT A FAILURE. When Aethron stops the agent going
+      // around its own tools, nothing broke: the rule worked, and the
+      // agent goes on with the proper tool. Red "failed" said otherwise.
+      if(s&&s.state==='live'){s.state=(e.ok===false
+        ?(/^\s*Refused by Aethron/.test(e.text||'')?'blocked':'bad'):'ok');
+        s.detail=e.text||'';}
       continue;
     }
     run=null;
@@ -15051,13 +15060,15 @@ function runHtml(b){
   const key='r'+(b.steps[0]?b.steps[0].i:0);
   RUN_DONE[key]=done;
   const open=runOpen(key);
-  const bad=b.steps.filter(x=>x.state==='bad').length;
+  const bad=b.steps.filter(x=>x.state==='bad').length,
+        blk=b.steps.filter(x=>x.state==='blocked').length,
+        blkTxt=blk?`<span class="rs-blk">${blk} blocked</span>`:'';
   if(done&&!open){
     return `<div class="run"><button class="runsum"
       onclick="toggleRun('${key}')">
       ${I(bad?'alert':'check',13)}
       <span class="rs-n">${b.steps.length} step${b.steps.length>1?'s':''}</span>
-      ${bad?`<span class="rs-bad">${bad} failed</span>`:''}
+      ${bad?`<span class="rs-bad">${bad} failed</span>`:''}${blkTxt}
       <span class="st">${esc(toolVerb(b.steps[b.steps.length-1].name))}</span>
       <span class="rs-c">show${I('up',12)}</span></button></div>`;
   }
@@ -15065,7 +15076,7 @@ function runHtml(b){
       class="runsum" onclick="toggleRun('${key}')">
       ${I(bad?'alert':'check',13)}
       <span class="rs-n">${b.steps.length} step${b.steps.length>1?'s':''}</span>
-      ${bad?`<span class="rs-bad">${bad} failed</span>`:''}
+      ${bad?`<span class="rs-bad">${bad} failed</span>`:''}${blkTxt}
       <span class="rs-c">hide${I('up',12)}</span></button>`:'')
     +b.steps.map(s=>{
     const id='sd'+s.i,det=String(s.detail||'').trim(),
@@ -15073,7 +15084,7 @@ function runHtml(b){
     return `<button class="step ${s.state}" onclick="toggleStep('${id}')">
       <span class="sdot"></span><span class="sv">${esc(toolVerb(s.name))}</span>
       <span class="st">${esc(tgt)}</span>
-      ${det?`<span class="sx">${s.state==='bad'?'failed':'detail'}</span>`:''}
+      ${det?`<span class="sx">${s.state==='bad'?'failed':s.state==='blocked'?'blocked':'detail'}</span>`:''}
       </button>${det?`<div class="stepdet${s.state==='bad'?' bad':''}"
       id="${id}" ${CODE.open[id]?'':'hidden'}>${esc(det.slice(0,4000))}</div>`:''}`;
   }).join('')+'</div>';

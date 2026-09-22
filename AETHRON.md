@@ -5144,6 +5144,26 @@ NOT PROVEN, stated plainly: a clean live run of the owner's prompt
 end to end with the truth check and push-back — the second live run was
 interrupted before it made a call.
 
+## "DO I NEED TO WORRY ABOUT ALL THESE FAILS?" — NO, AND THE CARD SAID
+## YES — 2026-09-22
+Read from the agent's own transcript, all four red steps since the fixed
+build was installed were harmless: `git status` in a project folder that
+is not a git repo, an `ls` chain whose LAST part exited 1 after the useful
+part printed, and two Bash shortcuts to copy_map.json that Aethron itself
+REFUSED — after which the agent used get_content, as intended. Every
+earlier failure in the log (permission prompts, fused `{}{...}` calls)
+predates today's fixes; none recurred.
+The card painted Aethron's own refusal the same red as a broken build, so
+a rule working looked like the product failing. A refusal is now state
+`blocked` — hollow dot, grey, counted apart ("1 blocked"), never "failed".
+PROJECT_RULES gained rule 3: the tools answer everything the shell was
+being used to look around with; start there.
+AND THE OWNER HAD ASKED THE AGENT FOR "download zip" BECAUSE THE BUTTON
+WAS INVISIBLE: the overflow menu holding Download site.zip used I('tab'),
+a glyph that does not exist, so it drew as an empty square; Settings used
+I('cur'). Third time this exact bug is in this file. Both fixed; the
+assembled page now has zero unknown icon names.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5291,3 +5311,5 @@ interrupted before it made a call.
   screen an element's move touches, for styles that follow a new size,
   and for what a reaction produces when the thing it acts on changed —
   file it by WHAT differs, and judge it with the change that caused it.
+- A REFUSAL BY AETHRON IS NOT A FAILURE. Show the rule working as the rule
+  working; red is for things that broke.

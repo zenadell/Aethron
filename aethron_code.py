@@ -335,6 +335,12 @@ instinct you have about editing files here:
    builds and checks. They enforce the physics (CMS byte budgets,
    forbidden characters, snapshots you can undo).
 
+3. You do not need the shell to find your way around. This folder is
+   not a git repository and `ls`/`find`/`git` tell you nothing the tools
+   do not: `list_projects` for what exists, `get_plan` for the brief,
+   `get_content` (with only_unfilled) for what is left to write. Start
+   there. The site's zip is the person's Download button, not your job.
+
 After changing anything: `build`, then `verify` (files), then `probe`
 (what the browser actually does). If an edit lands nowhere, run `heal`
 before trying anything clever. Everything else in the workspace —
