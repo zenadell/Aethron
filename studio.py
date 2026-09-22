@@ -88,6 +88,22 @@ except Exception as _e:                                # pragma: no cover
 else:
     CODE_IMPORT_ERROR = ""
 CODE_SESSIONS = {}    # workspace path -> CodeSession
+
+
+def code_session_by_id(session_id):
+    """Find a live agent by its unguessable CLI session id.
+
+    Permission MCP helpers cannot know the Studio's workspace map. They carry
+    only this per-session id plus a one-time secret, which is enough to route
+    an approval without granting them any project or filesystem access.
+    """
+    wanted = str(session_id or "")
+    if not wanted:
+        return None
+    for session in list(CODE_SESSIONS.values()):
+        if getattr(session, "id", "") == wanted:
+            return session
+    return None
 # The rectangle the native shell should back with real Liquid Glass,
 # or {} for none. desktop.py reads this on the main thread; nothing
 # in this file touches AppKit.
@@ -1341,7 +1357,13 @@ class Handler(BaseHTTPRequestHandler):
                 s = CODE_SESSIONS.get(key)
                 st["session"] = {"running": bool(s and s.alive),
                                  "busy": bool(s and s.busy),
-                                 "cost_usd": s.cost_usd if s else 0}
+                                 "cost_usd": s.cost_usd if s else 0,
+                                 "permission_policy": (
+                                     s.permission_policy if s else
+                                     st.get("permission_policy", "semi_manual")),
+                                 "pending_permissions": len(
+                                     getattr(s, "_pending_permissions", {}))
+                                     if s else 0}
                 self.send_json(st)
             elif u.path == "/api/code/events":
                 s = CODE_SESSIONS.get(q.get("key", [""])[0])
@@ -1500,15 +1522,29 @@ class Handler(BaseHTTPRequestHandler):
 
     # ----------------------------------------------------------- POST
     def do_POST(self):
-        if not self._authed():
-            return
         u = urllib.parse.urlparse(self.path)
+        # The permission MCP helper is a child of this local app and proves
+        # possession of a random per-session token below. It cannot carry a
+        # browser cookie (or HTTP Basic credentials in a hosted dev setup), so
+        # let that one loopback capability endpoint reach its token check.
+        if u.path != "/api/code/permission/request" and not self._authed():
+            return
         try:
             n = int(self.headers.get("Content-Length") or 0)
             body = json.loads(self.rfile.read(n) or b"{}")
         except Exception:
             return self.fail("bad JSON body")
         try:
+            if u.path == "/api/code/permission/request":
+                session = code_session_by_id(body.get("session_id"))
+                token = str(body.get("token") or "")
+                want = str(getattr(session, "permission_token", "") or "")
+                if not session or not token or not want \
+                        or not secrets.compare_digest(token, want):
+                    return self.fail("invalid Aethron permission request", 403)
+                result = session.request_permission(
+                    body.get("tool_name"), body.get("input"))
+                return self.send_json(result)
             if u.path in ("/api/auth/login", "/api/auth/signup"):
                 return self.api_auth(u.path, body)
             if u.path == "/api/image":
@@ -1727,6 +1763,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail("the coding layer is unavailable: "
                                      + CODE_IMPORT_ERROR)
                 cfg = dict(body.get("cfg") or {})
+                # The helper process is always pointed back to this exact
+                # local Studio instance. Never accept a browser-supplied URL:
+                # permission requests may contain project paths and tool input.
+                cfg["permission_endpoint"] = (
+                    "http://127.0.0.1:%s/api/code/permission/request"
+                    % self.server.server_address[1])
                 if body.get("console"):
                     # THE FRONT DOOR. Before any project exists there is
                     # no workspace to root a session in — but the
@@ -1752,7 +1794,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._track("code_session", runtime=s.cfg.get("runtime", ""),
                             provider=s.cfg.get("provider", ""))
                 self.send_json({"key": key, "id": s.id,
-                                "workspace": d.name})
+                                "workspace": d.name,
+                                "permission_policy": s.permission_policy})
             elif u.path == "/api/code/send":
                 s = CODE_SESSIONS.get(body.get("key", ""))
                 if not s or not s.alive:
@@ -1770,9 +1813,23 @@ class Handler(BaseHTTPRequestHandler):
                 if s:
                     s.interrupt()
                 self.send_json({"ok": True})
+            elif u.path == "/api/code/permission":
+                s = CODE_SESSIONS.get(body.get("key", ""))
+                if not s:
+                    return self.fail("no running session — start one first", 404)
+                request_id = body.get("id", "")
+                if not request_id:
+                    return self.fail("missing permission request", 400)
+                ok = s.resolve_permission(request_id, bool(body.get("allow")))
+                if not ok:
+                    return self.fail("that permission request is no longer waiting", 409)
+                self.send_json({"ok": True})
             elif u.path == "/api/code/config":
                 # persisted where every face reads it (CLI, studio, app)
-                f = ROOT / "aethron_config.json"
+                # In a packaged app ROOT is inside a read-only bundle. The
+                # home copy overrides it in aethron_code.load_config(), so a
+                # permission choice genuinely survives the next launch.
+                f = HOME / "aethron_config.json"
                 try:
                     cur = json.loads(f.read_text(encoding="utf-8"))
                 except Exception:
@@ -10152,9 +10209,45 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
 .cpill:hover{color:var(--tx);background:rgba(255,255,255,.07);
   border-color:rgba(255,255,255,.12);transform:none;box-shadow:none}
 .cpill .cv{color:var(--lo);font-weight:400}
+.permchip{padding-right:6px;gap:4px}
+.permchip select{appearance:none;border:0;outline:0;background:transparent;
+  color:var(--lo);font:inherit;font-size:11.5px;cursor:pointer;padding:0 13px 0 0;
+  background-image:linear-gradient(45deg,transparent 50%,var(--lo) 50%),
+    linear-gradient(135deg,var(--lo) 50%,transparent 50%);
+  background-position:calc(100% - 7px) 48%,calc(100% - 3px) 48%;
+  background-size:4px 4px,4px 4px;background-repeat:no-repeat}
+.permchip select option{background:#1b191a;color:#f2eeec}
 .cbar .cbtn{margin-left:auto;width:30px;height:30px;border-radius:9px}
 .composer .cbtn .ic,.composer .cbtn [data-ic]{transform:none}
 @media (max-width:640px){.cpill.opt{display:none}}
+
+/* A real answer path for Claude Code's non-interactive permission request.
+   It lives in the conversation rather than a browser alert so the tool,
+   details and decision remain together in the record of the work. */
+.permission-card{margin:12px 0;padding:13px 14px;border-radius:14px;
+  background:rgba(255,255,255,.025);border:1px solid var(--line2);
+  box-shadow:0 12px 28px rgba(0,0,0,.16)}
+.permission-card.waiting{border-color:rgba(217,119,87,.5);
+  box-shadow:0 0 0 1px rgba(217,119,87,.1),0 12px 28px rgba(0,0,0,.2)}
+.permission-card.allowed{border-color:rgba(92,190,139,.34)}
+.permission-card.denied{border-color:rgba(235,102,93,.38)}
+.perm-title{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--tx)}
+.permission-card.waiting .perm-title{color:var(--acc2)}
+.perm-tool{margin-top:8px;color:var(--dim);font-size:12.5px}
+.perm-tool code{color:var(--tx);font:12px var(--mono,ui-monospace,monospace);
+  word-break:break-word}
+.perm-why{margin-top:6px;color:var(--lo);font-size:12px;line-height:1.5}
+.perm-detail{margin-top:8px;color:var(--dim);font-size:11.5px}
+.perm-detail summary{cursor:pointer;color:var(--lo)}
+.perm-detail pre{max-height:150px;overflow:auto;margin:8px 0 0;padding:8px;
+  white-space:pre-wrap;word-break:break-word;background:rgba(0,0,0,.2);
+  border-radius:8px;color:var(--dim);font:11px/1.45 var(--mono,ui-monospace,monospace)}
+.perm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+.perm-actions button{height:30px;padding:0 13px;border-radius:9px;font-size:12px}
+.perm-actions .ghost{background:transparent;border:1px solid var(--line2);color:var(--dim)}
+.perm-actions .ghost:hover{color:var(--tx);border-color:var(--lo);transform:none}
+.perm-actions .primary{border:0;background:var(--acc);color:#fff}
+.perm-actions button[disabled]{opacity:.55;cursor:wait}
 
 /* ── A FINISHED RUN FOLDS AWAY ──────────────────────────────────────
    Every turn used to leave its whole step list open forever, so three
@@ -10443,6 +10536,7 @@ body.pvwopen .dotf.hero{opacity:0}
   font-size:13px;color:var(--dim)}
 .nowline .sv{color:var(--tx);font-weight:500}
 .nowline .ac{margin-left:auto;font-size:11px;color:var(--lo)}
+.nowline .ac.slow{color:var(--acc2);cursor:help}
 
 /* HIDDEN MEANS HIDDEN. The browser's own `[hidden]{display:none}` is a
    UA rule of the same specificity as any class, so every author rule
@@ -11060,6 +11154,13 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
          <button class="cpill opt" onclick="openSettings()"
           title="change the model or the key"><span data-ic="key"
           data-ics="13"></span><span class="cv" id="cbarmodel">model</span></button>
+         <label class="cpill permchip" title="Choose when Aethron asks before acting">
+           <span data-ic="lock" data-ics="13"></span><select id="permPolicy" class="perm-policy"
+             aria-label="Permission level" onchange="setPermissionPolicy(this.value)">
+             <option value="automatic">Automatic</option>
+             <option value="semi_manual" selected>Semi-manual</option>
+             <option value="manual">Manual</option>
+           </select></label>
          <button class="cbtn" id="sendbtn" onclick="consoleSend()"
           aria-label="Send" title="Send"><span data-ic="up"></span></button>
        </div>
@@ -11871,7 +11972,9 @@ async function delLibrary(id){
 // aethron_code.py). This UI never talks to a model — it talks to
 // Aethron, which drives whichever runtime the user configured.
 const CODE={key:'',since:0,events:[],tree:[],file:'',dirty:false,
-            poll:0,status:null,showai:false,ws:{project:'',workspace:''}};
+            poll:0,status:null,showai:false,ws:{project:'',workspace:''},
+            permissionPolicy:'semi_manual',permissionModes:{},permissionAnswers:{},
+            slowNote:''};
 
 /* (the old openCode lived here and replaced the whole view; the sheet
    version above supersedes it — two definitions and the later one wins,
@@ -11880,6 +11983,65 @@ const wsq=()=>CODE.ws.project?'project='+encodeURIComponent(CODE.ws.project)
                              :'workspace='+encodeURIComponent(CODE.ws.workspace);
 const wsBody=o=>Object.assign({},CODE.ws,o||{});
 const wsName=()=>CODE.ws.project||CODE.ws.workspace||'';
+
+function permissionLabel(p){
+  return ((CODE.permissionModes||{})[p]||{}).label
+    ||({automatic:'Automatic',semi_manual:'Semi-manual',manual:'Manual'}[p]||'Semi-manual');
+}
+function permissionControlHtml(){
+  const p=CODE.permissionPolicy||'semi_manual';
+  const modes=['automatic','semi_manual','manual'];
+  const hint=((CODE.permissionModes||{})[p]||{}).description
+    ||'Choose when Aethron asks before acting';
+  return `<label class="cpill permchip" title="${esc(hint)}">
+    ${I('lock',13)}<select id="permPolicy" class="perm-policy"
+      aria-label="Permission level" onchange="setPermissionPolicy(this.value)">
+      ${modes.map(k=>`<option value="${k}" ${k===p?'selected':''}>${esc(permissionLabel(k))}</option>`).join('')}
+    </select></label>`;
+}
+function syncPermissionControls(){
+  document.querySelectorAll('.perm-policy').forEach(el=>{
+    if(el.value!==CODE.permissionPolicy)el.value=CODE.permissionPolicy;
+    const wrap=el.closest('.permchip');
+    const mode=(CODE.permissionModes||{})[CODE.permissionPolicy]||{};
+    if(wrap)wrap.title=mode.description||'Choose when Aethron asks before acting';
+  });
+}
+async function loadPermissionPolicy(){
+  try{
+    const st=await api('/api/code/status');
+    CODE.permissionPolicy=st.permission_policy||CODE.permissionPolicy;
+    CODE.permissionModes=st.permission_modes||CODE.permissionModes;
+    syncPermissionControls();
+  }catch(e){}
+}
+async function setPermissionPolicy(raw){
+  const next=['automatic','semi_manual','manual'].includes(raw)
+    ?raw:'semi_manual';
+  const previous=CODE.permissionPolicy;
+  if(next===previous){syncPermissionControls();return;}
+  if(next==='automatic'&&!confirm(
+      'Automatic lets Aethron run every action without asking during this session, including ones that delete or publish. Use it only for work you trust. Continue?')){
+    syncPermissionControls();return;
+  }
+  CODE.permissionPolicy=next;syncPermissionControls();
+  try{
+    await saveCodeCfg({permission_policy:next});
+    // Claude Code receives its policy only when a session is born. Ending a
+    // live session is clearer than pretending a new setting changed it under
+    // the model's feet; the next message starts with the selected level.
+    if(CODE.key){
+      try{await api('/api/code/stop',{key:CODE.key});}catch(e){}
+      if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
+      CODE.key='';
+      CODE.events.push({type:'sys',text:'Permission level changed to '
+        +permissionLabel(next)+'. Send the request again to continue.',bad:false});
+      renderChat();syncComposer();
+    }
+  }catch(e){
+    CODE.permissionPolicy=previous;syncPermissionControls();alert(e.message);
+  }
+}
 
 async function renderCode(c){
   c.dataset.split='';        // this view replaces #content — #conv dies
@@ -11891,6 +12053,9 @@ async function renderCode(c){
     return;
   }
   const st=CODE.status,rt=st.runtimes['claude-code'],cfg=st.config;
+  CODE.permissionPolicy=(st.session&&st.session.permission_policy)
+    ||st.permission_policy||CODE.permissionPolicy;
+  CODE.permissionModes=st.permission_modes||CODE.permissionModes;
   const prov=st.provider||{};
   const wsOpts=[...S.projects.map(p=>`<option value="p:${esc(p.name)}"
       ${CODE.ws.project===p.name?'selected':''}>${esc(p.name)} · project</option>`),
@@ -11996,8 +12161,10 @@ async function saveFile(){
 async function startCode(){
   if(!wsName())return alert('choose a workspace first');
   try{
-    const r=await api('/api/code/start',wsBody({}));
+    const r=await api('/api/code/start',wsBody({cfg:{
+      permission_policy:CODE.permissionPolicy}}));
     CODE.key=r.key;CODE.events=[];CODE.since=0;
+    CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
     renderTab();
   }catch(e){alert(e.message)}
 }
@@ -12073,7 +12240,7 @@ async function sendCode(){
   if(!CODE.key)return alert('start a session first');
   ta.value='';
   CODE.events.push({type:'you',text});renderChat();
-  CODE.lastEv=Date.now();
+  CODE.lastEv=Date.now();CODE.slowNote='';
   try{await api('/api/code/send',{key:CODE.key,text});}
   catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
 }
@@ -12083,29 +12250,71 @@ function endTurn(){
   if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
   renderChat(); syncComposer(); syncHero();
 }
-/* NOTHING SHOULD EVER SPIN FOREVER WITH NOTHING TO SHOW. The key bug is
-   fixed below, but "silent and endless" is the wrong failure mode for
-   ANY cause — a wedged child, a provider that never answers, a socket
-   that went away. If a turn produces no event at all for this long, say
-   so and stop, rather than leaving a person watching an orb. */
-const STALL_MS=90000;
+/* The bridge itself gives an upstream provider 90 seconds to answer.  The
+   window must NOT use the same deadline: at that exact boundary the bridge
+   may still be turning the socket timeout into a real, readable result.  The
+   old UI stopped polling first, so it hid that result and falsely called a
+   live template read a dead provider.
+
+   A long-running tool is different again.  Fetching and unpacking a template
+   can legitimately be quiet for several minutes, so it gets a generous
+   window and a clear "still working" state.  The final limit is deliberately
+   enforced through /api/code/stop, not merely hidden in the UI — a stopped
+   run must actually be stopped. */
+const SLOW_NOTICE_MS=90000;
+const PROVIDER_STALL_MS=150000;
+const TOOL_STALL_MS=10*60*1000;
+function hasWaitingPermission(){
+  const ids=new Set();
+  for(const e of CODE.events||[]){
+    if(e.type==='permission'&&e.id)ids.add(e.id);
+    else if(e.type==='permission_result'&&e.id)ids.delete(e.id);
+  }
+  return ids.size>0;
+}
+function inFlightTool(){
+  const calls=new Map();
+  for(const e of CODE.events||[]){
+    if(e.type==='tool'&&e.id)calls.set(e.id,e);
+    else if(e.type==='tool_result'&&e.id)calls.delete(e.id);
+    else if(e.type==='done'||e.type==='exit')calls.clear();
+  }
+  const all=[...calls.values()];
+  return all.length?all[all.length-1]:null;
+}
+function clearSlowNote(){
+  if(CODE.slowNote){CODE.slowNote='';}
+}
+function slowNoteFor(tool){
+  if(tool){
+    const target=toolTarget(tool.name,tool.input);
+    return 'Still working on '+toolVerb(tool.name)
+      +(target?' '+target:'')+'. You can stop it at any time.';
+  }
+  return 'Still waiting for the provider. Aethron is keeping this run open so its real response can arrive.';
+}
+async function stopForSilence(tool){
+  const key=CODE.key;
+  if(!key)return;
+  /* Do not leave a real child process working after the UI says it ended. */
+  CODE.key='';
+  try{await api('/api/code/stop',{key});}catch(e){}
+  CODE.events.push({type:'error',text:tool
+    ?'This step did not report back after 10 minutes, so Aethron stopped the run. Work completed before the pause is still there.'
+    :'The provider did not respond after 2½ minutes, so Aethron stopped the run. Work completed before the pause is still there.'});
+  clearSlowNote();endTurn();
+}
 async function pollCode(){
   if(!CODE.key)return;
-  if(CODE.poll){
-    CODE.lastEv=CODE.lastEv||Date.now();
-    if(Date.now()-CODE.lastEv>STALL_MS){
-      CODE.events.push({type:'error',text:
-        'No response from the provider for 90 seconds, so Aethron stopped '
-        +'waiting. Nothing was changed. If you just saved a new key, send '
-        +'the message again \u2014 this one was still on the old session.'});
-      endTurn(); return;
-    }
-  }
+  CODE.lastEv=CODE.lastEv||Date.now();
   try{
+    /* Poll FIRST.  A result that arrived around the bridge's 90s upstream
+       deadline must win over any local silence calculation. */
     const r=await api('/api/code/events?key='+encodeURIComponent(CODE.key)
                       +'&since='+CODE.since);
     if(r.events&&r.events.length){
       CODE.events.push(...r.events);CODE.since=r.n;CODE.lastEv=Date.now();
+      clearSlowNote();
       renderChat();
       if(r.events.some(e=>['tool_result','done'].includes(e.type)))loadTree();
       /* AN ERROR ENDS THE TURN, AND THE UI MUST NOT WAIT TO BE TOLD.
@@ -12126,6 +12335,14 @@ async function pollCode(){
          something unrelated happened to re-render. That is why it sat
          there after the reply had already landed. */
       renderChat();
+    }
+    /* A permission card is intentional waiting, not a stalled model. */
+    const quiet=Date.now()-CODE.lastEv;
+    if(CODE.poll&&r.running&&!hasWaitingPermission()&&quiet>SLOW_NOTICE_MS){
+      const tool=inFlightTool(), limit=tool?TOOL_STALL_MS:PROVIDER_STALL_MS;
+      const note=slowNoteFor(tool);
+      if(CODE.slowNote!==note){CODE.slowNote=note;renderChat();}
+      if(quiet>limit)return stopForSilence(tool);
     }
     syncComposer();            // stop becomes send the moment it is over
   }catch(e){}
@@ -12169,6 +12386,7 @@ function convShell(o){
           <button class="cpill opt" onclick="openSettings()"
            title="change the model or the key">${I('key',13)}<span
            class="cv" id="cbarmodel">model</span></button>
+          ${permissionControlHtml()}
           ${CODE.poll
             ?`<button class="cbtn stop" onclick="stopTurn()" aria-label="Stop"
                 title="Stop">${I('stop',15)}</button>`
@@ -12750,6 +12968,7 @@ function syncComposer(){
   beamMode(cm, CODE.poll ? 'pulse' : (S.cur ? 'line' : 'pulse'));
   const mn=$('cbarmodel');
   if(mn&&CODE.model)mn.textContent=CODE.model;
+  syncPermissionControls();
   const b=document.querySelector('.composer .cbtn');if(!b)return;
   const busy=!!CODE.poll, isStop=b.classList.contains('stop');
   if(busy===isStop)return;
@@ -12819,11 +13038,13 @@ async function consoleSend(){
     if(!CODE.key){
       CODE.events=[];CODE.since=0;
       const r=await api('/api/code/start',
-        S.cur?{project:S.cur}:{console:true});
+        S.cur?{project:S.cur,cfg:{permission_policy:CODE.permissionPolicy}}
+             :{console:true,cfg:{permission_policy:CODE.permissionPolicy}});
       CODE.key=r.key;
+      CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
     }
     CODE.events.push({type:'you',text});renderChat();
-    CODE.lastEv=Date.now();
+    CODE.lastEv=Date.now();CODE.slowNote='';
     await api('/api/code/send',{key:CODE.key,text});
     if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
   }catch(e){
@@ -14487,8 +14708,25 @@ function fmt(t){
    one run card, and a result is folded back onto the step that caused
    it instead of landing as its own wall of text. */
 function convBlocks(evs){
-  const out=[];let run=null,n=0;
+  const out=[];let run=null,n=0;const permissions={};
   for(const e of evs){
+    if(e.type==='permission'){
+      /* Keep the preceding tool run active. Claude Code emits the tool
+         request first, then asks Aethron, then emits that SAME tool's result
+         after the answer. Clearing `run` here orphaned the result and made a
+         successfully approved step look like it ran forever. */
+      const p={kind:'permission',id:e.id||'',tool:e.tool||'a tool',
+        input:e.input||{},state:'waiting',text:'',policy:e.policy||'',why:e.why||''};
+      permissions[p.id]=p;out.push(p);continue;
+    }
+    if(e.type==='permission_result'){
+      const p=permissions[e.id||''];
+      if(p){p.state=e.allow?'allowed':'denied';p.text=e.text||'';
+        delete CODE.permissionAnswers[p.id];}
+      else out.push({kind:'sys',text:e.text||(e.allow?'Permission approved.':'Permission denied.'),
+        bad:!e.allow});
+      continue;
+    }
     if(e.type==='tool'){
       if(!run){run={kind:'run',steps:[]};out.push(run);}
       run.steps.push({i:n++,name:e.name,input:e.input,
@@ -14522,6 +14760,59 @@ function convBlocks(evs){
   }
   return out;
 }
+function permissionInputText(value){
+  const privateKey=/api.?key|token|secret|password|authorization|cookie/i;
+  const clean=(v,k)=>{
+    if(privateKey.test(String(k||'')))return '••••••';
+    if(typeof v==='string')return v.length>700?v.slice(0,700)+'…':v;
+    if(Array.isArray(v))return v.slice(0,30).map(x=>clean(x,''));
+    if(v&&typeof v==='object'){
+      const o={};Object.entries(v).slice(0,40).forEach(([key,x])=>o[key]=clean(x,key));
+      return o;
+    }
+    return v;
+  };
+  try{return JSON.stringify(clean(value,''),null,2)}catch(e){return '{}'}
+}
+function permissionHtml(p){
+  const waiting=p.state==='waiting',sending=!!CODE.permissionAnswers[p.id];
+  const title=waiting?'Aethron needs your permission'
+    :(p.state==='allowed'?'Permission approved':'Permission denied');
+  const message=waiting
+    ?(p.policy==='manual'
+      ?'Manual mode is on, so Aethron asks before every action.'
+      :(p.why?`This ${p.why}, so Aethron is checking with you first.`
+        :'This action is outside the steps Aethron can safely approve on its own.'))
+    :(p.text||(p.state==='allowed'?'Aethron allowed this action.':'Aethron denied this action.'));
+  return `<section class="permission-card ${waiting?'waiting':p.state}" id="perm-${esc(p.id)}">
+    <div class="perm-title">${I(waiting?'lock':(p.state==='allowed'?'check':'alert'),14)}
+      <b>${esc(title)}</b></div>
+    <div class="perm-tool">Aethron wants to use <code>${esc(p.tool)}</code></div>
+    <div class="perm-why">${esc(message)}</div>
+    <details class="perm-detail"><summary>show requested details</summary>
+      <pre>${esc(permissionInputText(p.input))}</pre></details>
+    ${waiting?`<div class="perm-actions">
+      <button class="ghost" ${sending?'disabled':''}
+        onclick="answerPermission('${esc(p.id)}',false)">Deny</button>
+      <button class="primary" ${sending?'disabled':''}
+        onclick="answerPermission('${esc(p.id)}',true)">${sending?'Sending…':'Approve'}</button>
+      </div>`:''}
+  </section>`;
+}
+async function answerPermission(id,allow){
+  if(!id||!CODE.key||CODE.permissionAnswers[id])return;
+  CODE.permissionAnswers[id]=true;renderChat();
+  try{
+    await api('/api/code/permission',{key:CODE.key,id,allow:!!allow});
+    /* If a very patient person answered after the regular polling guard had
+       stopped the client view, resume it here so the actual tool result and
+       follow-up land in the same conversation. */
+    if(!CODE.poll&&CODE.key){
+      CODE.lastEv=Date.now();CODE.poll=setInterval(pollCode,900);syncComposer();
+    }
+  }
+  catch(e){delete CODE.permissionAnswers[id];renderChat();alert(e.message);}
+}
 /* ── SAY WHAT HAPPENED, NOT WHAT THE SERVER SAID ────────────────────
    A provider's error body is written for a developer reading a log, and
    printing it whole is how a person ends up staring at a JSON blob with
@@ -14541,7 +14832,13 @@ function humanErr(raw){
   else if(/\b401\b|\b403\b/.test(t)||has('api key'))
     msg='That key was refused. Check it in Settings.';
   else if(has('timed out')||has('timeout'))
-    msg='The provider stopped answering before it finished. Nothing was changed.';
+    msg='The provider stopped answering before it finished. Earlier completed work was kept.';
+  else if(has('inputvalidationerror')&&has('parsed as json'))
+    msg='Aethron received a malformed tool request from the model and stopped '
+       +'it before anything changed. This is not an access or permission issue.';
+  else if(has('requested permissions')&&has("haven't granted"))
+    msg='Aethron could not reach its own approval channel for this step. '
+       +'Start a fresh session and choose Semi-manual or Automatic in the permission menu.';
   else if(has('getaddrinfo')||has('connection')||has('network')||has('dns'))
     msg='Could not reach the provider. Aethron did not ask, so nothing was changed.';
   else if(has('credit')||has('billing'))
@@ -14610,11 +14907,14 @@ function nowHtml(){
      was happening. The orb's state is derived from the verb itself, so
      searching looks like searching and building looks like building. */
   const verb=last?toolVerb(last.name):'Thinking';
+  const state=CODE.slowNote
+    ?`<span class="ac slow" title="${esc(CODE.slowNote)}">still working…</span>`
+    :(done?`<span class="ac">${done} step${done>1?'s':''} done</span>`:'');
   return `<div class="nowline"><canvas class="orb" data-size="20"
       data-state="${orbState(verb)}"></canvas>
     <span class="sv">${esc(verb)}</span>
     <span class="st">${esc(last?toolTarget(last.name,last.input):'')}</span>
-    ${done?`<span class="ac">${done} step${done>1?'s':''} done</span>`:''}</div>`;
+    ${state}</div>`;
 }
 function renderChat(){
   const box=$('chatlog');if(!box)return;
@@ -14636,6 +14936,7 @@ function renderChat(){
     : b.kind==='think'?`<details class="think"><summary>${I('sparkles',12)
         }Aethron thought this through</summary><div class="body">${esc(b.text)}</div></details>`
     : b.kind==='run' ? runHtml(b)
+    : b.kind==='permission' ? permissionHtml(b)
     : b.text        ?`<div class="turn sys${b.bad?' bad':''}">${esc(b.text)}${
         b.detail?`<details class="errdet"><summary>what the provider said</summary>
           <div>${esc(b.detail)}</div></details>`:''}</div>`
@@ -15600,6 +15901,7 @@ function endTour(){
 
 refresh();
 loadAi();          // the one AI setting, before anything asks for it
+loadPermissionPolicy(); // the chat-level Automatic / Semi-manual / Manual choice
 mountDots();       // the room is lit before anyone asks it to be
 /* metal.js is deferred, so it may not be here yet. Mount now for the
    case where it is, and again on load for the case where it is not —

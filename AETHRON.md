@@ -5007,6 +5007,56 @@ its canvas lit, send ring 20%, badge 88.9% (metal all over, which is
 what a mask instead of a ring punch means), 2 reflection targets live,
 3 wrappers and not 33.
 
+## "IT KEEPS ASKING FOR PERMISSION" — THREE FAULTS, AND THE FIRST WAS
+## THAT THE FIX NEVER SHIPPED — 2026-09-22
+The owner asked Aethron to read jomiez.com and got fourteen identical
+red failures and a stream of approval requests: "aethron is basically
+useless". Three separate faults, none of them the model's.
+
+1. THE FIX EXISTED AND WAS NOT IN THE APP. A session on Sep 19 wrote
+   ~955 lines — an in-app approval broker, a `{}{...}` clean-up, a
+   3-strikes loop stop — built four side-by-side PREVIEW apps with their
+   own bundle ids, and committed nothing. /Applications held the Sep 17
+   build. The owner was debugging code that had already been rewritten.
+   Uncommitted work in a working tree is not a fix; neither is a preview
+   bundle. The previews were also four more "Aethron"s in Spotlight — the
+   duplicate-apps complaint, recreated. Removed, and preview-build/ is
+   now gitignored (388MB, one `git add -A` from history).
+
+2. PARALLEL CALLS FUSED INTO ONE. Gemini's compatibility stream sends
+   parallel tool calls ALL AT INDEX 0, each with its own id and name.
+   The bridge keyed by index, so list_projects `{}` and WebFetch
+   `{"url":…}` became list_projects `{}{"url":…}`; the CLI refused it and
+   the model retried until the loop guard. The Sep 19 clean-up made it
+   WORSE in a quieter way: it discarded the `{}` as "transport noise" and
+   delivered one WebFetch, silently dropping list_projects. It was never
+   noise — it was a whole call. AN ID OUTRANKS AN INDEX: a new id at an
+   index already holding a different id is a new call. Regression check
+   added, and proven to FAIL on the Sep 19 keying ("['WebFetch']") before
+   it was trusted to pass on the fix.
+
+3. SEMI-MANUAL ASKED ABOUT EVERYTHING. The default policy approved only
+   Read/Glob/Grep, so fetching a page or running `npm install` put an
+   Approve card in front of the owner. A question is only worth asking
+   when the honest answer could be "no". `permission_risk()` names the
+   real reasons — sudo, recursive/forced rm, git push, reset --hard,
+   curl|sh, publishing, ssh/scp, system commands, killing processes,
+   writes outside the workspace — and the broker answers everything else
+   itself, with no card. Manual still asks about everything; that is what
+   Manual means. The card now says WHY it is asking, and speaks as
+   Aethron: it had been saying "Claude Code wants to use…", the identity
+   leak fixed in the model's mouth three commits earlier, still sitting in
+   the product's own UI in six places.
+
+MY PROBE LIED ONCE, AND WAS NOT BELIEVED. Reading the frozen PYZ, three
+fixes came back "False" — the probe looked only at bare string constants,
+and those values live in tuples and as variable names. Widened, all three
+were present. A negative from an instrument that cannot see is not
+evidence (the same lesson as grep on a zlib archive).
+
+Tests: bridge selftest 19 -> 21, code selftest 24 -> 26 (a routine
+command runs with no card; a push still reaches the person).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5139,6 +5189,9 @@ what a mask instead of a ring punch means), 2 reflection targets live,
   with `immutable` carries a content hash in its URL, or a fixed build
   is served correctly while the page keeps running the broken copy it
   already has.
+- A FIX THAT IS NOT IN THE INSTALLED APP DOES NOT EXIST FOR THE PERSON
+  USING IT. Uncommitted work and side-by-side preview bundles are not
+  shipping; before diagnosing a report, check what build it came from.
 - A CONSEQUENCE OF AN EXPLAINED CHANGE IS THAT CHANGE. It holds for the
   screen an element's move touches, for styles that follow a new size,
   and for what a reaction produces when the thing it acts on changed —

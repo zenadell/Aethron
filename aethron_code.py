@@ -42,6 +42,7 @@ Run it:
 import json
 import os
 import queue
+import secrets
 import shutil
 import signal
 import subprocess
@@ -54,6 +55,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 FORGE_MCP = ROOT / "forge_mcp.py"
+PERMISSION_MCP = ROOT / "aethron_permission_mcp.py"
 
 # ─────────────────────── provider presets ────────────────────────────
 # Everything Claude Code needs to talk to something other than
@@ -85,6 +87,9 @@ DEFAULT_CFG = {
     "base_url": "",                # overrides the preset
     "token": "",
     "model": "",                   # "" = the runtime's default
+    # This is retained for existing config files and CLI callers. New UI
+    # choices are stored as ``permission_policy`` below, then resolved to a
+    # real Claude Code permission mode when a session starts.
     "permission_mode": "acceptEdits",
     "allowed_tools": [],           # [] = the runtime's default set
     "disallowed_tools": [],
@@ -92,6 +97,111 @@ DEFAULT_CFG = {
     "aethron_tools": True,         # inject Aethron's MCP (guarded pipeline)
     "max_budget_usd": 0,           # 0 = no cap
 }
+
+
+# Aethron owns the agent's presentation, so a terminal prompt with no terminal
+# is not an acceptable permission model.  These are product-level choices that
+# map to the current Claude Code CLI modes; they are deliberately named in the
+# words a person sees in Aethron rather than exposing vendor vocabulary.
+PERMISSION_POLICIES = {
+    "automatic": {
+        "label": "Automatic",
+        "mode": "bypassPermissions",
+        "description": "Aethron approves every tool action for this session.",
+    },
+    "semi_manual": {
+        "label": "Semi-manual",
+        "mode": "acceptEdits",
+        "description": "Aethron runs its migration tools and workspace edits; it asks before anything else.",
+    },
+    "manual": {
+        "label": "Manual",
+        "mode": "manual",
+        "description": "Aethron shows an Approve or Deny choice for every tool action.",
+    },
+}
+
+
+def permission_policy(cfg: dict) -> str:
+    """Return an Aethron policy, accepting old CLI-mode-only configs.
+
+    ``acceptEdits`` was the historic default.  It never automatically
+    approved MCP tools, which is why a migration could ask for approval in a
+    window that had no way to answer.  Treat it as our Semi-manual policy so
+    existing users get a working route without having to edit a JSON file.
+    """
+    raw = str((cfg or {}).get("permission_policy") or "").strip().lower()
+    aliases = {
+        "auto": "automatic", "automatic": "automatic",
+        "semi": "semi_manual", "semimanual": "semi_manual",
+        "semi-manual": "semi_manual", "semi_manual": "semi_manual",
+        "manual": "manual",
+    }
+    if raw in aliases:
+        return aliases[raw]
+    legacy = str((cfg or {}).get("permission_mode") or "acceptEdits")
+    if legacy == "bypassPermissions":
+        return "automatic"
+    if legacy in ("manual", "default", "plan", "dontAsk"):
+        return "manual"
+    return "semi_manual"
+
+
+# WHAT IS WORTH INTERRUPTING A PERSON FOR. "Semi-manual" used to mean
+# "ask about anything that is not a file edit", so fetching one web page
+# or listing a folder put an Approve card in front of the owner, and the
+# product felt like a permissions dialog with a chat attached. A question
+# is only worth asking when the honest answer could be "no": something
+# that destroys, escapes the workspace, runs as another user, or speaks
+# to the outside world on the person's behalf. Everything else just runs.
+import re as _re
+_RISKY_BASH = [
+    (r"(^|[;&|]\s*)sudo\b|(^|[;&|]\s*)su\s", "runs as another user"),
+    (r"\brm\s+(-[a-zA-Z]*[rRf][a-zA-Z]*\s+)+", "deletes files recursively or by force"),
+    (r"\bgit\s+push\b", "publishes to a remote repository"),
+    (r"\bgit\s+(reset\s+--hard|clean\s+-[a-zA-Z]*f|branch\s+-D|checkout\s+--\s)",
+     "throws away uncommitted work"),
+    (r"\b(curl|wget)\b[^|]*\|\s*(ba|z)?sh\b", "runs a script straight off the internet"),
+    (r"\b(npm|pnpm|yarn)\s+publish\b|\btwine\s+upload\b", "publishes a package"),
+    (r"\b(ssh|scp|rsync|sftp)\b", "connects to another machine"),
+    (r"\b(mkfs|diskutil|dd\s+if=|shutdown|reboot|halt|launchctl)\b",
+     "changes the system itself"),
+    (r"\b(chmod|chown)\s+-R\b", "changes permissions recursively"),
+    (r"\b(kill|killall|pkill)\b", "stops other programs"),
+    (r"(^|\s)(>|>>)\s*(/|~)(?!tmp/)", "writes outside the workspace"),
+    (r"\bsecurity\s+(find|delete|add)-", "touches the keychain"),
+]
+
+
+def permission_risk(tool_name, tool_input, workspace=None) -> str:
+    """"" when the action is routine, otherwise the plain reason to ask.
+
+    Only Bash and writes can hurt anything; every other tool Aethron
+    exposes reads, searches or talks to its own guarded pipeline."""
+    name = str(tool_name or "")
+    inp = tool_input if isinstance(tool_input, dict) else {}
+    if name == "Bash":
+        cmd = str(inp.get("command") or "")
+        for pat, why in _RISKY_BASH:
+            if _re.search(pat, cmd):
+                return why
+        return ""
+    if name in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        path = str(inp.get("file_path") or inp.get("notebook_path") or "")
+        if workspace and path:
+            try:
+                target = Path(path).expanduser().resolve()
+                root = Path(workspace).resolve()
+                if target != root and root not in target.parents:
+                    return "writes outside the workspace"
+            except Exception:
+                return "writes to a path Aethron could not check"
+        return ""
+    return ""
+
+
+def permission_mode(cfg: dict) -> str:
+    return PERMISSION_POLICIES[permission_policy(cfg)]["mode"]
 
 
 # What a general-purpose coding agent must know the moment its
@@ -324,7 +434,13 @@ def status(home: Path = None) -> dict:
                          "why": "always available; any provider via API key"},
         },
         "endpoint_reachable": fcc_up,
-        "aethron_tools": (ROOT / "forge_mcp.py").exists(),
+        "aethron_tools": (getattr(sys, "frozen", False)
+                           or (ROOT / "forge_mcp.py").exists()),
+        "permission_policy": permission_policy(cfg),
+        "permission_modes": {
+            k: {"label": v["label"], "description": v["description"]}
+            for k, v in PERMISSION_POLICIES.items()
+        },
     }
 
 
@@ -358,6 +474,8 @@ class CodeSession:
         self.cfg = dict(DEFAULT_CFG)
         self.cfg.update(load_config(home))
         self.cfg.update(cfg or {})
+        self.permission_policy = permission_policy(self.cfg)
+        self.permission_mode = permission_mode(self.cfg)
         self.home = Path(home) if home else None
         self.on_event = on_event or (lambda e: None)
         self.id = str(uuid.uuid4())
@@ -371,6 +489,41 @@ class CodeSession:
         self.error = ""
         # why an events() iteration ended early: "" | "budget" | "idle"
         self.stopped = ""
+        # A malformed tool request used to be returned to the model over and
+        # over. The model then retried the same rejected call, so the Studio
+        # showed a long list of failures while no work could happen. Keep a
+        # small, session-local fuse as the last line of defence; the bridge
+        # repairs known transport glitches, but any unknown repeated failure
+        # must stop instead of spending a user's turn indefinitely.
+        self._tool_names = {}
+        self._last_failed_tool = ""
+        self._failed_tool_repeats = 0
+        self._failure_stop_requested = False
+        # Claude Code's print mode cannot display its normal terminal
+        # permission prompt.  A dedicated, capability-free MCP helper calls
+        # back here; the Studio then presents this request in the chat and
+        # wakes the helper when the person chooses Approve or Deny.
+        self.permission_token = secrets.token_urlsafe(24)
+        self._permission_cv = threading.Condition()
+        self._pending_permissions = {}
+
+    def _aethron_mcp_available(self) -> bool:
+        """The packaged app serves MCP through ``Aethron --mcp``.
+
+        In a PyInstaller build forge_mcp.py is inside the archive, so testing
+        only ``FORGE_MCP.exists()`` incorrectly said Aethron had no tools.
+        That check was part of the permission bug: the app spawned an MCP
+        server but forgot to pre-approve the tools it had just injected.
+        """
+        return bool(self.cfg.get("aethron_tools")) and (
+            getattr(sys, "frozen", False) or FORGE_MCP.exists())
+
+    def _permission_mcp_available(self) -> bool:
+        return (getattr(sys, "frozen", False) or PERMISSION_MCP.exists())
+
+    def _uses_permission_broker(self) -> bool:
+        return (self.permission_policy in ("semi_manual", "manual")
+                and self._permission_mcp_available())
 
     # ---- lifecycle ---------------------------------------------------
     def start(self):
@@ -398,7 +551,7 @@ class CodeSession:
                 "--output-format", "stream-json",
                 "--verbose",
                 "--session-id", self.id,
-                "--permission-mode", self.cfg["permission_mode"]]
+                "--permission-mode", self.permission_mode]
         prov = resolve_provider(self.cfg)
         # MODEL OWNERSHIP: when the bridge is in the path it rewrites the
         # model on every request, so the CLI must NOT be given a foreign
@@ -409,14 +562,36 @@ class CodeSession:
             model = self.cfg.get("model") or prov.get("model") or ""
             if model:
                 argv += ["--model", model]
-        allowed = list(self.cfg.get("allowed_tools") or [])
-        if self.cfg.get("aethron_tools") and FORGE_MCP.exists():
-            # Injecting our MCP server is not the same as ALLOWING it:
-            # without this every mcp__aethron__* call comes back
-            # "requested permissions … but you haven't granted it yet",
-            # and the agent silently gets nothing done. Our own tools
-            # are guarded by construction, so they are pre-approved.
-            allowed.append("mcp__aethron")
+        # Keep a legacy config from silently reintroducing the old broken
+        # rule.  Current Claude Code sees a real tool as
+        # ``mcp__aethron__create_project``; ``mcp__aethron`` is not a match.
+        allowed = [
+            "mcp__aethron__*" if x == "mcp__aethron" else x
+            for x in list(self.cfg.get("allowed_tools") or [])
+        ]
+        if self._uses_permission_broker():
+            # The approval helper itself must never ask for approval, or
+            # Claude Code would recursively ask permission to ask permission.
+            allowed.append("mcp__aethron_permissions__request")
+        if self._aethron_mcp_available() and self.permission_policy != "manual":
+            # Injecting our MCP server is not the same as ALLOWING it.  The
+            # exact wildcard is important: Claude Code 2.x does not consider
+            # the server prefix by itself to match its mcp__server__tool calls.
+            # Aethron's server is its guarded migration pipeline, so it is
+            # safe to use without interrupting every normal migration step.
+            allowed.append("mcp__aethron__*")
+        if self.permission_policy == "semi_manual":
+            # Reading, searching, fetching a page and keeping a task list
+            # can never hurt anything, so they never reach the approval
+            # card. Bash and writes still go to the broker, which asks the
+            # person only when permission_risk() finds a real reason.
+            allowed += ["Read", "Glob", "Grep", "LS", "WebFetch",
+                        "WebSearch", "TodoWrite", "Task", "TaskCreate",
+                        "TaskUpdate", "TaskList", "TaskGet", "TaskOutput",
+                        "NotebookRead"]
+        # Preserve the order a user supplied while avoiding duplicated CLI
+        # flags and a needlessly confusing permission list in diagnostics.
+        allowed = list(dict.fromkeys(str(x) for x in allowed if str(x)))
         if allowed:
             argv += ["--allowedTools", *allowed]
         if self.cfg.get("disallowed_tools"):
@@ -450,6 +625,9 @@ class CodeSession:
         mcp = self._mcp_config()
         if mcp:
             argv += ["--mcp-config", mcp]
+        if self._uses_permission_broker():
+            argv += ["--permission-prompt-tool",
+                     "mcp__aethron_permissions__request"]
         if self.cfg.get("isolate"):
             # The user's personal MCP servers are not part of the
             # product's contract — keep the session reproducible.
@@ -491,33 +669,121 @@ class CodeSession:
         return env
 
     def _mcp_config(self) -> str:
-        """Hand the coding agent Aethron's OWN tools. This is what keeps
-        the physics: even a general coding agent edits template content
-        through the guarded pipeline (byte budgets, snapshots, verify)
-        instead of hand-editing generated files."""
-        if not self.cfg.get("aethron_tools"):
-            return ""
-        # HOW THE SERVER IS SPAWNED DEPENDS ON WHERE WE LIVE.
-        #   dev    -> python3 forge_mcp.py      (a real file on disk)
-        #   frozen -> Aethron --mcp             (the file is in the PYZ)
-        # Testing only for the FILE shipped the desktop app with no
-        # Aethron tools at all: the migration agent had a system prompt
-        # full of mcp__aethron__* calls and no way to make one.
-        if getattr(sys, "frozen", False):
-            command, args = sys.executable, ["--mcp"]
-        elif FORGE_MCP.exists():
-            command, args = sys.executable, [str(FORGE_MCP)]
-        else:
+        """Build the private MCP config for this one CLI session.
+
+        It may hold Aethron's guarded migration server, the approval server,
+        or both. Keeping both in the same strict config lets the app run a
+        permission UI even in a general coding workspace where migration tools
+        were explicitly disabled.
+        """
+        servers = {}
+        # HOW THE SERVERS ARE SPAWNED DEPENDS ON WHERE WE LIVE.
+        #   dev    -> python3 <module>.py
+        #   frozen -> Aethron --mcp / --permission-mcp
+        if self._aethron_mcp_available():
+            if getattr(sys, "frozen", False):
+                command, args = sys.executable, ["--mcp"]
+            else:
+                command, args = sys.executable, [str(FORGE_MCP)]
+            servers["aethron"] = {
+                "command": command, "args": args,
+                "env": {"AETHRON_HOME": str(self.home or ROOT)},
+            }
+        if self._uses_permission_broker():
+            if getattr(sys, "frozen", False):
+                command, args = sys.executable, ["--permission-mcp"]
+            else:
+                command, args = sys.executable, [str(PERMISSION_MCP)]
+            servers["aethron_permissions"] = {
+                "command": command, "args": args,
+                "env": {
+                    "AETHRON_PERMISSION_URL": str(
+                        self.cfg.get("permission_endpoint") or ""),
+                    "AETHRON_PERMISSION_TOKEN": self.permission_token,
+                    "AETHRON_PERMISSION_SESSION": self.id,
+                },
+            }
+        if not servers:
             return ""
         self._tmp = tempfile.mkdtemp(prefix="aethron-code-")
         f = Path(self._tmp) / "mcp.json"
-        f.write_text(json.dumps({"mcpServers": {"aethron": {
-            "command": command, "args": args,
-            "env": {"AETHRON_HOME": str(self.home or ROOT)}}}}),
-            encoding="utf-8")
+        f.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
         return str(f)
 
+    def request_permission(self, tool_name, tool_input, timeout=600) -> dict:
+        """Ask the Studio user for one unresolved Claude Code tool call.
+
+        This is called by Studio's loopback endpoint, itself called only by
+        the short-lived permission MCP subprocess.  It blocks that one HTTP
+        handler thread, never the UI thread or the CLI stdout pump.
+        """
+        request_id = uuid.uuid4().hex
+        tool_name = str(tool_name or "a tool")[:500]
+        tool_input = tool_input if isinstance(tool_input, dict) else {}
+        # Semi-manual asks only when there is a real reason to. A routine
+        # command is approved here and never becomes a card; Manual still
+        # asks about everything, because that is what Manual means.
+        if self.permission_policy == "semi_manual":
+            why = permission_risk(tool_name, tool_input, self.workspace)
+            if not why:
+                return {"behavior": "allow", "updatedInput": tool_input}
+            tool_input = dict(tool_input)
+            reason = why
+        item = {"id": request_id, "tool": tool_name, "input": tool_input,
+                "decision": None, "message": ""}
+        with self._permission_cv:
+            if not self.alive:
+                return {"behavior": "deny",
+                        "message": "The Aethron session has already stopped."}
+            self._pending_permissions[request_id] = item
+        self._emit({"type": "permission", "id": request_id,
+                    "tool": tool_name, "input": tool_input,
+                    "policy": self.permission_policy,
+                    "why": locals().get("reason", "")})
+        deadline = time.monotonic() + max(1, float(timeout))
+        with self._permission_cv:
+            while item["decision"] is None:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    item["decision"] = False
+                    item["message"] = "No approval was received in Aethron."
+                    break
+                self._permission_cv.wait(timeout=left)
+            allow = bool(item["decision"])
+            message = item["message"] or (
+                "Approved in Aethron." if allow else "Denied in Aethron.")
+            self._pending_permissions.pop(request_id, None)
+        self._emit({"type": "permission_result", "id": request_id,
+                    "allow": allow, "text": message})
+        if allow:
+            return {"behavior": "allow", "updatedInput": tool_input}
+        return {"behavior": "deny", "message": message}
+
+    def resolve_permission(self, request_id, allow: bool) -> bool:
+        """Resolve a pending card from the Aethron chat UI."""
+        with self._permission_cv:
+            item = self._pending_permissions.get(str(request_id or ""))
+            if not item or item["decision"] is not None:
+                return False
+            item["decision"] = bool(allow)
+            item["message"] = ("Approved in Aethron."
+                               if allow else "Denied in Aethron.")
+            self._permission_cv.notify_all()
+            return True
+
+    def _deny_pending_permissions(self, message="The Aethron session stopped."):
+        with self._permission_cv:
+            for item in self._pending_permissions.values():
+                if item["decision"] is None:
+                    item["decision"] = False
+                    item["message"] = message
+            self._permission_cv.notify_all()
+
     def close(self):
+        # Never leave the MCP helper's HTTP request hanging after a user
+        # presses Stop or the agent exits. Its denied reply lets Claude Code
+        # unwind cleanly instead of leaving a child process behind.
+        self._deny_pending_permissions()
         if self.proc and self.proc.poll() is None:
             try:
                 self.proc.stdin.close()
@@ -662,6 +928,32 @@ class CodeSession:
             for ev in self._normalize(d):
                 self._emit(ev)
 
+    def _repeated_tool_failure(self, tool_id, text):
+        """Return a plain stop reason after the same tool fails 3 times.
+
+        This deliberately keys on a tool-result error, not merely a repeated
+        tool call: a normal migration may read several pages with the same
+        tool, but reissuing an identical rejected request is a loop. The
+        process is ended asynchronously because this method runs in its own
+        stdout pump thread.
+        """
+        name = self._tool_names.get(tool_id) or "a tool"
+        signature = name + ":" + " ".join(str(text or "").split())[:1600]
+        if signature == self._last_failed_tool:
+            self._failed_tool_repeats += 1
+        else:
+            self._last_failed_tool = signature
+            self._failed_tool_repeats = 1
+        if self._failed_tool_repeats < 3 or self._failure_stop_requested:
+            return ""
+        self._failure_stop_requested = True
+        self.busy = False
+        if self.alive:
+            threading.Thread(target=self.interrupt, daemon=True).start()
+        return (f"Aethron stopped after {name} failed three times in the "
+                "same way. Nothing new was changed. This is an Aethron "
+                "error, not an access request.")
+
     def _normalize(self, d) -> list:
         """CLI wire format -> Aethron events. One place to absorb any
         future protocol change; the UI never sees the difference."""
@@ -691,6 +983,8 @@ class CodeSession:
                 elif k == "thinking" and c.get("thinking"):
                     out.append({"type": "thinking", "text": c["thinking"]})
                 elif k == "tool_use":
+                    tool_id = c.get("id", "")
+                    self._tool_names[tool_id] = c.get("name", "")
                     out.append({"type": "tool", "id": c.get("id", ""),
                                 "name": c.get("name", ""),
                                 "input": c.get("input", {})})
@@ -701,10 +995,19 @@ class CodeSession:
                     if isinstance(body, list):
                         body = " ".join(x.get("text", "") for x in body
                                         if isinstance(x, dict))
+                    ok = not c.get("is_error")
                     out.append({"type": "tool_result",
                                 "id": c.get("tool_use_id", ""),
-                                "ok": not c.get("is_error"),
+                                "ok": ok,
                                 "text": str(body or "")[:4000]})
+                    if ok:
+                        self._last_failed_tool = ""
+                        self._failed_tool_repeats = 0
+                    else:
+                        stopped = self._repeated_tool_failure(
+                            c.get("tool_use_id", ""), body)
+                        if stopped:
+                            out.append({"type": "error", "text": stopped})
         elif t == "result":
             self.busy = False
             self.cost_usd = d.get("total_cost_usd") or self.cost_usd
@@ -911,6 +1214,44 @@ def selftest() -> int:
         print("SKIPPED — the `claude` CLI is not installed (this test "
               "proves the CLI integration, so it cannot run without it)")
         return 0
+    # Permission routing is part of the product contract, not a UI-only
+    # preference. Verify the policy mapping before the slower live scenarios.
+    # The live MCP run below proves the current CLI's exact wildcard spelling.
+    argv_ws = Path(tempfile.mkdtemp(prefix="aethron-code-argv-"))
+    auto = CodeSession(argv_ws, cfg={"permission_policy": "automatic"})
+    semi = CodeSession(argv_ws, cfg={"permission_policy": "semi_manual"})
+    manual = CodeSession(argv_ws, cfg={"permission_policy": "manual"})
+    checks = [
+        ("automatic maps to Claude Code bypassPermissions",
+         auto.permission_mode == "bypassPermissions"),
+        ("semi-manual maps to acceptEdits",
+         semi.permission_mode == "acceptEdits"),
+        ("manual maps to Claude Code manual",
+         manual.permission_mode == "manual"),
+        ("Aethron MCP is available to the semi-manual session",
+         semi._aethron_mcp_available()),
+        ("manual mode has the in-app approval broker",
+         manual._uses_permission_broker()),
+    ]
+    # SEMI-MANUAL ASKS ONLY WHEN IT MATTERS. A routine command must be
+    # answered by the broker itself — no card, no event, no waiting —
+    # while a destructive one must still reach the person. `alive` is
+    # False here, so a request that DOES reach the card path comes back
+    # denied at once rather than waiting ten minutes for a click.
+    seen = []
+    semi._emit = lambda ev: seen.append(ev)
+    routine = semi.request_permission("Bash", {"command": "npm run build"})
+    risky = semi.request_permission("Bash", {"command": "git push origin main"})
+    checks += [
+        ("semi-manual runs a routine command without asking",
+         routine.get("behavior") == "allow"
+         and not any(e.get("type") == "permission" for e in seen)),
+        ("semi-manual still stops a risky one for the person",
+         risky.get("behavior") == "deny"),
+    ]
+    for name, ok in checks:
+        print(("  ok   " if ok else "  FAIL ") + name)
+    shutil.rmtree(argv_ws, ignore_errors=True)
     ws = Path(tempfile.mkdtemp(prefix="aethron-code-selftest-"))
     (ws / "hello.txt").write_text("before\n", encoding="utf-8")
     srv, url = mock_provider(script=[
@@ -926,12 +1267,13 @@ def selftest() -> int:
     th.Thread(target=srv.serve_forever, daemon=True).start()
     print(f"mock provider on {url}  workspace {ws}")
     cfg = {"provider": "custom", "base_url": url,
-           "token": "mock", "permission_mode": "bypassPermissions",
+           "token": "mock", "permission_policy": "automatic",
            "aethron_tools": False, "isolate": True, "model": "mock-1"}
     res = run_once(ws, "change hello.txt to say after", cfg=cfg, timeout=120)
     srv.shutdown()
     got = (ws / "hello.txt").read_text(encoding="utf-8").strip()
-    checks = [
+    before_first_live = len(checks)
+    checks += [
         ("session started", any(e["type"] == "ready" for e in res["events"])),
         ("routed to our endpoint (no Anthropic login)", res["ok"] or
          "Not logged in" not in (res["error"] or "")),
@@ -940,41 +1282,103 @@ def selftest() -> int:
         ("tool call surfaced", "Write" in res["tools"]),
         ("file actually changed in the workspace", got == "after"),
     ]
-    for name, ok in checks:
+    for name, ok in checks[before_first_live:]:
         print(("  ok   " if ok else "  FAIL ") + name)
     if not all(ok for _, ok in checks):
         print("\nerror:", res["error"])
         print("events:", json.dumps(res["events"], indent=1)[:2500])
     shutil.rmtree(ws, ignore_errors=True)
 
-    # SCENARIO 2 — the fusion: the coding agent drives Aethron's OWN
-    # guarded pipeline through our MCP server, and sees nothing else.
+    # SCENARIO 2 — the fusion: an OpenAI-wire model arrives through the
+    # bridge, drives Aethron's OWN guarded MCP pipeline, and sees nothing
+    # else. This is the exact route used by Gemini in the Studio.
+    import aethron_bridge
     ws2 = Path(tempfile.mkdtemp(prefix="aethron-code-mcp-"))
-    srv2, url2 = mock_provider(script=[
+    up2, up2_url = aethron_bridge._mock_openai([
         [{"text": "Listing Aethron projects."},
-         {"tool": "mcp__aethron__list_projects", "input": {}}],
+         # Gemini has sent an empty JSON object followed by the real input
+         # in the same streamed call. This is the exact shape that used to
+         # leave the Studio repeating InputValidationError forever.
+         {"tool": "mcp__aethron__list_projects", "input": {},
+         "argument_chunks": [
+              "{}", '{"url":"https://www.jomiez.com/",'
+              '"prompt":"Extract the key information"}']}],
         [{"text": "Listed them."}],
     ])
-    th.Thread(target=srv2.serve_forever, daemon=True).start()
+    bsrv2, burl2 = aethron_bridge.start(
+        aethron_bridge.BridgeConfig(up2_url, "sk-fake-gemini-key",
+                                    "gemini-3.6-flash"))
+    before_mcp = len(checks)
     res2 = run_once(ws2, "list the aethron projects", cfg={
-        "provider": "custom", "base_url": url2,
-        "token": "mock", "permission_mode": "bypassPermissions",
-        "aethron_tools": True, "isolate": True, "model": "mock-1"},
+        "provider": "custom", "base_url": burl2, "token": "aethron",
+        "mode": "bridge", "permission_policy": "semi_manual",
+        "aethron_tools": True, "isolate": True},
         home=ROOT, timeout=240)
-    srv2.shutdown()
+    bsrv2.shutdown()
+    up2.shutdown()
     ready = next((e for e in res2["events"] if e["type"] == "ready"), {})
     tool_ok = next((e for e in res2["events"]
                     if e["type"] == "tool_result"), {})
     checks += [
         ("aethron MCP tools injected",
          "aethron" in (ready.get("mcp") or [])),
-        ("only our tools (user's own MCP servers isolated)",
-         (ready.get("mcp") or []) == ["aethron"]),
+        ("only Aethron's private MCP servers are present",
+         set(ready.get("mcp") or []).issubset(
+             {"aethron", "aethron_permissions"})
+         and "aethron" in (ready.get("mcp") or [])),
         ("agent called the guarded pipeline",
          "mcp__aethron__list_projects" in res2["tools"]),
         ("pipeline answered with real data", bool(tool_ok.get("ok"))),
+        ("malformed streamed MCP input is repaired before the CLI sees it",
+         "InputValidationError" not in json.dumps(res2["events"])),
     ]
-    for name, ok in checks[5:]:
+    for name, ok in checks[before_mcp:]:
+        print(("  ok   " if ok else "  FAIL ") + name)
+
+    # Even if a future provider produces a bad call Aethron does not yet
+    # know how to repair, the session must not turn one failure into a wall
+    # of retries. This test stays local: no process is started.
+    fuse = CodeSession(ws2, cfg={"runtime": "claude-code"})
+    fuse._tool_names["repeat"] = "mcp__aethron__list_projects"
+    repeat = {"type": "user", "message": {"content": [{
+        "type": "tool_result", "tool_use_id": "repeat", "is_error": True,
+        "content": "InputValidationError: invalid JSON"}]}}
+    events = []
+    for _ in range(3):
+        events = fuse._normalize(repeat)
+    checks.append(("repeated rejected tool calls stop after three failures",
+                   any(e.get("type") == "error" for e in events)))
+    name, ok = checks[-1]
+    print(("  ok   " if ok else "  FAIL ") + name)
+
+    # The in-app Manual route is a condition variable rather than a fake text
+    # message to the model. Exercise both sides: the helper's request blocks,
+    # Studio resolves the card, and the helper gets Claude Code's documented
+    # allow payload back.
+    class _Live:
+        def poll(self):
+            return None
+    broker = CodeSession(ws2, cfg={"permission_policy": "manual"})
+    broker.proc = _Live()
+    decision = {}
+    waiter = th.Thread(target=lambda: decision.update(
+        broker.request_permission("mcp__aethron__create_project",
+                                  {"name": "preview"}, timeout=3)))
+    waiter.start()
+    deadline = time.time() + 1.5
+    while not broker._pending_permissions and time.time() < deadline:
+        time.sleep(.01)
+    request_id = next(iter(broker._pending_permissions), "")
+    resolved = broker.resolve_permission(request_id, True)
+    waiter.join(timeout=2)
+    checks += [
+        ("manual approval is surfaced as an Aethron event",
+         any(e.get("type") == "permission" for e in broker._events)),
+        ("manual approval returns Claude Code's allow result",
+         resolved and decision.get("behavior") == "allow"
+         and decision.get("updatedInput") == {"name": "preview"}),
+    ]
+    for name, ok in checks[-2:]:
         print(("  ok   " if ok else "  FAIL ") + name)
     shutil.rmtree(ws2, ignore_errors=True)
 
@@ -982,7 +1386,6 @@ def selftest() -> int:
     # (DeepSeek/Gemini/OpenAI/Ollama shaped) drives the CODING agent,
     # translated by Aethron's own bridge. No Anthropic account anywhere
     # in this path.
-    import aethron_bridge
     ws3 = Path(tempfile.mkdtemp(prefix="aethron-code-bridge-"))
     up, up_url = aethron_bridge._mock_openai([
         [{"text": "Creating the file."},
@@ -995,11 +1398,12 @@ def selftest() -> int:
     res3 = run_once(ws3, "create made.txt", cfg={
         "provider": "custom", "base_url": burl, "token": "aethron",
         "mode": "bridge",   # the bridge owns the model name upstream
-        "permission_mode": "bypassPermissions",
+        "permission_policy": "automatic",
         "aethron_tools": False, "isolate": True}, timeout=180)
     bsrv.shutdown()
     up.shutdown()
     made = (ws3 / "made.txt")
+    before_bridge = len(checks)
     checks += [
         ("OpenAI-wire provider drives the coding agent (via the bridge)",
          "Write" in res3["tools"]),
@@ -1008,12 +1412,92 @@ def selftest() -> int:
         ("no Anthropic account involved anywhere in that path",
          "Not logged in" not in (res3["error"] or "")),
     ]
-    for name, ok in checks[9:]:
+    for name, ok in checks[before_bridge:]:
         print(("  ok   " if ok else "  FAIL ") + name)
-    if not all(ok for _, ok in checks[9:]):
+    if not all(ok for _, ok in checks[before_bridge:]):
         print("  error:", res3["error"])
         print("  events:", json.dumps(res3["events"], indent=1)[:1500])
     shutil.rmtree(ws3, ignore_errors=True)
+
+    # SCENARIO 4 — the actual Manual path, not a simulated event: Claude
+    # Code asks the private permission MCP server about Write; that helper
+    # POSTs to Aethron, Studio's decision wakes it, and only then does the
+    # real tool write a file. This protects the exact promise made by the
+    # Approve/Deny buttons in the chat.
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    ws4 = Path(tempfile.mkdtemp(prefix="aethron-code-permission-"))
+    p4, u4 = mock_provider(script=[
+        [{"tool": "Write", "input": {
+            "file_path": str(ws4 / "approved.txt"),
+            "content": "approved by Aethron\n"}}],
+        [{"text": "The approved write completed."}],
+    ])
+    th.Thread(target=p4.serve_forever, daemon=True).start()
+    box = {}
+
+    class PermissionHandler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            n = int(self.headers.get("Content-Length", 0))
+            try:
+                body = json.loads(self.rfile.read(n) or b"{}")
+            except Exception:
+                body = {}
+            session = box.get("session")
+            result = (session.request_permission(
+                body.get("tool_name"), body.get("input"), timeout=10)
+                if session else {"behavior": "deny",
+                                 "message": "test session not ready"})
+            raw = json.dumps(result).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    auth4 = ThreadingHTTPServer(("127.0.0.1", 0), PermissionHandler)
+    th.Thread(target=auth4.serve_forever, daemon=True).start()
+    e4 = "http://127.0.0.1:%s/api/code/permission/request" % \
+         auth4.server_address[1]
+    s4 = CodeSession(ws4, cfg={
+        "provider": "custom", "base_url": u4, "token": "mock",
+        "model": "mock-1", "permission_policy": "manual",
+        "aethron_tools": False, "isolate": True,
+        "permission_endpoint": e4}).start()
+    box["session"] = s4
+    s4.send("write approved.txt and report back")
+    approved = False
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        ev4, _ = s4.drain(0)
+        waiting = next((e for e in ev4 if e.get("type") == "permission"),
+                       None)
+        if waiting and not approved:
+            approved = s4.resolve_permission(waiting.get("id"), True)
+        if any(e.get("type") == "done" for e in ev4):
+            break
+        time.sleep(.04)
+    ev4, _ = s4.drain(0)
+    approved_file = ws4 / "approved.txt"
+    before_manual_live = len(checks)
+    checks += [
+        ("Claude Code manual mode emits an Aethron approval request",
+         any(e.get("type") == "permission" for e in ev4)),
+        ("Approve resumes the real Claude Code tool call",
+         approved and any(e.get("type") == "tool_result" and e.get("ok")
+                          for e in ev4)),
+        ("the manual approval governs the resulting file write",
+         approved_file.exists()
+         and approved_file.read_text(encoding="utf-8") == "approved by Aethron\n"),
+    ]
+    for name, ok in checks[before_manual_live:]:
+        print(("  ok   " if ok else "  FAIL ") + name)
+    s4.close()
+    auth4.shutdown()
+    p4.shutdown()
+    shutil.rmtree(ws4, ignore_errors=True)
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")

@@ -54,3 +54,6 @@ tests/.stress/
 vendor/.cache/
 vendor/metal-engine.js
 vendor/metal.js
+
+# labelled preview builds — installable side by side, never committed
+preview-build/

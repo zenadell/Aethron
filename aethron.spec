@@ -21,6 +21,17 @@ try:
     _VERSION = _m.group(1) if _m else _VERSION
 except Exception:
     pass
+# A labelled build lets a tester install a preview beside their stable app.
+# The normal release leaves both values empty, so its bundle identity stays
+# exactly Aethron.app / app.aethron.studio.
+_BUILD_NAME = _os.environ.get("AETHRON_BUILD_NAME", "Aethron").strip()
+_BUILD_NAME = _re.sub(r"[^A-Za-z0-9 ._-]", "", _BUILD_NAME) or "Aethron"
+_BUILD_LABEL = _os.environ.get("AETHRON_BUILD_LABEL", "").strip()
+_BUNDLE_SUFFIX = _re.sub(r"[^a-z0-9]+", "-", _BUILD_NAME.lower()).strip("-")
+_BUNDLE_ID = ("app.aethron.studio" if _BUILD_NAME == "Aethron" else
+              "app.aethron.studio." + _BUNDLE_SUFFIX)
+_DISPLAY_VERSION = (_VERSION if not _BUILD_LABEL else
+                    f"{_VERSION} ({_BUILD_LABEL})")
 a = Analysis(
     ["desktop.py"],
     pathex=["."],
@@ -33,7 +44,7 @@ a = Analysis(
         # tools at all — which is exactly what shipped: a console agent
         # instructed to call create_project/fetch/inventory, holding
         # none of them, offering to hand-rewrite the site instead.
-        "forge_mcp",
+        "forge_mcp", "aethron_permission_mcp",
         # THE PORTER. Absent from the bundle until 2026-09-06, so the
         # shipped app could not convert at all — `forge convert` would
         # have died on the import inside a frozen build while working
@@ -76,24 +87,25 @@ exe = EXE(
     pyz,
     a.scripts,
     exclude_binaries=True,
-    name="Aethron",
+    name=_BUILD_NAME,
     console=False,          # no terminal window on double-click
     upx=False,
     icon=_icon,
 )
-coll = COLLECT(exe, a.binaries, a.datas, name="Aethron", upx=False)
+coll = COLLECT(exe, a.binaries, a.datas, name=_BUILD_NAME, upx=False)
 # macOS: wrap in a proper .app bundle so Finder/dock treat it right
 import sys
 if sys.platform == "darwin":
     app = BUNDLE(
         coll,
-        name="Aethron.app",
+        name=_BUILD_NAME + ".app",
         icon=_icon,
-        bundle_identifier="app.aethron.studio",
+        bundle_identifier=_BUNDLE_ID,
         info_plist={
-            "CFBundleDisplayName": "Aethron",
-            "CFBundleShortVersionString": _VERSION,
+            "CFBundleDisplayName": _BUILD_NAME,
+            "CFBundleShortVersionString": _DISPLAY_VERSION,
             "CFBundleVersion": _VERSION,
+            "AethronBuildLabel": _BUILD_LABEL,
             "NSHighResolutionCapable": True,
             # the app opens the user's browser; it has no UI of its own
             "LSUIElement": False,

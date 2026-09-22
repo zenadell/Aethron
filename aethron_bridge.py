@@ -388,6 +388,43 @@ def _text_of(content) -> str:
     return "\n".join(out)
 
 
+def _normalize_tool_input(raw):
+    """Return a canonical JSON object for one streamed tool call.
+
+    Most OpenAI-compatible providers stream function arguments as one JSON
+    object, in pieces.  Gemini's compatibility endpoint can also send an
+    initial empty object and then the real object (``{}{...}``).  Passing
+    those fragments straight through makes Claude Code concatenate them and
+    reject the call before Aethron's MCP server ever sees it.
+
+    An empty-object prefix is transport noise, not a request with two
+    meanings, so it is safe to discard.  Any other concatenated or malformed
+    JSON stays a hard failure: guessing tool input is worse than doing
+    nothing.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return "{}", ""
+    try:
+        value = json.loads(text)
+    except (TypeError, ValueError):
+        decoder, values, rest = json.JSONDecoder(), [], text
+        try:
+            while rest:
+                value, end = decoder.raw_decode(rest)
+                values.append(value)
+                rest = rest[end:].lstrip()
+        except (TypeError, ValueError):
+            return "", "the provider streamed invalid tool JSON"
+        if (not values or not isinstance(values[-1], dict)
+                or any(value != {} for value in values[:-1])):
+            return "", "the provider streamed conflicting tool JSON"
+        value = values[-1]
+    if not isinstance(value, dict):
+        return "", "tool input must be a JSON object"
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":")), ""
+
+
 # WHAT SHE HAS ALREADY SAID. Gemini's OpenAI-compatible endpoint accepts
 # a system message and demonstrably will not let it override "who are
 # you" — three rounds of stronger, later, more explicit system text all
@@ -872,9 +909,66 @@ def _handler(cfg: BridgeConfig, log=None):
 
             out = AnthropicStream(cfg.model or req.get("model", ""), emit)
             stop, usage = None, {}
-            names = {}
+            # Do not forward tool-argument fragments as they arrive. Some
+            # OpenAI-compatible endpoints emit a redundant ``{}`` before the
+            # actual argument object; Claude Code then sees ``{}{...}`` and
+            # refuses the call before the MCP server runs. Buffering also lets
+            # us associate chunks that omit their index with the right call.
+            pending_tools, tool_order, call_slots = {}, [], {}
             reasoning, call_ids, text_seen = [], [], []
             sigs = {}          # gemini: per-call thought_signature
+
+            def remember_tool(tc):
+                fn = tc.get("function") or {}
+                call_id = str(tc.get("id") or "")
+                index = tc.get("index")
+                # AN ID OUTRANKS AN INDEX. Gemini's compatibility endpoint
+                # streams PARALLEL calls that all say index 0, each with its
+                # own id and name. Keyed by index they collapsed into one
+                # call: list_projects `{}` and WebFetch `{"url":..}` became
+                # list_projects `{}{"url":..}`, which the CLI refused, the
+                # model retried, and the owner watched fourteen identical
+                # failures. A new id at an index already holding a
+                # different id is a NEW call; only id-less continuation
+                # chunks fall back to the index.
+                idx_slot = ("index", str(index)) if index is not None else None
+                held = pending_tools.get(idx_slot, {}).get("id") if idx_slot else ""
+                if call_id and call_id in call_slots:
+                    slot = call_slots[call_id]
+                elif call_id and held and held != call_id:
+                    slot = ("id", call_id)
+                elif idx_slot is not None:
+                    slot = idx_slot
+                elif call_id:
+                    slot = ("id", call_id)
+                elif fn.get("name"):
+                    slot = ("anonymous", len(tool_order))
+                elif tool_order:
+                    # A few compatibility layers omit index/id on later
+                    # argument chunks. They can only belong to the call that
+                    # was just opened; anything more ambiguous is rejected
+                    # below as invalid JSON rather than guessed.
+                    slot = tool_order[-1]
+                else:
+                    slot = ("anonymous", 0)
+                if slot not in pending_tools:
+                    pending_tools[slot] = {"id": "", "name": "",
+                                           "arguments": []}
+                    tool_order.append(slot)
+                call = pending_tools[slot]
+                if call_id:
+                    call["id"] = call_id
+                    call_slots[call_id] = slot
+                if fn.get("name"):
+                    call["name"] = str(fn["name"])
+                if "arguments" in fn and fn.get("arguments") is not None:
+                    args = fn["arguments"]
+                    if isinstance(args, (dict, list)):
+                        args = json.dumps(args, ensure_ascii=False)
+                    elif not isinstance(args, str):
+                        args = str(args)
+                    call["arguments"].append(args)
+
             try:
                 for line in up:
                     line = line.decode("utf-8", "replace").strip()
@@ -905,21 +999,36 @@ def _handler(cfg: BridgeConfig, log=None):
                             text_seen.append(delta["content"])
                             out.text(delta["content"])
                         for tc in delta.get("tool_calls") or []:
-                            slot = tc.get("index", 0)
                             if tc.get("id"):
                                 call_ids.append(tc["id"])
-                            fn = tc.get("function") or {}
-                            if fn.get("name"):
-                                names[slot] = fn["name"]
-                            out.tool(slot, tc.get("id", ""),
-                                     names.get(slot, ""),
-                                     fn.get("arguments") or "")
+                            remember_tool(tc)
                         if ch.get("finish_reason"):
                             stop = STOP_MAP.get(ch["finish_reason"],
                                                 "end_turn")
             except Exception as e:                       # upstream died
                 out.text(f"\n[bridge: upstream stream failed: {e}]")
             finally:
+                delivered, bad_tools = 0, []
+                for slot in tool_order:
+                    call = pending_tools[slot]
+                    args, error = _normalize_tool_input(
+                        "".join(call["arguments"]))
+                    if not call["name"]:
+                        error = error or "the provider omitted a tool name"
+                    if error:
+                        bad_tools.append(error)
+                        continue
+                    out.tool(delivered, call["id"], call["name"], args)
+                    delivered += 1
+                if bad_tools and not delivered:
+                    # A malformed call must be terminal. Giving it to the
+                    # CLI produces an error result that small models often
+                    # retry forever, which looks like an access prompt while
+                    # nothing has actually run.
+                    out.text("Aethron stopped before running a malformed "
+                             "model request. Nothing was changed; please "
+                             "send the request again.")
+                    stop = "end_turn"
                 for cid, sg in (sigs or {}).items():
                     _remember_sig(cid, sg)
                 blob = "".join(reasoning)
@@ -1018,14 +1127,20 @@ def _mock_openai(script):
             chunks = []
             for i, b in enumerate(blocks):
                 if "tool" in b:
+                    pieces = b.get("argument_chunks")
+                    if pieces is None:
+                        pieces = [json.dumps(b.get("input", {}))]
+                    elif isinstance(pieces, str):
+                        pieces = [pieces]
                     chunks.append({"choices": [{"index": 0, "delta": {
                         "tool_calls": [{"index": i, "id": f"call_{i}",
                                         "type": "function",
                                         "function": {"name": b["tool"],
                                                      "arguments": ""}}]}}]})
-                    chunks.append({"choices": [{"index": 0, "delta": {
-                        "tool_calls": [{"index": i, "function": {
-                            "arguments": json.dumps(b.get("input", {}))}}]}}]})
+                    for piece in pieces:
+                        chunks.append({"choices": [{"index": 0, "delta": {
+                            "tool_calls": [{"index": i, "function": {
+                                "arguments": str(piece)}}]}}]})
                 else:
                     for piece in _split(b.get("text", "")):
                         chunks.append({"choices": [{"index": 0,
@@ -1125,7 +1240,11 @@ def selftest() -> int:
     # 2. response translation, end to end over HTTP
     up, up_url = _mock_openai([[{"text": "hello there"},
                                 {"tool": "Write",
-                                 "input": {"file_path": "x", "content": "y"}}]])
+                                 "input": {"file_path": "x", "content": "y"},
+                                 # Gemini's compatibility stream has emitted
+                                 # this exact redundant prefix in the wild.
+                                 "argument_chunks": [
+                                     "{}", '{"file_path":"x","content":"y"}']} ]])
     srv, url = start(BridgeConfig(up_url, "k", "deepseek-chat"))
     body = json.dumps({"model": "claude-x", "max_tokens": 50, "stream": True,
                        "messages": [{"role": "user", "content": "go"}],
@@ -1147,9 +1266,10 @@ def selftest() -> int:
        and "content_block_delta" in events)
     ck("streams tool input as input_json_delta",
        any(e.startswith("TOOLJSON:") for e in events))
-    ck("tool arguments survive the round trip",
-       any(json.loads(e[9:]) == {"file_path": "x", "content": "y"}
-           for e in events if e.startswith("TOOLJSON:")))
+    tool_json = [e[9:] for e in events if e.startswith("TOOLJSON:")]
+    ck("repairs a duplicated empty tool-input prefix",
+       len(tool_json) == 1 and json.loads(tool_json[0])
+       == {"file_path": "x", "content": "y"})
     ck("ends with message_stop", events[-1] == "message_stop")
 
     # 3. non-streaming path
@@ -1291,6 +1411,76 @@ def selftest() -> int:
     reset_usage()
     srv3.shutdown()
     up3.shutdown()
+
+    # ── PARALLEL CALLS THAT ALL SAY "index 0" ───────────────────────
+    # The exact shape that broke the owner's session: Gemini streamed
+    # list_projects and WebFetch as two calls, both at index 0, each with
+    # its own id. Keyed by index they fused into one refused call and the
+    # model retried it fourteen times. They must arrive as TWO tool_use
+    # blocks, each with its own name and its own arguments.
+    class _Up4(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            chunks = [
+                {"choices": [{"index": 0, "delta": {"tool_calls": [{
+                    "index": 0, "id": "call_a", "type": "function",
+                    "function": {"name": "mcp__aethron__list_projects",
+                                 "arguments": "{}"}}]}}]},
+                {"choices": [{"index": 0, "delta": {"tool_calls": [{
+                    "index": 0, "id": "call_b", "type": "function",
+                    "function": {"name": "WebFetch", "arguments":
+                        json.dumps({"url": "https://www.jomiez.com/",
+                                    "prompt": "Extract key facts"})}}]}}]},
+                {"choices": [{"index": 0, "delta": {},
+                              "finish_reason": "tool_calls"}]},
+            ]
+            for c in chunks:
+                self.wfile.write(f"data: {json.dumps(c)}\n\n".encode())
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+    up4 = ThreadingHTTPServer(("127.0.0.1", 0), _Up4)
+    threading.Thread(target=up4.serve_forever, daemon=True).start()
+    srv4, url4 = start(BridgeConfig(
+        f"http://127.0.0.1:{up4.server_address[1]}", "k", model="m"))
+    blocks, current = [], {}
+    try:
+        rq = urllib.request.Request(
+            url4 + "/v1/messages",
+            data=json.dumps({"model": "claude", "max_tokens": 64,
+                             "stream": True, "messages": [
+                                 {"role": "user", "content": "go"}]}).encode(),
+            headers={"Content-Type": "application/json",
+                     "x-api-key": "aethron"})
+        with urllib.request.urlopen(rq, timeout=30) as rs:
+            for raw in rs.read().decode().splitlines():
+                if not raw.startswith("data: "):
+                    continue
+                ev = json.loads(raw[6:])
+                if ev.get("type") == "content_block_start" and \
+                        ev["content_block"].get("type") == "tool_use":
+                    current = {"name": ev["content_block"]["name"], "json": ""}
+                    blocks.append(current)
+                elif ev.get("type") == "content_block_delta" and \
+                        ev["delta"].get("type") == "input_json_delta":
+                    current["json"] += ev["delta"]["partial_json"]
+    except Exception as e:
+        blocks = [{"name": f"<{type(e).__name__}: {e}>", "json": ""}]
+    names = [b["name"] for b in blocks]
+    args = [json.loads(b["json"] or "{}") for b in blocks
+            if not b["name"].startswith("<")]
+    ck("parallel calls at one index stay two calls",
+       names == ["mcp__aethron__list_projects", "WebFetch"]
+       and args[0] == {} and args[1].get("url") == "https://www.jomiez.com/",
+       f"{names} {args}")
+    srv4.shutdown()
+    up4.shutdown()
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")

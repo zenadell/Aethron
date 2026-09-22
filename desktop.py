@@ -23,6 +23,21 @@ import webbrowser
 from pathlib import Path
 
 
+def app_name() -> str:
+    """The bundle name is the label a preview user should actually see.
+
+    Release builds keep the normal ``Aethron`` executable name. A separately
+    named PyInstaller build (for example, a fix preview) carries that name
+    through to the native window without changing the product name in source.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).stem or "Aethron"
+    return "Aethron"
+
+
+APP_NAME = app_name()
+
+
 def _log(msg):
     """A windowed bundle (console=False) has NO stdout — every print in
     this file has been going nowhere, which is why a fallback could
@@ -108,11 +123,25 @@ def run_mcp_mode():
     sys.exit(0)
 
 
+def run_permission_mcp_mode():
+    """`Aethron --permission-mcp` — broker CLI approvals into the app.
+
+    This intentionally exposes no project operations. It is the one small
+    MCP helper Claude Code calls when its non-interactive permission system
+    needs an answer, and it waits for the Aethron chat UI to return one.
+    """
+    import aethron_permission_mcp
+    aethron_permission_mcp.main()
+    sys.exit(0)
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--forge":
         run_forge_mode(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "--mcp":
         run_mcp_mode()
+    if len(sys.argv) > 1 and sys.argv[1] == "--permission-mcp":
+        run_permission_mcp_mode()
 
     home = Path(os.environ.get("AETHRON_HOME") or data_home())
     os.environ["AETHRON_HOME"] = str(home)
@@ -126,7 +155,7 @@ def main():
     # bind FIRST, then present the UI — never a "connection refused"
     # window, even on a slow cold start
     server = studio.ThreadingHTTPServer(("127.0.0.1", port), studio.Handler)
-    print(f"Aethron → {url}")
+    print(f"{APP_NAME} → {url}")
     print(f"your data: {home}")
 
     # Prefer a REAL native window (pywebview → a WKWebView on macOS): no
@@ -284,7 +313,7 @@ def main():
 
     try:
         install_liquid_glass()
-        webview.create_window("Aethron", url + "?glass=1",
+        webview.create_window(APP_NAME, url + "?glass=1",
                               width=1280, height=840,
                               min_size=(940, 620), transparent=True)
         # THE REASON LOGIN NEVER STUCK. pywebview defaults
