@@ -47,6 +47,16 @@ echo "── building"
 rm -rf dist build
 bash build_desktop.sh >/dev/null 2>&1
 [ -d dist/Aethron.app ] || { echo "build produced no app"; exit 1; }
+
+# 3b. THE BUNDLE MUST MIGRATE BEFORE IT SHIPS. Every migration tool once
+#     opened a second copy of the app instead of running the engine —
+#     green in every source-mode test, dead in the product. This drives
+#     the packaged app's own MCP server through a real migration and
+#     refuses to publish unless it finishes with no stray app opened.
+echo "── migrating a real template with the packaged app"
+python3 tests/frozen_migration.py dist/Aethron.app || {
+  echo "the packaged app could not migrate a template — not publishing"; exit 1; }
+
 ditto -c -k --sequesterRsrc --keepParent dist/Aethron.app "dist/Aethron-mac.zip"
 echo "  dist/Aethron-mac.zip ($(du -h dist/Aethron-mac.zip | cut -f1))"
 

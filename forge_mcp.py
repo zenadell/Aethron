@@ -26,6 +26,20 @@ import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+# THE ENGINE, FROM SOURCE OR FROM INSIDE THE APP. From source,
+# sys.executable is Python and `python forge.py init …` runs the engine.
+# Inside the packaged app sys.executable is AETHRON ITSELF, and
+# `Aethron forge.py init …` does not run the engine — it opens a SECOND
+# COPY OF THE APP, which then sits there until whatever called it gives
+# up. That was every migration tool the agent had: create, fetch,
+# inventory, build, verify, preview. The app answers the engine only as
+# `Aethron --forge <cmd>` (desktop.run_forge_mode), exactly as
+# studio.forge_argv already does. Measured: `init` timing out at 300s
+# while a second Aethron announced itself running in the background.
+_FORGE_CMD = ([sys.executable, "--forge"] if getattr(sys, "frozen", False)
+              else [sys.executable, str(ROOT / "forge.py")])
+
 FORGE = ROOT / "forge.py"
 # Where the USER's data lives. The desktop app (and any agent session it
 # starts) sets AETHRON_HOME because the bundle itself is read-only — so
@@ -55,7 +69,7 @@ def pdir(name: str) -> Path:
 
 
 def run_forge(project: str, *args, timeout=900):
-    r = subprocess.run([sys.executable, str(FORGE), *args],
+    r = subprocess.run([*_FORGE_CMD, *args],
                        cwd=pdir(project), capture_output=True, text=True,
                        timeout=timeout)
     return r.returncode == 0, (r.stdout + r.stderr).strip()
@@ -129,7 +143,7 @@ def t_create_project(a):
     if url:
         if not url.startswith(("http://", "https://")):
             raise ValueError("url must start with http(s)://")
-        r = subprocess.run([sys.executable, str(FORGE), "init", url,
+        r = subprocess.run([*_FORGE_CMD, "init", url,
                             "--name", name], cwd=PROJECTS,
                            capture_output=True, text=True, timeout=300)
         if r.returncode:
@@ -144,11 +158,11 @@ def t_create_project(a):
         import zipfile
         with tempfile.TemporaryDirectory() as td:
             zipfile.ZipFile(src).extractall(td)
-            r = subprocess.run([sys.executable, str(FORGE), "init", td,
+            r = subprocess.run([*_FORGE_CMD, "init", td,
                                 "--name", name], cwd=PROJECTS,
                                capture_output=True, text=True)
     else:
-        r = subprocess.run([sys.executable, str(FORGE), "init", str(src),
+        r = subprocess.run([*_FORGE_CMD, "init", str(src),
                             "--name", name], cwd=PROJECTS,
                            capture_output=True, text=True)
     if r.returncode:
@@ -739,7 +753,7 @@ def t_serve_preview(a):
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
-    p = subprocess.Popen([sys.executable, str(FORGE), "serve", str(port)],
+    p = subprocess.Popen([*_FORGE_CMD, "serve", str(port)],
                          cwd=d, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
     PREVIEWS[name] = (port, p)
@@ -826,7 +840,7 @@ def t_create_from_library(a):
             pg = src / "pristine" / p
             if pg.is_file():
                 shutil.copy(pg, Path(td) / p)
-        r = subprocess.run([sys.executable, str(FORGE), "init", td,
+        r = subprocess.run([*_FORGE_CMD, "init", td,
                             "--name", name], cwd=PROJECTS,
                            capture_output=True, text=True)
     if r.returncode:

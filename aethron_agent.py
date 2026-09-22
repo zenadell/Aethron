@@ -35,6 +35,20 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+# THE ENGINE, FROM SOURCE OR FROM INSIDE THE APP. From source,
+# sys.executable is Python and `python forge.py init …` runs the engine.
+# Inside the packaged app sys.executable is AETHRON ITSELF, and
+# `Aethron forge.py init …` does not run the engine — it opens a SECOND
+# COPY OF THE APP, which then sits there until whatever called it gives
+# up. That was every migration tool the agent had: create, fetch,
+# inventory, build, verify, preview. The app answers the engine only as
+# `Aethron --forge <cmd>` (desktop.run_forge_mode), exactly as
+# studio.forge_argv already does. Measured: `init` timing out at 300s
+# while a second Aethron announced itself running in the background.
+_FORGE_CMD = ([sys.executable, "--forge"] if getattr(sys, "frozen", False)
+              else [sys.executable, str(ROOT / "forge.py")])
+
 MAX_ROUNDS = 12          # bounded: an agent that cannot finish must say so
 MAX_TOOL_OUT = 6000      # keep tool results inside the context budget
 
@@ -199,7 +213,7 @@ class Tool:
 def _forge(project: Path, *argv, timeout=900) -> str:
     """Run a forge command inside the project. forge is the sole authority
     for every mechanical step — the agent never bypasses it."""
-    exe = [sys.executable, str(ROOT / "forge.py"), *map(str, argv)]
+    exe = [*_FORGE_CMD, *map(str, argv)]
     p = subprocess.run(exe, cwd=str(project), capture_output=True,
                        text=True, timeout=timeout)
     return (p.stdout + p.stderr).strip()

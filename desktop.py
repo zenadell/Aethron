@@ -136,6 +136,13 @@ def run_permission_mcp_mode():
 
 
 def main():
+    # WHERE THE WORK LIVES IS DECIDED BEFORE ANY ROLE STARTS. The engine
+    # and MCP roles used to run before this was set, so on their own they
+    # fell back to ROOT — inside the read-only bundle. A caller normally
+    # passes AETHRON_HOME; when one does not, the answer is the person's
+    # data folder, never the app itself.
+    if getattr(sys, "frozen", False) and not os.environ.get("AETHRON_HOME"):
+        os.environ["AETHRON_HOME"] = str(data_home())
     if len(sys.argv) > 1 and sys.argv[1] == "--forge":
         run_forge_mode(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "--mcp":

@@ -5057,6 +5057,57 @@ evidence (the same lesson as grep on a zlib archive).
 Tests: bridge selftest 19 -> 21, code selftest 24 -> 26 (a routine
 command runs with no card; a push still reaches the person).
 
+## EVERY MIGRATION TOOL OPENED A SECOND APP, AND THE KEYS LIVED INSIDE
+## THE ONE BEING REPLACED — 2026-09-22
+Asked "can I migrate templates now without any error?", the honest first
+answer was "not proven": every migration check in this repo had run from
+SOURCE. The owner's screenshot held the answer in one line —
+`[…/MacOS/Aethron R3, …/Frameworks/forge.py, 'init', …] timed out after
+300 seconds` — the app binary handed forge.py as an argument.
+
+`[sys.executable, forge.py, …]` sat in TWELVE call sites across six
+modules (forge_mcp ×6, agent, healer, export, convert, rebrand ×2). From
+source sys.executable is Python and it works. Inside the app it is
+AETHRON, which answers the engine only as `Aethron --forge …`; given
+anything else it opens a whole NEW APP, which never returns. So create,
+fetch, inventory, build, verify and preview all hung in the product
+while every test was green — and the agent, stranded, improvised with
+Bash, ran forge by hand in its own cwd (`workspaces/__console__/`) and
+then `mv`'d the result into projects/. One `_FORGE_CMD` per module, the
+rule studio.forge_argv already followed. The engine and MCP roles also
+started before AETHRON_HOME was set, so on their own they would have
+written into the read-only bundle; desktop.py now settles it first.
+
+tests/frozen_migration.py drives the PACKAGED app's `--mcp` server
+through a real migration of the owner's own template (lewius, 18 pages)
+in a throwaway data folder and watches the process table. Proven both
+ways: the unfixed /Applications bundle launched
+`Aethron …/forge.py init https://lewius.framer.website/` within seconds;
+the fixed one ran create 46s -> fetch -> inventory -> build -> verify
+with 0 stray apps and the project in projects/. release.sh now refuses
+to publish a bundle that fails it.
+
+AND THE API KEYS WERE STORED INSIDE Aethron.app. aethron_brain wrote
+settings to ROOT/aethron_config.json, and inside the app ROOT IS THE
+BUNDLE — so every update and reinstall silently wiped the owner's keys
+(and writing into a signed bundle breaks its signature). That is the
+"is my key even saved?" confusion of the previous week, and it wiped the
+keys once more on the day it was found, by the very reinstalls that
+shipped the fix. Settings, key state and the wallet now live in
+AETHRON_HOME in the app; the bundle's copy is read only for defaults.
+The code/permission config had already been moved; the keys never were.
+Half a fix to "where do settings live" is how the other half hides.
+
+ALSO: the agent-created project now appears in the sidebar and header
+the moment create succeeds (the owner could not tell where the work was
+going), and the chat box no longer draws the global focus ring around
+its own textarea.
+
+STILL UNPROVEN, stated plainly: a live Gemini run of the owner's exact
+prompt. The tools are proven inside the app and the agent->tools wiring
+by the code selftest, but the keys were gone, so the model has not been
+watched doing it.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5189,6 +5240,11 @@ command runs with no card; a push still reaches the person).
   with `immutable` carries a content hash in its URL, or a fixed build
   is served correctly while the page keeps running the broken copy it
   already has.
+- NOTHING A PERSON SAVES LIVES INSIDE THE APP. The bundle is replaced
+  by every update; settings, keys and state belong in AETHRON_HOME.
+- A TOOL THAT SHELLS OUT MUST WORK FROZEN. Inside the app sys.executable
+  is Aethron, not Python: launch the engine as `--forge`, and prove the
+  migration against the BUNDLE, never only from source.
 - A FIX THAT IS NOT IN THE INSTALLED APP DOES NOT EXIST FOR THE PERSON
   USING IT. Uncommitted work and side-by-side preview bundles are not
   shipping; before diagnosing a report, check what build it came from.

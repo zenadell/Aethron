@@ -10271,6 +10271,14 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
   font:inherit;font-size:14.5px;line-height:1.5;resize:none;overflow:auto;
   background:transparent;border:0;color:var(--tx)}
 .composer textarea:focus{outline:none}
+#ptitle .ptnote{font-size:12px;font-weight:500;color:var(--lo);margin-left:8px;letter-spacing:0}
+/* THE CHAT BOX IS THE FRAME; THE TEXT INSIDE IT HAS NONE. The global
+   input:focus rule draws a 3px ring and a border, and it reached into the
+   composer's own textarea — a grey box inside the box every time someone
+   clicked to type. The composer already lights as a whole on
+   :focus-within, so focus is still shown, once, where it belongs. */
+.composer textarea,.composer textarea:focus,.composer textarea:focus-visible{
+  box-shadow:none!important;border-color:transparent!important;outline:none!important}
 .composer .cbtn{width:34px;height:34px;flex:none;padding:0;border-radius:11px;
   display:grid;place-items:center;border:0;cursor:pointer;
   background:var(--acc);color:#fff}
@@ -12304,6 +12312,31 @@ async function stopForSilence(tool){
     :'The provider did not respond after 2½ minutes, so Aethron stopped the run. Work completed before the pause is still there.'});
   clearSlowNote();endTurn();
 }
+/* A PROJECT THE AGENT CREATES IS A PROJECT THE PERSON CAN SEE. Asked to
+   migrate a template with nothing selected, the agent named the project
+   itself and create_project stored it under projects/ — and the screen
+   said nothing: the sidebar did not change and the header kept reading
+   "no project selected", so the owner reasonably asked where the work was
+   going. The moment a create succeeds, the sidebar is re-read (the new
+   project arrives wearing the Live mode · New badge) and the header names
+   it. The view is NOT switched: the conversation is still running, and
+   yanking it away mid-turn would hide the very work being described. */
+function followNewProject(evs){
+  const made=[];
+  for(const e of evs){
+    if(e.type!=='tool_result'||e.ok===false)continue;
+    const call=CODE.events.find(x=>x.type==='tool'&&x.id===e.id);
+    if(!call||!/(^|__)(create_project|create_from_library)$/.test(call.name||''))continue;
+    made.push(String((call.input&&call.input.name)||'').trim());
+  }
+  if(!made.length)return;
+  refresh(true).then(()=>{
+    const name=made.filter(Boolean).pop();
+    const hit=name&&S.projects.find(p=>p.name===name);
+    const t=$('ptitle');
+    if(hit&&t&&!S.cur)t.innerHTML=`${esc(hit.name)} <span class="ptnote">being set up</span>`;
+  }).catch(()=>{});
+}
 async function pollCode(){
   if(!CODE.key)return;
   CODE.lastEv=CODE.lastEv||Date.now();
@@ -12316,6 +12349,7 @@ async function pollCode(){
       CODE.events.push(...r.events);CODE.since=r.n;CODE.lastEv=Date.now();
       clearSlowNote();
       renderChat();
+      followNewProject(r.events);
       if(r.events.some(e=>['tool_result','done'].includes(e.type)))loadTree();
       /* AN ERROR ENDS THE TURN, AND THE UI MUST NOT WAIT TO BE TOLD.
          A wedged session can keep reporting running:true forever — after

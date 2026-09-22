@@ -28,13 +28,41 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-CONFIG = ROOT / "aethron_config.json"
+
+
+def _home() -> Path:
+    """Where a person's settings live — NEVER inside the app.
+
+    From source that is the repo, as it always was. Inside the packaged
+    app ROOT is the app bundle itself, and CONFIG = ROOT / … put the
+    owner's API keys INSIDE Aethron.app: every update and every reinstall
+    replaced the bundle and silently wiped them (and writing into a signed
+    bundle breaks its signature). That is the "is my key even saved?"
+    confusion, and it wiped the keys once more the day it was found. The
+    frozen app keeps them in AETHRON_HOME, which desktop.py sets before
+    any role starts; the bundle's own copy is read only for defaults."""
+    if not getattr(sys, "frozen", False):
+        return ROOT
+    h = os.environ.get("AETHRON_HOME")
+    if h:
+        return Path(h)
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Aethron"
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA", Path.home())) / "Aethron"
+    return Path(os.environ.get("XDG_DATA_HOME",
+                               Path.home() / ".local" / "share")) / "Aethron"
+
+
+HOME = _home()
+CONFIG = HOME / "aethron_config.json"
+BUNDLED = ROOT / "aethron_config.json"    # read-only defaults in the app
 # Which keys are spent, and when that was last true. Kept OUT of the
 # config so a shared or committed config never carries key material, and
 # kept on disk because every forge subprocess is a fresh process — an
 # in-memory ring would rediscover each exhausted key by burning a request
 # on it, once per batch.
-KEYSTATE = ROOT / "aethron_keys.json"
+KEYSTATE = HOME / "aethron_keys.json"
 
 # wire: how the provider expects to be talked to.
 #   openai        -> /chat/completions   (the majority)
@@ -107,11 +135,13 @@ def load() -> dict:
     """The one place settings live. Env wins (CI, power users), then
     the config file, then the defaults."""
     cfg = dict(DEFAULT)
-    try:
-        cfg.update(json.loads(CONFIG.read_text(encoding="utf-8"))
-                   .get("ai") or {})
-    except Exception:
-        pass
+    # defaults shipped in the app first, then the person's own settings
+    for f in ([BUNDLED, CONFIG] if BUNDLED != CONFIG else [CONFIG]):
+        try:
+            cfg.update(json.loads(f.read_text(encoding="utf-8"))
+                       .get("ai") or {})
+        except Exception:
+            pass
     env = os.environ
     for key, var in (("provider", "AETHRON_AI_PROVIDER"),
                      ("api_key", "AETHRON_AI_KEY"),
@@ -130,6 +160,7 @@ def save(patch: dict) -> dict:
     ai = {**(whole.get("ai") or {}), **{k: v for k, v in patch.items()
                                         if k in DEFAULT}}
     whole["ai"] = ai
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
     CONFIG.write_text(json.dumps(whole, indent=1), encoding="utf-8")
     return ai
 
@@ -209,7 +240,7 @@ def mark_exhausted(key: str) -> None:
             pass
 
 
-WALLET = ROOT / "aethron_spend.json"   # real money, counted down across runs
+WALLET = HOME / "aethron_spend.json"   # real money, counted down across runs
 DEFAULT_WALLET = 1.00                  # what an unconfigured Aethron may spend, ever
 
 
