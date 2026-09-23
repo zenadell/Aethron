@@ -5207,6 +5207,46 @@ zero-hit brand token is moot), which is why nothing visible happened. On a
 copy with one line broken on purpose, the INSTALLED app flagged it, healed
 it ("adopted source casing") and the rebuild landed it 4 times.
 
+## "DO WE NEED AN EXTREMELY ADVANCED RAG SYSTEM?" — NO, ONE FILE
+## — 2026-09-23
+The owner reopened jomiez after an update and the conversation was gone,
+and the agent remembered none of it. Not a retrieval problem: every
+/api/code/start minted a NEW conversation id, so every restart, update,
+Stop, timeout and key change began from nothing — while the engine kept
+each conversation verbatim on disk. And CODE was one global conversation:
+switch projects and the old log stayed on screen, and the next message
+went to the OLD project's agent.
+Shipped, and the rule that holds it together is THE AGENT REMEMBERS
+EXACTLY WHAT THE SCREEN SHOWS:
+- HOME/conversations.json records which conversation each place is in;
+  start resumes it (`--resume <id>` keeps the id) unless the screen is
+  empty (fresh). "Start a new conversation" leaves an empty marker, so an
+  old one never comes back uninvited. Conversations from before the
+  record are found where the engine files them (the project's path with
+  every non-alphanumeric as '-'): jomiez, jobfoundryhub and jarin came back.
+- /api/code/history re-attaches a run still going (its events, plus the
+  person's words, which the screen draws itself and the session now keeps
+  aside for exactly this) or reads a finished one back from the transcript
+  in the SAME event contract a live run uses, so one renderer draws both.
+- Each project has its own conversation on screen; the front door stays a
+  front door. Stop, a timeout or a new key no longer wipe the screen — the
+  next message continues on a new session.
+- WHAT A PROVIDER DEMANDS BACK OUTLIVES THE PROCESS: Gemini refuses a
+  replayed tool call without its thought_signature and DeepSeek refuses
+  one without its reasoning, and both lived in RAM. The bridge now keeps
+  them in HOME/bridge_memory.json, and for a Gemini call whose signature
+  is gone sends Google's documented stand-in (measured: accepted, 200).
+Proven with the real engine and a fake model (code selftest 26 -> 32): a
+resumed session is GIVEN what was said before, and the control — a fresh
+session — is given none of it. Bridge 30 -> 33. Screen checked in a
+throwaway studio: reopen, switch away, switch back, start fresh.
+WHY NOT RAG: retrieval answers "find the relevant part of a lot of text".
+This was "the text was never handed back". The project's facts already
+live on disk exactly (plan, copy_map, the truth check) and the agent reads
+them with tools; retrieval would only guess at what those state. RAG
+earns its place later, if ever, for searching ACROSS many past
+conversations and projects.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5362,3 +5402,6 @@ it ("adopted source casing") and the rebuild landed it 4 times.
 - THE THING THAT KNOWS WHY IT IS QUIET SAYS SO. A wait, a busy provider and
   a thinking model look identical from outside; the screen reports the
   bridge's own state and never gives up before the bridge's own budget.
+- A CONVERSATION IS NOT A PROCESS. A restart, an update, a stop or a new key
+  ends a session, never a conversation; the agent remembers exactly what the
+  screen shows, and an empty screen is the only thing that starts fresh.

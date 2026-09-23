@@ -89,6 +89,66 @@ else:
     CODE_IMPORT_ERROR = ""
 CODE_SESSIONS = {}    # workspace path -> CodeSession
 
+# WHICH CONVERSATION EACH PROJECT IS IN. The conversation itself is kept by
+# the agent engine, verbatim, on disk; all Aethron has to remember is its
+# id. Without this an update, a restart or a changed key wiped the screen
+# and the agent forgot everything — the owner asked whether that needs an
+# "extremely advanced RAG system". It needed one file.
+CONV_FILE = HOME / "conversations.json"
+_CONV_LOCK = threading.Lock()
+
+
+def conv_get(key: str) -> dict:
+    try:
+        d = json.loads(CONV_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        d = {}
+    if key in d:
+        return d[key] if (d[key] or {}).get("id") else {}
+    return _latest_transcript(key)
+
+
+def _latest_transcript(key: str) -> dict:
+    """A conversation from before Aethron kept a record of it. The engine
+    files every conversation under a folder named after the directory it
+    ran in (each non-alphanumeric character becomes '-'), so a project's
+    past is findable without a record. Only used when this project has no
+    entry at all — "start a new conversation" leaves an empty one, so an
+    old conversation never comes back uninvited."""
+    base = Path(os.environ.get("CLAUDE_CONFIG_DIR")
+                or Path.home() / ".claude") / "projects" \
+        / re.sub(r"[^A-Za-z0-9]", "-", key)
+    try:
+        files = sorted(base.glob("*.jsonl"), key=lambda p: p.stat().st_mtime,
+                       reverse=True)
+    except OSError:
+        return {}
+    for f in files[:12]:
+        try:
+            txt = f.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if re.search(r'"type":\s*"assistant"', txt):
+            return {"id": f.stem, "updated": int(f.stat().st_mtime)}
+    return {}
+
+
+def conv_set(key: str, sid: str = "") -> None:
+    with _CONV_LOCK:
+        try:
+            d = json.loads(CONV_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            d = {}
+        # an empty id is a deliberate "start fresh", kept as a marker
+        d[key] = {"id": sid, "updated": int(time.time())}
+        try:
+            CONV_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = CONV_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
+            tmp.replace(CONV_FILE)
+        except OSError:
+            pass
+
 
 def code_session_by_id(session_id):
     """Find a live agent by its unguessable CLI session id.
@@ -1406,6 +1466,28 @@ class Handler(BaseHTTPRequestHandler):
                                      getattr(s, "_pending_permissions", {}))
                                      if s else 0}
                 self.send_json(st)
+            elif u.path == "/api/code/history":
+                # the conversation a project is in, to put back on screen:
+                # a session still running is re-attached (its key and every
+                # event so far); otherwise the saved transcript is read
+                if not codelayer:
+                    return self.send_json({"events": []})
+                d = (WORKSPACES / "__console__") if q.get("console") \
+                    else self.ws_dir(q)
+                key = str(d)
+                s = CODE_SESSIONS.get(key)
+                if s and s.alive:
+                    evs, n = s.replay(), len(s.drain(0)[0])
+                    return self.send_json({"live": True, "key": key,
+                                           "events": evs, "n": n,
+                                           "permission_policy":
+                                               s.permission_policy})
+                rec = conv_get(key)
+                evs = codelayer.transcript_events(rec["id"]) \
+                    if rec.get("id") else []
+                self.send_json({"live": False, "id": rec.get("id", ""),
+                                "updated": rec.get("updated", 0),
+                                "events": evs})
             elif u.path == "/api/code/events":
                 s = CODE_SESSIONS.get(q.get("key", [""])[0])
                 if not s:
@@ -1828,17 +1910,35 @@ class Handler(BaseHTTPRequestHandler):
                 old = CODE_SESSIONS.pop(key, None)
                 if old:
                     old.close()
+                # continue this project's conversation unless asked not to
+                if body.get("fresh"):
+                    conv_set(key, "")
+                elif conv_get(key).get("id"):
+                    cfg["resume_id"] = conv_get(key)["id"]
                 try:
                     s = codelayer.CodeSession(
                         d, cfg=cfg, home=HOME).start()
                 except Exception as e:
                     return self.fail(str(e))
                 CODE_SESSIONS[key] = s
+                conv_set(key, s.id)
                 self._track("code_session", runtime=s.cfg.get("runtime", ""),
                             provider=s.cfg.get("provider", ""))
                 self.send_json({"key": key, "id": s.id,
                                 "workspace": d.name,
+                                "resumed": bool(getattr(s, "resumed", False)),
                                 "permission_policy": s.permission_policy})
+            elif u.path == "/api/code/forget":
+                # "start a new conversation": the old one stays on disk,
+                # this project simply stops continuing it
+                d = (WORKSPACES / "__console__") if body.get("console") \
+                    else self.ws_dir(body)
+                key = str(d)
+                old = CODE_SESSIONS.pop(key, None)
+                if old:
+                    old.close()
+                conv_set(key, "")
+                self.send_json({"ok": True})
             elif u.path == "/api/code/send":
                 s = CODE_SESSIONS.get(body.get("key", ""))
                 if not s or not s.alive:
@@ -10401,6 +10501,11 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
 .turn.bot .prose code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
   font-size:12.5px;background:var(--panel2);padding:1px 5px;border-radius:5px}
 .turn.sys{font-size:11.5px;color:var(--lo);text-align:center;margin:12px 0}
+.turn.sys.earlier{display:flex;gap:10px;justify-content:center;align-items:center;
+  flex-wrap:wrap;margin:4px 0 18px}
+.turn.sys.earlier button{background:none;border:0;padding:0;font:inherit;
+  color:var(--acc);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.turn.sys.earlier button:focus-visible{outline:2px solid var(--acc);outline-offset:3px;border-radius:3px}
 /* a warning a person can read, with the log where it belongs: available,
    not shouted. Left-aligned and boxed because it is a thing that
    happened, not a passing note. */
@@ -12183,6 +12288,8 @@ addEventListener('resize',fitIde);
 function pickWs(v){
   CODE.ws=v.startsWith('p:')?{project:v.slice(2),workspace:''}
         :v.startsWith('w:')?{project:'',workspace:v.slice(2)}:{project:'',workspace:''};
+  if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
+  CODE.owner='ws:'+v;
   CODE.file='';CODE.key='';CODE.events=[];CODE.since=0;renderTab();
 }
 async function newWorkspace(){
@@ -12229,7 +12336,7 @@ async function saveFile(){
 async function startCode(){
   if(!wsName())return alert('choose a workspace first');
   try{
-    const r=await api('/api/code/start',wsBody({cfg:{
+    const r=await api('/api/code/start',wsBody({fresh:!CODE.events.length,cfg:{
       permission_policy:CODE.permissionPolicy}}));
     CODE.key=r.key;CODE.events=[];CODE.since=0;
     CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
@@ -13114,6 +13221,7 @@ function renderWelcome(c){
       {icon:'image',label:'Rebuild a screenshot into real code',
        ask:'Rebuild this screenshot as ',
        need:'Attach or paste the screenshot, then say which framework you want.'}]});
+  switchConversation('');
   bindStick(); renderChat(); mountDots(c); mountOrbs(c); syncComposer();
 }
 function renderChatTab(c){
@@ -13137,6 +13245,7 @@ function renderChatTab(c){
       {icon:'package',label:'Port to another framework',
        ask:'Port this site to',
        need:'Which framework \u2014 astro, next, vue, svelte? Astro is the proven one.'}]});
+  switchConversation(S.cur);
   bindStick();renderChat();mountDots(c);mountOrbs(c);
 }
 /* A STOP THAT IS ALWAYS WITHIN REACH. An agent doing the wrong thing
@@ -13219,10 +13328,53 @@ function growTa(el){el.style.height='auto';
    any project, because the project does not exist yet — the agent
    creates it with the same mcp__aethron__* tools it uses for
    everything else. */
+/* EACH PROJECT HAS ITS OWN CONVERSATION, AND IT OUTLIVES THE WINDOW.
+   CODE used to be one global conversation: switch from jomiez to jarin
+   and jomiez's log stayed on screen and the next message went to
+   jomiez's agent; restart the app and every conversation was gone. Now
+   the screen asks the server what conversation this place is in — a run
+   still going is re-attached, a finished one is read back from the
+   engine's own transcript — and the next message CONTINUES it. The rule
+   that keeps screen and memory honest with each other: the agent
+   remembers exactly what the screen shows. An empty screen starts fresh. */
+function switchConversation(owner){
+  owner=owner||'';
+  if(CODE.owner===owner)return CODE.loading||Promise.resolve();
+  if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}   // its run carries on
+  CODE.owner=owner;CODE.key='';CODE.events=[];CODE.since=0;
+  CODE.slowNote='';CODE.nudges=0;
+  const tok=CODE.loadTok=(CODE.loadTok||0)+1;
+  CODE.loading=(async()=>{
+    try{
+      const r=await api('/api/code/history?'+(owner
+        ?'project='+encodeURIComponent(owner):'console=1'));
+      if(tok!==CODE.loadTok)return;
+      if(r.live){
+        CODE.key=r.key;CODE.events=r.events||[];CODE.since=r.n||0;
+        CODE.lastEv=Date.now();
+        if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
+      }else if(owner&&(r.events||[]).length){
+        /* the front door stays a front door; a PROJECT reopens where
+           you left it */
+        CODE.events=[{type:'earlier',when:r.updated||0},...r.events];
+      }
+    }catch(e){}
+    if(tok===CODE.loadTok){renderChat();syncComposer();}
+  })();
+  return CODE.loading;
+}
+async function newConversation(){
+  const owner=CODE.owner||'';
+  if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
+  try{await api('/api/code/forget',owner?{project:owner}:{console:true});}catch(e){}
+  CODE.key='';CODE.events=[];CODE.since=0;CODE.slowNote='';CODE.nudges=0;
+  renderTab();
+}
 async function consoleSend(){
   CODE.nudges=0;
   const ta=$('npurl'), text=(ta&&ta.value||'').trim();
   if(!text)return;
+  if(CODE.loading)await CODE.loading;    // never start before the history is known
   const w=$('welcome'), log=$('chatlog'),
         rows=document.querySelector('.focal .qrows'),
         meta=document.querySelector('.focal .startmeta');
@@ -13231,10 +13383,13 @@ async function consoleSend(){
   ta.value=''; growTa(ta);
   try{
     if(!CODE.key){
-      CODE.events=[];CODE.since=0;
+      /* a new session, NOT a new conversation: whatever is on screen is
+         what the agent continues; an empty screen starts fresh */
+      CODE.since=0;
+      const fresh=!CODE.events.length;
       const r=await api('/api/code/start',
-        S.cur?{project:S.cur,cfg:{permission_policy:CODE.permissionPolicy}}
-             :{console:true,cfg:{permission_policy:CODE.permissionPolicy}});
+        S.cur?{project:S.cur,fresh,cfg:{permission_policy:CODE.permissionPolicy}}
+             :{console:true,fresh,cfg:{permission_policy:CODE.permissionPolicy}});
       CODE.key=r.key;
       CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
     }
@@ -14952,6 +15107,7 @@ function convBlocks(evs){
       continue;
     }
     run=null;
+    if(e.type==='earlier'){out.push({kind:'earlier',when:e.when||0});continue;}
     if(e.type==='truth'){out.push({kind:'truth',project:e.project,t:e.t,gaps:e.gaps||[]});continue;}
     if(e.type==='you'&&e.auto){out.push({kind:'sys',text:'Aethron sent the agent back: the project on disk is not finished.'});continue;}
     if(e.type==='you')out.push({kind:'you',text:e.text});
@@ -15153,6 +15309,11 @@ function renderChat(){
     : b.kind==='run' ? runHtml(b)
     : b.kind==='permission' ? permissionHtml(b)
     : b.kind==='truth' ? truthHtml(b)
+    : b.kind==='earlier' ? `<div class="turn sys earlier"><span>Your last conversation${
+        b.when?' · '+esc(new Date(b.when*1000).toLocaleString([],
+          {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})):''
+        } — Aethron remembers it and carries on from here.</span>
+        <button onclick="newConversation()">Start a new conversation</button></div>`
     : b.text        ?`<div class="turn sys${b.bad?' bad':''}">${esc(b.text)}${
         b.detail?`<details class="errdet"><summary>what the provider said</summary>
           <div>${esc(b.detail)}</div></details>`:''}</div>`
@@ -15357,11 +15518,13 @@ async function saveAi(st){
      a dead key is what made the next prompt hang instead of starting
      fresh on the new one. */
   if(CODE.key){
-    CODE.key=''; CODE.since=0; CODE.events=[];
+    /* the conversation stays: the next message continues it on the new
+       key. Clearing the screen here used to throw it away. */
+    CODE.key=''; CODE.since=0;
     if(window.endTurn)endTurn();
   }
   if(r&&r.ended&&window.note)
-    note('key saved \u00b7 the open session ended, the next message starts a fresh one');
+    note('key saved \u00b7 the next message continues the conversation on it');
   return r;
 }
 function aiCfg(){return {}}   // server-side settings; no client override

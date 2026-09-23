@@ -500,6 +500,77 @@ def _port_open(base_url: str) -> bool:
 
 # ─────────────────────── the session ─────────────────────────────────
 
+def transcript_path(session_id: str):
+    """Where the CLI keeps a conversation: <config>/projects/<cwd>/<id>.jsonl.
+    Found by id rather than by re-deriving the folder name from the cwd,
+    which the CLI escapes by rules of its own."""
+    if not _re.fullmatch(r"[0-9a-fA-F-]{36}", str(session_id or "")):
+        return None
+    base = Path(os.environ.get("CLAUDE_CONFIG_DIR")
+                or Path.home() / ".claude") / "projects"
+    try:
+        hits = sorted(base.glob(f"*/{session_id}.jsonl"),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        return None
+    return hits[0] if hits else None
+
+
+def transcript_events(session_id: str, limit: int = 400) -> list:
+    """A saved conversation in the SAME event contract a live one uses
+    (you / text / tool / tool_result), so the screen draws a restored
+    conversation with exactly the code that draws a running one. System
+    reminders, attachments, compaction summaries and interruption markers
+    are the machinery, not the conversation, and are left out."""
+    p = transcript_path(session_id)
+    if not p:
+        return []
+    out = []
+
+    def said(txt):
+        txt = (txt or "").strip()
+        if txt and not txt.startswith(("[Request interrupted", "<")):
+            out.append({"type": "you", "text": txt})
+
+    with p.open(encoding="utf-8", errors="replace") as f:
+        for line in f:
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get("isMeta") or m.get("isSidechain") \
+                    or m.get("isCompactSummary"):
+                continue
+            c = (m.get("message") or {}).get("content")
+            if m.get("type") == "user":
+                if isinstance(c, str):
+                    said(c)
+                    continue
+                texts = []
+                for b in c or []:
+                    if b.get("type") == "tool_result":
+                        r = b.get("content")
+                        if isinstance(r, list):
+                            r = "\n".join(x.get("text", "") for x in r
+                                          if isinstance(x, dict))
+                        out.append({"type": "tool_result",
+                                    "id": b.get("tool_use_id", ""),
+                                    "ok": not b.get("is_error"),
+                                    "text": str(r or "")[:4000]})
+                    elif b.get("type") == "text":
+                        texts.append(b.get("text", ""))
+                said("\n".join(texts))
+            elif m.get("type") == "assistant" and isinstance(c, list):
+                for b in c:
+                    if b.get("type") == "text" and b.get("text", "").strip():
+                        out.append({"type": "text", "text": b["text"]})
+                    elif b.get("type") == "tool_use":
+                        out.append({"type": "tool", "id": b.get("id", ""),
+                                    "name": b.get("name", ""),
+                                    "input": b.get("input") or {}})
+    return out[-limit:]
+
+
 class CodeSession:
     """One coding conversation over one workspace.
 
@@ -520,7 +591,17 @@ class CodeSession:
         self.home = Path(home) if home else None
         self.on_event = on_event or (lambda e: None)
         self.id = str(uuid.uuid4())
+        # A CONVERSATION IS NOT A PROCESS. Every start used to mint a new id,
+        # so an app restart, an update or a changed key left an empty screen
+        # and an agent that remembered nothing — while the whole conversation
+        # sat in the CLI's own transcript on disk. Given the id of one that
+        # still exists, the session CONTINUES it (--resume keeps the id).
+        rid = str(self.cfg.get("resume_id") or "").strip()
+        self.resumed = bool(rid and transcript_path(rid))
+        if self.resumed:
+            self.id = rid
         self.session_id = ""          # the CLI's own id, for --resume
+        self._said = []               # (event index, the person's words)
         self.proc = None
         self.q = queue.Queue()
         self._events = []
@@ -591,7 +672,8 @@ class CodeSession:
                 "--input-format", "stream-json",
                 "--output-format", "stream-json",
                 "--verbose",
-                "--session-id", self.id,
+                *(["--resume", self.id] if self.resumed
+                  else ["--session-id", self.id]),
                 "--permission-mode", self.permission_mode]
         prov = resolve_provider(self.cfg)
         # MODEL OWNERSHIP: when the bridge is in the path it rewrites the
@@ -872,8 +954,23 @@ class CodeSession:
             raise RuntimeError("session is not running")
         msg = {"type": "user", "message": {"role": "user", "content": text}}
         self.busy = True
+        # the screen draws the person's words itself as they are sent, so
+        # they are kept aside rather than emitted — but a screen that comes
+        # BACK to a running session needs them to redraw the conversation
+        self._said.append((len(self._events), text))
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
+
+    def replay(self) -> list:
+        """Every event so far, with the person's messages put back where
+        they were said — what a screen needs to re-attach to a live run."""
+        out, said = [], list(getattr(self, "_said", []))
+        for i, ev in enumerate(self._events):
+            while said and said[0][0] <= i:
+                out.append({"type": "you", "text": said.pop(0)[1]})
+            out.append(ev)
+        out += [{"type": "you", "text": t} for _, t in said]
+        return out
 
     def events(self, timeout=None, idle=None):
         """Blocking iterator of normalized events (for CLI use).
@@ -1542,6 +1639,77 @@ def selftest() -> int:
     auth4.shutdown()
     p4.shutdown()
     shutil.rmtree(ws4, ignore_errors=True)
+
+    # ── A CONVERSATION OUTLIVES ITS PROCESS ──────────────────────────
+    # The owner lost a whole project conversation to an app restart: every
+    # start minted a new conversation, so the agent remembered nothing
+    # while the transcript sat on disk. A resumed session must be GIVEN
+    # what was said before — and, the control, a fresh one must not be,
+    # or the check would pass on a model that simply sees everything.
+    seen5 = []
+
+    def listen(body):
+        if body.get("tools"):             # the agent loop, not a title call
+            seen5.append(json.dumps(body.get("messages", [])))
+        return [{"text": "noted"}]
+
+    p5, u5 = mock_provider(script=listen)
+    th.Thread(target=p5.serve_forever, daemon=True).start()
+    ws5 = Path(tempfile.mkdtemp(prefix="aethron-code-memory-"))
+    base5 = {"provider": "custom", "base_url": u5, "token": "mock",
+             "model": "mock-1", "permission_policy": "automatic",
+             "aethron_tools": False, "isolate": True}
+
+    def one_turn(s, text):
+        s.send(text)
+        deadline = time.time() + 45
+        while time.time() < deadline:
+            evs, _ = s.drain(0)
+            if sum(e.get("type") == "done" for e in evs) >= len(s._said):
+                return
+            time.sleep(.05)
+
+    a5 = CodeSession(ws5, cfg=base5).start()
+    one_turn(a5, "Remember this word for later: PELICAN")
+    first = a5.id
+    a5.close()
+    told_before = transcript_events(first)
+    seen5.clear()
+    b5 = CodeSession(ws5, cfg={**base5, "resume_id": first}).start()
+    one_turn(b5, "What word did I ask you to remember?")
+    back = b5.replay()
+    b5.close()
+    resumed_saw = any("PELICAN" in m for m in seen5)
+    seen5.clear()
+    c5 = CodeSession(ws5, cfg=base5).start()
+    one_turn(c5, "What word did I ask you to remember?")
+    c5.close()
+    fresh_saw = any("PELICAN" in m for m in seen5)
+    before_mem = len(checks)
+    checks += [
+        ("a finished conversation is found on disk by its id",
+         transcript_path(first) is not None),
+        ("it reads back as the conversation the screen draws",
+         any(e["type"] == "you" and "PELICAN" in e["text"]
+             for e in told_before)
+         and any(e["type"] == "text" for e in told_before)),
+        ("a resumed session continues the same conversation id",
+         b5.resumed and b5.id == first),
+        ("the resumed agent is given what was said before", resumed_saw),
+        ("a fresh session is given none of it (the control)",
+         bool(seen5) and not fresh_saw),
+        ("a screen re-attaching to a live run gets the person's words back",
+         any(e.get("type") == "you" and "What word" in e.get("text", "")
+             for e in back)),
+    ]
+    for name, ok in checks[before_mem:]:
+        print(("  ok   " if ok else "  FAIL ") + name)
+    p5.shutdown()
+    for sid in (first, c5.id):
+        tp = transcript_path(sid)
+        if tp:
+            shutil.rmtree(tp.parent, ignore_errors=True)
+    shutil.rmtree(ws5, ignore_errors=True)
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")

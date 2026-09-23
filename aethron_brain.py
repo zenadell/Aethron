@@ -563,6 +563,10 @@ def anthropic_endpoint(cfg: dict = None) -> dict:
                 tokens=cfg_all.get("budget_tokens"),
                 usd=cfg_all.get("budget_usd"))
             aethron_bridge.reset_usage()
+            # what Gemini/DeepSeek demand back on every later turn must
+            # outlive this process, or a resumed conversation is refused
+            aethron_bridge.MEMORY_FILE = str(HOME / "bridge_memory.json")
+            aethron_bridge.load_memory()
             srv, url = aethron_bridge.start(
                 aethron_bridge.BridgeConfig(r["base"], pool.pop("api_key"),
                                             r["model"], **pool))

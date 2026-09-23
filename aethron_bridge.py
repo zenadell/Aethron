@@ -75,6 +75,45 @@ def _sig_of(tc: dict):
             or (tc.get("function") or {}).get("thought_signature"))
 
 
+# A CONVERSATION OUTLIVES THE PROCESS THAT STARTED IT. Both memories above
+# lived only in RAM, so the moment the app restarted, a resumed
+# conversation carried tool calls Gemini would refuse ("missing a
+# thought_signature") and DeepSeek would refuse ("reasoning_content must be
+# passed back"). The brain points this at a file in AETHRON_HOME; without
+# it the bridge behaves exactly as before.
+MEMORY_FILE = None
+# Google's documented value for a function call whose signature is gone
+# (a conversation begun before signatures were kept, or pruned from the
+# cap). Measured 2026-09-23 on gemini-3.8-flash: accepted, answered 200.
+GEMINI_NO_SIGNATURE = "skip_thought_signature_validator"
+
+
+def load_memory():
+    if not MEMORY_FILE:
+        return
+    try:
+        with open(MEMORY_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        return
+    for k, v in (d.get("sig") or {}).items():
+        _SIGNATURES.setdefault(k, v)
+    for k, v in (d.get("reasoning") or {}).items():
+        _REASONING.setdefault(k, v)
+
+
+def _save_memory():
+    if not MEMORY_FILE:
+        return
+    try:
+        tmp = MEMORY_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"sig": _SIGNATURES, "reasoning": _REASONING}, f)
+        os.replace(tmp, MEMORY_FILE)
+    except Exception:
+        pass
+
+
 def _remember_sig(call_id: str, sig: str):
     if not call_id or not sig:
         return
@@ -82,6 +121,7 @@ def _remember_sig(call_id: str, sig: str):
         for k in list(_SIGNATURES)[:_REASONING_MAX // 2]:
             _SIGNATURES.pop(k, None)
     _SIGNATURES[call_id] = sig
+    _save_memory()
 
 
 def _remember(key: str, text: str):
@@ -91,6 +131,7 @@ def _remember(key: str, text: str):
         for k in list(_REASONING)[:_REASONING_MAX // 2]:
             _REASONING.pop(k, None)
     _REASONING[key] = text
+    _save_memory()
 
 
 def _recall(msg: dict):
@@ -565,8 +606,10 @@ def to_openai(body: dict, model: str = "") -> dict:
             reasoning = _recall(m)
             if reasoning:
                 m["reasoning_content"] = reasoning
+            gemini = "gemini" in (model or body.get("model", "")).lower()
             for tc in tool_calls:
-                sig = _SIGNATURES.get(tc.get("id"))
+                sig = _SIGNATURES.get(tc.get("id")) or (
+                    GEMINI_NO_SIGNATURE if gemini else None)
                 if sig:
                     tc["extra_content"] = {"google":
                                            {"thought_signature": sig}}
@@ -1774,6 +1817,42 @@ def selftest() -> int:
     ck("the bridge reports itself idle once nothing is in flight",
        st["inflight"] == 0 and st["state"] == "idle", str(st))
     reset_usage()
+
+    # ── WHAT A PROVIDER DEMANDS BACK OUTLIVES THE PROCESS ─────────────
+    # A resumed conversation replays old tool calls. Gemini refuses one
+    # without its thought_signature, and the signatures lived in RAM.
+    global MEMORY_FILE
+    import tempfile as _tf
+    saved_mem, saved_sigs = MEMORY_FILE, dict(_SIGNATURES)
+    MEMORY_FILE = os.path.join(_tf.mkdtemp(), "bridge_memory.json")
+    _remember_sig("call_keep", "SIG-123")
+    _SIGNATURES.clear()                      # the app restarts
+    load_memory()
+    ck("a signature survives a restart", _SIGNATURES.get("call_keep") == "SIG-123")
+    replay = {"messages": [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": [
+            {"type": "tool_use", "id": "call_keep", "name": "t", "input": {}},
+            {"type": "tool_use", "id": "call_lost", "name": "t", "input": {}}]},
+        {"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "call_keep", "content": "a"},
+            {"type": "tool_result", "tool_use_id": "call_lost", "content": "b"}]}]}
+    sent = {tc["id"]: ((tc.get("extra_content") or {}).get("google") or {})
+            .get("thought_signature")
+            for m in to_openai(replay, "gemini-3.8-flash")["messages"]
+            for tc in (m.get("tool_calls") or [])}
+    ck("a resumed Gemini call carries its own signature, or Google's "
+       "documented stand-in when it is gone",
+       sent.get("call_keep") == "SIG-123"
+       and sent.get("call_lost") == GEMINI_NO_SIGNATURE, str(sent))
+    other = [tc for m in to_openai(replay, "deepseek-chat")["messages"]
+             for tc in (m.get("tool_calls") or [])
+             if tc["id"] == "call_lost"]
+    ck("no stand-in is invented for a provider that is not Gemini",
+       other and "extra_content" not in other[0], str(other))
+    MEMORY_FILE = saved_mem
+    _SIGNATURES.clear()
+    _SIGNATURES.update(saved_sigs)
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
