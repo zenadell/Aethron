@@ -193,8 +193,37 @@ RATE_LIMIT_BUDGET = float(os.environ.get("AETHRON_RATE_BUDGET", "180"))
 # and reported "ok=False tools=0 cost=$0.0000" — indistinguishable from a
 # model that read the task and declined it. Measured on mondragon: attempt 2
 # never made a single request.
-USED = {"requests": 0, "input": 0, "output": 0, "usd": 0.0,
+USED = {"requests": 0, "input": 0, "output": 0, "usd": 0.0, "list_usd": 0.0,
         "last_hash": "", "repeats": 0, "stopped": "", "loop_stopped": ""}
+
+# WHAT THE BRIDGE IS DOING, FOR THE SCREEN. A rate-limit wait, a busy
+# provider and a model thinking all look the same from outside: nothing
+# arrives. The bridge is the one place that knows which it is, so it says
+# so. The studio shows this instead of a generic "waiting", and stops a run
+# only when neither the agent nor the bridge has moved for its whole limit
+# — before, the screen gave up at 2½ minutes while the bridge was still
+# inside its own 3-minute retry budget, and called a busy provider a dead
+# one.
+STATUS = {"inflight": 0, "state": "idle", "detail": "", "since": 0.0}
+_ST_LOCK = threading.Lock()
+_TL = threading.local()        # per request: was it served by a free key?
+
+
+def _status(state: str, detail: str = "") -> None:
+    STATUS.update(state=state, detail=detail, since=time.time())
+
+
+def _inflight(delta: int) -> None:
+    with _ST_LOCK:
+        STATUS["inflight"] = max(0, STATUS["inflight"] + delta)
+        if not STATUS["inflight"]:
+            _status("idle")
+
+
+def status() -> dict:
+    s = dict(STATUS)
+    s["for_s"] = round(time.time() - s["since"], 1) if s["since"] else 0.0
+    return s
 
 
 def set_limits(requests=None, tokens=None, repeats=None, usd=None):
@@ -227,8 +256,8 @@ def set_limits(requests=None, tokens=None, repeats=None, usd=None):
 
 
 def reset_usage():
-    USED.update(requests=0, input=0, output=0, usd=0.0, last_hash="",
-                repeats=0, stopped="", loop_stopped="")
+    USED.update(requests=0, input=0, output=0, usd=0.0, list_usd=0.0,
+                last_hash="", repeats=0, stopped="", loop_stopped="")
 
 
 def _retry_not_repeat():
@@ -277,7 +306,14 @@ def _account(model: str, inp: int, out: int):
     # done. Counting an unknown model at the dearest known rate means the
     # cap trips early rather than never.
     price = PRICES.get((model or "").split("/")[-1]) or UNKNOWN_PRICE
-    USED["usd"] += (inp * price[0] + out * price[1]) / 1_000_000
+    cost = (inp * price[0] + out * price[1]) / 1_000_000
+    # A FREE KEY CHARGES NOTHING. Its list price is kept apart so a report
+    # can say what the work would have cost, and so the money cap is never
+    # tripped by money that was never spent.
+    if getattr(_TL, "free", False):
+        USED["list_usd"] = USED.get("list_usd", 0.0) + cost
+    else:
+        USED["usd"] += cost
 
 
 def _budget_check(body: dict) -> str:
@@ -709,7 +745,8 @@ class BridgeConfig:
     """Where upstream lives. One place, so the studio, the CLI and the
     desktop app cannot drift apart."""
 
-    def __init__(self, base_url, api_key, model="", token="aethron"):
+    def __init__(self, base_url, api_key, model="", token="aethron",
+                 free=None, is_spent=None, on_spent=None):
         self.base_url = (base_url or "").rstrip("/")
         # A POOL, not a key. Providers refuse for reasons that have
         # nothing to do with the request — two of four Gemini keys
@@ -724,17 +761,63 @@ class BridgeConfig:
         self._k = 0
         self.model = model or ""
         self.token = token          # what the CLI must present to US
+        # WHICH KEYS COST NOTHING, AND WHICH ARE DONE FOR THE DAY. The
+        # brain owns the daily record (it survives restarts and turns over
+        # when the provider's day does); without it the bridge keeps its
+        # own in memory. A free key is accounted at $0.
+        self.free = {str(k).strip() for k in (free or []) if k}
+        self._is_spent = is_spent
+        self._on_spent = on_spent
+        self._spent_here = set()
+        if self.keys and self.spent(self.api_key):
+            self.rotate()
 
     @property
     def api_key(self):
         return self.keys[self._k] if self.keys else ""
 
-    def rotate(self) -> bool:
-        """-> True when another key is worth trying."""
-        if len(self.keys) < 2:
+    def spent(self, key) -> bool:
+        if key in self._spent_here:
+            return True
+        try:
+            return bool(self._is_spent and self._is_spent(key))
+        except Exception:
             return False
-        self._k = (self._k + 1) % len(self.keys)
-        return True
+
+    def live(self) -> list:
+        return [k for k in self.keys if not self.spent(k)]
+
+    def spend(self, key) -> None:
+        """A key whose allowance is gone for today is never asked again."""
+        self._spent_here.add(key)
+        if self._on_spent:
+            try:
+                self._on_spent(key)
+            except Exception:
+                pass
+        self.rotate()
+
+    def position(self) -> int:
+        return self._k + 1
+
+    def rotate(self) -> bool:
+        """-> True when another usable key is now current.
+
+        A paid key is last in the pool and is reached only once every free
+        key is spent for the day: a free key that is merely BUSY or pacing
+        is worth coming back to, and rotating onto the paid key for a blip
+        would spend money on a problem that clears in seconds."""
+        n = len(self.keys)
+        live = self.live()
+        free_live = [k for k in live if k in self.free]
+        pool = free_live or live
+        for step in range(1, n + 1):
+            j = (self._k + step) % n
+            if self.keys[j] in pool:
+                moved = j != self._k
+                self._k = j
+                return moved
+        return False
 
     @property
     def endpoint(self):
@@ -802,9 +885,14 @@ def _handler(cfg: BridgeConfig, log=None):
                      "messages": len(req["messages"]),
                      "tools": len(req.get("tools") or []),
                      "stream": req["stream"]})
-            if req["stream"]:
-                return self._stream(req, body)
-            return self._once(req)
+            _TL.free = False
+            _inflight(+1)
+            try:
+                if req["stream"]:
+                    return self._stream(req, body)
+                return self._once(req)
+            finally:
+                _inflight(-1)
 
         # -- upstream ------------------------------------------------
         def _open(self, req):
@@ -838,48 +926,83 @@ def _handler(cfg: BridgeConfig, log=None):
             just wastes the same time twice.
             """
             import urllib.error
-            pool = tries or max(1, len(cfg.keys))
             deadline = time.time() + RATE_LIMIT_BUDGET
             last, waits = None, list(RATE_BACKOFF)
+            model = req.get("model", "")
             while True:
-                rate_limited = False
+                rate_limited, hint = False, 0
+                pool = tries or max(1, len(cfg.live()))
                 for _ in range(pool):
+                    if not cfg.live():
+                        break
+                    key, n = cfg.api_key, cfg.position()
+                    _status("asking", f"Asking {model} (key {n} of "
+                                      f"{len(cfg.keys)}).")
                     try:
-                        return self._open(req)
+                        up = self._open(req)
+                        _TL.free = key in cfg.free
+                        return up
                     except urllib.error.HTTPError as e:
                         last = e
                         if e.code not in (429, 500, 502, 503, 529):
                             raise
-                        # A QUOTA WALL IS NOT A RATE LIMIT. Both arrive as
-                        # 429 and they need opposite answers: a per-minute
-                        # limit clears if you wait, an exhausted plan quota
-                        # does not clear today no matter how long you sit
-                        # there. Waiting on one burned the agent's entire
-                        # 420s idle window in silence and reported "the
-                        # agent went silent" — about an agent that was
-                        # never given a single answer.
-                        if _is_quota_wall(e):
-                            raise
-                        rate_limited = rate_limited or e.code in (429, 503)
+                        # A QUOTA WALL IS NOT A RATE LIMIT — and neither is
+                        # it the end of the POOL. Google words a free key's
+                        # spent DAY and its busy MINUTE identically; only
+                        # the quota id tells them apart. A spent key is
+                        # benched for the provider's day and the next key
+                        # asked at once; a pacing key is rotated off and
+                        # waited out. Raising on the first spent key killed
+                        # the agent while three other keys had allowance.
+                        if e.code == 429:
+                            kind, secs = _quota_kind(e)
+                            if kind == "spent":
+                                cfg.spend(key)
+                                left = len(cfg.live())
+                                if not left:
+                                    raise
+                                _status("spent", f"Key {n} has used today's "
+                                                 f"free allowance; {left} "
+                                                 f"key(s) left.")
+                                continue
+                            hint = max(hint, secs)
+                            _status("pacing", f"Key {n} hit the provider's "
+                                              f"per-minute limit.")
+                        else:
+                            _status("busy", f"The provider is busy "
+                                            f"({e.code}) on key {n}.")
+                        rate_limited = True
                         cfg.rotate()
                         time.sleep(0.6)
                     except Exception as e:
                         last = e
+                        _status("busy", f"Key {n} did not answer "
+                                        f"({type(e).__name__}).")
                         cfg.rotate()
                 # only a rate limit is worth waiting on, and only while
                 # there is budget left to wait with
                 if not (rate_limited and waits and time.time() < deadline):
                     break
-                time.sleep(min(waits.pop(0), max(0, deadline - time.time())))
+                pause = min(max(waits.pop(0), hint),
+                            max(0, deadline - time.time()))
+                _status("waiting", f"Every key is busy or pacing; trying "
+                                   f"again in {int(pause)}s.")
+                time.sleep(pause)
+            if last is None:
+                raise NoKeysLeft()
             raise last
 
         def _once(self, req):
             try:
                 with self._open_rotating(req) as r:
+                    _status("answering", "The model is working on its answer.")
                     data = json.loads(r.read())
             except urllib.error.HTTPError as e:
                 _retry_not_repeat()
                 return self._error(e.code, _upstream_error(e))
+            except NoKeysLeft as e:
+                _retry_not_repeat()
+                return self._error(429, f"upstream 429: {e}")
             except Exception as e:
                 _retry_not_repeat()
                 return self._error(502, f"bridge could not reach "
@@ -892,6 +1015,9 @@ def _handler(cfg: BridgeConfig, log=None):
             except urllib.error.HTTPError as e:
                 _retry_not_repeat()
                 return self._error(e.code, _upstream_error(e))
+            except NoKeysLeft as e:
+                _retry_not_repeat()
+                return self._error(429, f"upstream 429: {e}")
             except Exception as e:
                 _retry_not_repeat()
                 return self._error(502, f"bridge could not reach "
@@ -901,6 +1027,7 @@ def _handler(cfg: BridgeConfig, log=None):
             self.send_header("Cache-Control", "no-store")
             self.send_header("Connection", "close")
             self.end_headers()
+            _status("answering", "The model is working on its answer.")
 
             gone = []
 
@@ -991,6 +1118,9 @@ def _handler(cfg: BridgeConfig, log=None):
                         d = json.loads(payload)
                     except ValueError:
                         continue
+                    # every chunk is proof of life; the screen measures
+                    # silence from here, not from the start of the request
+                    _status("writing", "The model is writing its answer.")
                     if d.get("usage"):
                         u = d["usage"]
                         usage = {"input_tokens": u.get("prompt_tokens", 0),
@@ -1078,6 +1208,31 @@ QUOTA_WALL_RE = re.compile(
     r"|insufficient[_ ]quota|out of credit|exceeded your monthly")
 
 
+class NoKeysLeft(Exception):
+    """Every key in the pool has used the provider's allowance for today."""
+
+    def __str__(self):
+        return ("every API key has used today's allowance for this model. "
+                "Free allowances reset at midnight Pacific; switch to another "
+                "model in Settings (each model has its own allowance) or add "
+                "a key.")
+
+
+def _quota_kind(e) -> tuple:
+    """-> ('spent', 0) when the key is done for the provider's day, or
+    ('pace', seconds) when it clears soon. Google sends the SAME words for
+    both ("You exceeded your current quota"); only the quota id differs —
+    measured 2026-09-23: GenerateRequestsPerDayPerProjectPerModel-FreeTier,
+    quotaValue 20, alongside a misleading "Please retry in 17s"."""
+    body = _error_body(e)
+    if "PerMinute" in body:
+        m = re.search(r'"retryDelay":\s*"(\d+)', body)
+        return "pace", min(60, (int(m.group(1)) + 1) if m else 20)
+    if "PerDay" in body or QUOTA_WALL_RE.search(body):
+        return "spent", 0
+    return "pace", 15
+
+
 def _is_quota_wall(e) -> bool:
     """True when waiting cannot help: the plan's allowance is gone.
 
@@ -1088,8 +1243,13 @@ def _is_quota_wall(e) -> bool:
     of silence, with the real reason sitting in the response body all
     along: "You exceeded your current quota, please check your plan and
     billing details."
+
+    A PER-MINUTE limit is never a wall, whatever the words say: Google
+    uses the same sentence for it, and calling it "spent for today" sent
+    people to top up a plan that only needed a minute's rest.
     """
-    return bool(QUOTA_WALL_RE.search(_error_body(e)))
+    body = _error_body(e)
+    return bool(QUOTA_WALL_RE.search(body)) and "PerMinute" not in body
 
 
 def _upstream_error(e) -> str:
@@ -1491,6 +1651,129 @@ def selftest() -> int:
        f"{names} {args}")
     srv4.shutdown()
     up4.shutdown()
+
+    # ── A SPENT KEY IS BENCHED, NOT FATAL — the owner's stalled fill ──
+    # Measured 2026-09-23 on Google's free tier: the refusal for a spent
+    # DAY and a busy MINUTE use the same sentence; only the quota id
+    # differs, and the per-day one still says "Please retry in 17s". The
+    # agent's bridge was handed ONE key and raised on the first spent day
+    # while three other keys had allowance.
+    def _g429(quota, delay):
+        return json.dumps([{"error": {
+            "code": 429, "status": "RESOURCE_EXHAUSTED",
+            "message": "You exceeded your current quota, please check your "
+                       "plan and billing details. limit: 20, model: m\n"
+                       f"Please retry in {delay}s.",
+            "details": [{"@type": "type.googleapis.com/google.rpc."
+                                  "QuotaFailure",
+                         "violations": [{"quotaId": quota,
+                                         "quotaValue": "20"}]},
+                        {"@type": "type.googleapis.com/google.rpc.RetryInfo",
+                         "retryDelay": f"{delay}s"}]}}]).encode()
+    DAY = _g429("GenerateRequestsPerDayPerProjectPerModel-FreeTier", 17)
+    MINUTE = _g429("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", 1)
+    tried5 = []
+
+    class _Up5(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            key = (self.headers.get("Authorization") or "")[7:]
+            tried5.append(key)
+            if key.startswith(("spent", "pacing")):
+                body = DAY if key.startswith("spent") else MINUTE
+                self.send_response(429)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            out = json.dumps({"id": "x", "choices": [{"message": {
+                "role": "assistant", "content": "ok:" + key},
+                "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1000,
+                          "completion_tokens": 1000}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+
+    up5 = ThreadingHTTPServer(("127.0.0.1", 0), _Up5)
+    threading.Thread(target=up5.serve_forever, daemon=True).start()
+    base5 = f"http://127.0.0.1:{up5.server_address[1]}"
+
+    def ask5(url):
+        rq = urllib.request.Request(
+            url + "/v1/messages", data=json.dumps(
+                {"model": "claude", "max_tokens": 16, "messages": [
+                    {"role": "user", "content": "hi"}]}).encode(),
+            headers={"Content-Type": "application/json",
+                     "x-api-key": "aethron"})
+        try:
+            with urllib.request.urlopen(rq, timeout=60) as rs:
+                return 200, "".join(c.get("text", "") for c in
+                                    json.loads(rs.read()).get("content", []))
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode()
+
+    benched = []
+    cfg5 = BridgeConfig(base5, ["spent-1", "good-free", "paid"], model="m",
+                        free=["spent-1", "good-free"],
+                        on_spent=benched.append)
+    srv5, url5 = start(cfg5)
+    reset_usage()
+    t0 = time.time()
+    code, said = ask5(url5)
+    ck("a key spent for the day hands over to the next key at once",
+       code == 200 and said == "ok:good-free" and time.time() - t0 < 5
+       and tried5 == ["spent-1", "good-free"], f"{code} {said!r} {tried5}")
+    ck("the spent key is recorded for the day", benched == ["spent-1"],
+       str(benched))
+    ck("the paid key is not touched while a free key answers",
+       "paid" not in tried5, str(tried5))
+    ck("a free key's answer costs $0 (its list price kept apart)",
+       USED["usd"] == 0 and USED["list_usd"] > 0,
+       f"usd={USED['usd']} list={USED['list_usd']}")
+    tried5.clear()
+    code, said = ask5(url5)
+    ck("a benched key is not asked again", tried5 == ["good-free"],
+       str(tried5))
+    srv5.shutdown()
+
+    tried5.clear()
+    benched.clear()
+    srv5, url5 = start(BridgeConfig(base5, ["pacing-1", "good-2"], model="m",
+                                    free=["pacing-1", "good-2"],
+                                    on_spent=benched.append))
+    code, said = ask5(url5)
+    ck("a per-minute limit moves to the next key without benching it",
+       code == 200 and said == "ok:good-2" and not benched,
+       f"{code} {said!r} benched={benched}")
+    srv5.shutdown()
+
+    tried5.clear()
+    reset_usage()      # the repeat detector would rightly stop a 4th copy
+    srv5, url5 = start(BridgeConfig(base5, ["spent-a", "spent-b"], model="m",
+                                    free=["spent-a", "spent-b"]))
+    t0 = time.time()
+    code, said = ask5(url5)
+    ck("when every key is spent the answer is quick and says so",
+       code == 429 and "SPENT" in said and time.time() - t0 < 10,
+       f"{code} in {time.time() - t0:.1f}s: {said[:120]}")
+    tried5.clear()
+    code, said = ask5(url5)
+    ck("and the next request is refused without asking anyone",
+       code == 429 and "today's allowance" in said and not tried5,
+       f"{code} tried={tried5}: {said[:120]}")
+    srv5.shutdown()
+    up5.shutdown()
+    st = status()
+    ck("the bridge reports itself idle once nothing is in flight",
+       st["inflight"] == 0 and st["state"] == "idle", str(st))
+    reset_usage()
 
     bad = [n for n, ok in checks if not ok]
     print(f"\n{len(checks) - len(bad)}/{len(checks)} green")

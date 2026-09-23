@@ -936,7 +936,11 @@ TOOLS = [
        ["project", "old", "new"]), t_set_content),
     ("set_content_bulk", "Guarded write of MANY entries at once (the "
      "efficient way to fill a migration), one snapshot, one rebuild. "
-     "Returns per-entry rejections to fix and resend.",
+     "Returns per-entry rejections to fix and resend. Send AT MOST 40 "
+     "entries per call and write each batch as soon as you have read it "
+     "— read 40 with get_content, fill them, send them, read the next 40. "
+     "One huge answer can take minutes to write and is lost whole if the "
+     "provider drops it; a batch that lands is saved.",
      S({**P, "entries": {"type": "array", "items": {"type": "object",
         "properties": {"section": {"type": "string"}, "old": {"type": "string"},
                        "new": {"type": "string"}}, "required": ["old", "new"]}},

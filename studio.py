@@ -1413,9 +1413,11 @@ class Handler(BaseHTTPRequestHandler):
                                            "running": False})
                 since = int(q.get("since", ["0"])[0] or 0)
                 evs, n = s.drain(since)
+                br = sys.modules.get("aethron_bridge")
                 self.send_json({"events": evs, "n": n,
                                 "running": s.alive, "busy": s.busy,
-                                "cost_usd": s.cost_usd})
+                                "cost_usd": s.cost_usd,
+                                "bridge": br.status() if br else None})
             elif u.path == "/api/fs/tree":
                 d = self.ws_dir(q)
                 self.send_json({"root": d.name, "files": fs_tree(d)})
@@ -12360,7 +12362,7 @@ function slowNoteFor(tool){
   }
   return 'Still waiting for the provider. Aethron is keeping this run open so its real response can arrive.';
 }
-async function stopForSilence(tool){
+async function stopForSilence(tool,last){
   const key=CODE.key;
   if(!key)return;
   /* Do not leave a real child process working after the UI says it ended. */
@@ -12368,8 +12370,20 @@ async function stopForSilence(tool){
   try{await api('/api/code/stop',{key});}catch(e){}
   CODE.events.push({type:'error',text:tool
     ?'This step did not report back after 10 minutes, so Aethron stopped the run. Work completed before the pause is still there.'
-    :'The provider did not respond after 2½ minutes, so Aethron stopped the run. Work completed before the pause is still there.'});
+    :'The provider did not respond after 2½ minutes, so Aethron stopped the run.'
+      +(last?' Last thing it said: '+last:'')
+      +' Work completed before the pause is still there.'});
   clearSlowNote();endTurn();
+}
+/* THE BRIDGE KNOWS WHY IT IS QUIET. A rate-limit wait, a busy provider
+   and a model still thinking all look the same from here — nothing
+   arrives — and the screen used to call all three "the provider did not
+   respond". The bridge reports which it is, and silence is measured from
+   ITS last sign of life as well as the agent's: a run is stopped only
+   when neither has moved for the whole limit. */
+function bridgeNote(br){
+  return (br.detail||'Waiting for the provider.')
+    +(br.for_s>=5?' ('+Math.round(br.for_s)+'s)':'')+' You can stop it at any time.';
 }
 /* A PROJECT THE AGENT CREATES IS A PROJECT THE PERSON CAN SEE. Asked to
    migrate a template with nothing selected, the agent named the project
@@ -12511,11 +12525,18 @@ async function pollCode(){
     }
     /* A permission card is intentional waiting, not a stalled model. */
     const quiet=Date.now()-CODE.lastEv;
-    if(CODE.poll&&r.running&&!hasWaitingPermission()&&quiet>SLOW_NOTICE_MS){
-      const tool=inFlightTool(), limit=tool?TOOL_STALL_MS:PROVIDER_STALL_MS;
-      const note=slowNoteFor(tool);
+    const br=r.bridge, tool=inFlightTool();
+    const viaBridge=!tool&&br&&br.inflight>0;
+    /* waiting on a key or a busy provider is worth saying at once, not
+       after 90 seconds of an unexplained spinner */
+    const waiting=viaBridge&&['pacing','busy','waiting','spent'].includes(br.state);
+    if(CODE.poll&&r.running&&!hasWaitingPermission()
+       &&(quiet>SLOW_NOTICE_MS||(waiting&&quiet>15000))){
+      const limit=tool?TOOL_STALL_MS:PROVIDER_STALL_MS;
+      const idle=viaBridge?Math.min(quiet,br.for_s*1000):quiet;
+      const note=viaBridge?bridgeNote(br):slowNoteFor(tool);
       if(CODE.slowNote!==note){CODE.slowNote=note;renderChat();}
-      if(quiet>limit)return stopForSilence(tool);
+      if(idle>limit)return stopForSilence(tool,viaBridge?br.detail:'');
     }
     syncComposer();            // stop becomes send the moment it is over
   }catch(e){}

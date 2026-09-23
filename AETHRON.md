@@ -5164,6 +5164,49 @@ a glyph that does not exist, so it drew as an empty square; Settings used
 I('cur'). Third time this exact bug is in this file. Both fixed; the
 assembled page now has zero unknown icon names.
 
+## "WHY DOES IT ALWAYS STOP?" — THE AGENT HAD ONE KEY OF FOUR — 2026-09-23
+The owner's fill kept ending in "The provider did not respond after 2½
+minutes". Traced from the agent's own transcript, the bridge and a live
+measurement, three faults stacked:
+1. THE AGENT'S BRIDGE WAS HANDED ONE KEY. When the free keys moved into
+   `api_keys`, anthropic_endpoint kept passing `resolve()["key"]` — the
+   first live key only. The bridge's pool logic was intact, with a pool of
+   one. Key 1 used Google's free allowance and the agent stalled while
+   keys 3 and 4 had theirs. It now gets the whole ring (free first, paid
+   last), asks the brain which keys are spent today, and benches a spent
+   key for the provider's day. The bridge signature names the whole ring,
+   so a key running out never restarts the bridge under a live session.
+2. A SPENT DAY AND A BUSY MINUTE LOOK IDENTICAL. Measured: Google's free
+   tier is 20 requests per day PER PROJECT per model
+   (GenerateRequestsPerDayPerProjectPerModel-FreeTier), refused with "You
+   exceeded your current quota… Please retry in 17s" — the same sentence a
+   per-minute limit uses. The bridge raised on the first one. `_quota_kind`
+   reads the quota id: PerDay benches the key and asks the next at once,
+   PerMinute rotates and waits. Keys 1 AND 2 were spent though only key 1
+   had been used, so they very likely share one Google project: four keys,
+   three allowances.
+3. THE SCREEN GAVE UP BEFORE THE BRIDGE DID. The UI stopped at 150s of
+   silence while the bridge's own retry budget was 180s, and called a busy
+   provider a dead one. The bridge now reports what it is doing
+   (`status()`: asking key n, busy, pacing, spent, waiting Ns, writing),
+   the events poll carries it, the screen shows it, and silence is measured
+   from the bridge's last sign of life as well as the agent's.
+Also: the model is told to fill in batches of at most 40 (one enormous
+answer takes minutes and is lost whole if dropped; a batch that lands is
+saved); a free key's answer is accounted at $0 with its list price kept
+apart; and the "spent today" record turns over at midnight PACIFIC, when
+Google's allowance does — on the local date a key spent at 00:30 Lagos
+stayed benched straight through Google's 08:00 reset.
+Live, on the owner's real keys: key 1 and key 2 refused (spent), both
+benched, key 3 answered in under 10s, $0 charged. Bridge selftest 21 -> 30
+(a fake Google returning the exact measured refusal shapes), code 26/26,
+ring battery 16/16, packaged migration PASS.
+SELF-HEAL, asked about in the same breath, was checked rather than
+assumed: jomiez had 0 broken edits (all 191 filled lines landed; the one
+zero-hit brand token is moot), which is why nothing visible happened. On a
+copy with one line broken on purpose, the INSTALLED app flagged it, healed
+it ("adopted source casing") and the rebuild landed it 4 times.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5313,3 +5356,9 @@ assembled page now has zero unknown icon names.
   file it by WHAT differs, and judge it with the change that caused it.
 - A REFUSAL BY AETHRON IS NOT A FAILURE. Show the rule working as the rule
   working; red is for things that broke.
+- EVERY PATH THAT CALLS A PROVIDER GETS THE WHOLE KEY RING. A pool handed one
+  key is a pool of one, and it fails exactly when the other keys would
+  have answered.
+- THE THING THAT KNOWS WHY IT IS QUIET SAYS SO. A wait, a busy provider and
+  a thinking model look identical from outside; the screen reports the
+  bridge's own state and never gives up before the bridge's own budget.

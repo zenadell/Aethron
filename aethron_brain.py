@@ -172,8 +172,19 @@ def _fp(key: str) -> str:
 
 
 def _today() -> str:
+    """The day as the PROVIDER counts it, not as this machine does.
+
+    Google's free allowance resets at midnight Pacific. Using the local
+    date meant a key spent at 00:30 in Lagos (Google's day still running)
+    was marked for the whole Lagos day and stayed benched straight through
+    Google's reset at 08:00 — a full day of free requests thrown away.
+    """
     import datetime
-    return datetime.date.today().isoformat()
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.datetime.now(ZoneInfo("America/Los_Angeles")).date().isoformat()
+    except Exception:
+        return (datetime.datetime.utcnow() - datetime.timedelta(hours=8)).date().isoformat()
 
 
 def _keystate() -> dict:
@@ -486,12 +497,35 @@ _BRIDGE = {"srv": None, "url": "", "sig": ""}
 _LOCK = threading.Lock()
 
 
+def _bridge_pool(cfg: dict, r: dict) -> dict:
+    """The WHOLE ring for the coding agent, free keys first, paid last.
+
+    MEASURED 2026-09-23: when the free keys moved into `api_keys`, the
+    bridge kept receiving `resolve()["key"]` — ONE key. Its pool logic
+    (rotate on busy, wait out a rate limit) was intact and had one key to
+    work with. The first free key's daily allowance ran out mid-migration
+    and the agent stalled while three keys with allowance sat unused.
+
+    The bridge gets every key and asks the brain which are spent today, so
+    a key benched in one session is benched in all of them, and comes back
+    when the provider's day turns. A key pinned by the caller stays pinned.
+    """
+    pin = str((cfg or {}).get("_pin_key") or (cfg or {}).get("api_key")
+              or "").strip()
+    keys = [pin] if pin else (ring(cfg) or [r["key"]])
+    return {"api_key": keys, "free": free_ring(cfg),
+            "is_spent": lambda k: _fp(k) in set(_keystate()["exhausted"]),
+            "on_spent": mark_exhausted}
+
+
 def bridge_config(cfg: dict = None):
     import aethron_bridge
     r = resolve(cfg)
     if not r["ready"]:
         raise ValueError(r["why"] or "AI settings incomplete")
-    return aethron_bridge.BridgeConfig(r["base"], r["key"], r["model"])
+    p = _bridge_pool(cfg, r)
+    return aethron_bridge.BridgeConfig(r["base"], p.pop("api_key"),
+                                       r["model"], **p)
 
 
 def anthropic_endpoint(cfg: dict = None) -> dict:
@@ -512,7 +546,11 @@ def anthropic_endpoint(cfg: dict = None) -> dict:
                 "model": r["model"],
                 "why": f"{r['label']} speaks the Anthropic API directly"}
     import aethron_bridge
-    sig = f"{r['base']}|{r['key'][:8]}|{r['model']}"
+    pool = _bridge_pool(cfg, r)
+    # the signature names the whole ring, never the key that happens to be
+    # live: a key running out must not restart the bridge under a session
+    # that is still talking to it (a dead socket, no error, no timeout)
+    sig = f"{r['base']}|{','.join(_fp(k) for k in pool['api_key'])}|{r['model']}"
     with _LOCK:
         if _BRIDGE["sig"] != sig:
             if _BRIDGE["srv"]:
@@ -526,7 +564,8 @@ def anthropic_endpoint(cfg: dict = None) -> dict:
                 usd=cfg_all.get("budget_usd"))
             aethron_bridge.reset_usage()
             srv, url = aethron_bridge.start(
-                aethron_bridge.BridgeConfig(r["base"], r["key"], r["model"]))
+                aethron_bridge.BridgeConfig(r["base"], pool.pop("api_key"),
+                                            r["model"], **pool))
             _BRIDGE.update(srv=srv, url=url, sig=sig)
     return {"base_url": _BRIDGE["url"], "token": "aethron", "mode": "bridge",
             "model": r["model"],

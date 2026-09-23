@@ -340,6 +340,11 @@ instinct you have about editing files here:
    do not: `list_projects` for what exists, `get_plan` for the brief,
    `get_content` (with only_unfilled) for what is left to write. Start
    there. The site's zip is the person's Download button, not your job.
+4. Fill in BATCHES of at most 40: `get_content` (only_unfilled, limit
+   40), write those, `set_content_bulk` with build=false, repeat; build
+   once at the end. Do not read everything first and answer in one go —
+   a single enormous answer takes minutes, and a dropped one loses all
+   of it, while every batch that lands is already saved.
 
 After changing anything: `build`, then `verify` (files), then `probe`
 (what the browser actually does). If an edit lands nowhere, run `heal`
