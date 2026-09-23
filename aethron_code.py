@@ -345,6 +345,13 @@ instinct you have about editing files here:
    once at the end. Do not read everything first and answer in one go —
    a single enormous answer takes minutes, and a dropped one loses all
    of it, while every batch that lands is already saved.
+5. WRITE FROM THE BRAND'S REAL MATERIAL. When the person gives a brand
+   website or documents, call `learn_brand` with them once, before
+   filling. `get_content` then hands you `brand_notes` for each line —
+   the brand's own passages about what that slot covers. Write from
+   them. Never invent facts (clients, numbers, awards, dates, policies)
+   the notes and `search_brand` do not give you; keep such a line
+   general or ask.
 
 After changing anything: `build`, then `verify` (files), then `probe`
 (what the browser actually does). If an edit lands nowhere, run `heal`

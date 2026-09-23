@@ -493,10 +493,81 @@ def t_get_content(a):
     slim = [{"old": e["old"], "new": e.get("new", ""),
              **({"max_bytes": e["max_bytes"]} if e.get("max_bytes") else {})}
             for e in page]
+    # GROUNDING. When the brand's own material has been read (learn_brand),
+    # each line worth writing arrives with the passages that answer it —
+    # the template's words say what the slot is ABOUT, so they are the
+    # question. A slot nothing in the material covers gets no note, rather
+    # than an unrelated one the writer would turn into an invented fact.
+    head = ""
+    if section == "strings" and a.get("brand_notes", True):
+        try:
+            import aethron_rag
+            todo = [e["old"] for e in slim if not e["new"]]
+            r = aethron_rag.notes_for(d, todo)
+            for e in slim:
+                if e["old"] in r["notes"]:
+                    e["brand_notes"] = r["notes"][e["old"]]
+            got = sum(1 for e in slim if "brand_notes" in e)
+            if r["mode"] == "none":
+                head = ("no brand material read yet — call learn_brand with "
+                        "the brand's site so lines arrive with its real "
+                        "facts\n")
+            elif got or r["mode"]:
+                head = (f"brand_notes = passages from the brand's own "
+                        f"material ({r['mode']} search) for {got} line(s). "
+                        f"match 'strong' = it answers what the line is about; "
+                        f"'loose' = same topic, NOT proof of any fact. Use "
+                        f"only facts a note literally states; never invent "
+                        f"what the notes do not give"
+                        + (f" — note: {r['why']}" if r["why"] else "") + "\n")
+        except Exception as ex:                     # grounding is a help,
+            head = f"brand notes unavailable: {ex}\n"  # never a blocker
     return (f"{section}: showing {off}-{off + len(page)} of {len(entries)} "
             f"(only_unfilled={bool(a.get('only_unfilled'))})\n"
             "max_bytes = UTF-8 byte budget the 'new' value MUST fit\n"
+            + head
             + json.dumps(slim, indent=1, ensure_ascii=False))
+
+
+def t_learn_brand(a):
+    import aethron_rag
+    d = pdir(str(a["project"]))
+    srcs = a.get("sources") or []
+    if isinstance(srcs, str):
+        srcs = [srcs]
+    if not srcs:
+        raise ValueError("give sources: the brand's website and/or files")
+    notes = []
+    r = aethron_rag.learn(d, srcs, max_pages=int(a.get("max_pages", 25)),
+                          log=notes.append)
+    pages = sum(x["pages"] for x in r["read"])
+    out = (f"read {pages} page(s)/file(s) into the brand pack: "
+           f"{r['passages']} passages ({r['new']} new, {r['reused']} unchanged)."
+           + (" Meaning-based + keyword search ready."
+              if r["meaning_search"] else
+              f" KEYWORD SEARCH ONLY — {r['why']}"))
+    if notes:
+        out += "\n" + "\n".join(notes[:10])
+    return out + ("\nget_content now attaches brand_notes to each line; "
+                  "search_brand answers anything else.")
+
+
+def t_search_brand(a):
+    import aethron_rag
+    d = pdir(str(a["project"]))
+    r = aethron_rag.search(d, str(a["query"]), k=min(int(a.get("k", 4)), 8))
+    hits = r["results"][0]
+    if not hits:
+        return ("nothing in the brand material answers that"
+                + (f" ({r['why']})" if r["why"] else "")
+                + " — do not invent it; ask the person or keep it generic")
+    return (f"{r['mode']} search" + (f" ({r['why']})" if r["why"] else "")
+            + ". 'strong' answers the question; 'loose' is only on the topic"
+            " — if no passage literally states the fact, do not invent it.\n"
+            + json.dumps([{"text": h["text"], "from": h["src"],
+                           "section": h["heading"],
+                           "match": aethron_rag._strength(h, r["mode"])}
+                          for h in hits], indent=1, ensure_ascii=False))
 
 
 def t_set_content_bulk(a):
@@ -957,6 +1028,21 @@ TOOLS = [
     ("build", "Regenerate site/ from pristine + copy map (all layers: "
      "HTML, JS chunks, CMS binaries — byte-locked, hydration-safe).",
      S(P, ["project"]), t_pipeline("build")),
+    ("learn_brand", "Read the BRAND's own material — its live website "
+     "(same-site pages, up to max_pages) and/or .md/.txt/.html files — "
+     "into this project's brand pack, so every line you write comes with "
+     "the brand's real facts. Call it once, early, whenever the person "
+     "gives a brand URL or documents. Re-running refreshes it cheaply.",
+     S({**P, "sources": {"type": "array", "items": {"type": "string"},
+                         "description": "brand URLs and/or file paths"},
+        "max_pages": {"type": "integer"}}, ["project", "sources"]),
+     t_learn_brand),
+    ("search_brand", "Ask the brand pack a question (services, clients, "
+     "case studies, contact details, policies, tone). Returns passages "
+     "with where they came from — or says nothing covers it, in which "
+     "case do not invent the fact.",
+     S({**P, "query": {"type": "string"}, "k": {"type": "integer"}},
+       ["project", "query"]), t_search_brand),
     ("verify", "Machine checks: forbidden-word leftovers, missing chunks, "
      "telemetry refs, CMS size locks, local images. Run before shipping; "
      "FAILED output tells you exactly what to fix.",

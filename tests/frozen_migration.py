@@ -34,7 +34,13 @@ STEPS = [("create_project", {"name": NAME, "url": URL}, 900),
          ("fetch", {"project": NAME}, 900),
          ("inventory", {"project": NAME}, 600),
          ("build", {"project": NAME}, 600),
-         ("verify", {"project": NAME}, 600)]
+         ("verify", {"project": NAME}, 600),
+         # brand memory, inside the bundle: the throwaway home has no key,
+         # so this also proves the honest fallback (keyword search, said so)
+         ("learn_brand", {"project": NAME, "max_pages": 3,
+                          "sources": ["https://www.jomiez.com/"]}, 300),
+         ("search_brand", {"project": NAME,
+                           "query": "What services does the studio offer?"}, 120)]
 
 
 def stray_apps(own_pid):

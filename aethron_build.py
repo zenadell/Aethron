@@ -638,7 +638,7 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
     if key:
         ring = [(key, "given")]
     else:
-        spent = set(_B._keystate()["exhausted"])
+        spent = _B.spent_for(model)
         ring = [(k, "free") for k in _B.free_ring() if _B._fp(k) not in spent and not _B._is_cold(k)]
         paid = _B.paid_key()
         if paid and _B._fp(paid) not in spent and paid not in [k for k, _ in ring]:
@@ -682,7 +682,7 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
                     kind, pause = _gemini_429(msg)
                     if kind == "wall":
                         if tier != "given":
-                            _B.mark_exhausted(k)
+                            _B.mark_exhausted(k, model)
                         tried.append(f"{tier} key {fp}: " + ("prepaid credit is depleted" if "depleted" in msg.lower()
                                                             else "today's free allowance is spent"))
                         break

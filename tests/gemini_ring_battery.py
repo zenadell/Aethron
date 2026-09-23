@@ -109,7 +109,11 @@ def main():
         got = B.gemini_text("hi", led, budget_usd=0.05)
         check("free-A's daily quota sends the request on to free-B, which answers", got == "OK" and calls == ["free-A", "free-B"],
               str(calls))
-        check("  ...free-A is marked spent for today", brain._fp("free-A") in brain._keystate()["exhausted"])
+        M = "gemini-3.6-flash"          # gemini_text's model when none is named
+        check("  ...free-A is marked spent for today, for THIS model",
+              brain._fp("free-A") in brain.spent_for(M))
+        check("  ...and only for this model: Google counts each model's allowance apart",
+              brain._fp("free-A") not in brain.spent_for("gemini-embedding-2"))
         check("  ...and a free call charges nothing, while its list price is kept apart",
               led["usd"] == 0 and led["free_calls"] == 1 and led["list_usd"] > 0, str(led))
         calls2, _ = world({"free-B": ["ok"]})
@@ -185,7 +189,7 @@ def main():
               "today's free allowance is spent" in why and "prepaid credit is depleted" in why and led["usd"] == 0,
               why)
         check("  ...and the depleted paid key is marked, so tomorrow's free keys go first",
-              brain._fp("paid-P") in brain._keystate()["exhausted"])
+              brain._fp("paid-P") in brain.spent_for("gemini-3.6-flash"))
     finally:
         urllib.request.urlopen, time.sleep = real_open, real_sleep
     print(f"\ngemini ring battery: {PASS} ok, {FAIL} failed")

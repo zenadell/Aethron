@@ -240,9 +240,23 @@ def _is_cold(key: str) -> bool:
             ) < COLD_SECONDS
 
 
-def mark_exhausted(key: str) -> None:
+def spent_for(model: str = "") -> set:
+    """Fingerprints spent today FOR THIS MODEL. Google counts each model's
+    free allowance separately — a key that has used gemini-3.8-flash's 20
+    still has gemini-3.6-flash's and the embedding model's — so a key is
+    benched per model. A bare fingerprint (older records) benches it for
+    every model."""
+    out = set()
+    for f in _keystate()["exhausted"]:
+        fp, _, m = f.partition(":")
+        if not m or m == model:
+            out.add(fp)
+    return out
+
+
+def mark_exhausted(key: str, model: str = "") -> None:
     st = _keystate()
-    f = _fp(key)
+    f = _fp(key) + (f":{model}" if model else "")
     if f not in st["exhausted"]:
         st["exhausted"].append(f)
         try:
@@ -328,7 +342,8 @@ def ring(cfg: dict = None) -> list:
 
 def live_keys(cfg: dict = None) -> list:
     """The ring minus whatever is spent today."""
-    spent = set(_keystate()["exhausted"])
+    model = str({**load(), **(cfg or {})}.get("model") or "")
+    spent = spent_for(model)
     return [k for k in ring(cfg) if _fp(k) not in spent]
 
 
@@ -395,7 +410,8 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
     import urllib.error
     import aethron_bridge as _br
 
-    spent = set(_keystate()["exhausted"])
+    model = resolve(cfg)["model"]
+    spent = spent_for(model)
     frees = [k for k in free_ring(cfg)
              if _fp(k) not in spent and not _is_cold(k)]
     paid = paid_key(cfg)
@@ -441,7 +457,7 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
                 return out
             last = out
             if verdict == "spent":
-                mark_exhausted(key)
+                mark_exhausted(key, model)
                 frees.remove(key)
                 print(f"  free key {_fp(key)} is out of quota for today — "
                       f"{len(frees)} free key(s) left", flush=True)
@@ -451,7 +467,7 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
                 mark_cold(key)
                 frees.remove(key)
 
-    if paid and _fp(paid) not in _keystate()["exhausted"]:
+    if paid and _fp(paid) not in spent_for(model):
         if free_ring(cfg):
             print("  no free key answered in time — using the PAID key",
                   flush=True)
@@ -459,7 +475,7 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
         if verdict == "ok":
             return out
         if verdict == "spent":
-            mark_exhausted(paid)
+            mark_exhausted(paid, model)
         last = out
     if isinstance(last, BaseException):
         raise last
@@ -514,8 +530,8 @@ def _bridge_pool(cfg: dict, r: dict) -> dict:
               or "").strip()
     keys = [pin] if pin else (ring(cfg) or [r["key"]])
     return {"api_key": keys, "free": free_ring(cfg),
-            "is_spent": lambda k: _fp(k) in set(_keystate()["exhausted"]),
-            "on_spent": mark_exhausted}
+            "is_spent": lambda k: _fp(k) in spent_for(r["model"]),
+            "on_spent": lambda k: mark_exhausted(k, r["model"])}
 
 
 def bridge_config(cfg: dict = None):

@@ -5247,6 +5247,64 @@ them with tools; retrieval would only guess at what those state. RAG
 earns its place later, if ever, for searching ACROSS many past
 conversations and projects.
 
+## BRAND MEMORY — retrieval where it earns its place — `aethron_rag.py`
+## — 2026-09-23
+The owner asked whether Aethron needs RAG anywhere, and to use Gemini
+rather than a local model ("it will weaken my PC"). Researched first:
+gemini-embedding-2 (768 dims, auto-normalised, task written INTO the text:
+"task: search result | query: …" / "title: … | text: …"), and Anthropic's
+published contextual-retrieval study (failed retrievals −35% with
+contextualised chunks, −49% adding keyword search, −67% with a reranker).
+WHERE IT WENT: grounding the copy. jomiez had 387 lines / 1,219 words
+left, 23 of them paragraphs, and the agent had a four-line plan — so it
+invented facts or reworded the template (truth check: 56% still template).
+`learn_brand` reads the brand's site (25 pages) or .md/.txt/.html files
+into <project>/brand/pack.json; `get_content` now hands each line the
+brand's own passages (the template's words say what the slot is ABOUT, so
+they are the query); `search_brand` answers anything else. Hybrid (meaning
++ BM25, fused by reciprocal rank); every passage indexed as "title: <page>
+› <heading> | text: …" — the free version of contextual chunks.
+MEASURED on the owner's real site and real template lines:
+  * jomiez.com -> 82 passages in ~44s, $0 (free keys)
+  * 8 real template lines: right page in top 3, 8/8 for hybrid AND for
+    meaning-only; keyword-only also 8/8 but handed back junk for 2 of 3
+    unrelated questions — the MEANING model is what keeps unrelated facts
+    out. This small set does not show hybrid beating meaning-only; hybrid
+    is kept for exact names/numbers and the published result. Said so.
+  * get_content page of 40: 14 lines arrived with notes; every privacy
+    line got the real Jomiez privacy policy.
+THE LIMIT, MEASURED AND NOT HIDDEN: similarity cannot prove a fact is
+PRESENT. Questions the site does not answer ("what awards has the studio
+won?") scored 0.58–0.645; answered ones 0.64–0.83 — the bands overlap. So
+no cutoff decides it: below 0.60 nothing is returned (unrelated tops were
+≤0.56), and every note is labelled `strong` (≥0.70 — answered its
+question in every measured case) or `loose` (on the topic, NOT proof).
+The agent is told to use only what a note literally states. A cheap
+per-line verifier would need a generation request per line — too dear on
+a free tier; the label is the honest middle.
+THREE BUGS THE REAL SITE FOUND, none visible on the fixture: the menu
+("Home About Services Work Contact Us") was a passage and matched "how to
+bake bread" best; the email and phone lived ONLY in mailto:/tel: links,
+so "how do I contact them" returned a form's "Thank you for your
+submission! Oops!" (both fixed: links become "Contact email:" facts, form
+boilerplate is dropped); and re-reading a page duplicated the footer,
+because "seen before" was rebuilt from whole passages, not paragraphs.
+AND A BUG FROM THIS MORNING'S FIX: the spent-key record was per KEY, but
+Google counts each MODEL's allowance apart (measured: key 1, spent on
+gemini-3.8-flash, embedded fine). After switching to 3.6, keys 1 and 2
+would have been skipped for a model they still had allowance on. Now
+benched per model (`spent_for(model)`); today's two entries rescoped.
+Tests: rag selftest 15/15 (fake Google, fixed vectors: hybrid, exact
+name, nothing-for-unrelated, grounding only for real paragraphs, no
+re-embedding, per-model bench, keyword fallback that says so, contact
+facts, boilerplate), ring battery 16 -> 17, bridge 33/33, and the packaged
+release gate now runs learn_brand + search_brand inside the bundle.
+WHERE RETRIEVAL IS STILL WORTH ADDING, ranked: font identification for
+screenshot rebuilds (the measured ~96% ceiling is glyph shape); the design
+library once it holds hundreds of cards; past failures -> fixes for the
+AI healer. Where it is NOT: project state and checks (exact on disk) and
+code (search tools beat an index).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5405,3 +5463,8 @@ conversations and projects.
 - A CONVERSATION IS NOT A PROCESS. A restart, an update, a stop or a new key
   ends a session, never a conversation; the agent remembers exactly what the
   screen shows, and an empty screen is the only thing that starts fresh.
+- RETRIEVED IS NOT TRUE. A passage similar to a question is not proof its
+  fact exists; return nothing below the measured floor, label the rest
+  strong or loose, and never let a model write a fact no note states.
+- A PROVIDER'S ALLOWANCE IS PER MODEL. Bench a key for the model that ran
+  out, never for every model.
