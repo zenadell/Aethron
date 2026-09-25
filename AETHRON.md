@@ -5305,6 +5305,75 @@ library once it holds hundreds of cards; past failures -> fixes for the
 AI healer. Where it is NOT: project state and checks (exact on disk) and
 code (search tools beat an index).
 
+## ANY WEBSITE, NOT JUST TEMPLATES — `forge.py learn` — 2026-09-25
+The owner: Framer and Webflow alone are "too shallow" — take ANY site you
+love (their own jomiez.com as the test) and migrate it the same way. And,
+AFTER that works, a REDESIGN mode that lifts motion from the sites Aethron
+has worked on onto a plain site. This entry is the first half only.
+MEASURED FIRST, on jomiez.com (Webflow-derived, self-hosted on Express):
+  * the scrape kept the words (313 lines) and NOT the site's own files —
+    /css/main.css, /js/dynamic.js … 122 references, an unstyled copy.
+    `forge capture` already downloaded exactly these and was wired to
+    NOTHING: no MCP tool, no pipeline step. fetch now runs it for any
+    non-Framer site taken from a URL.
+  * half the content is not in the HTML at all: dynamic.js fetches
+    services, FAQs, brands, counters, works… from the site's /api/ after
+    the page opens, and Webflow's code loads on-demand chunks whose NAMES
+    the script computes. No markup scan can see either.
+THE ANSWER IS THE ONE THIS PROJECT LIVES BY: carry, don't recreate — and
+let the BROWSER say what the site needs. `learn` builds the copy, loads
+its pages headless against a local server, and every request that 404s is
+fetched ONCE from where it really lives (the origin, or the folder of the
+script that asked) and kept; repeat until nothing is missing. Public GET
+JSON is kept as DATA the site's own script reads unchanged — and is copy:
+inventory harvests its words (lookup keys like "hero"/"chaka-wap" are
+never offered — renaming a key breaks the page), images and links, build
+applies edits to it, and the images it points at are owned too (23 on
+Cloudinary). NEVER copied, named as NEEDS A SERVER: paths that read as
+credentials/accounts (the site hands a voice-API token to any visitor),
+anything with a query string, and POST-only endpoints found in the
+scripts (contact form, AI chat).
+A CHUNK NAMES ITS SIBLINGS: discovering chunks one browser pass at a time
+took 3 passes, 5 minutes and did not converge; once one chunk's scheme is
+known (prefix + 16 hex + .js), every hash of that shape in the entry
+script is a candidate and the server says which exist. 2 passes, ~3 min.
+RESULT on jomiez.com: 57 own files + 18 chunks + 11 data endpoints + 23
+images owned; 16 of 17 pages with every request served, the 17th only
+missing a file the LIVE site is missing too; an edit to a line that lives
+only in /api/settings ("Built for the next era of technology" -> "Made
+for whatever comes next") shows in the hero, drawn by the site's own JS.
+THREE BUGS OF MINE ON THE WAY, the second one twice over:
+  1. learn called build, build needs copy_map.json, and fetch runs BEFORE
+     inventory — it died on its first rebuild. An empty stand-in copy map
+     for the learning builds, removed after, so inventory still writes the
+     real one.
+  2. learned files were written to forge.json only at the END, so every
+     pass rebuilt without them, 404'd again and "learned" them again.
+  3. THE PROBE CRIED WOLF, AND MY FIRST CURE HID A REAL FAULT. The copy
+     showed ChunkLoadError / "Failed to fetch" on 11 pages while the
+     in-app browser, left open, showed none: headless Chrome is killed
+     the moment the DOM is dumped and whatever is still loading reports
+     itself failed. My first rule re-loaded the page on a real clock and
+     dropped errors that did not repeat — and tests/probe_battery's
+     corrupt-chunk scenario showed it WAVING THROUGH A GENUINELY BROKEN
+     CHUNK, because a real-time dump happens at the load event, before an
+     imported module runs. Removed. What stayed can't hide a real fault:
+     a load-shaped error counts only if something the page asked for went
+     unanswered; an error the LIVE original also throws (three work pages
+     throw "Unexpected token '&'" on jomiez.com itself) is carried, not
+     caused; a file the origin lacks too is noted, not failed.
+Probe battery 28/33 at HEAD -> 32/33 now (the corrupt-chunk checks that
+were already failing pass again). The remaining failure — "a build
+compared against itself scores at least 98%" (got 0%) — fails at HEAD
+too; flagged as its own task rather than widened into this one.
+tests/site_battery.py (16 checks, in run_all): a fake regular site with
+its own stylesheet, API-drawn content, a computed-name chunk, a private
+token, a POST-only form and a file the origin lacks — copied, recorded,
+refused, named, and an edit to its data read back ON SCREEN.
+STILL OPEN: single-page apps whose content is compiled INTO a JS bundle
+(no API) — the words are in the bundle, which build does not edit yet;
+PDFs as brand material; the redesign mode (next, by the owner's order).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5468,3 +5537,9 @@ code (search tools beat an index).
   strong or loose, and never let a model write a fact no note states.
 - A PROVIDER'S ALLOWANCE IS PER MODEL. Bench a key for the model that ran
   out, never for every model.
+- ASK THE BROWSER WHAT A PAGE NEEDS. A scan of the markup cannot see what a
+  page requests at runtime; load it, and keep what it asked for that went
+  unanswered — never a secret, never a write-only endpoint.
+- A RE-CHECK THAT CAN MISS A REAL ERROR IS WORSE THAN NONE. Dismiss an error
+  only on evidence that holds for real faults too (everything was served;
+  the original throws it as well), never because a second look missed it.

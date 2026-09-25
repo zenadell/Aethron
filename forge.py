@@ -579,6 +579,18 @@ def cmd_fetch(_args):
     cfg = read_cfg(root)
     if cfg["platform"] == "framer":
         fetch_framer(root, cfg)
+    elif cfg.get("source_url"):
+        # ANY OTHER SITE TAKEN FROM A LIVE URL: its own stylesheets,
+        # scripts and images live on its own server, and what its pages
+        # ask for at runtime (on-demand code, data from its API) is only
+        # visible to a browser. "Nothing to fetch" was true of a Webflow
+        # EXPORT and false of every live site — measured on the owner's
+        # own: 122 missing references and an unstyled page.
+        print(f"{cfg['platform']}: downloading what the pages reference…")
+        cmd_capture([])
+        print("asking a browser what the pages need at runtime…")
+        cmd_learn([])
+        print("Next: inventory")
     else:
         print(f"{cfg['platform']}: nothing to fetch — text lives in the HTML. "
               "Next: inventory")
@@ -709,6 +721,47 @@ def cmd_inventory(_args):
                   and not h.split("?")[0].lower().endswith(
                       (".css", ".js", ".ico", ".png", ".webp", ".svg",
                        ".jpg", ".jpeg", ".woff", ".woff2"))}
+
+    # DATA THE SITE'S OWN SCRIPTS FETCH (recorded by learn). A live site's
+    # services, FAQs, case studies and counters often arrive from its API
+    # after the page opens, so none of it is in the HTML — and a rebrand
+    # that cannot see it leaves every one of those sections the old
+    # company's. Readable words become copy; image and page URLs become
+    # images and links, the same three sections as everything else.
+    _img_ext = re.compile(r"\.(png|jpe?g|webp|avif|gif|svg)(\?|$)", re.I)
+    _id_like = re.compile(r"[0-9a-f]{8,}|[\w-]{20,}|\d+([.,]\d+)?%?|"
+                          r"#?[0-9A-Fa-f]{3,8}|\S+@\S+\.\w+")
+
+    def _walk(v):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                yield from _walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                yield from _walk(x)
+        elif isinstance(v, str):
+            yield v.strip()
+
+    for rel in cfg.get("recorded_data", []):
+        f = root / "pristine" / rel
+        try:
+            doc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))
+        except Exception:
+            continue
+        for s in _walk(doc):
+            if not s or len(s) > 2000:
+                continue
+            if s.startswith(("http://", "https://")):
+                (images if _img_ext.search(s) else links).add(s)
+            elif s.startswith("/") and _img_ext.search(s):
+                images.add(s)
+            elif re.search(r"[A-Za-z]{2}", s) and not _id_like.fullmatch(s) \
+                    and "<" not in s and not s.startswith(("{", "[")) \
+                    and not re.fullmatch(r"[a-z0-9_.-]+", s):
+                # a lowercase token with no space ("hero", "chaka-wap") is
+                # a KEY the site's scripts look things up by — renaming it
+                # would break the page, so it is never offered as copy
+                add(s, ["data:/" + rel])
 
     # strings that exist only in CMS (extra collection items, form options)
     for blob_path in (root / "pristine" / "cms").glob("*.framercms") \
@@ -2327,6 +2380,9 @@ def cmd_build(_args):
     reserved = {"chunks", "cms", "icons", "fonts", "remote-assets"}
     page_set = set(cfg["pages"])
     text_ext = (".css", ".js", ".txt", ".xml", ".json", ".svg", ".webmanifest")
+    # data a site's own scripts fetch at runtime (recorded by learn) is copy
+    # like any other: its words are edited here, extension or not
+    data_set = set(cfg.get("recorded_data", []))
     for f in (root / "pristine").rglob("*"):
         if not f.is_file():
             continue
@@ -2339,7 +2395,7 @@ def cmd_build(_args):
             continue
         dest = site / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
-        if f.suffix.lower() in text_ext:
+        if f.suffix.lower() in text_ext or str(rel) in data_set:
             dest.write_text(
                 _localize_refs(
                     _apply(f.read_text(encoding="utf-8", errors="ignore"),
@@ -3130,9 +3186,12 @@ def cmd_capture(_args):
             lmap[k] = _local_name(v)
 
     cfg["localized"] = lmap
+    misses = [k for k in wanted if k not in lmap]
+    cfg["missing_upstream"] = sorted(set(cfg.get("missing_upstream", []))
+                                     | {m.split("?")[0] for m in misses
+                                        if not m.startswith("http")})
     write_cfg(root, cfg)
     got = len(lmap)
-    misses = [k for k in wanted if k not in lmap]
     print(f"captured {got} asset(s) -> pristine/remote-assets/")
 
     # STALE-SCRAPE DETECTION. Modern hosts (Next.js/Vercel, Astro, Vite)
@@ -3155,6 +3214,291 @@ def cmd_capture(_args):
         print(f"NOTE {len(misses)} ref(s) unavailable (404/blocked): "
               f"{', '.join(m[:60] for m in misses[:3])}")
     print("Run build — refs are rewritten to local copies, then verify.")
+
+
+# Paths a migration must never copy: anything that reads as a credential,
+# an account or an admin surface. Measured on the owner's own site, which
+# hands a voice-API token to any visitor at /api/chaka/voice-token — a
+# copy of that is a copy of a secret, however public the URL.
+PRIVATE_PATH_RE = re.compile(
+    r"(?i)token|auth|login|logout|sign[-_]?in|session|secret|password|"
+    r"passwd|api[-_]?key|admin|account|checkout|cart|payment|webhook")
+
+
+def _learn_get(url: str, timeout=40):
+    """-> (status, bytes, content_type). A plain GET, no cookies — only
+    what any anonymous visitor would be given."""
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh) Aethron/site-reader"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, r.read(), r.headers.get("Content-Type", "")
+    except urllib.error.HTTPError as e:
+        return e.code, b"", ""
+    except Exception:
+        return 0, b"", ""
+
+
+def cmd_learn(args):
+    """Ask the BROWSER what the site needs — any platform.
+
+    A scan of the markup cannot see what a page asks for at runtime: the
+    owner's own site loads Webflow's code in on-demand chunks whose names
+    the script computes, and fetches its services, FAQs, brands and
+    counters from its own /api/ after the page opens. Migrated from the
+    HTML alone it rendered empty loading skeletons and 19 failed requests.
+
+    So: build, load each page in a headless browser against the local
+    copy, and for every request that 404s here, fetch it ONCE from where
+    it really lives — the original site, or the folder of the script that
+    asked for it — and keep it. Repeat until a pass finds nothing new.
+    Public GET data (JSON) is kept as data files the site's own scripts
+    read unchanged, and becomes editable copy like any other text.
+
+    NEVER copied, and reported instead: paths that read as credentials or
+    accounts (PRIVATE_PATH_RE), anything with a query string (a static
+    host cannot serve query variants), and endpoints that only accept
+    writes — a contact form or a chat needs a server, not a file."""
+    from http.server import ThreadingHTTPServer
+    import contextlib
+    import io
+    import threading
+    root = Path.cwd()
+    cfg = read_cfg(root)
+    src = cfg.get("source_url") or ""
+    if not src:
+        die("no source_url in forge.json — learn needs the live site "
+            "(re-run init with its URL)")
+    p = urllib.parse.urlparse(src)
+    origin = f"{p.scheme}://{p.netloc}"
+    rounds = next((int(a.split("=", 1)[1]) for a in args
+                   if a.startswith("--rounds=")), 3)
+    browser = _find_browser()
+    if not browser:
+        print(f"VERDICT: SKIPPED — no browser found (set {BROWSER_ENV}); "
+              "what the pages request at runtime is UNKNOWN, not fine.")
+        return
+    lmap = cfg.setdefault("localized", {})
+    data = set(cfg.get("recorded_data", []))
+    private, unavailable, queried = set(), set(), set()
+    # fetch runs BEFORE inventory, so there may be no copy map yet — and
+    # the build every pass relies on reads one. An empty stand-in lets it
+    # build the untouched site; it is removed at the end so inventory
+    # still writes the real one. (Measured: without it, learn died on its
+    # first rebuild and the migration went on with nothing learned.)
+    stand_in = root / "copy_map.json"
+    made_stand_in = not stand_in.exists()
+    if made_stand_in:
+        stand_in.write_text(json.dumps({"strings": [], "images": [],
+                                        "links": []}), encoding="utf-8")
+    try:
+        _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
+                      private, unavailable, queried)
+    finally:
+        if made_stand_in and stand_in.exists():
+            stand_in.unlink()
+
+
+def _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
+                  private, unavailable, queried):
+    from http.server import ThreadingHTTPServer
+    import contextlib
+    import io
+    import threading
+    learned = []
+    pages = sorted(cfg.get("pages", []), key=lambda x: x != "index.html")
+    probe_pages = pages if len(pages) <= 8 else pages[:8]
+
+    def script_dirs():
+        """Folders the localized scripts came from — where a script's own
+        on-demand chunks live."""
+        dirs = []
+        for u, fn in lmap.items():
+            if fn.lower().endswith((".js", ".mjs")) and u.startswith("http"):
+                d = u.split("?")[0].rsplit("/", 1)[0]
+                if d not in dirs:
+                    dirs.append(d)
+        return dirs
+
+    for rnd in range(1, rounds + 1):
+        # the build reads forge.json, so what was learned must be ON DISK
+        # before it runs — held in memory, a learned chunk was not shipped,
+        # 404'd again and was "learned" again every pass
+        cfg["localized"] = lmap
+        cfg["recorded_data"] = sorted(data)
+        write_cfg(root, cfg)
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_build([])
+        site = root / "site"
+        misses, lock = set(), threading.Lock()
+
+        def record(path, status):
+            if status == 404:
+                with lock:
+                    misses.add(path)
+
+        H = _site_handler(site, cfg.get("platform", "static"),
+                          on_request=record, quiet=True)
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        for pg in probe_pages:
+            _render_page(browser, f"{base}/{pg}", budget_ms=8000)
+        srv.shutdown()
+        new = 0
+        for path in sorted(misses):
+            path_only, _, query = path.partition("?")
+            if PRIVATE_PATH_RE.search(path_only):
+                private.add(path_only)
+                continue
+            if query:
+                queried.add(path)
+                continue
+            if path_only.startswith("/assets/r/"):
+                # a lazy file asked for NEXT TO a localized script
+                name = path_only.rsplit("/", 1)[1]
+                if not re.fullmatch(r"[\w.@-]+", name) \
+                        or name in set(lmap.values()):
+                    continue
+                got = False
+                for d in script_dirs() + [origin]:
+                    st, body, _ = _learn_get(f"{d}/{name}")
+                    if st == 200 and body:
+                        (root / "pristine" / "remote-assets").mkdir(
+                            parents=True, exist_ok=True)
+                        (root / "pristine" / "remote-assets" / name) \
+                            .write_bytes(body)
+                        lmap[f"{d}/{name}"] = name
+                        learned.append(("chunk", name))
+                        new += 1
+                        got = True
+                        break
+                if not got:
+                    unavailable.add(path_only)
+                continue
+            rel = path_only.lstrip("/")
+            dest = (root / "pristine" / rel).resolve()
+            if not rel or not dest.is_relative_to(
+                    (root / "pristine").resolve()) or rel in cfg["pages"]:
+                continue
+            st, body, ctype = _learn_get(origin + path_only)
+            if st != 200 or not body:
+                unavailable.add(path_only)
+                continue
+            if "text/html" in ctype.lower() and "." not in rel.rsplit("/", 1)[-1]:
+                # an extension-less route answered with a PAGE: that is a
+                # page of the site, not a file, and init owns pages
+                unavailable.add(path_only)
+                continue
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(body)
+            kind = "data" if ("json" in ctype.lower()
+                              or body.lstrip()[:1] in (b"{", b"[")) else "file"
+            if kind == "data":
+                data.add(rel)
+            learned.append((kind, rel))
+            new += 1
+        # A CHUNK NAMES ITS SIBLINGS. Code split into on-demand chunks is
+        # discovered one browser pass at a time, because each chunk loads
+        # the next — measured on the owner's site: 29, 20, then 17 still
+        # missing after three passes and five minutes. But the entry
+        # script carries the whole chunk table. Once one chunk's naming
+        # scheme is known (prefix + hash + .js), every hash of that shape
+        # in the scripts is a candidate, and the server says which exist.
+        # Only files the server actually has are kept — nothing guessed
+        # ships.
+        schemes = {}
+        for kind, name in learned:
+            m = re.fullmatch(r"(.+?\.)([0-9a-f]{8,32})(\.m?js)", name)
+            if kind == "chunk" and m:
+                schemes[(m.group(1), len(m.group(2)), m.group(3))] = name
+        if schemes:
+            text = ""
+            for fn in set(lmap.values()):
+                f = root / "pristine" / "remote-assets" / fn
+                if fn.lower().endswith((".js", ".mjs")) and f.is_file():
+                    text += f.read_text(encoding="utf-8", errors="ignore")
+            have = set(lmap.values())
+            for (pre, ln, suf), example in schemes.items():
+                d = next((u.rsplit("/", 1)[0] for u, fn in lmap.items()
+                          if fn == example), "")
+                cands = {f"{pre}{h}{suf}" for h in re.findall(
+                    r"""['"]([0-9a-f]{%d})['"]""" % ln, text)} - have
+                for name in sorted(cands)[:400]:
+                    st, body, _ = _learn_get(f"{d}/{name}")
+                    if st == 200 and body:
+                        (root / "pristine" / "remote-assets" / name) \
+                            .write_bytes(body)
+                        lmap[f"{d}/{name}"] = name
+                        learned.append(("chunk", name))
+                        new += 1
+        print(f"  pass {rnd}: {len(misses)} request(s) missing, "
+              f"{new} now kept")
+        if not new:
+            break
+
+    # WHAT ONLY A SERVER CAN DO. The scripts name endpoints the pages
+    # never fetched on load (a form's POST, a chat) — those are features
+    # that need the owner's own backend, and saying so beats a copy that
+    # silently fails the first time someone presses Send.
+    named = set()
+    for fn in set(lmap.values()):
+        f = root / "pristine" / "remote-assets" / fn
+        if fn.lower().endswith((".js", ".mjs")) and f.is_file():
+            named |= set(re.findall(r"""['"`](/api/[\w./-]+)""",
+                                    f.read_text(encoding="utf-8",
+                                                errors="ignore")))
+    kept = {"/" + d for d in data}
+    backend = sorted({n.split("?")[0] for n in named} - kept) \
+        + sorted(private)
+    # THE DATA POINTS AT PICTURES TOO. A site's API hands back image URLs
+    # (measured on the owner's: portfolio images on a third-party image
+    # host), so a copy that kept only the JSON still streamed its
+    # pictures from someone else's server. Own them like any other asset;
+    # the build rewrites the URLs inside the data on the way out.
+    img_re = re.compile(r"""https?://[^\s"'<>()]+?\.(?:png|jpe?g|webp|avif|gif|svg)"""
+                        r"""(?:\?[^\s"'<>()]*)?""", re.I)
+    want_imgs = set()
+    for d in data:
+        f = root / "pristine" / d
+        if f.is_file():
+            want_imgs |= {u.replace("\\/", "/") for u in img_re.findall(
+                f.read_text(encoding="utf-8", errors="ignore"))}
+    jobs = [(u, root / "pristine" / "remote-assets" / _local_name(u))
+            for u in sorted(want_imgs) if u not in lmap]
+    if jobs:
+        download_many(jobs, f"images the data points at ({len(jobs)})")
+        for u, dest in jobs:
+            if dest.exists():
+                lmap[u] = dest.name
+    cfg["missing_upstream"] = sorted(set(cfg.get("missing_upstream", []))
+                                     | unavailable)
+    cfg["localized"] = lmap
+    cfg["recorded_data"] = sorted(data)
+    cfg["backend_only"] = sorted(set(backend) | {q.split("?")[0]
+                                                 for q in queried})
+    write_cfg(root, cfg)
+    _seal_pristine(root)
+    with contextlib.redirect_stdout(io.StringIO()):
+        cmd_build([])
+    kinds = {}
+    for k, _ in learned:
+        kinds[k] = kinds.get(k, 0) + 1
+    print(f"learned {len(learned)} file(s) the pages ask for at runtime: "
+          + ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+          if learned else "learned nothing new — every runtime request "
+          "was already satisfied")
+    if data:
+        print(f"  data kept as editable copy: "
+              + ", ".join("/" + d for d in sorted(data)[:12]))
+    if unavailable:
+        print(f"NOTE {len(unavailable)} request(s) are missing on the "
+              f"original site too: {', '.join(sorted(unavailable)[:5])}")
+    if cfg["backend_only"]:
+        print(f"NEEDS A SERVER — {len(cfg['backend_only'])} endpoint(s) were "
+              f"not copied (private, write-only, or query-driven); the "
+              f"features behind them will not work until pointed at a "
+              f"backend: {', '.join(cfg['backend_only'][:8])}")
 
 
 def cmd_localize(_args):
@@ -4606,6 +4950,16 @@ def cmd_probe(args):
                               f"(transparent, display:none, or positioned "
                               f"out of the document)")
                         fails += 1
+                # an image the ORIGINAL site is missing too cannot decode in
+                # a copy either — carried, not caused
+                _up = set(cfg.get("missing_upstream", []))
+                _gone = [u for u in (vis.get("images_broken") or [])
+                         if urllib.parse.urlparse(u).path in _up]
+                if _gone:
+                    n_img -= len(_gone)
+                    print(f"NOTE {len(_gone)} image(s) are missing on the "
+                          f"original site too (carried, not caused): "
+                          f"{urllib.parse.urlparse(_gone[0]).path}")
                 if n_img and n_ok == 0:
                     print(f"FAIL every image is broken: {n_img} declared, "
                           f"0 decoded"
@@ -4667,16 +5021,41 @@ def cmd_probe(args):
                       f"{r['images']} image(s)")
 
             # 2. what did the browser actually fail to fetch?
+            # A DECLARED GAP IS NOT A BREAKAGE. Endpoints `learn` refused
+            # to copy — a private token, a form's POST, a chat — are
+            # features that need the owner's server, already named as
+            # such. Failing the page for them would say "broken" about a
+            # copy that did exactly what it said it would.
+            server = {e.split("?")[0] for e in cfg.get("backend_only", [])}
+            needs = {k: v for k, v in bad.items()
+                     if k.split("?")[0] in server}
+            bad = {k: v for k, v in bad.items() if k not in needs}
+            upstream = set(cfg.get("missing_upstream", []))
+            gone = {k: v for k, v in bad.items()
+                    if k.split("?")[0] in upstream}
+            bad = {k: v for k, v in bad.items() if k not in gone}
+            if gone:
+                print(f"NOTE {len(gone)} request(s) are missing on the "
+                      f"original site too (carried, not caused): "
+                      + ", ".join(sorted(gone)[:3]))
+            if needs:
+                print(f"NOTE {len(needs)} request(s) need the original "
+                      f"site's server (not copied on purpose): "
+                      + ", ".join(sorted({k.split('?')[0]
+                                          for k in needs})[:4]))
             if bad:
                 print(f"FAIL {len(bad)} request(s) failed at runtime "
                       f"(of {len(reqs)}):")
                 for path, status in list(bad.items())[:8]:
                     print(f"       {status}  {path[:96]}")
                 print("     -> `forge.py capture` downloads everything the "
-                      "pages reference, then rebuild")
+                      "pages reference (`forge.py fetch` also learns what "
+                      "they ask for at runtime, for a site taken from a "
+                      "live URL), then rebuild")
                 fails += 1
             else:
-                print(f"PASS all {len(reqs)} runtime request(s) served")
+                print(f"PASS all {len(reqs) - len(needs)} runtime "
+                      f"request(s) served")
             if platform_calls:
                 print("     NOTE the platform runtime calls its own backend, "
                       "which no self-hosted copy can answer: "
@@ -4684,6 +5063,64 @@ def cmd_probe(args):
                                   for p, s in list(platform_calls.items())[:3]))
 
             # 3. did the code throw?
+            # A FAST CLOCK MAKES ERRORS OF ITS OWN. The probe runs on a
+            # virtual clock, and code that races a timer against the
+            # network — a bundler giving each on-demand chunk a deadline,
+            # a fetch with a timeout — loses that race when time jumps
+            # ahead. Measured on the owner's own site: "ChunkLoadError:
+            # Loading chunk 185 failed" and "Failed to fetch" on 16 pages,
+            # every chunk in fact served 200, and NONE of it in a real
+            # browser. So an error only counts if it happens again on a
+            # real clock; the rest are named, not hidden.
+            # A LOAD "FAILURE" FOR SOMETHING THAT WAS SERVED IS THE PROBE'S.
+            # The browser is closed the moment the page is dumped, and a
+            # chunk or fetch still in flight then reports itself failed —
+            # measured: ChunkLoadError on 11 pages whose every chunk the
+            # request log shows served 200, and none of it in a browser
+            # left open. When nothing this page asked for went unanswered,
+            # a load-shaped error is about the measurement, not the site.
+            load_shaped = re.compile(r"ChunkLoadError|Loading chunk \d+ "
+                                     r"failed|Failed to fetch|NetworkError|"
+                                     r"Load failed|ERR_ABORTED")
+            if hard and not bad:
+                cut = [m for m in hard if load_shaped.search(m)]
+                if cut:
+                    hard = [m for m in hard if not load_shaped.search(m)]
+                    print(f"NOTE {len(cut)} load error(s) for things the "
+                          f"server DID answer — cut off when the probe "
+                          f"closed the page, not missing: {cut[0][:70]}")
+                    notes += 1
+            # (A second, real-clock load was tried here and REMOVED: it
+            # records the page at its load event, before an imported
+            # module has run — so a genuinely corrupt chunk's error never
+            # appeared in it and was waved through as a clock artifact.
+            # Caught by tests/probe_battery's corrupt-chunk scenario. A
+            # re-check that can miss real errors is worse than none.)
+            # WHAT THE ORIGINAL ALREADY DOES IS NOT THE COPY'S DOING. A site
+            # taken from a live URL can be asked: measured on the owner's
+            # own, three work pages throw "Unexpected token '&'" on the live
+            # site — a broken inline script the copy faithfully carried.
+            if hard and browser and cfg.get("source_url"):
+                _src = urllib.parse.urlparse(cfg["source_url"])
+                _route = next((r for r, f in (cfg.get("routes") or {}).items()
+                               if f == page), None)
+                if _route is not None:
+                    live = _render_page(
+                        browser, f"{_src.scheme}://{_src.netloc}/{_route}",
+                        budget_ms=budget, timeout=60)
+                    kind = (lambda m: (re.search(r"\b(\w+Error)\b", str(m))
+                                       or [None, ""])[1])
+                    was = {kind(c[0] if isinstance(c, (list, tuple)) else c)
+                           for c in (live.get("console") or [])} - {""}
+                    if live.get("dom"):
+                        pre = [m for m in hard if kind(m) in was]
+                        hard = [m for m in hard if m not in pre]
+                        if pre:
+                            print(f"NOTE {len(pre)} console error(s) the "
+                                  f"ORIGINAL site throws too ("
+                                  + ", ".join(sorted({kind(m) for m in pre}))
+                                  + ") — carried, not caused")
+                            notes += 1
             if hard:
                 print(f"FAIL {len(hard)} console error(s) — code or assets "
                       f"failed to load:")
@@ -4939,6 +5376,16 @@ def cmd_verify(_args):
     # pages ask for actually exist on disk? This is the check that would
     # have caught the blank-page disaster on the very first build.
     missing_refs = _ref_audit(site)
+    # what the ORIGINAL site is missing too is carried, not caused — a
+    # copy cannot contain a file its source never had
+    upstream = set(cfg.get("missing_upstream", []))
+    carried = {r: v for r, v in missing_refs.items()
+               if r.split("?")[0] in upstream}
+    missing_refs = {r: v for r, v in missing_refs.items() if r not in carried}
+    if carried:
+        print(f"NOTE {len(carried)} referenced file(s) are missing on the "
+              f"original site too (carried, not caused): "
+              + ", ".join(list(carried)[:3]))
     if missing_refs:
         total = sum(len(v) for v in missing_refs.values())
         print(f"FAIL {len(missing_refs)} referenced asset(s) missing from "
@@ -5852,7 +6299,7 @@ COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "edit": cmd_edit,
             "audit": cmd_audit,
             "build": cmd_build, "logo": cmd_logo, "backend": cmd_backend,
-            "localize": cmd_localize, "capture": cmd_capture,
+            "localize": cmd_localize, "capture": cmd_capture, "learn": cmd_learn,
             "serve": cmd_serve, "probe": cmd_probe,
             "verify": cmd_verify, "card": cmd_card, "heal": cmd_heal,
             "rebrand": _cmd_rebrand}

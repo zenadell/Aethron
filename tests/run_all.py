@@ -123,6 +123,12 @@ SUITES = [
      [PY, "tests/alive_battery.py"], True),
     ("probe battery (runtime + framework-port referee)",
      [PY, "tests/probe_battery.py"], True),
+    # A REGULAR site, not a template: its own stylesheet, data drawn from
+    # its API after the page opens, a chunk whose name is computed, a
+    # private token and a POST-only form. Copied what belongs, recorded
+    # the data, refused the secret, named what needs a server.
+    ("site battery (any website, taken from its URL)",
+     [PY, "tests/site_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and
     # asks whether the probe hands them over as healthy. It did, eight
     # times out of nine, because it measured the HTML string instead of

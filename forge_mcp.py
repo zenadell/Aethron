@@ -923,7 +923,8 @@ def t_create_from_library(a):
 TOOLS = [
     ("list_projects", "List all migration projects with platform, fill "
      "progress and build state.", S({}, []), t_list_projects),
-    ("create_project", "Start a migration from a LIVE template URL "
+    ("create_project", "Start a migration from a LIVE URL — a Framer or "
+     "Webflow template, or ANY regular website "
      "(scrapes the home page + same-host subpages automatically) or a "
      "local export (.html file, folder of separately-saved pages, or "
      "zip). Detects the platform (framer/webflow), finds the home page, "
@@ -937,8 +938,13 @@ TOOLS = [
         "source_path": {"type": "string", "description": "OR absolute "
                         "path to a local export (.html/.zip/folder)"}},
        ["name"]), t_create_project),
-    ("fetch", "Download+localize the template runtime (Framer: JS chunks, "
-     "CMS binaries, icons — takes a minute; Webflow: instant no-op).",
+    ("fetch", "Download everything the site needs to run on its own. "
+     "Framer: JS chunks, CMS binaries, icons (a minute). ANY OTHER SITE "
+     "taken from a live URL (Webflow, WordPress, hand-built, Next.js…): its "
+     "own stylesheets, scripts and images, then a browser pass that learns "
+     "what the pages ask for at runtime — on-demand code and the data its "
+     "API returns, kept as editable data (a few minutes). It never copies "
+     "private endpoints and names what needs the original server.",
      S(P, ["project"]), t_pipeline("fetch")),
     ("inventory", "Extract every editable string/image/link into the copy "
      "map. Auto-sets the old brand as a forbidden word for verify.",
