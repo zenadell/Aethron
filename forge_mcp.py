@@ -55,7 +55,7 @@ LIBRARY = HOME / "library"   # design cards: fingerprints, never files
 PREVIEWS = {}
 
 sys.path.insert(0, str(ROOT))
-from forge import (image_slot_styles, _locate_element,  # noqa: E402
+from forge import (image_slot_styles, _locate_element, word_fragments,  # noqa: E402
                    hide_selector_audit)
 
 
@@ -500,6 +500,11 @@ def t_get_content(a):
     if section not in ("strings", "images", "links"):
         raise ValueError("section must be strings|images|links")
     entries = cm.get(section, [])
+    # a word of an animated heading is not a line: it is written through
+    # the heading's whole line (a word changed alone changes it site-wide)
+    frag = word_fragments(d, cm) if section == "strings" else {}
+    hidden = sum(1 for e in entries if e["old"] in frag)
+    entries = [e for e in entries if e["old"] not in frag]
     if a.get("only_unfilled"):
         entries = [e for e in entries if not e.get("new")]
     flt = str(a.get("filter", "")).lower()
@@ -539,6 +544,9 @@ def t_get_content(a):
                         + (f" — note: {r['why']}" if r["why"] else "") + "\n")
         except Exception as ex:                     # grounding is a help,
             head = f"brand notes unavailable: {ex}\n"  # never a blocker
+    if hidden:
+        head += (f"{hidden} single words of animated headings are not listed: "
+                 "each heading is its own line here — write the whole line\n")
     return (f"{section}: showing {off}-{off + len(page)} of {len(entries)} "
             f"(only_unfilled={bool(a.get('only_unfilled'))})\n"
             "max_bytes = UTF-8 byte budget the 'new' value MUST fit\n"
@@ -594,11 +602,20 @@ def t_set_content_bulk(a):
     idx = {sec: {e["old"]: e for e in cm.get(sec, [])}
            for sec in ("strings", "images", "links")}
     applied, rejected = 0, []
+    frag = word_fragments(d, cm)
     for item in a["entries"]:
         sec = item.get("section", "strings")
         tgt = idx.get(sec, {}).get(item.get("old", ""))
         if tgt is None:
             rejected.append(f"not found in {sec}: {item.get('old','')[:50]!r}")
+            continue
+        old, new = item.get("old", ""), item.get("new", "")
+        if sec == "strings" and old in frag and new not in ("", old):
+            line = sorted(frag[old], key=len)[0]
+            rejected.append(f"{old!r} is one word of the animated heading "
+                            f"{line[:70]!r} — write that whole line instead "
+                            "(a word changed on its own changes it everywhere "
+                            "on the site)")
             continue
         err = guard_write(tgt, item.get("new", ""))
         if err:

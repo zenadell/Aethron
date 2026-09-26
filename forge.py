@@ -974,6 +974,98 @@ SPLIT_RUN_RE = re.compile(
 CHAR_SPAN_RE = re.compile(rf"(<span\b[^>]*>)({_CHAR})</span>")
 
 
+WORD_SPAN_RE = re.compile(r"<span\b([^>]*)>([^<\s]+)</span>")
+WORD_RUN_RE = re.compile(r"<span\b[^>]*>[^<\s]+</span>"
+                         r"(?:\s+<span\b[^>]*>[^<\s]+</span>)+")
+
+
+def _word_runs(html):
+    """Headings animated WORD BY WORD: -> [(match, span_attrs, [words])].
+
+    Framer wraps each word in its own inline-block span so the words can
+    fly in one after another. The page spells the line as separate spans
+    while the code holds it whole. Only runs whose spans share identical
+    markup count — anything irregular is left alone.
+    """
+    out = []
+    for m in WORD_RUN_RE.finditer(html):
+        spans = WORD_SPAN_RE.findall(m.group(0))
+        if len({a for a, _ in spans}) != 1:
+            continue
+        out.append((m, spans[0][0], [html_mod.unescape(w) for _, w in spans]))
+    return out
+
+
+def word_fragments(root: Path, cm=None) -> dict:
+    """word -> {whole lines} for copy entries that are ONLY a word inside a
+    word-animated heading whose whole line is itself an entry.
+
+    A WORD OF A HEADING IS NOT A LINE. Inventory harvested each word span
+    as its own entry, so an agent rewrote "Over the years…" word by word —
+    and a one-word pair is applied site-wide: "the" -> "our" changed 217
+    places, "design" -> "and AI" 92, all over sentences nobody asked to
+    touch. The heading is edited through its whole line; its words are not
+    offered as lines at all.
+    """
+    if cm is None:
+        try:
+            cm = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+    olds = {e["old"] for e in cm.get("strings", [])}
+    pages = [p.read_text(encoding="utf-8", errors="ignore")
+             for p in (root / "pristine").glob("*.html")]
+    lines, inrun = {}, {}
+    for h in pages:
+        for _m, _a, words in _word_runs(h):
+            line = " ".join(words)
+            if line not in olds:
+                continue
+            for w in words:
+                lines.setdefault(w, set()).add(line)
+                inrun[w] = inrun.get(w, 0) + 1
+    frag = {}
+    for w, ls in lines.items():
+        if w not in olds or w in ls:
+            continue
+        pat = re.compile(r">\s*%s\s*<" % re.escape(html_mod.escape(w, quote=False)))
+        alone = sum(len(pat.findall(h)) for h in pages)
+        if alone <= inrun[w]:          # never a text node of its own
+            frag[w] = ls
+    return frag
+
+
+def _regen_word_runs(t, pairs, stats=None):
+    """Rebuild each word-animated heading from its whole line's new text,
+    cloning the word span, so the page spells what the code renders
+    (hydration equal, the entrance still plays). Rebuilt runs are HELD
+    out of the text as placeholders so no replacement pass can change a
+    word inside them; the caller puts them back."""
+    want = {}
+    for p in pairs:
+        if p["scope"] != "cms" and " " in p["old"] and p["new"].strip():
+            want[re.sub(r"\s+", " ", p["old"]).strip()] = p
+    held, out, pos = [], [], 0
+    if not want:
+        return t, held
+    for m, attrs, words in _word_runs(t):
+        p = want.get(" ".join(words))
+        if p is None:
+            continue
+        rebuilt = " ".join(f"<span{attrs}>{html_mod.escape(w, quote=False)}"
+                           "</span>" for w in p["new"].split())
+        out.append(t[pos:m.start()])
+        held.append(rebuilt)
+        out.append(f"\x00W{len(held) - 1}\x00")
+        pos = m.end()
+        if stats is not None:
+            stats[p["old"]] = stats.get(p["old"], 0) + 1
+    if not held:
+        return t, held
+    out.append(t[pos:])
+    return "".join(out), held
+
+
 def _regen_split_runs(t, pairs, stats=None):
     want = {}
     for p in pairs:
@@ -1341,9 +1433,30 @@ def _pairs_from_map(root: Path, cms_blobs):
         ).get("forbidden_words", [])}
     except (OSError, ValueError):
         brand = set()
+    # WORDS OF AN ANIMATED HEADING ARE EDITED THROUGH THE HEADING. A fill
+    # on such a word no longer applies anywhere on its own (it was applied
+    # site-wide); if its heading's whole line is unfilled, the word fills
+    # are folded into THAT line only, so what was written still shows
+    # where it was meant to and nowhere else.
+    frag = word_fragments(root, cm)
+    FOLDED.clear()
+    fills = {e["old"]: e.get("new", "") for e in cm["strings"]}
+    written = {w for w in frag if fills.get(w) and fills[w] != w}
+    FOLDED.update(written)
+    derived = {}
+    for line in {ln for w in written for ln in frag[w]}:
+        if fills.get(line) and fills[line] != line:
+            continue                    # the whole line was written: it wins
+        derived[line] = " ".join(fills[x] if x in written else x
+                                 for x in line.split(" "))
+    strings = {id(e) for e in cm["strings"]}
     pairs = []
     for entry in cm["strings"] + cm["images"] + cm["links"]:
         old, new = entry["old"], entry.get("new", "")
+        if old in frag and id(entry) in strings:
+            continue
+        if old in derived and (not new or new == old):
+            new = derived[old]
         if not new or new == old:
             continue
         if "`" in new or "${" in new:
@@ -2522,9 +2635,13 @@ def cmd_build(_args):
         t = re.sub(r"<script>[^<]*(?:validation-worker|__WF_REVIEW_BRIDGE)"
                    r"[^<]*</script>\n?", "", t)
         t = t.replace("</head>", hide_css + "\n</head>")
+        t, held = _regen_word_runs(t, pairs, stats=stats)
         t = _apply(t, pairs, escaped=True, stats=stats)
         t = _localize_refs(t, cfg.get("localized", {}))
         t, n_regen = _regen_split_runs(t, pairs, stats=stats)
+        if held:
+            t = re.sub(r"\x00W(\d+)\x00", lambda m: held[int(m.group(1))], t)
+            n_regen += len(held)
         if n_regen:
             log(f"{page}: {n_regen} split-text run(s) regenerated "
                 "(animation preserved)")
@@ -2901,6 +3018,8 @@ def cmd_build(_args):
     report = dict(stats)
     if at_risk:
         report["__at_risk__"] = at_risk
+    # heading words carried by their heading are done, not dead
+    moot += [w for w in FOLDED if not stats.get(w)]
     if moot:
         report["__moot__"] = sorted(set(moot))
         # what could not fit a byte-locked CMS slot, so verify
@@ -3211,6 +3330,7 @@ MAX_SCRAPE_PAGES = int(os.environ.get("AETHRON_MAX_PAGES", "40"))
 # Written into the build report so verify can tell 'cannot' from
 # 'forgot' — the difference between a NOTE and a FAIL.
 OVER_SLOT = set()
+FOLDED = set()      # heading words whose fills now live in their heading
 
 REMOTE_ASSET_RE = re.compile(
     r"https://(?:[a-z0-9.-]*website-files\.com|framerusercontent\.com"

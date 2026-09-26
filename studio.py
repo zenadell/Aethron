@@ -224,7 +224,7 @@ def forge_argv(*args):
     return [sys.executable, str(FORGE), *map(str, args)]
 
 sys.path.insert(0, str(ROOT))
-from forge import _flex_pat, hide_selector_audit  # shared matchers  # noqa: E402
+from forge import _flex_pat, hide_selector_audit, word_fragments  # shared matchers  # noqa: E402
 import secrets  # noqa: E402
 import aethron_cloud as cloud  # noqa: E402
 try:
@@ -442,6 +442,63 @@ def keep_undone(d: Path):
                                                  encoding="utf-8")
     for old in sorted(und.glob("*.json"))[:-30]:
         old.unlink()
+
+
+def project_status(d: Path) -> str:
+    """What the project IS, measured from disk, in a few lines — attached to
+    every message sent in a project so "finish up" starts from the facts.
+    A resumed conversation carries whatever the agent said before, and it
+    once said "444 filled, zero console errors" over 306 and a blank page."""
+    try:
+        cm = json.loads((d / "copy_map.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ("Project not inventoried yet: there are no lines to write "
+                "until fetch and inventory have run.")
+    frag = word_fragments(d, cm)
+    lines = [e for sec in ("strings", "images", "links")
+             for e in cm.get(sec, []) if e["old"] not in frag]
+    empty = [e for e in lines if not e.get("new")]
+    tight = sum(1 for e in empty if e.get("max_bytes"))
+    out = [f"Copy: {len(lines) - len(empty)} of {len(lines)} lines written, "
+           f"{len(empty)} still empty"
+           + (f" ({tight} of those have a byte limit — keep them short)"
+              if tight else "") + "."]
+    site = d / "site"
+    if not site.exists():
+        out.append("Site: not built yet.")
+    else:
+        out.append(f"Site: built, {len(list(site.glob('*.html')))} pages.")
+        rf, pf = site / ".forge-report.json", site / ".forge-probe.json"
+        try:
+            rep = json.loads(rf.read_text(encoding="utf-8")) if rf.exists() else {}
+        except ValueError:
+            rep = {}
+        moot = set(rep.get("__moot__", []))
+        dead = [k for k, v in rep.items()
+                if not k.startswith("__") and v == 0 and k not in moot]
+        risk = rep.get("__at_risk__") or []
+        if dead or risk:
+            out.append(f"Edits that did not land: {len(dead) + len(risk)} "
+                       "(run heal, then build).")
+        if not pf.exists():
+            out.append("Browser check: not run yet.")
+        elif rf.exists() and rf.stat().st_mtime > pf.stat().st_mtime + 1:
+            out.append("Browser check: not run since the last build.")
+        else:
+            try:
+                pj = json.loads(pf.read_text(encoding="utf-8"))
+            except ValueError:
+                pj = {}
+            broken = pj.get("broken") or []
+            if pj.get("fails"):
+                out.append(f"Browser check: {len(broken) or pj['fails']} page(s) "
+                           "broken" + (": " + ", ".join(broken[:4]) if broken else "")
+                           + ".")
+            else:
+                out.append(f"Browser check: clean on {pj.get('probed', 0)} pages.")
+    return ("Measured by Aethron from the project just now — this is the "
+            "current state, whatever earlier messages in this conversation "
+            "said:\n" + "\n".join(out))
 
 
 def undo_count(d: Path) -> int:
@@ -700,12 +757,17 @@ def merge_fill(proj: Path, filled: dict):
     cm_f = proj / "copy_map.json"
     cm = json.loads(cm_f.read_text(encoding="utf-8"))
     applied, errors = 0, []
+    frag = word_fragments(proj, cm)
     for sec in ("strings", "images", "links"):
         index = {e["old"]: e for e in cm.get(sec, [])}
         for e in filled.get(sec, []):
             tgt = index.get(e.get("old", ""))
             new = e.get("new") or ""
             if not tgt or not new or new == tgt.get("new"):
+                continue
+            if sec == "strings" and tgt["old"] in frag and new != tgt["old"]:
+                errors.append(f"{tgt['old']!r} is one word of an animated "
+                              "heading — its whole line is written instead")
                 continue
             if "`" in new or "${" in new:
                 errors.append(f"forbidden chars in: {new[:50]!r}")
@@ -737,6 +799,9 @@ def start_ai_job(name: str, st: dict) -> str:
                 raise RuntimeError("write the project plan first")
             plan = plan_f.read_text(encoding="utf-8")
             cm = json.loads((proj / "copy_map.json").read_text(encoding="utf-8"))
+            # words of animated headings are written through the heading
+            frag = word_fragments(proj, cm)
+            cm["strings"] = [e for e in cm["strings"] if e["old"] not in frag]
             batches = make_batches(cm)
             if not batches:
                 raise RuntimeError("nothing left to fill")
@@ -1972,8 +2037,14 @@ class Handler(BaseHTTPRequestHandler):
                 text = (body.get("text") or "").strip()
                 if not text:
                     return self.fail("empty message")
+                ctx = ""
+                if (s.workspace / "forge.json").exists():
+                    try:
+                        ctx = project_status(s.workspace)
+                    except Exception:
+                        ctx = ""          # a status is a help, never a blocker
                 try:
-                    s.send(text)
+                    s.send(text, context=ctx)
                 except Exception as e:
                     return self.fail(str(e))
                 self.send_json({"ok": True})
@@ -2518,6 +2589,11 @@ class Handler(BaseHTTPRequestHandler):
                     idx = {norm(e["old"]): e for e in cm["strings"]}
                     idxn = {norm(e["new"]): e for e in cm["strings"]
                             if e.get("new")}
+                    # a clicked word of an animated heading opens the
+                    # WHOLE heading: the word alone would be changed
+                    # everywhere on the site
+                    frag = word_fragments(d, cm)
+                    cands = [c for c in cands if c not in frag] or cands
                     for c in cands:                 # smallest-first match
                         if c in idx:
                             out = idx[c]

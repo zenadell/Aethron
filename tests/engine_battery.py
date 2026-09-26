@@ -168,6 +168,79 @@ ck("in a page, the longer line wins over a short one inside it, "
    "even when the page spells & as &amp;",
    out == "<p>Invoices &amp; payments</p>", out)
 
+# ── a word of an animated heading is not a line ─────────────────────────
+# Framer puts each word of an animated heading in its own span. Inventory
+# offered every word as a line, the agent rewrote headings word by word,
+# and each one-word fill applied site-wide: "the" -> "our" in 217 places.
+import json as _json      # noqa: E402
+import tempfile           # noqa: E402
+W = '<span style="display:inline-block;opacity:0.001">{}</span>'
+heading = " ".join(W.format(w) for w in "Over the years".split())
+second = " ".join(W.format(w) for w in "Building brands through design".split())
+proj = Path(tempfile.mkdtemp(prefix="aethron-words-"))
+(proj / "pristine").mkdir()
+(proj / "pristine" / "index.html").write_text(
+    f"<h2>{heading}</h2><h2>{second}</h2>"
+    "<p>We read the brief and design the plan.</p><div>Research</div>",
+    encoding="utf-8")
+cm = {"strings": [
+    {"old": "Over the years", "new": ""},
+    {"old": "Building brands through design",
+     "new": "Engineering software that scales"},
+    {"old": "the", "new": "our"}, {"old": "years", "new": "decades"},
+    {"old": "design", "new": "and AI"},
+    {"old": "We read the brief and design the plan.", "new": ""},
+    {"old": "Research", "new": "Discovery"}],
+    "images": [], "links": []}
+(proj / "copy_map.json").write_text(_json.dumps(cm), encoding="utf-8")
+(proj / "forge.json").write_text("{}", encoding="utf-8")
+frag = F.word_fragments(proj)
+ck("the words of animated headings are recognised as words, not lines",
+   {"the", "years", "design"} <= set(frag) and "Research" not in frag,
+   str(sorted(frag)))
+pairs = F._pairs_from_map(proj, [])
+olds = {p["old"]: p["new"] for p in pairs}
+ck("a heading word's fill no longer applies across the site",
+   not {"the", "years", "design"} & set(olds), str(olds))
+ck("…its fill is kept, inside its own heading only",
+   olds.get("Over the years") == "Over our decades", str(olds))
+ck("a heading written as a whole line wins over its word fills",
+   olds.get("Building brands through design")
+   == "Engineering software that scales", str(olds))
+ck("a one-word LABEL (its own text node) is still a line",
+   olds.get("Research") == "Discovery", str(olds))
+page = (proj / "pristine" / "index.html").read_text(encoding="utf-8")
+t, held = F._regen_word_runs(page, pairs)
+t = F._apply(t, pairs, escaped=True)
+for i, run in enumerate(held):
+    t = t.replace(f"\x00W{i}\x00", run)
+ck("the page rebuilds each heading word by word from its new line",
+   " ".join(W.format(w) for w in "Engineering software that scales".split())
+   in t and " ".join(W.format(w) for w in "Over our decades".split()) in t,
+   t[:300])
+ck("…and a sentence that was never rewritten keeps its own words",
+   "We read the brief and design the plan." in t, t)
+# the agent's tools, on the same project
+import os as _os          # noqa: E402
+home = Path(tempfile.mkdtemp(prefix="aethron-home-"))
+(home / "projects").mkdir()
+import shutil as _sh      # noqa: E402
+_sh.copytree(proj, home / "projects" / "words")
+_os.environ["AETHRON_HOME"] = str(home)
+import forge_mcp as M     # noqa: E402
+listing = M.t_get_content({"project": "words", "brand_notes": False})
+ck("the agent's content list does not offer heading words as lines",
+   '"old": "the"' not in listing and '"old": "Over the years"' in listing
+   and "write the whole line" in listing, listing[:400])
+got = M.t_set_content_bulk({"project": "words", "build": False, "entries": [
+    {"old": "the", "new": "a"},
+    {"old": "We read the brief and design the plan.",
+     "new": "We scope the work and plan the build."}]})
+ck("a write to a heading word is refused, naming its heading",
+   "applied 1, rejected 1" in got and "Over the years" in got, got)
+_sh.rmtree(home, ignore_errors=True)
+_sh.rmtree(proj, ignore_errors=True)
+
 bad = [n for n, ok in checks if not ok]
 print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
 sys.exit(1 if bad else 0)

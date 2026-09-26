@@ -359,6 +359,16 @@ instinct you have about editing files here:
    than one change unless they ask: each undo discards finished work.
    Never call a FAIL a timing issue, and never report a count you did not
    read after your last change.
+7. A MESSAGE MAY OPEN WITH <aethron-status>: Aethron's own measurement of
+   the project, taken as the message was sent. It is the current state —
+   believe it over anything said earlier in this conversation, including
+   your own reports. The person does not write it and never sees it.
+8. SHORT REQUESTS MEAN THE WHOLE JOB. "Finish up", "continue", "keep
+   going", "complete it": write every empty line (get_content with
+   only_unfilled, in batches), then build, verify and probe, and report
+   what those return. Do not ask what they meant.
+   Animated headings are ONE line each; their single words are not
+   offered and cannot be written on their own.
 
 After changing anything: `build`, then `verify` (files), then `probe`
 (what the browser actually does). If an edit lands nowhere, run `heal`
@@ -530,6 +540,11 @@ def transcript_path(session_id: str):
     return hits[0] if hits else None
 
 
+# What Aethron measured, attached to a message so the agent starts from the
+# project as it is — never shown as the person's words.
+STATUS_OPEN, STATUS_CLOSE = "<aethron-status>", "</aethron-status>"
+
+
 def transcript_events(session_id: str, limit: int = 400) -> list:
     """A saved conversation in the SAME event contract a live one uses
     (you / text / tool / tool_result), so the screen draws a restored
@@ -571,7 +586,8 @@ def transcript_events(session_id: str, limit: int = 400) -> list:
                                     "id": b.get("tool_use_id", ""),
                                     "ok": not b.get("is_error"),
                                     "text": str(r or "")[:4000]})
-                    elif b.get("type") == "text":
+                    elif b.get("type") == "text" and not \
+                            b.get("text", "").startswith(STATUS_OPEN):
                         texts.append(b.get("text", ""))
                 said("\n".join(texts))
             elif m.get("type") == "assistant" and isinstance(c, list):
@@ -963,10 +979,16 @@ class CodeSession:
         return bool(self.proc) and self.proc.poll() is None
 
     # ---- talking -----------------------------------------------------
-    def send(self, text: str):
+    def send(self, text: str, context: str = ""):
+        """Send the person's words. `context` is what Aethron measured, not
+        what the person said: it travels in its own tagged block, so the
+        agent reads it and no screen ever shows it as the person's words."""
         if not self.alive:
             raise RuntimeError("session is not running")
-        msg = {"type": "user", "message": {"role": "user", "content": text}}
+        content = text if not context else [
+            {"type": "text", "text": f"{STATUS_OPEN}\n{context}\n{STATUS_CLOSE}"},
+            {"type": "text", "text": text}]
+        msg = {"type": "user", "message": {"role": "user", "content": content}}
         self.busy = True
         # the screen draws the person's words itself as they are sent, so
         # they are kept aside rather than emitted — but a screen that comes
@@ -1674,8 +1696,8 @@ def selftest() -> int:
              "model": "mock-1", "permission_policy": "automatic",
              "aethron_tools": False, "isolate": True}
 
-    def one_turn(s, text):
-        s.send(text)
+    def one_turn(s, text, ctx=""):
+        s.send(text, context=ctx)
         deadline = time.time() + 45
         while time.time() < deadline:
             evs, _ = s.drain(0)
@@ -1716,10 +1738,30 @@ def selftest() -> int:
          any(e.get("type") == "you" and "What word" in e.get("text", "")
              for e in back)),
     ]
+    # WHAT AETHRON MEASURED REACHES THE AGENT, NEVER THE SCREEN. A resumed
+    # conversation carried the agent's own false "444 filled" report; each
+    # message now brings the project's real state — as its own block, so
+    # the person's words are all anyone sees, live or read back from disk.
+    seen5.clear()
+    d5 = CodeSession(ws5, cfg=base5).start()
+    one_turn(d5, "finish up",
+             ctx="Copy: 429 of 687 lines written, 258 still empty.")
+    back6, sid6 = d5.replay(), d5.id
+    d5.close()
+    told6 = transcript_events(sid6)
+    yours = lambda evs: [e.get("text", "") for e in evs if e.get("type") == "you"]
+    checks += [
+        ("the agent is given Aethron's measured status with the message",
+         any("258 still empty" in m for m in seen5)),
+        ("…and the screen shows only what the person typed",
+         yours(back6) == ["finish up"]),
+        ("…also when the conversation is read back from disk",
+         yours(told6) == ["finish up"]),
+    ]
     for name, ok in checks[before_mem:]:
         print(("  ok   " if ok else "  FAIL ") + name)
     p5.shutdown()
-    for sid in (first, c5.id):
+    for sid in (first, c5.id, sid6):
         tp = transcript_path(sid)
         if tp:
             shutil.rmtree(tp.parent, ignore_errors=True)

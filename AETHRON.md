@@ -5469,6 +5469,60 @@ checks that pages render. A new text wrong in a new way is invisible to
 both — only a diff against what the fill asked for sees it. That diff is
 worth building into verify.
 
+## "WILL A NORMAL USER PASTE THIS?" — no, so Aethron does it — 2026-09-26
+Asked "should I ask it to finish up?", I answered with a four-point
+message for the owner to paste. Their reply: a normal person types
+"finish up" and Aethron has to understand. Right — every line of that
+message was either a fact already on disk or a rule the tools should
+enforce. Moved into the product:
+1. THE AGENT STARTS FROM THE TRUTH. Every message sent in a project now
+   carries an <aethron-status> block measured from disk (lines written /
+   empty, byte-limited ones, site built, edits that did not land, the
+   last browser check and whether it predates the build) — 0.7s. It is a
+   separate content block, so the agent reads it and the person never
+   sees it, live or when a conversation is read back from its transcript
+   (the reader skips exactly that block; joining first would have dropped
+   the person's words with it). A resumed conversation had carried the
+   agent's own false "444 filled"; the status overrides it by rule.
+2. "FINISH UP" MEANS THE WHOLE JOB — a project rule, with the status
+   saying how much the whole job is.
+3. A WORD OF AN ANIMATED HEADING IS NOT A LINE. Framer wraps each word of
+   an animated heading in its own span; inventory offered every word as a
+   line, so the agent rewrote headings word by word and each one-word fill
+   applied SITE-WIDE ("the" -> "our", 217 places). Measured on jomiez: 36
+   such headings, EVERY one also an entry as a whole line, and 111 word
+   entries. `word_fragments()` finds them (a word that is never a text
+   node of its own outside those runs; a real label like "Research"
+   stays a line). Fixed in every place a line is written or offered:
+     - build: `_regen_word_runs` rebuilds the heading's spans from its
+       whole line's new text (the per-CHARACTER regenerator never handled
+       per-WORD runs, which is why whole-line fills left the page spelling
+       the template while the code said the new line). Rebuilt runs are
+       held out as placeholders so no replacement pass can touch them;
+       156 of 156 headings on the rebuilt site read identically in page
+       and code.
+     - existing word fills are FOLDED into their own heading when its
+       whole line is unfilled ("Over the years" + the->our + years->
+       decades = "Over our decades"), ignored when the whole line was
+       written, and applied nowhere else. Nothing the agent wrote is lost;
+       nothing it wrote leaks.
+     - MCP get_content no longer lists heading words; set_content(_bulk)
+       refuses one, naming the heading; the studio's click-to-edit opens
+       the whole heading, and AI fill/merge skip and refuse them.
+WHAT IT CHANGED ON THE OWNER'S SITE, checked by diff: the agent's whole-
+line headings finally show ("Great and AI isn't decoration" -> "Great
+software drives real results"). One line got visibly worse — "Client say
+/ say about our work" — and that is the agent's own fill ("What people"
+-> "Client say") that visitors already saw after hydration; page and code
+now agree, so the SSR stopped hiding it. It is copy for the finishing
+pass, not an engine fault.
+Tests: engine battery 26 -> 35 (heading words recognised, not applied
+site-wide, folded into their heading, a whole line wins, a label stays a
+line, the page rebuilt from the new line, an untouched sentence keeps its
+words, the list hides heading words, a write to one is refused naming
+the heading); code selftest 32 -> 35 (the status reaches the agent; the
+person's words are all that shows, live and read back).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5650,3 +5704,9 @@ worth building into verify.
   one lands exactly once.
 - A SLUG IS AN ADDRESS. Route keys, file names and hyphenated compounds
   are never split into words for replacement.
+- A NORMAL REQUEST MUST BE ENOUGH. If a person would have to paste
+  instructions for Aethron to do the right thing, those instructions
+  belong in the product: facts in the status the agent is given, rules in
+  the tools that refuse.
+- A WORD OF A LINE IS NOT A LINE. Nothing is offered for writing, or
+  applied, that would change text outside the line it came from.
