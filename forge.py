@@ -1335,6 +1335,12 @@ def _cms_localize_pairs(cfg, cms_blobs, existing):
 
 def _pairs_from_map(root: Path, cms_blobs):
     cm = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+    try:
+        brand = {w.lower() for w in json.loads(
+            (root / "forge.json").read_text(encoding="utf-8")
+        ).get("forbidden_words", [])}
+    except (OSError, ValueError):
+        brand = set()
     pairs = []
     for entry in cm["strings"] + cm["images"] + cm["links"]:
         old, new = entry["old"], entry.get("new", "")
@@ -1411,7 +1417,7 @@ def _pairs_from_map(root: Path, cms_blobs):
                     new = new + "#" + "0" * (pad - 1)
                 else:
                     new = new + " " * pad
-        pairs.append({"old": old, "new": new,
+        pairs.append({"old": old, "new": new, "brand": old.lower() in brand,
                       "scope": entry.get("scope", "all"), "in_cms": in_cms,
                       "cms_over": cms_over,
                       "flex": bool(entry.get("flex"))})
@@ -1431,7 +1437,7 @@ def _pairs_from_map(root: Path, cms_blobs):
     return pairs
 
 
-def _rx(pairs, escaped):
+def _rx(pairs, escaped, also_escaped=False):
     """One compiled alternation (longest-first) + replacement lookup.
     Single-pass: text a pair just inserted is never re-scanned, so
     'Design'->'AI' can't turn 'AI Workflow Design' into 'AI Workflow AI'.
@@ -1462,6 +1468,12 @@ def _rx(pairs, escaped):
             forms += [(o1, n1), (o2, n2)]
         for old, new in forms:
             _register(parts, lookup, old, new, p, escaped)
+            if also_escaped:
+                # a page spells "&" as "&amp;": that spelling competes in
+                # the SAME longest-first pass, or "Income" wins inside
+                # "Income &amp; expense tracking" before the long line
+                # is ever tried
+                _register(parts, lookup, old, new, p, True)
     return (re.compile("|".join(parts)) if parts else None), lookup
 
 
@@ -1476,7 +1488,7 @@ def _register(parts, lookup, old, new, p, escaped):
     if re.fullmatch(r"\w+", old, re.A):
         pat = rf"\b{pat}\b"
     parts.append(pat)
-    lookup[old] = (new, p["old"])           # (replacement, original old)
+    lookup[old] = (new, p["old"], p)        # (replacement, original old, pair)
 
 
 def _flex_pat(old):
@@ -1531,31 +1543,213 @@ def _js_literal_mask(s):
     characters instead of 8,149. verify saw nothing wrong: every file was
     present and the brand was gone. Only probe caught it.
 
-    The scanner does not understand regex literals or comments, so an
-    apostrophe inside `/['"]/` can desync it. Measured across 431 real
-    chunks in 7 projects, 430 end with every literal closed; the one that
-    does not is a vendored lottie player. An unbalanced end is the tell,
-    and the caller degrades instead of trusting a bad mask.
+    A BALANCED END IS NOT A CORRECT MASK. The first version knew only
+    quotes, and read everything between two backticks as text — including
+    the `${…}` inside a template literal, which is CODE:
+
+        className:`${y(me,`framer-yyrn8x`,p,X)} framer-1hpuegn`
+
+    Its nested backtick then flipped every later reading, and a regex
+    literal or a comment holding a quote flipped it again. On Framer's own
+    runtime the flips cancelled out, so the file "ended balanced" and was
+    trusted while 14 variables named `me` were counted as copy. A fill of
+    "me" -> "us" renamed them (`me=F?.path` became `us=F?.path`) and the
+    home page went blank with `e.flatMap is not a function` — and a
+    Telegram link inside a literal became `t.us`. So the scanner now
+    follows the language: `${` opens code inside a template and the
+    matching `}` closes it, a regex literal is not text, a comment is not
+    text, and anything it cannot finish cleanly is reported untrusted.
     """
     mask = bytearray(len(s))
-    delim = None
-    i, n = 0, len(s)
+    n = len(s)
+    i = 0
+    interp = []              # open `${` in templates: brace depth of each
+    last = ""                # last significant code character
+    word = ""                # last identifier/keyword, for regex detection
+    ok = True
+    # after these a `/` starts a regex; after a value it divides
+    regex_after = set("(,=:[!&|?{};+-*%<>~^")
+    regex_words = {"return", "typeof", "instanceof", "in", "of", "new",
+                   "delete", "void", "throw", "case", "do", "else", "yield",
+                   "await"}
+
+    def template(j):
+        """Scan template text from j; returns (index after it, entered_code)."""
+        while j < n:
+            ch = s[j]
+            if ch == "\\":
+                mask[j:j + 2] = b"\x01\x01"[:max(0, min(2, n - j))]
+                j += 2
+                continue
+            if ch == "`":
+                mask[j] = 1
+                return j + 1, False
+            if ch == "$" and j + 1 < n and s[j + 1] == "{":
+                return j + 2, True
+            mask[j] = 1
+            j += 1
+        return j, None       # ran off the end
+
     while i < n:
         c = s[i]
-        if delim:
+        if c in " \t\r\n":
+            i += 1
+            continue
+        if c in "\"'":
+            j = i + 1
+            while j < n and s[j] != c:
+                if s[j] == "\\":
+                    j += 2
+                    continue
+                if s[j] == "\n":             # strings cannot span lines
+                    ok = False
+                    break
+                j += 1
+            mask[i:min(j + 1, n)] = b"\x01" * (min(j + 1, n) - i)
+            i, last, word = j + 1, ")", ""
+            continue
+        if c == "`":
             mask[i] = 1
-            if c == "\\":
-                if i + 1 < n:
-                    mask[i + 1] = 1
-                i += 2
-                continue
-            if c == delim:
-                delim = None
-        elif c in "`\"'":
-            delim = c
-            mask[i] = 1
+            i, code = template(i + 1)
+            if code is None:
+                ok = False
+                break
+            if code:
+                interp.append(0)
+                last, word = "{", ""
+            else:
+                last, word = ")", ""
+            continue
+        if c == "/" and i + 1 < n and s[i + 1] == "/":
+            j = s.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if c == "/" and i + 1 < n and s[i + 1] == "*":
+            j = s.find("*/", i + 2)
+            if j < 0:
+                ok = False
+                break
+            i = j + 2
+            continue
+        if c == "/" and (last == "" or last in regex_after
+                         or (word and word in regex_words)):
+            j, cls = i + 1, False
+            while j < n:
+                ch = s[j]
+                if ch == "\\":
+                    j += 2
+                    continue
+                if ch == "\n":
+                    ok = False
+                    break
+                if cls:
+                    cls = ch != "]"
+                elif ch == "[":
+                    cls = True
+                elif ch == "/":
+                    break
+                j += 1
+            j += 1
+            while j < n and (s[j].isalnum() or s[j] in "_$"):
+                j += 1                        # flags
+            i, last, word = j, ")", ""
+            continue
+        if c == "{":
+            if interp:
+                interp[-1] += 1
+        elif c == "}":
+            if interp:
+                if interp[-1] == 0:           # end of `${…}`: back to text
+                    interp.pop()
+                    i, code = template(i + 1)
+                    if code is None:
+                        ok = False
+                        break
+                    if code:
+                        interp.append(0)
+                        last, word = "{", ""
+                    else:
+                        last, word = ")", ""
+                    continue
+                interp[-1] -= 1
+        if c.isalnum() or c in "_$":
+            j = i
+            while j < n and (s[j].isalnum() or s[j] in "_$"):
+                j += 1
+            word = s[i:j]
+            last = "a"
+            i = j
+            continue
+        last, word = c, ""
         i += 1
-    return mask, delim is None
+    return mask, ok and not interp
+
+
+_URL_STOP = set(" \t\r\n\"'`<>()[]{},;\\")
+_SLUG = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+){2,}")
+_PATHLIKE = re.compile(r"(?i)\.(?:html?|php|aspx?|jsx?|mjs|css|json|xml|"
+                       r"png|jpe?g|gif|webp|avif|svg|ico|pdf|mp4|webm)(?:[?#].*)?$")
+_BARE_DOMAIN = re.compile(r"(?i)[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:[/?#:].*)?")
+
+
+def _in_url(s, a, b):
+    """Is s[a:b] part of a web address? Works on str and on bytes.
+
+    A WORD INSIDE AN ADDRESS IS NOT COPY. A single-word fill of
+    "me" -> "us" is right for the sentence "Send me an email" and wrong
+    for `https://t.me/share` — rewriting it ships a Telegram button that
+    points at a site that does not exist. Addresses change through LINK
+    entries, where the whole address is the thing being replaced.
+    """
+    lo, hi = max(0, a - 300), min(len(s), b + 300)
+    w = s[lo:hi]
+    if isinstance(w, bytes):
+        w = w.decode("latin-1")
+    a, b = a - lo, b - lo
+    L, R = a, b
+    while L > 0 and w[L - 1] not in _URL_STOP and ord(w[L - 1]) >= 32:
+        L -= 1
+    while R < len(w) and w[R] not in _URL_STOP and ord(w[R]) >= 32:
+        R += 1
+    tok = w[L:R]
+    if "://" in tok or tok.lower().startswith(("www.", "mailto:", "tel:")):
+        return True
+    # A PATH AND A SLUG ARE ADDRESSES TOO. Per-word fills ("the" -> "our",
+    # "concept" -> "design") rewrote `./the-role-of-typography…` into a
+    # link to a page that does not exist, and turned a CMS slug into
+    # `from-design -to-delivery -…` (space-padded to its byte slot). A
+    # lowercase run of three or more hyphenated parts is a route key or
+    # one compound term ("behind-the-scenes"), never three separate words.
+    # In a CMS blob a string's length byte can be printable ("*" is 42),
+    # so the token is trimmed to where a path could start, and the slug
+    # test uses the run of slug characters itself — the same answer in
+    # every layer, or pages, code and CMS stop agreeing.
+    core = re.sub(r"^[^\w./-]+", "", tok)
+    if core.startswith(("./", "../", "/")) or \
+            (_PATHLIKE.search(core) and "/" in core):
+        return True
+    SL, SR = a, b
+    while SL > 0 and (w[SL - 1].isdigit() or "a" <= w[SL - 1] <= "z"
+                      or w[SL - 1] == "-"):
+        SL -= 1
+    while SR < len(w) and (w[SR].isdigit() or "a" <= w[SR] <= "z"
+                           or w[SR] == "-"):
+        SR += 1
+    if _SLUG.fullmatch(w[SL:SR]):
+        return True
+    if "@" in tok and "." in tok.split("@", 1)[1]:
+        return True
+    nxt = tok[b - L:b - L + 1]
+    return bool(_BARE_DOMAIN.fullmatch(tok)) and ("." in tok[:a - L]
+                                                  or (nxt != "" and nxt in "./"))
+
+
+def _word_in_url(s, a, b, pair):
+    """A single-word, non-brand pair matched inside an address: leave it.
+    The brand is the exception — ownership means it is gone everywhere,
+    and verify's forbidden-word scan holds the build to that."""
+    return (not pair.get("brand") and re.fullmatch(r"\w+", pair["old"], re.A)
+            is not None and _in_url(s, a, b))
 
 
 def _code_position(s, a, b):
@@ -1575,8 +1769,20 @@ def _code_position(s, a, b):
 
 
 def _apply(text, pairs, escaped=False, stats=None, code=False):
+    """Replace every pair's old text with its new text, ONCE.
+
+    A REPLACEMENT IS NEVER READ AGAIN. The text runs through up to four
+    passes (exact, whitespace-tolerant, HTML-escaped, hard-wrapped), and
+    each used to scan the previous pass's OUTPUT — so a new text that
+    contains its old one was replaced again every pass. "Design System"
+    -> "Design Systems" shipped on the owner's site as "Design Systemss"
+    in the code and "Design Systemssss" in the pages: visibly wrong, and
+    pages and code no longer agreeing, which hydration trips over.
+    Each replacement is sealed where it lands and opened only at the end,
+    which is the single-pass promise _rx makes, kept across every pass.
+    """
     pair_urls = tuple(p["old"] for p in pairs if p["old"].startswith("http"))
-    vault = []
+    vault, sealed = [], []
 
     def _shield(m):
         u = m.group(0)
@@ -1584,6 +1790,10 @@ def _apply(text, pairs, escaped=False, stats=None, code=False):
             return u
         vault.append(u)
         return f"\x00CDN{len(vault) - 1}\x00"
+
+    def seal(new):
+        sealed.append(new)
+        return f"\x00R{len(sealed) - 1}\x00"
 
     def bump(orig, n=1):
         if stats is not None and n:
@@ -1601,47 +1811,44 @@ def _apply(text, pairs, escaped=False, stats=None, code=False):
             return bool(mask[m.start()])
         return not _code_position(text, m.start(), m.end())
 
-    rx, lookup = _rx(pairs, escaped=False)
+    rx, lookup = _rx(pairs, escaped=False, also_escaped=escaped)
     if rx:
         def repl(m):
             if not _replaceable(m):
                 return m.group(0)        # this is code, not copy
-            new, orig = lookup[m.group(0)]
+            new, orig, pr = lookup[m.group(0)]
+            if _word_in_url(m.string, m.start(), m.end(), pr):
+                return m.group(0)        # an address, not copy
             bump(orig)
-            return new
+            return seal(new)
         text = rx.sub(repl, text)
     # editor-picked entries carry the DOM-normalized text, which may
     # differ from the source's whitespace — match those flexibly
     for p in pairs:
         if p.get("flex") and p["scope"] != "cms" and " " in p["old"]:
-            rep = p["new"].replace("\\", "\\\\")
-            if code:
-                m2, t2 = _js_literal_mask(text)
+            m2, t2 = _js_literal_mask(text) if code else (None, None)
 
-                def _flex_repl(m, _r=rep, _m=m2, _t=t2):
-                    ok = bool(_m[m.start()]) if _t else \
-                        not _code_position(text, m.start(), m.end())
-                    return m.expand(_r) if ok else m.group(0)
-                text, n = re.subn(_flex_pat(p["old"]), _flex_repl, text)
-            else:
-                text, n = re.subn(_flex_pat(p["old"]), rep, text)
-            bump(p["old"], n)
+            def _flex_repl(m, _new=p["new"], _o=p["old"], _m=m2, _t=t2):
+                if code and not (bool(_m[m.start()]) if _t else
+                                 not _code_position(m.string, m.start(),
+                                                    m.end())):
+                    return m.group(0)
+                bump(_o)
+                return seal(_new)
+            text = re.sub(_flex_pat(p["old"]), _flex_repl, text)
     if escaped:
-        rx2, lk2 = _rx(pairs, escaped=True)
-        if rx2:
-            def repl2(m):
-                new, orig = lk2[m.group(0)]
-                bump(orig)
-                return new
-            text = rx2.sub(repl2, text)
         for p in pairs:  # exports hard-wrap long text nodes
             if p["scope"] == "cms" or " " not in p["old"]:
                 continue
             o = html_mod.escape(p["old"], quote=False)
             n = html_mod.escape(p["new"], quote=False)
             pat = r"\s+".join(re.escape(w) for w in o.split())
-            text, k = re.subn(pat, n.replace("\\", "\\\\"), text)
-            bump(p["old"], k)
+
+            def _wrap(m, _n=n, _o=p["old"]):
+                bump(_o)
+                return seal(_n)
+            text = re.sub(pat, _wrap, text)
+    text = re.sub(r"\x00R(\d+)\x00", lambda m: sealed[int(m.group(1))], text)
     for i, u in enumerate(vault):
         text = text.replace(f"\x00CDN{i}\x00", u)
     return text
@@ -2492,7 +2699,7 @@ def cmd_build(_args):
             bparts.append(pat)
             blookup[old_b] = (pr["new"].encode()
                               + b" " * (len(old_b) - len(pr["new"].encode())),
-                              pr["old"])
+                              pr["old"], pr)
         brx = re.compile(b"|".join(bparts)) if bparts else None
         flex_subs = []
         for pr in pairs:
@@ -2505,7 +2712,9 @@ def cmd_build(_args):
                     pr["old"]))
 
         def brepl(m):
-            new_b, orig = blookup[m.group(0)]
+            new_b, orig, pr = blookup[m.group(0)]
+            if _word_in_url(m.string, m.start(), m.end(), pr):
+                return m.group(0)      # the text layers leave it too
             stats[orig] = stats.get(orig, 0) + 1
             return new_b
         for p in cms_src.glob("*.framercms"):
@@ -2633,7 +2842,17 @@ def cmd_build(_args):
         for p in pairs:
             if " " not in p["old"] or not p["new"].strip():
                 continue
-            if stats.get(p["old"], 0) and re.search(_flex_pat(p["old"]), bc):
+            # The old text inside a NEW text is not the old text
+            # surviving — its own ("Design System" -> "Design Systems")
+            # or another line's ("Trusted by" opening the new sentence
+            # "Trusted by founders and enterprises…"). Look for the old
+            # spelling only where no new text is.
+            seen = bc
+            for q in pairs:
+                nq = q["new"].strip()
+                if nq and p["old"] in nq:
+                    seen = re.sub(_flex_pat(nq), "", seen)
+            if stats.get(p["old"], 0) and re.search(_flex_pat(p["old"]), seen):
                 at_risk.append(p["old"])
         if at_risk:
             log(f"WARNING: {len(at_risk)} edit(s) landed in the pages but "
@@ -4784,8 +5003,12 @@ def cmd_probe(args):
         print(f"browser: NONE FOUND — set {BROWSER_ENV}=/path/to/chrome")
 
     results, fails, notes = [], 0, 0
+    broken, cur, mark = [], None, 0      # which pages the fails belong to
     try:
         for page in pages:
+            if cur and fails > mark:
+                broken.append(cur)
+            cur, mark = page, fails
             with lock:
                 requests.clear()
             ssr = _visible_text((site / page).read_text(encoding="utf-8",
@@ -5139,12 +5362,25 @@ def cmd_probe(args):
             results.append(r)
     finally:
         srv.shutdown()
+    if cur and fails > mark:
+        broken.append(cur)
 
+    # THE RECORD SAYS WHAT THE SCREEN SAID. Studio's end-of-turn truth
+    # check read a "verdict" from this file that was never written, so a
+    # blank page could sit under an agent's "zero console errors" with no
+    # contradiction shown. The verdict and the broken pages are recorded
+    # here, in the same words the probe prints.
     report = {"pages": [{k: v for k, v in p.items()
                          if not k.startswith("_")} for p in results],
               "browser": browser or None,
               "probed": len(pages), "not_probed": skipped,
-              "fails": fails, "offline": offline}
+              "fails": fails, "offline": offline, "broken": broken,
+              "verdict": ("SKIPPED — no browser; UNVERIFIED at runtime"
+                          if not browser else
+                          f"{fails} runtime problem(s) on "
+                          f"{len(broken)} page(s)" if fails else
+                          f"CLEAN at runtime ({len(pages)} of "
+                          f"{len(pages) + skipped} pages checked)")}
     (site / ".forge-probe.json").write_text(
         json.dumps(report, indent=1), encoding="utf-8")
 

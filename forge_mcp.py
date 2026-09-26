@@ -102,6 +102,23 @@ def snapshot(d: Path):
         old.unlink()
 
 
+def keep_undone(d: Path):
+    """UNDO THROWS NOTHING AWAY. An agent that could not explain a broken
+    page undid seven changes in a row and 94 finished lines were gone,
+    recoverable only from the conversation transcript. The state an undo
+    replaces is kept in .history/undone/ (last 30), so any run of undos
+    can be walked back."""
+    und = d / ".history" / "undone"
+    und.mkdir(parents=True, exist_ok=True)
+    snap = {f: (d / f).read_text(encoding="utf-8")
+            for f in ("copy_map.json", "forge.json", "project_plan.md")
+            if (d / f).exists()}
+    (und / f"{time.time():.6f}.json").write_text(json.dumps(snap),
+                                                 encoding="utf-8")
+    for old in sorted(und.glob("*.json"))[:-30]:
+        old.unlink()
+
+
 def guard_write(entry: dict, new: str):
     """The rules that keep migrations unbreakable. Returns error or None."""
     if "`" in new or "${" in new:
@@ -786,6 +803,7 @@ def t_undo(a):
     if not snaps:
         raise ValueError("nothing to undo")
     snap = json.loads(snaps[-1].read_text(encoding="utf-8"))
+    keep_undone(d)
     for fn, content in snap.items():
         if fn in ("copy_map.json", "forge.json", "project_plan.md"):
             (d / fn).write_text(content, encoding="utf-8")
@@ -1329,8 +1347,11 @@ TOOLS = [
      "exact reason — fix the entry via set_content, never hand-edit. "
      "Snapshotted (undo covers it). Run build afterwards.",
      S(P, ["project"]), t_heal),
-    ("undo", "Revert the last content/plan/config change (snapshots are "
-     "taken before every write) and rebuild.", S(P, ["project"]), t_undo),
+    ("undo", "Revert the LAST content/plan/config change and rebuild. Only "
+     "when the person asks for it. Each call discards one finished change, "
+     "so NEVER undo repeatedly to find what broke a page: a fill cannot "
+     "break a page unless the engine is wrong — report the probe's FAIL "
+     "lines to the person, verbatim, and stop.", S(P, ["project"]), t_undo),
     ("delete_project", "Delete a project entirely (needs confirm=true).",
      S({**P, "confirm": {"type": "boolean"}}, ["project"]),
      t_delete_project),

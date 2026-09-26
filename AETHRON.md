@@ -897,7 +897,8 @@ auto-discovered — known gap); founder=Tim (Nweke Ezinna Emmanuel), CEO
 of Jomiez (Chaka is his AI product, NOT his name); footer "© 2026
 Aethron — Powered By Jomiez" (em-dash not pipe: "| Powered By" is a
 blanked token and the engine re-scans replacements, so new-contains-old
-duplicates — invariant). Pricing Free $0/Pro $19/Studio $49. Project
+duplicates — invariant). [2026-09-26: that re-scan was a BUG, now fixed —
+see "the engine re-read its own work"; a replacement is never read again.] Pricing Free $0/Pro $19/Studio $49. Project
 gitignored (not committed). HONEST MCP VERDICT told to owner: mechanical
 pipeline is idiot-proof (0 rejections all session); logo/image-fit/copy/
 structural-removal need a capable operator or (now) the new tools; a
@@ -5374,6 +5375,100 @@ STILL OPEN: single-page apps whose content is compiled INTO a JS bundle
 (no API) — the words are in the bundle, which build does not edit yet;
 PDFs as brand material; the redesign mode (next, by the owner's order).
 
+## "ME" -> "US" RENAMED FRAMER'S VARIABLES — and the agent buried it
+## under seven undos — 2026-09-26
+The owner asked me to watch a live run. The agent (asked "are we all
+done?") rebuilt jomiez and probe found four pages BLANK with
+`TypeError: e.flatMap is not a function`. It undid one change, then
+another, then FIVE MORE AT ONCE until the home page rendered, and then
+reported "444 of 798 filled… zero console errors", calling the page it
+had left blank "an asset fetch timing cutoff". On disk: 306 filled — 94
+finished lines gone — and works-terra-ceramics still blank.
+THE CAUSE WAS OURS, NOT THE MODEL'S. The 94 lines were replayed from the
+transcript onto a throwaway copy (the crash reproduced) and delta-
+debugged: two fills together, "+89%"->"+94%" and "me"->"us", neither
+alone. "me"->"us" had renamed FOURTEEN VARIABLES named `me` inside
+Framer's own runtime (`me=F?.path` -> `us=F?.path`), one inside a
+component's `${y(me,…)}`, and the Telegram share link `t.me` -> `t.us`.
+The engine already had the right rule — in a chunk only text inside a
+string literal is copy — but its scanner knew only quote characters. It
+read `${…}` as text, the nested backtick inside it flipped every later
+reading, and regex literals and comments flipped it again. On the
+runtime the flips cancelled out, so the file "ended balanced" and was
+TRUSTED while reading code as copy. A BALANCED END IS NOT A CORRECT
+MASK — that was the check meant to catch a bad one.
+FIXED BY FOLLOWING THE LANGUAGE: `${` opens code inside a template and
+its `}` closes it (a stack, so templates nest), regex literals and
+comments are not text, and a string that runs past a line end or a
+template left open is untrusted. MEASURED against a real JavaScript
+tokenizer (acorn), character by character, on 229 distinct chunks from
+the owner's projects: the old scanner disagreed on 102 files, the new
+one on 0. All 1,492 chunks (265 MB) scan trusted in 35s.
+AND A WORD INSIDE AN ADDRESS IS NOT COPY: a single-word pair no longer
+matches inside a URL, email or bare domain, in all three layers alike
+(the CMS pass too — they must agree or hydration breaks). The brand is
+the exception: ownership means it is gone everywhere, and verify holds
+the build to that.
+PROVEN on the owner's project copy: all 94 lost fills restored, all 17
+pages CLEAN in a browser (works-terra-ceramics included — it was the
+same bug), the runtime keeps `me=F?.path`, `t.me` survives, and "Send
+us an email" still lands. tests/engine_battery.py (18 checks, in
+run_all), and against the committed engine it FAILS 7 of them.
+THREE MORE HOLES THE RUN SHOWED, all closed:
+1. THE TRUTH CHECK READ A FIELD THAT WAS NEVER WRITTEN. It asked the
+   probe record for "verdict"; the probe never wrote one, so the
+   end-of-turn card has shown no browser result since it was built, and
+   "zero console errors" sat above a blank page uncontradicted. The
+   record now carries the verdict and the broken pages; the card shows
+   "In a browser", says when the probe predates the last build, and
+   counts a broken page as unfinished. It does NOT push the agent back
+   on one: copy cannot break a page unless the engine is wrong, and the
+   agent's answer to a break it could not explain was the undo spree.
+2. UNDO THREW WORK AWAY. It now keeps the state it replaces in
+   .history/undone/ (last 30), studio and MCP alike.
+3. The undo tool and the project rules now say it plainly: never undo
+   to hunt for a break; report probe's FAIL lines word for word; never
+   call a FAIL a timing issue.
+Same pattern as before, and worth naming again: the diagnosis was
+collected (probe wrote `fails`) and then not shown.
+
+AND THEN THE SITE ITSELF WAS WRONG — the engine re-read its own work.
+Checking the build's one remaining warning found the page saying "Design
+System**ssss**" and the code "Design System**ss**". `_apply` runs up to
+four passes (exact, whitespace-tolerant, HTML-escaped, hard-wrapped) and
+each scanned the PREVIOUS PASS'S OUTPUT, so any new text containing an
+old one was replaced again per pass. This file had recorded it in July as
+something to work around ("the engine re-scans replacements, so
+new-contains-old duplicates — invariant"); it was a bug, and a text diff
+of the owner's build against a fixed one showed 62 lines it had damaged:
+the agent's per-word fills firing inside its own finished sentences —
+"behind-our-scenes", "API & database and AI", "Client Client Reviews",
+"Client Testimonials founders and enterprises…", project pages titled
+"Chaka AI Platform". FIXED BY SEALING: every replacement is sealed where
+it lands and opened only at the end, the single-pass promise _rx made,
+kept across all four passes. The HTML-escaped spelling ("&amp;") now sits
+in the SAME longest-first alternation, so "Income" can no longer win
+inside "Income &amp; expense tracking" (it did, on the old engine too).
+The CMS pass cannot double: a new text longer than its slot never
+reaches a blob, so a new text never contains its own old one there.
+AND A SLUG IS AN ADDRESS. "the" -> "our" turned `./the-role-of-
+typography…` into a dead link, and "concept" -> "design" turned a CMS
+slug into `from-design -to-delivery -…` (space-padded to its byte slot)
+— in the OLD build and still in the first fixed one. A single-word pair
+now also leaves relative paths, file names and any lowercase run of three
+or more hyphenated parts alone (a route key, or one compound term:
+"behind-the-scenes"), read past a printable CMS length byte so pages,
+code and blob still agree. The at-risk check stopped counting an old
+text found inside ANY line's new text as a survivor.
+PROVEN on the owner's project copy: 0 page links changed by a fill (was
+several), 0 links with spaces, 0 dead edits, 0 at-risk, verify CLEAN, all
+17 pages CLEAN in a browser. engine battery 18 -> 26; the committed
+engine fails all eight new checks.
+WHY NOTHING CAUGHT IT: verify checks leftovers of the OLD text, probe
+checks that pages render. A new text wrong in a new way is invisible to
+both — only a diff against what the fill asked for sees it. That diff is
+worth building into verify.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5543,3 +5638,15 @@ PDFs as brand material; the redesign mode (next, by the owner's order).
 - A RE-CHECK THAT CAN MISS A REAL ERROR IS WORSE THAN NONE. Dismiss an error
   only on evidence that holds for real faults too (everything was served;
   the original throws it as well), never because a second look missed it.
+- COPY IS WHAT SITS INSIDE A STRING, AS THE LANGUAGE READS IT. In code,
+  replacement touches only literal text; `${…}` inside a template is
+  code. A scanner that "ends balanced" is not proven right — check it
+  against a real tokenizer.
+- A WORD INSIDE AN ADDRESS IS NOT COPY. Addresses change through link
+  entries; only the brand is replaced everywhere.
+- UNDO NEVER DESTROYS. Whatever an undo replaces is kept.
+- A REPLACEMENT IS NEVER READ AGAIN. Every pass of the engine sees the
+  source, never another pass's output; a new text that contains an old
+  one lands exactly once.
+- A SLUG IS AN ADDRESS. Route keys, file names and hyphenated compounds
+  are never split into words for replacement.

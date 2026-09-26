@@ -430,6 +430,20 @@ def snapshot(d: Path):
         old.unlink()
 
 
+def keep_undone(d: Path):
+    """Undo throws nothing away: the state it replaces goes to
+    .history/undone/ (last 30), same format as forge_mcp's."""
+    und = d / ".history" / "undone"
+    und.mkdir(parents=True, exist_ok=True)
+    snap = {f: (d / f).read_text(encoding="utf-8")
+            for f in ("copy_map.json", "forge.json", "project_plan.md")
+            if (d / f).exists()}
+    (und / f"{time.time():.6f}.json").write_text(json.dumps(snap),
+                                                 encoding="utf-8")
+    for old in sorted(und.glob("*.json"))[:-30]:
+        old.unlink()
+
+
 def undo_count(d: Path) -> int:
     hist = d / ".history"
     return len(list(hist.glob("*.json"))) if hist.exists() else 0
@@ -1394,15 +1408,27 @@ class Handler(BaseHTTPRequestHandler):
                         template_share = int(m.group(1)) if m else None
                     except Exception as e:
                         verdict = f"verify could not run: {type(e).__name__}"
-                probe = ""
+                # AND WHAT THE BROWSER SAW. This used to read a "verdict"
+                # the probe never wrote, so it was always empty — and an
+                # agent's "zero console errors" sat above a blank page
+                # with nothing on screen to contradict it.
+                probe, broken = "", []
                 pf = d / "site" / ".forge-probe.json"
+                rf = d / "site" / ".forge-report.json"
                 if pf.exists():
                     try:
                         pj = json.loads(pf.read_text(encoding="utf-8"))
+                        broken = [str(x) for x in pj.get("broken") or []]
                         probe = str(pj.get("verdict") or "")
+                        if not probe and pj.get("fails"):
+                            probe = f"{pj['fails']} runtime problem(s)"
+                        if rf.exists() and \
+                                rf.stat().st_mtime > pf.stat().st_mtime + 1:
+                            probe, broken = "not run since the last build", []
                     except Exception:
                         probe = ""
                 self.send_json({**info, "verify": verdict, "probe": probe,
+                                "broken": broken,
                                 "template_share": template_share,
                                 "pages_built": len(list((d / "site").glob("*.html")))
                                 if info["built"] else 0})
@@ -2451,6 +2477,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not snaps:
                     return self.fail("nothing to undo", 404)
                 snap = json.loads(snaps[-1].read_text(encoding="utf-8"))
+                keep_undone(d)
                 for fn, content in snap.items():
                     if fn in ("copy_map.json", "forge.json",
                               "project_plan.md"):
@@ -12541,15 +12568,23 @@ async function checkTruth(){
   else if(t.total&&t.filled<t.total*0.05)gaps.push(`only ${t.filled} of ${t.total} copy entries are filled`);
   if(!t.built)gaps.push('the site has not been built');
   if(t.built&&/FAIL|problem/i.test(t.verify||''))gaps.push('verify reports: '+t.verify);
+  const broken=t.broken||[];
+  if(t.built&&/problem/i.test(t.probe||''))
+    gaps.push(`the browser check found ${broken.length?broken.length+' broken page'+(broken.length===1?'':'s')+' ('+broken.slice(0,3).join(', ')+(broken.length>3?', …':'')+')':t.probe}`);
   if(t.built&&t.template_share!=null&&t.template_share>=50)
     gaps.push(`${t.template_share}% of the page copy still reads word-for-word as the template's — rewrite it in the brand's words`);
   CODE.events.push({type:'truth',project:name,t,gaps});
   renderChat(); refresh(true).catch(()=>{});
-  if(!gaps.length||!migrating.has(name))return;
+  /* A broken page is shown, never pushed back on: a fill cannot break a
+     page unless the engine is wrong, and the agent's answer to a break it
+     could not explain was to undo seven changes in a row — destroying 94
+     finished lines. That goes to the person, with the card. */
+  const work=gaps.filter(g=>!/^the browser check/.test(g));
+  if(!work.length||!migrating.has(name))return;
   CODE.nudges=(CODE.nudges||0)+1;
   if(CODE.nudges>NUDGE_MAX)return;
   const text=`Aethron checked the project "${name}" on disk and the migration is not finished: `
-    +gaps.join('; ')+'. Continue now: fill the entries with set_content_bulk using the brand '
+    +work.join('; ')+'. Continue now: fill the entries with set_content_bulk using the brand '
     +'plan, then build, verify and probe. Report only what those tools actually return — '
     +'do not describe any step you have not run.';
   CODE.events.push({type:'you',text,auto:true});renderChat();
@@ -12564,6 +12599,7 @@ function truthHtml(b){
     ['Copy filled', t.total?`${t.filled} of ${t.total}`:'not inventoried'],
     ['Site built', t.built?`yes — ${t.pages_built} page${t.pages_built===1?'':'s'}`:'no'],
     ['Verify', t.verify||(t.built?'not run':'—')],
+    ['In a browser', t.probe||(t.built?'not run':'—')],
     ...(t.template_share!=null?[['Still template', `${t.template_share}% of the copy`]]:[]),
   ];
   return `<section class="truth ${ok?'good':'short'}">

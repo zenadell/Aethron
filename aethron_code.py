@@ -352,6 +352,13 @@ instinct you have about editing files here:
    them. Never invent facts (clients, numbers, awards, dates, policies)
    the notes and `search_brand` do not give you; keep such a line
    general or ask.
+6. WHEN PROBE FINDS A BROKEN PAGE, REPORT IT — DO NOT DIG WITH UNDO.
+   Copy cannot break a page unless Aethron's engine is wrong, which you
+   cannot fix from here. Run heal once; if the page is still broken, give
+   the person probe's FAIL lines word for word and stop. Never undo more
+   than one change unless they ask: each undo discards finished work.
+   Never call a FAIL a timing issue, and never report a count you did not
+   read after your last change.
 
 After changing anything: `build`, then `verify` (files), then `probe`
 (what the browser actually does). If an edit lands nowhere, run `heal`

@@ -102,7 +102,10 @@ def run():
         check("it moved to the second free key",
               used[-1] == FREE[1], str(used))
         check("the spent key is remembered",
-              brain._fp(FREE[0]) in brain._keystate()["exhausted"])
+              # benched for the model that ran out (Google counts each
+              # model's free allowance apart), not as a bare fingerprint
+              brain._fp(FREE[0]) in brain.spent_for(
+                  brain.resolve(CFG)["model"]))
         check("the paid key was never touched", PAID not in used)
 
         # A PER-MINUTE LIMIT BELONGS TO ONE KEY, NOT TO THE ACCOUNT.

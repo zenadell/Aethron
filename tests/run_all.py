@@ -34,7 +34,12 @@ SUITES = [
                 "aethron_spec.py", "tests/spec_battery.py", "tests/gemini_ring_battery.py",
                 "aethron_agm.py", "tests/agm_battery.py", "aethron_adopt.py",
                 "tests/adopt_battery.py",
-                "tests/alive_battery.py", "tests/run_all.py"], False),
+                "tests/alive_battery.py", "tests/engine_battery.py",
+                "tests/run_all.py"], False),
+    # The replacement engine may change COPY and nothing else: a fill of
+    # "me" -> "us" once renamed variables inside Framer's runtime.
+    ("engine battery (copy changes, code and addresses do not)",
+     [PY, "tests/engine_battery.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("self-update (in-place, never a second copy)",
