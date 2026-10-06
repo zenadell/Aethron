@@ -128,6 +128,18 @@ If you cannot identify the cause: {"file": null, "why": "<what is missing>"}
 
 
 def load_key():
+    """This tool talks to OpenRouter only, so it takes a SAVED OpenRouter
+    key whichever provider is active (saved providers live in profiles;
+    the flat config this once read no longer holds keys)."""
+    try:
+        import aethron_brain as B
+        keys = B.profile_keys("openrouter")
+        model = next((p["model"] for p in B.profiles()
+                      if p["provider"] == "openrouter" and p["model"]), "")
+        if keys:
+            return keys[0], model or "z-ai/glm-5.3-flash"
+    except Exception:
+        pass
     if not CONFIG.is_file():
         return None, None
     ai = (json.loads(CONFIG.read_text()).get("ai") or {})

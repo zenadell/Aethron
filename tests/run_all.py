@@ -35,11 +35,15 @@ SUITES = [
                 "aethron_agm.py", "tests/agm_battery.py", "aethron_adopt.py",
                 "tests/adopt_battery.py",
                 "tests/alive_battery.py", "tests/engine_battery.py",
+                "tests/provider_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
     ("engine battery (copy changes, code and addresses do not)",
      [PY, "tests/engine_battery.py"], False),
+    # Saved providers: a switch changes what runs, and nothing else.
+    ("provider battery (one-click switch, no Gemini left behind)",
+     [PY, "tests/provider_battery.py"], False),
     ("brain (one key for everything)",
      [PY, "aethron_brain.py", "--selftest"], False),
     ("self-update (in-place, never a second copy)",

@@ -485,7 +485,94 @@ class BudgetExhausted(RuntimeError):
     """Refused to START a call that could exceed the cap."""
 
 
-def gemini_writer(budget_usd=0.25, model="gemini-3.6-flash",
+def _active(model=None):
+    """The ACTIVE saved provider, as one call needs it. These two writers
+    used to post to Google's address with a Gemini model name written in,
+    whatever the person had chosen — switching to DeepSeek changed the
+    settings and nothing these called."""
+    import aethron_brain as _B
+    r = _B.resolve()
+    if model:
+        r = {**r, "model": model}
+    return r
+
+
+def _price(r):
+    """(in, out) dollars per token for the active model. A local model is
+    free; an unknown one is priced at the dearest known rate, so a cap is
+    never turned off by a model name nobody listed."""
+    if r.get("local"):
+        return 0.0, 0.0
+    import aethron_bridge as _br
+    pin, pout = _br.PRICES.get(r.get("model") or "", _br.UNKNOWN_PRICE)
+    return pin / 1e6, pout / 1e6
+
+
+def _request(r, key, text, max_tokens, temperature):
+    """One request in the provider's own wire format."""
+    import json as _j
+    import urllib.request as _u
+    if r["wire"] == "anthropic-cli":
+        raise BudgetExhausted(
+            f"{r['label']} has no API to call directly — it signs in "
+            "through the Claude Code app, which only the coding agent uses. "
+            "Switch to a provider with an API key for this.")
+    if r["wire"] == "anthropic":
+        body = {"model": r["model"], "max_tokens": max_tokens,
+                "temperature": temperature,
+                "messages": [{"role": "user", "content": text}]}
+        return _u.Request(r["base"] + "/v1/messages",
+                          data=_j.dumps(body).encode(),
+                          headers={"Content-Type": "application/json",
+                                   "x-api-key": key,
+                                   "anthropic-version": "2023-06-01"})
+    body = {"model": r["model"], "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": [{"role": "user", "content": text}]}
+    # only providers known to accept it: an unknown field is a 400 on some
+    if r.get("provider") in ("gemini", "openai"):
+        body["reasoning_effort"] = "low"
+    headers = {"Content-Type": "application/json"}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    return _u.Request(r["base"] + "/chat/completions",
+                      data=_j.dumps(body).encode(), headers=headers)
+
+
+def _reply(r, d):
+    """-> (text, cut_off, tokens_in, tokens_out) from either wire."""
+    if r["wire"] == "anthropic":
+        u = d.get("usage") or {}
+        text = "".join(b.get("text", "") for b in d.get("content") or []
+                       if b.get("type") == "text")
+        return (text, d.get("stop_reason") == "max_tokens",
+                int(u.get("input_tokens") or 0),
+                int(u.get("output_tokens") or 0))
+    u = d.get("usage") or {}
+    p_in = int(u.get("prompt_tokens") or 0)
+    # total - prompt, NOT completion_tokens: on thinking models the
+    # completion count can omit the reasoning that was billed.
+    p_out = int((u.get("total_tokens") or 0) - p_in) or \
+        int(u.get("completion_tokens") or 0)
+    choice = d["choices"][0]
+    return ((choice.get("message") or {}).get("content") or "",
+            choice.get("finish_reason") == "length", p_in, p_out)
+
+
+def _limit_kind(r, code, body):
+    """('wall'|'pace', seconds) for a refusal. Google's quota ids say which;
+    elsewhere an exhausted balance (402, "insufficient", "depleted") is a
+    wall and any other 429 is a pause."""
+    low = body.lower()
+    if r.get("provider") == "gemini":
+        return _gemini_429(body)
+    if code == 402 or "insufficient" in low or "depleted" in low \
+            or "balance" in low:
+        return "wall", 0
+    return "pace", 15
+
+
+def gemini_writer(budget_usd=0.25, model=None,
                   max_tokens=12000, key=None, verbose=True):
     """One direct call per round, with a spend cap that cannot be crossed.
 
@@ -507,12 +594,13 @@ def gemini_writer(budget_usd=0.25, model="gemini-3.6-flash",
     import time as _t
     import urllib.request as _u
     import urllib.error as _ue
+    # the ACTIVE saved provider — the name is historical
+    r = _active(model)
     if key is None:
-        import aethron_brain as _B
-        r = _B.resolve({"provider": "gemini"})
-        key = next((r[k] for k in r if "key" in k.lower() and r[k]), None)
-    if not key:
-        raise BudgetExhausted("no Gemini key configured")
+        key = r.get("key") or ""
+    if not key and not r.get("local") and r["wire"] != "anthropic-cli":
+        raise BudgetExhausted(f"no API key saved for {r['label']}")
+    PIN, POUT = _price(r)
     ledger = {"calls": 0, "in": 0, "out": 0, "usd": 0.0,
               "budget": budget_usd, "stopped": None}
 
@@ -532,23 +620,13 @@ def gemini_writer(budget_usd=0.25, model="gemini-3.6-flash",
                  "(inline CSS, no external assets, no markdown fences, "
                  "no commentary).")
         est_in = len(text) // 3 + 50          # generous: ~3 chars/token
-        worst = est_in * GEMINI_IN + max_tokens * GEMINI_OUT
+        worst = est_in * PIN + max_tokens * POUT
         if ledger["usd"] + worst > budget_usd:
             ledger["stopped"] = (f"cap: ${ledger['usd']:.4f} spent, next "
                                  f"call could cost up to ${worst:.4f}, "
                                  f"budget ${budget_usd:.2f}")
             raise BudgetExhausted(ledger["stopped"])
-        body = _j.dumps({
-            "model": model,
-            "messages": [{"role": "user", "content": text}],
-            "max_tokens": max_tokens, "temperature": 0.3,
-            "reasoning_effort": "low",
-        }).encode()
-        req = _u.Request(
-            "https://generativelanguage.googleapis.com/v1beta/openai"
-            "/chat/completions", data=body,
-            headers={"Content-Type": "application/json",
-                     "Authorization": f"Bearer {key}"})
+        req = _request(r, key, text, max_tokens, 0.3)
         d = None
         for attempt in range(4):
             try:
@@ -560,29 +638,24 @@ def gemini_writer(budget_usd=0.25, model="gemini-3.6-flash",
                 # "credits depleted" also arrives as a 429, and retrying
                 # it is how the last run spent four rounds of back-off
                 # waiting on a balance that was not coming back.
-                if "depleted" in msg.lower() or "billing" in msg.lower():
+                if _limit_kind(r, e.code, msg)[0] == "wall" and (
+                        r.get("provider") != "gemini"
+                        or "depleted" in msg.lower()):
                     ledger["stopped"] = "provider: credits depleted"
                     raise BudgetExhausted(ledger["stopped"])
                 if e.code not in (429, 500, 502, 503, 504) or attempt == 3:
                     raise RuntimeError(f"provider said {e.code}: {msg}")
                 _t.sleep(6 * (attempt + 1))
-        u = d.get("usage") or {}
-        p_in = int(u.get("prompt_tokens") or 0)
-        # total - prompt, NOT completion_tokens: on thinking models the
-        # completion count can omit the reasoning that was billed.
-        p_out = int((u.get("total_tokens") or 0) - p_in) or \
-            int(u.get("completion_tokens") or 0)
-        cost = p_in * GEMINI_IN + p_out * GEMINI_OUT
+        html, cut, p_in, p_out = _reply(r, d)
+        cost = p_in * PIN + p_out * POUT
         ledger["calls"] += 1
         ledger["in"] += p_in
         ledger["out"] += p_out
         ledger["usd"] += cost
-        choice = d["choices"][0]
-        html = (choice.get("message") or {}).get("content") or ""
         say(f"    call {ledger['calls']}: {p_in} in / {p_out} out "
             f"= ${cost:.4f}  (total ${ledger['usd']:.4f} of "
             f"${budget_usd:.2f})")
-        if choice.get("finish_reason") == "length":
+        if cut:
             raise RuntimeError("the model ran out of tokens mid-page — "
                                "a truncated page is not written")
         import aethron_generate as _G
@@ -612,7 +685,7 @@ def _gemini_429(body):
     return ("wall", 0) if _br.QUOTA_WALL_RE.search(body) else ("pace", 15)
 
 
-def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens=4000,
+def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
                 key=None, temperature=0.2, timeout=180):
     """One call that returns TEXT, through the KEY RING — free keys first, the paid key last.
 
@@ -635,7 +708,13 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
     import aethron_brain as _B
     for k, v in (("calls", 0), ("in", 0), ("out", 0), ("usd", 0.0), ("list_usd", 0.0), ("free_calls", 0)):
         ledger.setdefault(k, v)
-    if key:
+    # THE ACTIVE SAVED PROVIDER, not Google's address. The name is
+    # historical; what it calls is whatever the person has switched to.
+    r = _active(model)
+    model = r["model"]
+    PIN, POUT = _price(r)
+    if r.get("local") and not key:
+        key = "local"           # a local model takes no key; one pass, free
         ring = [(key, "given")]
     else:
         spent = _B.spent_for(model)
@@ -648,14 +727,11 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
                              "usable paid key")
         raise BudgetExhausted(ledger["stopped"])
     est_in = len(prompt) // 3 + 50
-    body = _j.dumps({"model": model, "messages": [{"role": "user", "content": prompt}],
-                     "max_tokens": max_tokens, "temperature": temperature,
-                     "reasoning_effort": "low"}).encode()
     tried = []
     for k, tier in ring:
         fp = _B._fp(k)
         if tier != "free":
-            worst = est_in * GEMINI_IN + max_tokens * GEMINI_OUT
+            worst = est_in * PIN + max_tokens * POUT
             if ledger["usd"] + worst > budget_usd:
                 tried.append(f"{tier} key {fp}: not tried — its next call could cost up to ${worst:.4f}, "
                              f"over the ${budget_usd:.2f} budget with ${ledger['usd']:.4f} spent")
@@ -668,8 +744,7 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
                              f"and the wallet has ${left:.4f} left (raise it with "
                              f"aethron_brain.wallet_set)")
                 continue
-        req = _u.Request("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-                         data=body, headers={"Content-Type": "application/json", "Authorization": f"Bearer {k}"})
+        req = _request(r, "" if k == "local" else k, prompt, max_tokens, temperature)
         d, waited = None, 0
         for attempt in range(5):
             try:
@@ -678,8 +753,8 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
                 break
             except _ue.HTTPError as e:
                 msg = e.read()[:2000].decode(errors="replace")
-                if e.code == 429 or "depleted" in msg.lower():
-                    kind, pause = _gemini_429(msg)
+                if e.code in (402, 429) or "depleted" in msg.lower():
+                    kind, pause = _limit_kind(r, e.code, msg)
                     if kind == "wall":
                         if tier != "given":
                             _B.mark_exhausted(k, model)
@@ -713,10 +788,8 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
                 _t.sleep(4 * (attempt + 1))
         if d is None:
             continue
-        u = d.get("usage") or {}
-        p_in = int(u.get("prompt_tokens") or 0)
-        p_out = int((u.get("total_tokens") or 0) - p_in) or int(u.get("completion_tokens") or 0)
-        cost = p_in * GEMINI_IN + p_out * GEMINI_OUT
+        text, cut, p_in, p_out = _reply(r, d)
+        cost = p_in * PIN + p_out * POUT
         ledger["calls"] += 1
         ledger["in"] += p_in
         ledger["out"] += p_out
@@ -728,10 +801,9 @@ def gemini_text(prompt, ledger, budget_usd, model="gemini-3.6-flash", max_tokens
             st = _B.wallet_spend(cost)      # once: a second call would count the same money twice
             ledger["wallet_left"] = max(0.0, st["limit_usd"] - st["spent_usd"])
         ledger["last_key"] = f"{tier} {fp}"
-        choice = d["choices"][0]
-        if choice.get("finish_reason") == "length":
+        if cut:
             raise RuntimeError("the model ran out of tokens mid-reply — a cut-off plan is not applied")
-        return (choice.get("message") or {}).get("content") or ""
+        return text
     ledger["stopped"] = "no key could serve this request — " + "; ".join(tried)
     raise BudgetExhausted(ledger["stopped"])
 

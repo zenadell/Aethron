@@ -314,6 +314,9 @@ and the <style>, semantic <body>. No markdown fence, no explanation.
 """
 
 
+_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+
 def _call(spec_json, image, key, model, max_tokens=32000,
           effort="low", extra=""):
     body = json.dumps({
@@ -335,8 +338,7 @@ def _call(spec_json, image, key, model, max_tokens=32000,
         "reasoning_effort": effort,
     }).encode()
     req = urllib.request.Request(
-        "https://generativelanguage.googleapis.com/v1beta/openai"
-        "/chat/completions", data=body,
+        _BASE + "/chat/completions", data=body,
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {key}"})
     # RETRY THE PROVIDER'S OWN BACK-PRESSURE. A 429 is the API asking
@@ -379,9 +381,14 @@ def generate(image, outdir, key=None, model=None, rounds=1, verbose=True):
         if verbose:
             print(*a)
 
-    cfg = json.loads((ROOT / "aethron_config.json").read_text())["ai"]
-    key = key or cfg["api_key"]
-    model = model or cfg.get("model") or "gemini-3.6-flash"
+    # the ACTIVE saved provider, read where settings live — this used to
+    # read the config file beside the code (inside the app, the bundle)
+    import aethron_brain as _B
+    _r = _B.resolve()
+    key = key or _r["key"]
+    model = model or _r["model"]
+    global _BASE
+    _BASE = _r["base"]
     image = Path(image)
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)

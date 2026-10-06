@@ -141,6 +141,11 @@ def cap_checks():
             "usage": {"prompt_tokens": 1000, "completion_tokens": 500,
                       "total_tokens": 5000}}).encode()
 
+    # the writer follows the ACTIVE provider now; these checks are priced
+    # for Gemini, so they say so instead of inheriting this machine's
+    import os as _os
+    _os.environ["AETHRON_AI_PROVIDER"] = "gemini"
+    _os.environ["AETHRON_AI_MODEL"] = "gemini-3.6-flash"
     try:
         # 1. refuses before calling when one worst case exceeds the cap
         w = B.gemini_writer(budget_usd=0.01, key="k", verbose=False)

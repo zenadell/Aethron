@@ -91,6 +91,11 @@ def world(script):
 
 def fresh(free, paid, wallet=None):
     tmp = Path(tempfile.mkdtemp(prefix="ae-ring-"))
+    # THIS BATTERY IS ABOUT GOOGLE'S QUOTAS, so it says it is talking to
+    # Gemini: the writer follows the ACTIVE provider now, and a test must
+    # not inherit whichever one this machine happens to have switched to.
+    os.environ["AETHRON_AI_PROVIDER"] = "gemini"
+    os.environ["AETHRON_AI_MODEL"] = "gemini-3.6-flash"
     brain.KEYSTATE = tmp / "keystate.json"
     brain.WALLET = tmp / "spend.json"
     os.environ.pop("AETHRON_WALLET_USD", None)   # the machine's own ceiling must not steer a test

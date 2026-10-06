@@ -501,6 +501,23 @@ def project_status(d: Path) -> str:
             "said:\n" + "\n".join(out))
 
 
+def end_code_sessions() -> int:
+    """End every open agent session and then stop the bridge. A session's
+    endpoint is fixed at spawn, so one left open after a switch or a new
+    key would keep talking to the OLD provider — or to a dead socket."""
+    ended = 0
+    for _k, _s in list(CODE_SESSIONS.items()):
+        try:
+            _s.close()
+            ended += 1
+        except Exception:
+            pass
+        CODE_SESSIONS.pop(_k, None)
+    if brain:
+        brain.shutdown_bridge()   # only now is it safe to stop
+    return ended
+
+
 def undo_count(d: Path) -> int:
     hist = d / ".history"
     return len(list(hist.glob("*.json"))) if hist.exists() else 0
@@ -1945,6 +1962,24 @@ class Handler(BaseHTTPRequestHandler):
                 GLASS_RECT.clear()
                 GLASS_RECT.update(body or {})
                 self.send_json({"ok": True})
+            elif u.path in ("/api/ai/switch", "/api/ai/profile/delete"):
+                # ONE CLICK BETWEEN SAVED PROVIDERS. Every saved provider
+                # keeps its own keys and model; switching changes which one
+                # is used, and ends any open session bound to the old one
+                # (its endpoint is baked into the process at spawn).
+                if not brain:
+                    return self.fail("AI settings unavailable")
+                try:
+                    if u.path == "/api/ai/switch":
+                        brain.switch(str(body.get("id") or ""))
+                    else:
+                        brain.delete_profile(str(body.get("id") or ""))
+                except ValueError as e:
+                    return self.fail(str(e), 404)
+                ended = end_code_sessions()
+                st = brain.status()
+                st["available"], st["ended"] = True, ended
+                self.send_json(st)
             elif u.path == "/api/ai/settings":
                 if not brain:
                     return self.fail("AI settings unavailable")
@@ -1961,18 +1996,12 @@ class Handler(BaseHTTPRequestHandler):
                 # A session is bound to the key it started with, so the
                 # honest thing is to end it. The next prompt opens a
                 # fresh one on the new endpoint.
-                ended = 0
-                for _k, _s in list(CODE_SESSIONS.items()):
-                    try:
-                        _s.close()
-                        ended += 1
-                    except Exception:
-                        pass
-                    CODE_SESSIONS.pop(_k, None)
-                brain.shutdown_bridge()   # only now is it safe to stop
-                self.send_json({"ok": True, "ended": ended,
-                                "ai": {**saved, "api_key":
-                                ("set" if saved.get("api_key") else "")}})
+                ended = end_code_sessions()
+                # never the saved record itself: it holds every saved
+                # provider's keys, and none of them belong in the page
+                st = brain.status()
+                st.update(ok=True, ended=ended, available=True)
+                self.send_json(st)
             # ---- code layer -----------------------------------------
             elif u.path == "/api/code/start":
                 if not codelayer:
@@ -11184,6 +11213,17 @@ nav#tabs{display:flex;align-items:center;gap:2px;padding:0 18px;min-height:44px}
    as wide as the paragraph it was explaining. One column, short labels,
    hints demoted under the field they explain. */
 .insp{padding:0 0 22px}
+.aiprofs{display:flex;flex-direction:column;gap:6px;margin:0 0 14px}
+.aiprof{display:flex;align-items:center;gap:10px;padding:9px 10px 9px 12px;
+  border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.aiprof.on{border-color:var(--acc)}
+.aipmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.aipmain b{font-weight:600;color:var(--tx)}
+.aipmain span{font-size:12px;color:var(--dim);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.aipon{font-size:12px;color:var(--acc);font-weight:600;padding:0 6px}
+.aipdel{padding:4px 6px}
+.aiformh{margin:0 0 6px}
 .insp h4{position:sticky;top:0;z-index:2;margin:0 0 14px;padding:14px 0 9px;
   background:linear-gradient(180deg,var(--g-1) 74%,transparent);
   font:590 11px/1 var(--sans,inherit);letter-spacing:.09em;
@@ -12352,7 +12392,7 @@ async function renderCode(c){
       : '<b>'+esc(rt.why)+'</b>'}</span>
   </div>
   ${CODE.showai||!prov.ready?`<div class="card" style="margin:12px 14px 0">
-    <h3>AI — one key for everything</h3>${aiSettingsHtml()}
+    <h3>AI — one key for everything</h3><div data-aiblock>${aiSettingsHtml()}</div>
     ${prov.ready?'':`<div class="hint" style="color:var(--err)">${esc(prov.why||'')}</div>`}
     </div>`:''}
   <div class="ide">
@@ -12853,7 +12893,7 @@ async function renderSettings(c){
       <div class="hint">Whatever you set here powers everything — rebranding
         copy, writing code, measuring a change. Switch provider or key at any
         time; nothing needs restarting.</div>
-      ${aiSettingsHtml()}
+      <div data-aiblock>${aiSettingsHtml()}</div>
     </section>
 
     <section class="card">
@@ -15608,11 +15648,12 @@ function renderTab(){
 // settings live on the SERVER (aethron_brain), so the same choice
 // powers copy fill, plan polish, design matching, self-heal and the
 // coding agent. The browser only renders it.
-let AI={settings:{},providers:{},resolved:{}};
+let AI={settings:{},providers:{},resolved:{},profiles:[]};
 async function loadAi(){
   try{
     const r=await api('/api/ai/settings');
-    if(r.available){AI={settings:r.settings,providers:r.providers,resolved:r.resolved};}
+    if(r.available){AI={settings:r.settings,providers:r.providers,
+      resolved:r.resolved,profiles:r.profiles||[]};}
     // one-time migration from the old browser-only settings
     if(!AI.settings.api_key&&localStorage.forge_ai){
       try{const old=JSON.parse(localStorage.forge_ai);
@@ -15670,7 +15711,7 @@ async function renderPlan(c,t){
   </div>
 
   <div class="insp"><h4>Model</h4>
-  ${aiSettingsHtml()}
+  <div data-aiblock>${aiSettingsHtml()}</div>
 </div>`;
   bindAiSettings();
 }
@@ -15678,10 +15719,50 @@ async function renderPlan(c,t){
 // The single AI settings block, rendered wherever it is needed (Plan
 // tab, Code view). Editing it here changes the model behind copy fill,
 // plan polish, design matching, self-heal AND the coding agent.
+/* SAVED PROVIDERS, ONE CLICK APART. Each keeps its own keys and model;
+   "Use" makes it the one everything runs on. The form below adds a new
+   provider or updates the one picked in it — it never wipes another. */
+function aiProfilesHtml(){
+  const L=AI.profiles||[];
+  if(!L.length)return '';
+  return `<div class="aiprofs">${L.map(p=>`<div class="aiprof${p.active?' on':''}">
+     <div class="aipmain"><b>${esc(p.label)}</b>
+       <span>${esc(p.model||'no model')} · ${p.keys} key${p.keys===1?'':'s'}${p.ready?'':' · '+esc(p.why)}</span></div>
+     ${p.active?'<span class="aipon">In use</span>'
+       :`<button class="ghost" onclick="useProfile('${esc(p.id)}')">Use</button>`}
+     <button class="ghost aipdel" title="Remove this saved provider"
+       onclick="dropProfile('${esc(p.id)}','${esc(p.label)}')">${I('trash',13)}</button>
+   </div>`).join('')}</div>`;
+}
+async function useProfile(id){
+  try{
+    const r=await api('/api/ai/switch',{id});
+    AI={settings:r.settings,providers:r.providers,resolved:r.resolved,profiles:r.profiles||[]};
+    if(CODE.key){CODE.key='';CODE.since=0;if(window.endTurn)endTurn();}
+    if(window.note)note('now using '+(AI.resolved.label||id)+' · '+(AI.resolved.model||''));
+    rerenderAi();
+  }catch(e){if(window.note)note(e.message)}
+}
+async function dropProfile(id,label){
+  if(!confirm('Remove the saved provider "'+label+'" and its keys?'))return;
+  try{
+    const r=await api('/api/ai/profile/delete',{id});
+    AI={settings:r.settings,providers:r.providers,resolved:r.resolved,profiles:r.profiles||[]};
+    rerenderAi();
+  }catch(e){if(window.note)note(e.message)}
+}
+function rerenderAi(){
+  document.querySelectorAll('[data-aiblock]').forEach(el=>{
+    el.innerHTML=aiSettingsHtml(el.dataset.aiblock==='compact');});
+  bindAiSettings();
+}
 function aiSettingsHtml(compact){
   const a=AI.settings||{},P=AI.providers||{};
   const cur=a.provider||'deepseek',p=P[cur]||{};
-  return `<div class="row">
+  const saved=(AI.profiles||[]).find(x=>x.provider===cur);
+  return `${aiProfilesHtml()}
+  <div class="hint aiformh">${(AI.profiles||[]).length?'Add a provider, or update one':'Provider'}</div>
+  <div class="row">
    <div><label>Provider</label><select id="aiprov">
      ${Object.entries(P).map(([k,v])=>`<option value="${esc(k)}"
        ${cur===k?'selected':''}>${esc(v.label)}</option>`).join('')}
@@ -15689,11 +15770,11 @@ function aiSettingsHtml(compact){
    <div><label>Model</label><input id="aimodel"
      value="${esc(a.model||p.model||'')}" placeholder="${esc(p.model||'model name')}"></div>
    <div><label>API key</label><input id="aikey" type="password"
-     value="" placeholder="${a.api_key?'•••••• (saved)':esc(p.keys||'')}"></div>
+     value="" placeholder="${saved&&saved.keys?'•••••• (saved)':esc(p.keys||'')}"></div>
    <div><label>Base URL (optional)</label><input id="aibase"
      value="${esc(a.base_url||'')}" placeholder="${esc(p.base||'')}"></div>
   </div>
-  <div class="toolbar"><button onclick="saveAiFromForm()">Save AI settings</button>
+  <div class="toolbar"><button onclick="saveAiFromForm()">Save and use</button>
    <span class="hint" id="aisaved">${AI.resolved&&AI.resolved.ready
      ?'ready · '+esc(AI.resolved.label)+' · '+esc(AI.resolved.model||'')
      :esc((AI.resolved&&AI.resolved.why)||'')}</span></div>
@@ -15705,9 +15786,10 @@ function aiSettingsHtml(compact){
 function bindAiSettings(){
   const sel=$('aiprov');if(!sel)return;
   sel.onchange=e=>{const p=(AI.providers||{})[e.target.value]||{};
-    $('aimodel').value=p.model||'';
+    const sv=(AI.profiles||[]).find(x=>x.provider===e.target.value);
+    $('aimodel').value=(sv&&sv.model)||p.model||'';
     $('aimodel').placeholder=p.model||'model name';
-    $('aikey').placeholder=p.keys||'';
+    $('aikey').placeholder=sv&&sv.keys?'•••••• (saved)':(p.keys||'');
     $('aibase').value='';$('aibase').placeholder=p.base||'';};
 }
 async function saveAiFromForm(){
@@ -15716,7 +15798,7 @@ async function saveAiFromForm(){
   const k=$('aikey').value.trim();
   if(k)st.api_key=k;              // blank leaves the stored key alone
   try{
-    await saveAi(st);await loadAi();
+    await saveAi(st);await loadAi();rerenderAi();
     if($('aisaved'))$('aisaved').textContent=AI.resolved.ready
       ?'saved ✓ · '+AI.resolved.label+' · '+(AI.resolved.model||'')
       :AI.resolved.why;

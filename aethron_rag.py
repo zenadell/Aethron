@@ -333,13 +333,15 @@ def _keys() -> list:
         import aethron_brain as brain
     except Exception:
         return []
-    cfg = brain.load()
     if os.environ.get("AETHRON_EMBED_KEYS"):          # tests and power users
         return [k for k in os.environ["AETHRON_EMBED_KEYS"].split(",") if k]
-    if (cfg.get("provider") or "") != "gemini":
-        return []
+    # ANY SAVED GEMINI KEY, whichever provider is active for writing. Only
+    # Gemini serves these embeddings, and tying them to the active
+    # provider meant switching to DeepSeek quietly dropped brand memory to
+    # keyword search.
     spent = brain.spent_for(EMBED_MODEL)
-    return [k for k in brain.ring() if brain._fp(k) not in spent]
+    return [k for k in brain.profile_keys("gemini")
+            if brain._fp(k) not in spent]
 
 
 def _bench(key: str):

@@ -5523,6 +5523,58 @@ words, the list hides heading words, a write to one is refused naming
 the heading); code selftest 32 -> 35 (the status reaches the agent; the
 person's words are all that shows, live and read back).
 
+## SAVED PROVIDERS, ONE CLICK APART — "it keeps using Gemini" — 2026-10-06
+Owner: switch away from Gemini and Aethron fails, because it "keeps
+using Gemini in the background"; asked for several providers saved side
+by side and a one-click switch. Reproduced on the committed code before
+touching anything, and it was two separate faults:
+1. SETTINGS WERE ONE RECORD. `provider` and `model` changed on a switch;
+   the key ring (`api_keys`, the Gemini free keys) and `api_key` were
+   global. Measured: after saving DeepSeek the ring was [g-free-1,
+   g-free-2, d-key] and the key in use was g-free-1 — Gemini's key, sent
+   to DeepSeek.
+2. THE CHANGE/EDIT/SPEC WRITER NEVER READ THE SETTINGS. `gemini_text` and
+   `gemini_writer` posted to generativelanguage.googleapis.com with a
+   Gemini model name written into the code; the screenshot generator
+   read the config file beside the code (inside the app, the bundle).
+FIXED:
+- aethron_brain PROFILES: `ai.profiles{id: provider, model, base_url,
+  wire, api_key, api_keys}` + `ai.active`; spend caps stay global.
+  load() is the active profile laid over the global settings, so every
+  caller that already used load()/resolve() follows a switch for free.
+  save() writes a provider's fields to THAT provider's profile (created
+  if new) and activates it — saving never overwrites another provider.
+  switch(), delete_profile(), profiles() (never carries a key),
+  profile_keys(provider). A pre-profiles record migrates to one profile
+  named after its provider, untouched.
+- aethron_build: `_active/_request/_reply/_price/_limit_kind` — the two
+  writers call the ACTIVE provider in its own wire format (Anthropic
+  /v1/messages or OpenAI-style), priced by its model (unknown = dearest),
+  with Google's quota-id parsing only for Gemini; names kept for callers.
+- brand memory takes any SAVED Gemini key (embeddings are Gemini-only),
+  so switching the writer to DeepSeek no longer drops it to keyword
+  search; the OpenRouter-only fixer takes a saved OpenRouter key.
+- studio: /api/ai/switch and /api/ai/profile/delete; both, and saving,
+  end open agent sessions (an endpoint is fixed at spawn) and stop the
+  bridge. The settings save used to return the saved record to the page
+  — with profiles that would have been EVERY provider's keys; it now
+  returns key-free status. The panel lists saved providers with "Use"
+  and remove; the form beneath adds or updates one ("Save and use").
+- AETHRON_HOME now applies to settings when run from source too. The
+  studio's projects already followed it while settings silently used
+  the repo — found because a throwaway test studio showed the repo's
+  config instead of its own; one process was reading two homes.
+PROVEN: tests/provider_battery.py 16/16 (old flat record works, adding
+DeepSeek does not hand it Gemini keys, Gemini's keys survive, one switch
+each way restores keys and model, no key in profiles/status, the change
+writer and build-loop writer hit the active provider's address with its
+key, Anthropic-wire spoken correctly, brand memory keeps Gemini keys,
+removing the active provider falls back). The ring and build batteries
+now PIN Gemini instead of inheriting this machine's active provider.
+In a real browser on a throwaway studio with fake keys: add DeepSeek ->
+both listed, DeepSeek in use; one click -> Gemini in use; no key in any
+response the page receives; zero console errors.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5710,3 +5762,8 @@ person's words are all that shows, live and read back).
   the tools that refuse.
 - A WORD OF A LINE IS NOT A LINE. Nothing is offered for writing, or
   applied, that would change text outside the line it came from.
+- A SWITCH CHANGES WHAT RUNS, AND NOTHING ELSE. Every model call reads
+  the ACTIVE saved provider — no address, model or key is written into
+  code — and switching never touches another provider's saved keys.
+- NO KEY REACHES THE PAGE. Settings responses carry fingerprints and
+  counts, never the stored record.

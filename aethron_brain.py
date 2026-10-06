@@ -22,6 +22,7 @@ Providers are a dict entry, never a code path. Adding one is a line.
 """
 import json
 import os
+import re
 import sys
 import threading
 import urllib.request
@@ -41,11 +42,14 @@ def _home() -> Path:
     confusion, and it wiped the keys once more the day it was found. The
     frozen app keeps them in AETHRON_HOME, which desktop.py sets before
     any role starts; the bundle's own copy is read only for defaults."""
-    if not getattr(sys, "frozen", False):
-        return ROOT
+    # an explicitly chosen data folder wins from source too — the studio's
+    # projects already followed it while settings silently used the repo,
+    # so one process read two different homes
     h = os.environ.get("AETHRON_HOME")
     if h:
         return Path(h)
+    if not getattr(sys, "frozen", False):
+        return ROOT
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "Aethron"
     if os.name == "nt":
@@ -131,17 +135,57 @@ DEFAULT = {"provider": "deepseek", "api_key": "", "model": "",
 
 # ────────────────────────── settings ─────────────────────────────────
 
-def load() -> dict:
-    """The one place settings live. Env wins (CI, power users), then
-    the config file, then the defaults."""
-    cfg = dict(DEFAULT)
-    # defaults shipped in the app first, then the person's own settings
+# SAVED PROVIDERS. One record used to hold everything, so the key ring
+# typed in for Gemini stayed in force after a switch to DeepSeek and was
+# sent to DeepSeek — "it keeps using Gemini in the background". Each
+# provider is now its own PROFILE carrying its own keys, model and
+# address; exactly one is active, and switching changes which one, never
+# what is stored in the others. Spend caps stay global: money is the
+# person's, whichever provider spends it.
+PROFILE_FIELDS = ("provider", "model", "base_url", "wire",
+                  "api_key", "api_keys")
+
+
+def _raw_ai() -> dict:
+    """The stored "ai" record, app defaults first, then the person's own."""
+    ai = {}
     for f in ([BUNDLED, CONFIG] if BUNDLED != CONFIG else [CONFIG]):
         try:
-            cfg.update(json.loads(f.read_text(encoding="utf-8"))
-                       .get("ai") or {})
+            ai.update(json.loads(f.read_text(encoding="utf-8"))
+                      .get("ai") or {})
         except Exception:
             pass
+    return ai
+
+
+def _profiles(ai: dict) -> tuple:
+    """-> (profiles, active id). A record from before profiles becomes ONE
+    profile named after its provider, so nothing that worked stops."""
+    profs = {k: dict(v) for k, v in (ai.get("profiles") or {}).items()
+             if isinstance(v, dict)}
+    if not profs and (ai.get("provider") or ai.get("api_key")
+                      or ai.get("api_keys")):
+        pid = ai.get("provider") or "default"
+        profs[pid] = {f: ai[f] for f in PROFILE_FIELDS if f in ai}
+    active = ai.get("active") or ""
+    if active not in profs:
+        active = next(iter(profs), "")
+    return profs, active
+
+
+def load() -> dict:
+    """The one place settings live. Env wins (CI, power users), then the
+    ACTIVE PROFILE, then the global settings, then the defaults."""
+    cfg = dict(DEFAULT)
+    ai = _raw_ai()
+    profs, active = _profiles(ai)
+    cfg.update({k: v for k, v in ai.items()
+                if k not in ("profiles", "active") + PROFILE_FIELDS})
+    if active:
+        prof = profs[active]
+        for f in PROFILE_FIELDS:                # a profile is the WHOLE
+            cfg[f] = prof.get(f, DEFAULT.get(f, ""))   # provider record
+    cfg["active"] = active
     env = os.environ
     for key, var in (("provider", "AETHRON_AI_PROVIDER"),
                      ("api_key", "AETHRON_AI_KEY"),
@@ -152,17 +196,128 @@ def load() -> dict:
     return cfg
 
 
-def save(patch: dict) -> dict:
+def _write(ai: dict) -> dict:
     try:
         whole = json.loads(CONFIG.read_text(encoding="utf-8"))
     except Exception:
         whole = {}
-    ai = {**(whole.get("ai") or {}), **{k: v for k, v in patch.items()
-                                        if k in DEFAULT}}
     whole["ai"] = ai
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
     CONFIG.write_text(json.dumps(whole, indent=1), encoding="utf-8")
     return ai
+
+
+def _stored() -> dict:
+    """The person's own record with profiles made explicit (migrated)."""
+    try:
+        ai = dict(json.loads(CONFIG.read_text(encoding="utf-8")).get("ai")
+                  or {})
+    except Exception:
+        ai = {}
+    profs, active = _profiles({**_raw_ai(), **ai})
+    for f in PROFILE_FIELDS:                    # they live in profiles now
+        ai.pop(f, None)
+    ai["profiles"], ai["active"] = profs, active
+    return ai
+
+
+def save(patch: dict) -> dict:
+    """Save settings. Provider fields go to a PROFILE: the active one if it
+    is the same provider (or `profile` names one), otherwise that
+    provider's own saved profile — created if new — which also becomes
+    active. Saving never overwrites a different provider's keys."""
+    ai = _stored()
+    profs = ai["profiles"]
+    glob = {k: v for k, v in patch.items()
+            if k in DEFAULT and k not in PROFILE_FIELDS}
+    ai.update(glob)
+    prof_patch = {k: v for k, v in patch.items() if k in PROFILE_FIELDS}
+    if prof_patch:
+        pid = str(patch.get("profile") or "")
+        want = prof_patch.get("provider")
+        if not pid:
+            cur = profs.get(ai["active"], {})
+            if not want or cur.get("provider") == want:
+                pid = ai["active"]
+            else:
+                pid = next((k for k, v in profs.items()
+                            if v.get("provider") == want), "")
+        if not pid:
+            pid = _new_id(profs, want or "custom")
+        prof = profs.setdefault(pid, {})
+        if want and prof.get("provider") not in (None, "", want):
+            prof.clear()            # a profile id reused for a new provider
+        prof.update(prof_patch)
+        if patch.get("label"):
+            prof["label"] = str(patch["label"])[:60]
+        ai["active"] = pid
+    return _write(ai)
+
+
+def _new_id(profs: dict, base: str) -> str:
+    base = re.sub(r"[^a-z0-9-]+", "-", base.lower()).strip("-") or "provider"
+    pid, n = base, 2
+    while pid in profs:
+        pid, n = f"{base}-{n}", n + 1
+    return pid
+
+
+def profiles() -> list:
+    """Every saved provider, for the switcher. Never carries a key."""
+    ai = _stored()
+    out = []
+    for pid, p in ai["profiles"].items():
+        meta = PROVIDERS.get(p.get("provider") or "", PROVIDERS["custom"])
+        free = [k for k in (p.get("api_keys") or []) if str(k).strip()]
+        r = resolve({**{f: p.get(f, DEFAULT.get(f, "")) for f in
+                        PROFILE_FIELDS}})
+        out.append({"id": pid, "label": p.get("label") or meta["label"],
+                    "provider": p.get("provider", ""),
+                    "model": p.get("model") or meta["model"],
+                    "keys": len(free) + (1 if p.get("api_key") else 0),
+                    "free_keys": len(free), "paid_key": bool(p.get("api_key")),
+                    "active": pid == ai["active"],
+                    "ready": r["ready"], "why": r["why"]})
+    return out
+
+
+def switch(pid: str) -> dict:
+    """Make a saved provider the active one. One click, nothing else
+    changes; the bridge started for the old one is stopped so no later
+    session can reach it."""
+    ai = _stored()
+    if pid not in ai["profiles"]:
+        raise ValueError(f"no saved provider called {pid!r}")
+    ai["active"] = pid
+    _write(ai)
+    shutdown_bridge()
+    return resolve()
+
+
+def delete_profile(pid: str) -> dict:
+    ai = _stored()
+    if pid not in ai["profiles"]:
+        raise ValueError(f"no saved provider called {pid!r}")
+    del ai["profiles"][pid]
+    if ai["active"] == pid:
+        ai["active"] = next(iter(ai["profiles"]), "")
+        shutdown_bridge()
+    return _write(ai)
+
+
+def profile_keys(provider: str) -> list:
+    """Every key saved under ANY profile of this provider, free first.
+    For capabilities only one provider has — Gemini's embeddings feed
+    brand memory — which must keep working whichever provider is
+    active for writing."""
+    keys = []
+    for p in _stored()["profiles"].values():
+        if p.get("provider") == provider:
+            for k in list(p.get("api_keys") or []) + [p.get("api_key")]:
+                k = str(k or "").strip()
+                if k and k not in keys:
+                    keys.append(k)
+    return keys
 
 
 def _fp(key: str) -> str:
@@ -635,7 +790,8 @@ def shutdown_bridge():
 def status() -> dict:
     r = resolve()
     allk, live = ring(), live_keys()
-    return {"settings": {**load(), "api_key":
+    return {"profiles": profiles(),
+            "settings": {**load(), "api_key":
                          ("set" if load().get("api_key") else ""),
                          "api_keys": f"{len(allk)} key(s) in the ring"},
             "keyring": {"total": len(allk), "live_today": len(live),
