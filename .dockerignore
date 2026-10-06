@@ -1,0 +1,4 @@
+# Only the code goes into the image. Projects, keys and builds never do.
+*
+!*.py
+!*.md

@@ -65,6 +65,8 @@ def resolve_pages(cfg: dict, wanted) -> list:
                              if p != "index.html"]
     routes = cfg.get("routes") or []
     out, missing = [], []
+    if any(str(w).strip().lower() in ("all", "*") for w in wanted or []):
+        return list(dict.fromkeys(have))   # every page the template has
     for w in wanted or ["home"]:
         k = str(w).strip().lower().strip("/")
         k = k[:-5] if k.endswith(".html") else k
@@ -226,10 +228,46 @@ def add_block(d: Path, kind: str, anchor: str, position: str = "after",
                          "next to (the template's original words)")
     block = {"id": f"b{len(cfg['preview']['blocks']) + 1}", "kind": kind,
              "anchor": anchor, "position": position, "data": data,
-             "pages": found}
+             "pages": found, "page": pages[0] if page else ""}
     cfg["preview"]["blocks"].append(block)
     _save_cfg(d, cfg)
     return block
+
+
+def available_pages(cfg: dict) -> list:
+    """Every page a preview could include, as an agent names them."""
+    have = ["index.html"] + [p for p in cfg.get("pages", [])
+                             if p != "index.html"]
+    return ["home" if p == "index.html" else _route(p) for p in have]
+
+
+def set_pages(d: Path, pages) -> dict:
+    """Change which pages an existing preview builds — the agent decides,
+    at any point. Fills already written are kept (they live in the copy
+    map, whatever page they are on). An extra that was not tied to one
+    page follows its anchor words onto every chosen page that has them;
+    one tied to a page that is no longer chosen is left out of the build
+    until that page comes back, and is reported."""
+    d = Path(d)
+    cfg = _cfg(d)
+    if "preview" not in cfg:
+        raise ValueError("not a preview project — make one with make_preview")
+    chosen = resolve_pages(cfg, pages)
+    pv = cfg["preview"]
+    pv["pages"] = chosen
+    parked = []
+    for b in pv.get("blocks", []):
+        if b.get("page"):
+            b["pages"] = [b["page"]] if b["page"] in chosen else []
+        else:
+            b["pages"] = [p for p in chosen if b["anchor"].lower() in
+                          html_mod.unescape((d / "pristine" / p).read_text(
+                              encoding="utf-8", errors="ignore")).lower()]
+        if not b["pages"]:
+            parked.append(b["id"])
+    _save_cfg(d, cfg)
+    return {"pages": chosen, "parked": parked,
+            "lines": len(page_lines(d, chosen)), "of": _count_all(d)}
 
 
 # ─────────────────────────── the layer ─────────────────────────────────

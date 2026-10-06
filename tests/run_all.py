@@ -37,6 +37,7 @@ SUITES = [
                 "tests/adopt_battery.py",
                 "tests/alive_battery.py", "tests/engine_battery.py",
                 "tests/provider_battery.py", "tests/preview_battery.py",
+                "tests/remote_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
@@ -144,6 +145,11 @@ SUITES = [
     # root-absolute address would otherwise 404.
     ("preview battery (a lead's site at /preview/<slug>)",
      [PY, "tests/preview_battery.py"], True),
+    # The same tools for an agent that is NOT on this computer: over HTTP,
+    # behind a token, the agent choosing its own pages, and the preview
+    # served from the same address and rendered in a browser.
+    ("remote battery (Aethron over HTTP for a hosted agent)",
+     [PY, "tests/remote_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and
     # asks whether the probe hands them over as healthy. It did, eight
     # times out of nine, because it measured the HTML string instead of

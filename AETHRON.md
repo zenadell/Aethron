@@ -5623,6 +5623,44 @@ LIMITS, honestly: the Render-hosted agent cannot reach a stdio MCP on this
 Mac — it runs from the admin on this PC, or needs a hosted Aethron; extras
 mid-page are placed after load, so they appear a beat after the page.
 
+## AETHRON FOR AN AGENT THAT IS NOT HERE — MCP over HTTPS — 2026-10-06
+The owner's lead agent lives on Render and is driven from a phone; a stdio
+MCP on this Mac is unreachable from there. And: "my agent picks any page
+at its own will — it's the agent running it, not Aethron."
+PAGES ARE THE AGENT'S CHOICE, and now visibly so: make_preview takes any
+page or ["all"]; new tool `preview_pages` lists a template's pages, and on
+a preview REPLACES the set at any time (fills are kept — they live in the
+copy map). An extra tied to a page that is dropped is parked, reported,
+and comes back with the page; an untied one follows its anchor words onto
+whichever chosen pages have them.
+`forge_mcp.py --http [PORT]`: the same dispatch as stdio (refactored into
+one `dispatch()`), MCP Streamable HTTP — POST /mcp answered with JSON, 202
+for notifications, 405 on GET (no server stream). REFUSES TO START without
+AETHRON_MCP_TOKEN of 24+ chars: these tools create, delete and fetch any
+address. GET /preview/<name>/… serves finished previews publicly (they are
+for leads; .mjs as JavaScript; path-guarded); /health for the host. The
+Dockerfile (the old one copied 3 files and could not have started) now
+carries every module + Chromium behind a --no-sandbox/--disable-dev-shm
+wrapper set as AETHRON_BROWSER, so every browser launch works in a
+container with zero code changes. render.yaml: Starter + 5GB disk at
+/data + generated token.
+THE BUILD WAS KILLED AT 512MB, and the cause was not the browser. Traced
+by sampling RSS against the main thread's stack: after building, the moot
+check JOINED every text file in pristine and in site/ into two strings —
+653MB peak for a preview of an 11-page template. It now streams one file
+at a time and only for lines that hit nothing: 653 -> 178MB, and on the
+owner's two filled projects old and new engines write IDENTICAL reports
+(50 and 5 moot lines) at 321->207 and 330->190MB. That was a desktop cost
+too, just never noticed with 16GB.
+PROVEN IN THE CONTAINER: tests/remote_battery.py (17, in run_all; `--docker
+IMAGE` drives the image, AE_DOCKER_MEMORY caps it): token enforced, every
+tool offered, all pages / any set / change of mind, extras parked and
+restored, export PASS inside the container's own Chromium, the preview
+served by the server renders in a browser, nothing outside previews/
+readable. 17/17 at a 512MB cap, peak 439MB — passes, small margin.
+NOT PROVEN: the amd64 image (this Mac builds ARM; the legacy builder
+ignores --platform), and a live Render deploy — the owner's account.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5818,3 +5856,7 @@ mid-page are placed after load, so they appear a beat after the page.
 - A PREVIEW LIVES UNDER SOMEONE ELSE'S ROOT. Every address it ships is
   under its own base, checked in a browser at that base; a page held to a
   share of its own text, never to a flat floor.
+- A REMOTE DOOR NEEDS A KEY. A server that exposes the tools refuses to
+  start without a long secret; only finished previews are public.
+- NEVER JOIN A WHOLE PROJECT INTO MEMORY. Read one file at a time; a
+  build must fit a 512MB server.

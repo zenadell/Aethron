@@ -60,31 +60,51 @@ cd Aethron && python3 studio.py     # → http://127.0.0.1:8899
 This is the recommended way to evaluate Aethron — full features, your own machine,
 nothing exposed.
 
-### Docker
+### Hosted Aethron for a remote agent (MCP over HTTPS)
+The `Dockerfile` runs `forge_mcp.py --http`: the same tools an agent gets over
+stdio on this computer, served over HTTP for an agent that runs somewhere else.
+The image includes Chromium, because every export is checked in a browser.
+
 ```bash
 docker build -t aethron .
-docker run -p 8899:8899 -e STUDIO_PASSWORD=choose-a-password aethron
+docker run -p 10000:10000 -v aethron-data:/data \
+  -e AETHRON_MCP_TOKEN="$(openssl rand -hex 24)" aethron
 ```
-Setting `STUDIO_PASSWORD` turns on HTTP Basic auth (username `aethron`). Setting a
-`PORT` env var makes the server bind `0.0.0.0` so a platform router can reach it.
 
-### Render (free tier, one-click)
-The repo includes `render.yaml`:
-1. Fork/clone the repo to your GitHub.
-2. render.com → **New** → **Blueprint** → pick the repo.
-3. Set **STUDIO_PASSWORD** when prompted.
-4. Deploy. You get a private URL only you (with the password) can use.
+| Path | What it is | Needs the token |
+|---|---|---|
+| `POST /mcp` | MCP "Streamable HTTP" (JSON-RPC, answered with JSON) | yes |
+| `GET /preview/<name>/…` | a finished preview (`<name>` is the export folder) | no — previews are for leads |
+| `GET /health` | health check | no |
 
-> **Free-tier caveats:** the disk is **ephemeral** — projects reset on redeploy, and
-> the instance sleeps when idle (first request after sleep is slow). Attach a paid
-> disk mounted at `/app/projects` if you want migrations to persist. Fine as-is for a
-> playground.
+An agent built on the Vercel AI SDK connects with `@ai-sdk/mcp` using its
+HTTP transport. Set the URL to `https://<host>/mcp` and send the header
+`Authorization: Bearer <token>`.
 
-### Railway / Fly.io / any container host
-The `Dockerfile` is standard. Provide `PORT` (most platforms inject it) and always
-set `STUDIO_PASSWORD` before the instance is reachable from the internet.
+**Serving previews on your own domain.** Proxy `/preview/:name/*` on your site
+to `https://<host>/preview/:name/*`. The browser stays on your domain, and
+every address in a preview already starts with `/preview/<name>`.
+
+### Render
+`render.yaml` sets up the hosted Aethron:
+1. render.com → **New** → **Blueprint** → pick the repo.
+2. Render generates **AETHRON_MCP_TOKEN**. Copy it into the agent's MCP settings.
+3. Deploy. The agent's MCP address is `https://<service>.onrender.com/mcp`.
+
+> **Plan.** Use Starter or above. The free plan sleeps after 15 idle minutes
+> (the next call waits about a minute), and it has no disk, so prepared
+> templates and previews vanish on every restart. Measured on an 11-page Framer
+> template: a full preview (build plus browser check) peaks at about 440 MB, and
+> it passes inside a 512 MB limit (Starter). That margin is small. If builds of
+> bigger templates are killed, move up a plan.
+
+### Studio in a container
+The same image runs the Studio: `docker run -p 8899:8899 -e PORT=8899 -e
+STUDIO_PASSWORD=choose-a-password aethron python3 studio.py`. Setting
+`STUDIO_PASSWORD` turns on HTTP Basic auth (username `aethron`).
 
 ### Security checklist before exposing an instance
-- [ ] `STUDIO_PASSWORD` is set (the server warns on public bind without it).
+- [ ] Hosted MCP: `AETHRON_MCP_TOKEN` is long and secret (the server refuses to start without one).
+- [ ] Hosted Studio: `STUDIO_PASSWORD` is set (the server warns on public bind without it).
 - [ ] You understand each instance is single-tenant — don't share credentials.
 - [ ] Sensitive migrations? Prefer local or a private-network deploy.

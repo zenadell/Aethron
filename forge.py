@@ -2980,40 +2980,55 @@ def cmd_build(_args):
     # mention (classic brand mop-up tokens). That's success, not a dead
     # edit; only zero-hit entries whose target never existed (typos) or
     # still survives are genuinely broken.
+    # Read ONE FILE AT A TIME and only for the lines that need it. These
+    # used to be joined into two strings (every text file in the template
+    # and in the site): ~400MB on a 77MB template, enough to kill a build
+    # on a 512MB server before it finished.
     tsuf = (".html", ".htm", ".mjs", ".js", ".css", ".svg")
-    pristine_txt = "\n".join(
-        f.read_text(encoding="utf-8", errors="ignore")
-        for f in (root / "pristine").rglob("*")
-        if f.is_file() and f.suffix in tsuf)
-    built_txt = "\n".join(
-        f.read_text(encoding="utf-8", errors="ignore")
-        for f in site.rglob("*") if f.is_file() and f.suffix in tsuf)
-    pristine_cms = [p.read_bytes()
-                    for p in (root / "pristine" / "cms").glob("*.framercms")]
-    built_cms = [p.read_bytes()
-                 for p in (site / "assets" / "cms").glob("*.framercms")] \
-        if (site / "assets" / "cms").exists() else []
+
+    def _found_in(where, needles, cms_dir):
+        needles, hit = set(needles), set()
+        if not needles:
+            return hit
+        files = [f for f in where.rglob("*") if f.is_file()
+                 and f.suffix in tsuf] if where.exists() else []
+        for f in files:
+            t = f.read_text(encoding="utf-8", errors="ignore")
+            hit |= {n for n in needles - hit if n in t}
+            if hit == needles:
+                return hit
+        for f in (cms_dir.glob("*.framercms") if cms_dir.exists() else []):
+            b = f.read_bytes()
+            hit |= {n for n in needles - hit if n.encode() in b}
+            if hit == needles:
+                break
+        return hit
+
+    cm_all = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
     # brand tokens are SPECULATIVE mop-up nets (inventory mints every
     # case variant); one that never occurred is expected, not broken
-    cm_all = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
     token_olds = {e["old"] for sec in ("strings", "images", "links")
                   for e in cm_all.get(sec, [])
                   if "brand-token" in str(e.get("where", ""))}
+    unhit = [p for p in pairs if not stats.get(p["old"], 0)]
+    expanded = [p for p in unhit if p["old"] in _expanded_from
+                and p.get("new", "")]
+    in_built = _found_in(site, {p["old"] for p in unhit}
+                         | {p["new"] for p in expanded},
+                         site / "assets" / "cms")
+    in_pristine = _found_in(root / "pristine", {p["old"] for p in unhit},
+                            root / "pristine" / "cms")
     moot = []
-    for p in pairs:
-        if stats.get(p["old"], 0):
-            continue
-        po, pb = p["old"], p["old"].encode()
+    for p in unhit:
+        po = p["old"]
         # an image entry whose swap was carried out by its expanded
         # variants (localized/mangled/srcset picks) — the original url
         # matched nothing itself, but the new image IS in the output.
         # That's success, not a dead edit.
-        if po in _expanded_from and p.get("new", "") in built_txt:
+        if po in _expanded_from and p.get("new", "") in in_built:
             moot.append(po)
             continue
-        in_pristine = po in pristine_txt or any(pb in b for b in pristine_cms)
-        in_built = po in built_txt or any(pb in b for b in built_cms)
-        if (in_pristine or po in token_olds) and not in_built:
+        if (po in in_pristine or po in token_olds) and po not in in_built:
             moot.append(po)
     report = dict(stats)
     if at_risk:

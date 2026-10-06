@@ -22,6 +22,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import os
 from pathlib import Path
 
@@ -681,6 +682,27 @@ def t_make_preview(a):
             f"pages; get_content lists only those (text by default).\n"
             "Next: get_content (only_unfilled) -> set_content_bulk "
             "(build=false) -> optional add_block -> export_preview.")
+
+
+def t_preview_pages(a):
+    import aethron_preview as P
+    d = pdir(str(a["project"]))
+    cfg = json.loads((d / "forge.json").read_text(encoding="utf-8"))
+    have = P.available_pages(cfg)
+    if "preview" not in cfg or not a.get("pages"):
+        now = [P._route(p) or "home" for p in
+               (cfg.get("preview") or {}).get("pages", [])]
+        return (f"pages this template has: {', '.join(have)}\n"
+                + (f"this preview builds: {', '.join(now)}" if now else
+                   "not a preview — make_preview(template=…, pages=[…])"))
+    snapshot(d)
+    r = P.set_pages(d, a["pages"])
+    names = [P._route(p) or "home" for p in r["pages"]]
+    return (f"this preview now builds: {', '.join(names)} "
+            f"({r['lines']} of {r['of']} lines; fills already written are "
+            "kept)." + (f"\nextras not shown on these pages: "
+                       f"{', '.join(r['parked'])}" if r["parked"] else "")
+            + "\nRun export_preview to publish the change.")
 
 
 def t_add_block(a):
@@ -1441,9 +1463,12 @@ TOOLS = [
      "fetch, inventory) into a new project for this lead, keeping only the "
      "chosen pages, to be served at `base` (default /preview/<name>). "
      "Takes about a second and costs no tokens; get_content then lists only "
-     "the chosen pages' lines. Pages are named like a person would: home, "
-     "about, contact, services. Other pages are not built: a click on a "
-     "link to one shows a preview-mode notice (your words via `notice`).",
+     "the chosen pages' lines. YOU choose the pages — any the template "
+     "has, named like a person would (home, about, services, work, "
+     "pricing…) or [\"all\"]; call preview_pages on the template first to "
+     "see them, and again on the preview to add or drop pages later. "
+     "Pages not built: a click on a link to one shows a preview-mode "
+     "notice (your words via `notice`).",
      S({"template": {"type": "string", "description": "the prepared "
                      "template project to copy"},
         "name": {"type": "string", "description": "the preview's name, "
@@ -1456,6 +1481,13 @@ TOOLS = [
         "notice": {"type": "string", "description": "what a click on a page "
                    "that is not included says"}},
        ["template", "name"]), t_make_preview),
+    ("preview_pages", "Which pages a preview builds — your choice, any "
+     "time. On a template project: lists every page it has. On a preview: "
+     "with no `pages`, lists what it builds and what it could; with "
+     "`pages` (names or [\"all\"]), REPLACES the set. Fills already "
+     "written are kept; export_preview again to publish.",
+     S({**P, "pages": {"type": "array", "items": {"type": "string"}}},
+       ["project"]), t_preview_pages),
     ("add_block", "Add something the template does not have to a preview: "
      "a map (data.query = address or place name), reviews (data.items = "
      "[{author, text, stars}] — the REAL reviews you found; nothing is "
@@ -1515,6 +1547,46 @@ def send(obj):
     sys.stdout.flush()
 
 
+def dispatch(msg):
+    """One JSON-RPC message in, its reply out (None for a notification).
+    The same answers whether the message came over stdio or HTTP."""
+    mid, method = msg.get("id"), msg.get("method")
+    params = msg.get("params") or {}
+
+    def ok(result):
+        return {"jsonrpc": "2.0", "id": mid, "result": result}
+    if method == "initialize":
+        return ok({"protocolVersion": params.get("protocolVersion",
+                                                 "2024-11-05"),
+                   "capabilities": {"tools": {}},
+                   "serverInfo": {"name": "aethron", "version": "1.0"}})
+    if method == "tools/list":
+        return ok({"tools": TOOL_DEFS})
+    if method == "tools/call":
+        name = params.get("name", "")
+        args = params.get("arguments") or {}
+        try:
+            if name not in HANDLERS:
+                raise ValueError(f"unknown tool {name!r}")
+            text = HANDLERS[name](args)
+            return ok({"content": [{"type": "text", "text": text}]})
+        except Exception as e:
+            return ok({"content": [{"type": "text", "text": f"ERROR: {e}"}],
+                       "isError": True})
+    if method == "ping":
+        return ok({})
+    if method == "resources/list":      # politeness for clients
+        return ok({"resources": []})
+    if method == "resources/templates/list":
+        return ok({"resourceTemplates": []})
+    if method == "prompts/list":
+        return ok({"prompts": []})
+    if mid is not None:                 # unknown request (not a notification)
+        return {"jsonrpc": "2.0", "id": mid, "error":
+                {"code": -32601, "message": f"method not found: {method}"}}
+    return None
+
+
 def main():
     for line in sys.stdin:
         line = line.strip()
@@ -1524,42 +1596,114 @@ def main():
             msg = json.loads(line)
         except Exception:
             continue
-        mid, method = msg.get("id"), msg.get("method")
-        params = msg.get("params") or {}
-        if method == "initialize":
-            send({"jsonrpc": "2.0", "id": mid, "result": {
-                "protocolVersion": params.get("protocolVersion", "2024-11-05"),
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "aethron", "version": "1.0"}}})
-        elif method == "tools/list":
-            send({"jsonrpc": "2.0", "id": mid,
-                  "result": {"tools": TOOL_DEFS}})
-        elif method == "tools/call":
-            name = params.get("name", "")
-            args = params.get("arguments") or {}
+        reply = dispatch(msg)
+        if reply is not None:
+            send(reply)
+
+
+# ─────────────────────── the same tools over HTTP ────────────────────
+# For an agent that is NOT on this computer (a lead agent on Render,
+# driven from a phone). MCP "Streamable HTTP": every message is a POST to
+# /mcp and is answered with plain JSON. Nothing is reachable without the
+# token: these tools create, change and delete projects, and fetch any
+# address they are given. /preview/<name>/… serves finished previews
+# (public by nature — they are meant to be shown to leads) and nothing
+# else; /health answers for the host's health check.
+
+TOKEN_ENV = "AETHRON_MCP_TOKEN"
+
+
+def serve_http(port: int, host: str = "0.0.0.0"):
+    import hmac
+    import http.server
+    import mimetypes
+    token = os.environ.get(TOKEN_ENV, "").strip()
+    if len(token) < 24:
+        sys.exit(f"refusing to start: set {TOKEN_ENV} to a long random "
+                 "secret (24+ characters) — anyone holding it controls "
+                 "this Aethron")
+    mimetypes.add_type("text/javascript", ".mjs")
+    previews = (HOME / "previews").resolve()
+
+    class H(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, fmt, *args):     # never log the token
+            sys.stderr.write("%s %s\n" % (self.command,
+                                          self.path.split("?")[0]))
+
+        def _send(self, code, body=b"", ctype="application/json",
+                  extra=None):
+            self.send_response(code)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            for k, v in (extra or {}).items():
+                self.send_header(k, v)
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+
+        def _authed(self):
+            got = self.headers.get("Authorization", "")
+            return hmac.compare_digest(got.encode(),
+                                       f"Bearer {token}".encode())
+
+        def do_POST(self):
+            if self.path.split("?")[0].rstrip("/") != "/mcp":
+                return self._send(404, b'{"error":"not found"}')
+            if not self._authed():
+                return self._send(401, b'{"error":"bad or missing token"}',
+                                  extra={"WWW-Authenticate": "Bearer"})
+            n = int(self.headers.get("Content-Length") or 0)
             try:
-                if name not in HANDLERS:
-                    raise ValueError(f"unknown tool {name!r}")
-                text = HANDLERS[name](args)
-                send({"jsonrpc": "2.0", "id": mid, "result": {
-                    "content": [{"type": "text", "text": text}]}})
-            except Exception as e:
-                send({"jsonrpc": "2.0", "id": mid, "result": {
-                    "content": [{"type": "text", "text": f"ERROR: {e}"}],
-                    "isError": True}})
-        elif method == "ping":
-            send({"jsonrpc": "2.0", "id": mid, "result": {}})
-        elif method == "resources/list":      # politeness for clients
-            send({"jsonrpc": "2.0", "id": mid, "result": {"resources": []}})
-        elif method == "resources/templates/list":
-            send({"jsonrpc": "2.0", "id": mid,
-                  "result": {"resourceTemplates": []}})
-        elif method == "prompts/list":
-            send({"jsonrpc": "2.0", "id": mid, "result": {"prompts": []}})
-        elif mid is not None:   # unknown request (not a notification)
-            send({"jsonrpc": "2.0", "id": mid, "error":
-                  {"code": -32601, "message": f"method not found: {method}"}})
+                body = json.loads(self.rfile.read(n) or b"null")
+            except ValueError:
+                return self._send(400, json.dumps({
+                    "jsonrpc": "2.0", "id": None, "error": {
+                        "code": -32700, "message": "parse error"}}).encode())
+            msgs = body if isinstance(body, list) else [body]
+            replies = [r for r in (dispatch(m) for m in msgs
+                                   if isinstance(m, dict)) if r is not None]
+            if not replies:
+                return self._send(202)
+            out = replies if isinstance(body, list) else replies[0]
+            self._send(200, json.dumps(out).encode())
+
+        def do_GET(self):
+            path = urllib.parse.unquote(self.path.split("?")[0].split("#")[0])
+            if path == "/health":
+                return self._send(200, b'{"ok":true}')
+            if path.rstrip("/") == "/mcp":     # no server-initiated stream
+                return self._send(405, b"", extra={"Allow": "POST"})
+            m = re.fullmatch(r"/preview/([\w-]+)(/.*)?", path)
+            if not m:
+                return self._send(404, b"not found", "text/plain")
+            root = (previews / m.group(1)).resolve()
+            rel = (m.group(2) or "/").lstrip("/") or "index.html"
+            f = (root / rel).resolve()
+            if f.is_dir():
+                f = f / "index.html"
+            if root.parent != previews or not str(f).startswith(
+                    str(root) + os.sep) or not f.is_file():
+                return self._send(404, b"not found", "text/plain")
+            ctype = mimetypes.guess_type(f.name)[0] or \
+                "application/octet-stream"
+            self._send(200, f.read_bytes(), ctype,
+                       {"Cache-Control": "no-store"})
+        do_HEAD = do_GET
+
+    srv = http.server.ThreadingHTTPServer((host, port), H)
+    print(f"Aethron MCP over HTTP on {host}:{port} — POST /mcp with "
+          f"'Authorization: Bearer <{TOKEN_ENV}>'; previews at "
+          f"/preview/<name>; data in {HOME}", flush=True)
+    srv.serve_forever()
 
 
 if __name__ == "__main__":
-    main()
+    if "--http" in sys.argv:
+        k = sys.argv.index("--http")
+        nxt = sys.argv[k + 1] if len(sys.argv) > k + 1 else ""
+        serve_http(int(nxt if nxt.isdigit() else
+                       os.environ.get("PORT", "8765")))
+    else:
+        main()

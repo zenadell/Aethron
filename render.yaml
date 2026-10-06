@@ -1,14 +1,25 @@
-# One-click Render deploy: your own private Aethron instance.
-#   1. Fork/clone the repo  2. render.com -> New -> Blueprint -> pick it
-#   3. Set STUDIO_PASSWORD when prompted (user is 'aethron')
-# Free tier note: the disk is ephemeral — projects reset on redeploy.
-# Attach a paid disk to /app/projects if you want them to persist.
+# Aethron on Render — the MCP tools for an agent that is not on your
+# computer, plus the previews it publishes.
+#   1. render.com -> New -> Blueprint -> this repo
+#   2. Render generates AETHRON_MCP_TOKEN; copy it into the agent's MCP
+#      settings (Authorization: Bearer <token>). Anyone with the token
+#      controls this Aethron — keep it secret.
+#   3. The agent's MCP address is https://<service>.onrender.com/mcp
+#
+# Plan: Starter or above. The free plan sleeps after 15 minutes (the first
+# call after that waits about a minute) and has no disk, so prepared
+# templates and previews vanish on every restart. Browser checks need
+# memory: if builds stop with "out of memory", move up a plan.
 services:
   - type: web
-    name: aethron-studio
+    name: aethron
     runtime: docker
-    plan: free
+    plan: starter
+    healthCheckPath: /health
     envVars:
-      - key: STUDIO_PASSWORD
-        sync: false   # you choose it in the dashboard — never commit it
-    healthCheckPath: /
+      - key: AETHRON_MCP_TOKEN
+        generateValue: true
+    disk:
+      name: aethron-data
+      mountPath: /data
+      sizeGB: 5

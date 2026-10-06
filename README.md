@@ -231,21 +231,29 @@ Every `site/` build is **fully static** — no server logic required.
 Each build ships `_redirects`, `404.html`, `vercel.json`, and a `DEPLOY.md` with
 per-host specifics. There's also a `serve.py` for running it locally.
 
-### Host your own Studio instance
+### Host Aethron for an agent that is not on your computer
 
-The Studio is a **single-user tool** — it writes to disk and runs subprocesses for
-whoever can reach it. To let others try it, give each person their own instance:
+The image serves Aethron's MCP tools over HTTPS, for an agent hosted elsewhere
+(on Render, driven from a phone), and serves the previews that agent publishes:
 
 ```bash
-# Docker
-docker build -t aethron . && docker run -p 8899:8899 \
-  -e STUDIO_PASSWORD=choose-a-password aethron
+docker build -t aethron .
+docker run -p 10000:10000 -v aethron-data:/data \
+  -e AETHRON_MCP_TOKEN="$(openssl rand -hex 24)" aethron
 ```
 
-Or one-click on **Render** (free tier) via the included `render.yaml` — set
-`STUDIO_PASSWORD` in the dashboard. **Always set a password before exposing an
-instance to the internet.** (Free-tier disks are ephemeral — attach a volume to
-`/app/projects` to persist migrations.)
+- `POST /mcp`: the MCP endpoint ("Streamable HTTP"). Send
+  `Authorization: Bearer <AETHRON_MCP_TOKEN>`. The server will not start
+  without a token of 24+ characters.
+- `GET /preview/<name>/…`: finished previews. These are public.
+- `/data`: projects, templates and previews. Mount a disk here.
+
+On **Render**, use the included `render.yaml` (New → Blueprint). It generates
+the token for you and attaches a 5 GB disk on the Starter plan. The free plan
+has no disk and sleeps when idle. See [docs/DEPLOY.md](docs/DEPLOY.md).
+
+To host the Studio instead, run the same image with `python3 studio.py` and
+set `STUDIO_PASSWORD`.
 
 ---
 
