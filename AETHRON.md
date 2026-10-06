@@ -5575,6 +5575,54 @@ In a real browser on a throwaway studio with fake keys: add DeepSeek ->
 both listed, DeepSeek in use; one click -> Gemini in use; no key in any
 response the page receives; zero console errors.
 
+## PERSONALISED PREVIEWS FOR LEADS — `aethron_preview.py` — 2026-10-06
+The owner's lead agent (jomiez admin, "the keeper") finds leads and writes
+to them; for the best ones it should hand over a site made from a Framer
+template, personalised, living at jomiez.com/preview/<slug>. Asked: only
+the pages that matter (home, about, contact) to save time and tokens, a
+"preview" notice on anything not built, and extras the template never had
+(a map, Google reviews).
+SHAPE: a template is migrated ONCE (create/fetch/inventory). Per lead, MCP
+tools: make_preview (copy with only the chosen pages; pristine HARD-LINKED,
+sealed so it can be shared; the seal manifest copied, or a lead's fetch
+would re-seal the template) -> get_content (lists only those pages' lines:
+378 of Lewius's 798 for home+about+contact) -> set_content_bulk ->
+add_block (map / reviews / sanitised html, anchored by text on a chosen
+page, refused if the anchor is not there, reviews refused without the
+caller's real review text) -> export_preview (build, copy only the chosen
+pages, rebase every address, inject the preview layer, check in a browser
+AT THE PREVIEW ADDRESS). The layer: a capture-phase click listener that
+runs before Framer's router — a built page loads at base/file, anything
+else opens the notice and goes nowhere; extras are placed after load next
+to their anchor's section, styled from it, and put back if hydration
+removes them. Nothing on the jomiez repo was changed: its admin publishes
+the exported folder.
+THREE THINGS THE BATTERY CAUGHT ON A SECOND TEMPLATE (agero), none
+visible on Lewius:
+1. A LOCALIZED FILE IS ADDRESSED FROM THE SITE ROOT. The build writes
+   downloaded images as "/assets/r/<file>" into pages, chunks AND the
+   byte-locked CMS data; under /preview/<slug> that root is jomiez's, and
+   16 images 404'd. Text assets take the base in front; CMS blobs pay for
+   it out of the "#000" padding the build already left (a remote url is
+   longer than its local name), so their length never changes; any with
+   no room are counted and reported.
+2. COPYING A TEMPLATE COPIED ITS FRAMEWORK PORTS — convert-*/export-* with
+   node_modules, 30,000 files, 17 of the 18 seconds. The copy now takes
+   only what a build reads: 1.3s.
+3. THE BROWSER CHECK PASSED A HOME PAGE RENDERING 252 OF ~5,400
+   CHARACTERS, because its floor was a flat 200. Each page is now held to
+   40% of its own text, and a failure is rendered twice before it counts
+   (headless Chrome kills a page mid-import; a real 404 or wipe repeats).
+Also: the export no longer ships sources/ (the template's recovered
+component code, kept for reading, never for serving).
+tests/preview_battery.py 17/17 (in run_all): unknown page refused, lines
+filtered, pristine shared, refusals, export PASS at /preview/<slug>, only
+the chosen pages, no relative ./assets left, and in a browser a click on a
+page that was not built opens the notice and stays put.
+LIMITS, honestly: the Render-hosted agent cannot reach a stdio MCP on this
+Mac — it runs from the admin on this PC, or needs a hosted Aethron; extras
+mid-page are placed after load, so they appear a beat after the page.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5767,3 +5815,6 @@ response the page receives; zero console errors.
   code — and switching never touches another provider's saved keys.
 - NO KEY REACHES THE PAGE. Settings responses carry fingerprints and
   counts, never the stored record.
+- A PREVIEW LIVES UNDER SOMEONE ELSE'S ROOT. Every address it ships is
+  under its own base, checked in a browser at that base; a page held to a
+  share of its own text, never to a flat floor.

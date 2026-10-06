@@ -30,12 +30,13 @@ SUITES = [
                 "aethron_build.py", "aethron_flow.py",
                 "aethron_generate.py", "aethron_gradient.py",
                 "aethron_surface.py", "aethron_replicate.py",
+                "aethron_preview.py",
                 "aethron_change.py", "tests/change_battery.py", "tests/interact_battery.py",
                 "aethron_spec.py", "tests/spec_battery.py", "tests/gemini_ring_battery.py",
                 "aethron_agm.py", "tests/agm_battery.py", "aethron_adopt.py",
                 "tests/adopt_battery.py",
                 "tests/alive_battery.py", "tests/engine_battery.py",
-                "tests/provider_battery.py",
+                "tests/provider_battery.py", "tests/preview_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
@@ -138,6 +139,11 @@ SUITES = [
     # the data, refused the secret, named what needs a server.
     ("site battery (any website, taken from its URL)",
      [PY, "tests/site_battery.py"], True),
+    # A personalised preview for one lead: only the chosen pages, extras
+    # placed, checked in a browser AT /preview/<slug> — where every
+    # root-absolute address would otherwise 404.
+    ("preview battery (a lead's site at /preview/<slug>)",
+     [PY, "tests/preview_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and
     # asks whether the probe hands them over as healthy. It did, eight
     # times out of nine, because it measured the HTML string instead of

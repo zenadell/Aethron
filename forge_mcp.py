@@ -505,6 +505,15 @@ def t_get_content(a):
     frag = word_fragments(d, cm) if section == "strings" else {}
     hidden = sum(1 for e in entries if e["old"] in frag)
     entries = [e for e in entries if e["old"] not in frag]
+    # A PREVIEW lists only the lines on its chosen pages: tokens are what
+    # a lead costs, and the rest of the template is never shown.
+    pv_note = ""
+    pv = json.loads((d / "forge.json").read_text(encoding="utf-8")).get("preview")
+    if pv:
+        import aethron_preview as _P
+        keep = _P.page_lines(d)
+        entries = [e for e in entries if e["old"] in keep]
+        pv_note = (f"preview — only the lines on: {', '.join(pv['pages'])}\n")
     if a.get("only_unfilled"):
         entries = [e for e in entries if not e.get("new")]
     flt = str(a.get("filter", "")).lower()
@@ -544,6 +553,7 @@ def t_get_content(a):
                         + (f" — note: {r['why']}" if r["why"] else "") + "\n")
         except Exception as ex:                     # grounding is a help,
             head = f"brand notes unavailable: {ex}\n"  # never a blocker
+    head = pv_note + head
     if hidden:
         head += (f"{hidden} single words of animated headings are not listed: "
                  "each heading is its own line here — write the whole line\n")
@@ -648,6 +658,68 @@ def t_set_content(a):
     return t_set_content_bulk({"project": a["project"], "build": a.get("build", True),
                                "entries": [{"section": a.get("section", "strings"),
                                             "old": a["old"], "new": a["new"]}]})
+
+
+# ─────────────────── personalised previews (per lead) ──────────────────
+
+def _slug(v) -> str:
+    return re.sub(r"[^\w-]+", "-", str(v).strip().lower()).strip("-")
+
+
+def t_make_preview(a):
+    import aethron_preview as P
+    name = _slug(a["name"])
+    if not name:
+        raise ValueError("give the preview a name (e.g. the lead's slug)")
+    tpl = pdir(str(a["template"]))
+    base = str(a.get("base") or f"/preview/{name}")
+    r = P.make_preview(tpl, PROJECTS / name, a.get("pages") or ["home"],
+                       base, str(a.get("notice") or ""))
+    return (f"preview project {r['project']!r} made from {tpl.name!r} — pages: "
+            f"{', '.join(r['pages'])}; it will live at {r['base']}.\n"
+            f"{r['lines']} of the template's {r['of']} lines are on those "
+            f"pages; get_content lists only those (text by default).\n"
+            "Next: get_content (only_unfilled) -> set_content_bulk "
+            "(build=false) -> optional add_block -> export_preview.")
+
+
+def t_add_block(a):
+    import aethron_preview as P
+    d = pdir(str(a["project"]))
+    snapshot(d)
+    b = P.add_block(d, str(a["kind"]), str(a["anchor"]),
+                    str(a.get("position") or "after"), a.get("data") or {},
+                    str(a.get("page") or ""))
+    return (f"added {b['kind']} block {b['id']} {b['position']} the section "
+            f"holding {b['anchor']!r} on {', '.join(b['pages'])}. It is "
+            "placed when the preview is exported.")
+
+
+def t_export_preview(a):
+    import aethron_preview as P
+    d = pdir(str(a["project"]))
+    out = Path(str(a.get("out") or (HOME / "previews" / d.name))).expanduser()
+    r = P.export_preview(d, out)
+    c = P.check_preview(out, r["base"])
+    lines = [f"exported {len(r['pages'])} page(s) to {r['out']}",
+             f"serve that folder at {r['base']} — the address itself answers "
+             f"with {r['home']}; other pages at {r['base']}/<page>.html. "
+             "Files must be served as they are (.mjs as text/javascript).",
+             f"browser check at {r['base']}: {c['verdict']}"
+             + (f" — {c['why']}" if c.get("why") else "")]
+    if r.get("unmoved"):
+        lines.append(f"  NOTE {r['unmoved']} image address(es) in the CMS "
+                     "data had no room for the preview address and still "
+                     "point at the site root")
+    for page, v in c.get("pages", {}).items():
+        lines.append(f"  {'ok  ' if v['ok'] else 'FAIL'} {page}: "
+                     f"{v['chars']} chars"
+                     + (f"; failed: {', '.join(v['failed_requests'])}"
+                        if v["failed_requests"] else "")
+                     + (f"; console: {v['console_errors'][0]}"
+                        if v["console_errors"] else "")
+                     + ("" if v["layer"] else "; preview layer MISSING"))
+    return "\n".join(lines)
 
 
 def t_add_style(a):
@@ -1364,6 +1436,46 @@ TOOLS = [
      "exact reason — fix the entry via set_content, never hand-edit. "
      "Snapshotted (undo covers it). Run build afterwards.",
      S(P, ["project"]), t_heal),
+    ("make_preview", "PERSONALISED PREVIEW FOR ONE LEAD, cheaply. Copies a "
+     "template project that was already prepared ONCE (create_project, "
+     "fetch, inventory) into a new project for this lead, keeping only the "
+     "chosen pages, to be served at `base` (default /preview/<name>). "
+     "Takes about a second and costs no tokens; get_content then lists only "
+     "the chosen pages' lines. Pages are named like a person would: home, "
+     "about, contact, services. Other pages are not built: a click on a "
+     "link to one shows a preview-mode notice (your words via `notice`).",
+     S({"template": {"type": "string", "description": "the prepared "
+                     "template project to copy"},
+        "name": {"type": "string", "description": "the preview's name, "
+                 "e.g. the lead's slug: live2living-furniture-d2cad9"},
+        "pages": {"type": "array", "items": {"type": "string"},
+                  "description": "pages to include, e.g. [\"home\", "
+                  "\"about\", \"contact\"]; default home only"},
+        "base": {"type": "string", "description": "the address it will be "
+                 "served at; default /preview/<name>"},
+        "notice": {"type": "string", "description": "what a click on a page "
+                   "that is not included says"}},
+       ["template", "name"]), t_make_preview),
+    ("add_block", "Add something the template does not have to a preview: "
+     "a map (data.query = address or place name), reviews (data.items = "
+     "[{author, text, stars}] — the REAL reviews you found; nothing is "
+     "invented here; optional rating/count/source) or your own section "
+     "(data.html, no scripts). It is placed before/after the section "
+     "holding `anchor` (words that appear on the page) and takes that "
+     "section's fonts and colours. `page` limits it to one page.",
+     S({**P, "kind": {"type": "string", "enum": ["map", "reviews", "html"]},
+        "anchor": {"type": "string"},
+        "position": {"type": "string", "enum": ["before", "after"]},
+        "page": {"type": "string"},
+        "data": {"type": "object"}},
+       ["project", "kind", "anchor"]), t_add_block),
+    ("export_preview", "Build a preview and write its chosen pages, ready to "
+     "be served at its base address, then open every page AT THAT ADDRESS "
+     "in a headless browser and report what failed. Returns the folder to "
+     "publish (default <Aethron data>/previews/<name>) and the check.",
+     S({**P, "out": {"type": "string", "description": "folder to write "
+                     "to; default <Aethron data>/previews/<name>"}},
+       ["project"]), t_export_preview),
     ("undo", "Revert the LAST content/plan/config change and rebuild. Only "
      "when the person asks for it. Each call discards one finished change, "
      "so NEVER undo repeatedly to find what broke a page: a fill cannot "

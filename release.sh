@@ -56,6 +56,9 @@ bash build_desktop.sh >/dev/null 2>&1
 echo "── migrating a real template with the packaged app"
 python3 tests/frozen_migration.py dist/Aethron.app || {
   echo "the packaged app could not migrate a template — not publishing"; exit 1; }
+echo "── a lead's preview at /preview/<slug>, through the packaged app"
+python3 tests/preview_battery.py agero dist/Aethron.app || {
+  echo "the packaged app could not make a working preview — not publishing"; exit 1; }
 
 ditto -c -k --sequesterRsrc --keepParent dist/Aethron.app "dist/Aethron-mac.zip"
 echo "  dist/Aethron-mac.zip ($(du -h dist/Aethron-mac.zip | cut -f1))"
