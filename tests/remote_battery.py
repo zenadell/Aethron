@@ -88,7 +88,7 @@ def main():
     def server(with_token):
         if IMAGE:
             return ["docker", "run", "--rm", "--name", f"ae-remote-{port}",
-                    "-p", f"127.0.0.1:{port}:10000", "-v", f"{home}:/data"] + (["--memory", os.environ["AE_DOCKER_MEMORY"]] if os.environ.get("AE_DOCKER_MEMORY") else []) + \
+                    "-p", f"127.0.0.1:{port}:10000", "-v", f"{home}:/data"] + (["--memory", os.environ["AE_DOCKER_MEMORY"]] if os.environ.get("AE_DOCKER_MEMORY") else []) + (["--cpus", os.environ["AE_DOCKER_CPUS"]] if os.environ.get("AE_DOCKER_CPUS") else []) + \
                 (["-e", f"AETHRON_MCP_TOKEN={TOKEN}"] if with_token else []) + [IMAGE]
         return [sys.executable, str(ROOT / "forge_mcp.py"), "--http", str(port)]
     r = subprocess.run(server(False), env=env, capture_output=True, text=True,
