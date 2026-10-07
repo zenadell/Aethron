@@ -355,6 +355,13 @@ LAYER_CSS = """
  font-weight:600;text-decoration:none;white-space:nowrap}
 #ae-pv-rib .go{background:#fff;color:#121216}
 #ae-pv-rib .no{color:#fff;border:1px solid rgba(255,255,255,.35)}
+/* a lead's preview never sends anyone to the template's builder, shop
+   or demo — and a link re-pointed elsewhere still SAYS "Buy now" */
+a[href*="framer.com"],a[href*="framer.link"],a[href*="framer.website"],
+a[href*="framer.app"],a[href*="webflow.com"],a[href*="webflow.io"],
+a[href*="gumroad.com"],a[href*="lemonsqueezy.com"],a[href*="polar.sh"],
+a[href*="contra.com"],[class$="-container"]:has(> a[href*="framer.link"]),
+#__framer-badge-container,.__framer-badge{display:none!important}
 .ae-pv-block{box-sizing:border-box;width:100%;padding:56px 20px}
 .ae-pv-block .in{max-width:1080px;margin:0 auto}
 .ae-pv-block h2{margin:0 0 20px;font-size:clamp(24px,3vw,36px);line-height:1.15}

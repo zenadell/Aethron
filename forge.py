@@ -115,6 +115,10 @@ HIDE_CSS = (
     # template" card on a site the owner believes is theirs. Measured on
     # agero, in the migration as well as the port.
     'a[href*="framer.com/@"],a[href*="tab=marketplace"],'
+    # framer.link is Framer's SHORT link — templates use it for their
+    # floating "Buy now" / "Remix" pill (Graft: a fixed brown button over a
+    # furniture shop's site). Its wrapper holds nothing else, so it goes too.
+    'a[href*="framer.link/"],[class$="-container"]:has(> a[href*="framer.link/"]),'
     'a[href*="webflow.com/templates"],a[href*="webflow.io/template"],'
     '.w-webflow-badge{display:none !important}'
     '</style>'

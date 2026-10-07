@@ -206,6 +206,8 @@ def main():
         idx = (outdir / "index.html").read_text()
         ck("no page still asks for ./assets/ (it would 404 with no trailing /)",
            not re.search(r'["\'( ,]\./assets/', idx), "relative refs left")
+        ck("template sales links are hidden in the preview (Buy now, builder, shops)",
+           'a[href*="framer.link"]' in idx and 'a[href*="webflow.com"]' in idx, "rule missing")
         ck("the agent's lines are in the exported page",
            all(f["new"] in idx for f in fills), [f["new"] for f in fills])
 
