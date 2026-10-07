@@ -48,7 +48,10 @@ preview_pages(project="lewius-template")      → lists every page it has
 1. make_preview(template="lewius-template",
                 name="live2living-furniture-d2cad9",
                 pages=["home", "about", "contact"],       # any pages, or ["all"]
-                notice="This is a preview. The full site is ready once we build it for you.")
+                notice="This is a preview. The full site is ready once we build it for you.",
+                ribbon={"text": "We made this website for Live2Living Furniture.",
+                        "get_url": "https://www.jomiez.com/get?lead=live2living-furniture-d2cad9",
+                        "decline_url": "https://www.jomiez.com/not-interested?lead=live2living-furniture-d2cad9"})
 
 2. get_content(project="live2living-furniture-d2cad9", only_unfilled=true,
                limit=40, offset=0)                       # only the chosen pages' lines
@@ -127,6 +130,8 @@ page. Putting them in the keeper's prompt saves wasted calls.
 | Tool | Arguments | What it does |
 |---|---|---|
 | `make_preview` | `template`, `name`, `pages?`, `base?`, `notice?` | Copies a prepared template project for one lead, keeping only `pages`. The template's original files are shared, not duplicated. `base` is the public path the preview will live at; the default is `/preview/<name>`. `notice` is the text shown when a visitor clicks a page that was not built. |
+| `make_preview` → `ribbon` | `{text, get_url, decline_url?, get_label?, decline_label?}` | The Jomiez ribbon: a bar across the bottom of every page with your text and two buttons, "Get this website" (`get_url`) and "Not interested" (`decline_url`; without one, that button just closes the ribbon). Labels can be changed. Addresses must be `https://` or `/path`; `javascript:` is refused. Clicks on the ribbon go straight to your addresses; the preview notice never intercepts them. The ribbon is built into the exported files, so jomiez.com serves them unchanged. |
+| `preview_ribbon` | `project`, `ribbon?` | Sets or changes the ribbon on an existing preview; leave out `ribbon` to remove it. Run `export_preview` again to publish. |
 | `preview_pages` | `project`, `pages?` | On a template: lists its pages. On a preview without `pages`: lists what it builds and what it could. With `pages`: replaces the set. |
 | `get_content` | `project`, `section?` (`strings`/`images`/`links`), `only_unfilled?`, `filter?`, `offset?`, `limit?` | Lists the lines on the preview's pages, each `{old, new, max_bytes?, brand_notes?}`. |
 | `set_content_bulk` | `project`, `entries: [{old, new, section?}]`, `build?` | Guarded write. Returns per-entry rejections to fix and resend. Use `build=false` while filling; `export_preview` builds. |
@@ -296,7 +301,21 @@ proxy or Supabase Storage later without a rewrite.
 
 ---
 
-## 8. What to send back to the Aethron session
+## 8. Decisions received (2026-10-07)
+
+1. Previews live at `/preview/<slug>`. Each lead is marked `aethron` or
+   `built-in`, and jomiez.com routes per lead.
+2. Storage: the Supabase project Jomiez already uses, bucket `previews`.
+   Keys go in the hosting settings only. **Supabase upload is not built in
+   Aethron yet.** Until it is, the exported folder is on the Mac, and the
+   runner uploads it.
+3. Mode A: the keeper uses the Aethron app on the owner's Mac.
+4. The ribbon is built: `make_preview(ribbon=…)` and `preview_ribbon`
+   (section 4). The buttons go to the addresses you pass, so the keeper
+   decides what "Get this website" and "Not interested" do, for example
+   a jomiez.com route that records the lead's answer.
+
+## 9. What to send back to the Aethron session
 
 To finish the hosted path, the Aethron session needs:
 

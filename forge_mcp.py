@@ -675,13 +675,23 @@ def t_make_preview(a):
     tpl = pdir(str(a["template"]))
     base = str(a.get("base") or f"/preview/{name}")
     r = P.make_preview(tpl, PROJECTS / name, a.get("pages") or ["home"],
-                       base, str(a.get("notice") or ""))
+                       base, str(a.get("notice") or ""), a.get("ribbon"))
     return (f"preview project {r['project']!r} made from {tpl.name!r} — pages: "
             f"{', '.join(r['pages'])}; it will live at {r['base']}.\n"
             f"{r['lines']} of the template's {r['of']} lines are on those "
             f"pages; get_content lists only those (text by default).\n"
             "Next: get_content (only_unfilled) -> set_content_bulk "
             "(build=false) -> optional add_block -> export_preview.")
+
+
+def t_preview_ribbon(a):
+    import aethron_preview as P
+    d = pdir(str(a["project"]))
+    snapshot(d)
+    r = P.set_ribbon(d, a.get("ribbon"))
+    return ((f"ribbon set: {r['text']!r} — {r['get_label']} -> {r['get_url']}, "
+             f"{r['decline_label']} -> {r['decline_url'] or 'closes the ribbon'}")
+            if r else "ribbon removed") + ". Run export_preview to publish."
 
 
 def t_preview_pages(a):
@@ -1478,9 +1488,23 @@ TOOLS = [
                   "\"about\", \"contact\"]; default home only"},
         "base": {"type": "string", "description": "the address it will be "
                  "served at; default /preview/<name>"},
+        "ribbon": {"type": "object", "description": "optional bar across the bottom "
+                   "of every page: {text, get_url, decline_url?, get_label?, "
+                   "decline_label?}. Buttons default to 'Get this website' / "
+                   "'Not interested'; without decline_url that button just "
+                   "closes the ribbon. Addresses must be https:// or /path."},
         "notice": {"type": "string", "description": "what a click on a page "
                    "that is not included says"}},
        ["template", "name"]), t_make_preview),
+    ("preview_ribbon", "Set, change or remove (omit `ribbon`) the bar "
+     "across the bottom of a preview's pages — your text plus 'Get this "
+     "website' and 'Not interested' buttons pointing where you say. "
+     "export_preview again to publish.",
+     S({**P, "ribbon": {"type": "object", "description": "optional bar across the bottom "
+                   "of every page: {text, get_url, decline_url?, get_label?, "
+                   "decline_label?}. Buttons default to 'Get this website' / "
+                   "'Not interested'; without decline_url that button just "
+                   "closes the ribbon. Addresses must be https:// or /path."}}, ["project"]), t_preview_ribbon),
     ("preview_pages", "Which pages a preview builds — your choice, any "
      "time. On a template project: lists every page it has. On a preview: "
      "with no `pages`, lists what it builds and what it could; with "

@@ -85,8 +85,40 @@ def resolve_pages(cfg: dict, wanted) -> list:
     return list(dict.fromkeys(out))
 
 
+def check_ribbon(r) -> dict:
+    """A ribbon across the bottom of every page: a line of text and two
+    buttons, "Get this website" (get_url) and "Not interested"
+    (decline_url; without one the button just closes the ribbon). Only
+    http(s) or site-relative addresses — never javascript:."""
+    if not r:
+        return {}
+    r = dict(r)
+    out = {"text": str(r.get("text") or "This website was made for you.")[:160],
+           "get_label": str(r.get("get_label") or "Get this website")[:40],
+           "decline_label": str(r.get("decline_label") or "Not interested")[:40]}
+    for k in ("get_url", "decline_url"):
+        u = str(r.get(k) or "").strip()
+        if u and not re.match(r"(https?://|/)[^\s<>\"']*$", u):
+            raise ValueError(f"ribbon {k} must be an https:// or /path "
+                             f"address, got {u[:60]!r}")
+        out[k] = u
+    if not out["get_url"]:
+        raise ValueError("ribbon needs get_url — where 'Get this website' goes")
+    return out
+
+
+def set_ribbon(d: Path, ribbon) -> dict:
+    d = Path(d)
+    cfg = _cfg(d)
+    if "preview" not in cfg:
+        raise ValueError("not a preview project — make one with make_preview")
+    cfg["preview"]["ribbon"] = check_ribbon(ribbon)
+    _save_cfg(d, cfg)
+    return cfg["preview"]["ribbon"]
+
+
 def make_preview(template_dir: Path, dest: Path, pages, base: str,
-                 notice: str = "") -> dict:
+                 notice: str = "", ribbon=None) -> dict:
     """Copy a PREPARED template project (fetched + inventoried) for one
     lead. The copy keeps the original and its downloads; what was built or
     undone in the template stays behind."""
@@ -96,6 +128,7 @@ def make_preview(template_dir: Path, dest: Path, pages, base: str,
                          "fetch and inventory on it first (once)")
     if dest.exists():
         raise ValueError(f"a project called {dest.name} already exists")
+    ribbon = check_ribbon(ribbon)
     tcfg = _cfg(template_dir)
     chosen = resolve_pages(tcfg, pages)
     base = "/" + base.strip("/")
@@ -129,7 +162,7 @@ def make_preview(template_dir: Path, dest: Path, pages, base: str,
     cfg["public_base"] = base + "/assets"
     cfg["preview"] = {"template": template_dir.name, "pages": chosen,
                       "base": base, "notice": notice or DEFAULT_NOTICE,
-                      "blocks": []}
+                      "blocks": [], "ribbon": ribbon}
     _save_cfg(dest, cfg)
     lines = page_lines(dest)
     return {"project": dest.name, "pages": chosen, "base": base,
@@ -290,6 +323,17 @@ LAYER_CSS = """
  background:rgba(22,22,26,.86);color:#fff;
  font:600 12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
  letter-spacing:.02em;pointer-events:none}
+#ae-pv-rib{position:fixed;left:0;right:0;bottom:0;z-index:2147483645;
+ display:flex;align-items:center;justify-content:center;gap:12px;
+ flex-wrap:wrap;padding:12px 16px;background:rgba(18,18,22,.94);color:#fff;
+ -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+ font:500 14px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+ box-shadow:0 -8px 30px rgba(0,0,0,.18)}
+#ae-pv-rib span{margin-right:4px}
+#ae-pv-rib a{display:inline-block;padding:9px 16px;border-radius:99px;
+ font-weight:600;text-decoration:none;white-space:nowrap}
+#ae-pv-rib .go{background:#fff;color:#121216}
+#ae-pv-rib .no{color:#fff;border:1px solid rgba(255,255,255,.35)}
 .ae-pv-block{box-sizing:border-box;width:100%;padding:56px 20px}
 .ae-pv-block .in{max-width:1080px;margin:0 auto}
 .ae-pv-block h2{margin:0 0 20px;font-size:clamp(24px,3vw,36px);line-height:1.15}
@@ -317,12 +361,24 @@ LAYER_JS = r"""
  note.addEventListener('click',function(e){ if(e.target===note||e.target.tagName==='BUTTON') note.className=''; });
  document.addEventListener('keydown',function(e){ if(e.key==='Escape') note.className=''; });
  var tag=document.createElement('div'); tag.id='ae-pv-tag'; tag.textContent=C.tag||'Preview';
+ var R=C.ribbon, rib=null;
+ if(R&&R.get_url){
+   rib=document.createElement('div'); rib.id='ae-pv-rib'; rib.setAttribute('role','region');
+   rib.setAttribute('aria-label','About this preview');
+   var sp=document.createElement('span'); sp.textContent=R.text; rib.appendChild(sp);
+   var rGo=document.createElement('a'); rGo.className='go'; rGo.href=R.get_url; rGo.textContent=R.get_label; rib.appendChild(rGo);
+   var rNo=document.createElement('a'); rNo.className='no'; rNo.href=R.decline_url||'#'; rNo.textContent=R.decline_label; rib.appendChild(rNo);
+   if(!R.decline_url) rNo.addEventListener('click',function(e){ e.preventDefault(); rib.remove(); document.documentElement.style.paddingBottom=''; });
+ }
  function mount(){ if(!note.isConnected) document.body.appendChild(note);
-                   if(C.tag!==false && !tag.isConnected) document.body.appendChild(tag); }
+                   if(rib){ if(!rib.isConnected){ document.body.appendChild(rib);
+                       document.documentElement.style.paddingBottom=rib.offsetHeight+'px'; } }
+                   else if(C.tag!==false && !tag.isConnected) document.body.appendChild(tag); }
  // CAPTURE ON WINDOW: runs before the template's own router sees the click
  window.addEventListener('click',function(e){
    if(e.defaultPrevented||e.button!==0||e.metaKey||e.ctrlKey||e.shiftKey) return;
    var a=e.target&&e.target.closest&&e.target.closest('a[href]'); if(!a) return;
+   if(a.closest('#ae-pv-rib')) return;   // the ribbon's own buttons go where they say
    var u; try{ u=new URL(a.getAttribute('href'),location.href); }catch(_){ return; }
    if(u.origin!==here) return;                       // other sites: leave
    if(!/^https?:$/.test(u.protocol)) return;          // mailto:, tel:
@@ -402,7 +458,8 @@ def _layer(cfg: dict) -> str:
             "title": pv.get("title") or "Preview mode",
             "tag": pv.get("tag", "Preview"),
             "pages": {k: p for p in pv["pages"] for k in _page_keys(cfg, p)},
-            "blocks": pv.get("blocks", [])}
+            "blocks": pv.get("blocks", []),
+            "ribbon": pv.get("ribbon") or None}
     # JSON inside <script>: "</" must not close the tag early
     blob = json.dumps(conf).replace("</", "<\\/")
     return (f"<style data-ae-preview>{LAYER_CSS}</style>"

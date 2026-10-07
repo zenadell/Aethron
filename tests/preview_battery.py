@@ -107,7 +107,10 @@ def main():
         t0 = time.time()
         ok, out = call("make_preview", {"template": "tpl", "name": "Lead Acme",
                                         "pages": ["home", "about", "contact"],
-                                        "notice": "Preview only — the rest is coming."})
+                                        "notice": "Preview only — the rest is coming.",
+                                        "ribbon": {"text": "Made for Acme by Jomiez",
+                                                   "get_url": "https://www.jomiez.com/get?lead=acme",
+                                                   "decline_url": "/preview/lead-acme/declined"}})
         took = time.time() - t0
         ck("a lead's preview is made from the template in seconds",
            ok and took < 20 and "/preview/lead-acme" in out, f"{took:.1f}s {out}")
@@ -129,6 +132,9 @@ def main():
         ck("get_content lists just those pages' lines",
            ok and "preview — only the lines on" in out and 0 < len(listed) < total,
            out[:300])
+        ok, out = call("preview_ribbon", {"project": "lead-acme",
+                                          "ribbon": {"get_url": "javascript:alert(1)"}})
+        ck("a ribbon button cannot carry javascript:", not ok and "javascript" in out, out)
         olds = [e["old"] for e in listed if len(e["old"].split()) >= 2
                 and not e.get("max_bytes")][:2]
         fills = [{"old": o, "new": f"Acme Furniture line {i + 1}"}
@@ -195,6 +201,8 @@ window.addEventListener('load',function(){setTimeout(function(){
  if(a){ a.click(); }
  setTimeout(function(){
   res.after=location.pathname; res.note=document.getElementById('ae-pv-note').className;
+  var rb=document.getElementById('ae-pv-rib');
+  res.ribbon=rb?[].map.call(rb.querySelectorAll('a'),function(x){return x.textContent+'|'+x.getAttribute('href');}):null;
   res.blocks=[].map.call(document.querySelectorAll('[data-ae-block]'),function(b){return b.className;});
   var o=document.createElement('pre'); o.id='ae-test'; o.textContent=JSON.stringify(res);
   document.body.appendChild(o); },400); },2500);});
@@ -228,6 +236,9 @@ window.addEventListener('load',function(){setTimeout(function(){
         ck("a link to a page that was not built opens the notice and stays put",
            res.get("found") and res.get("note") == "on"
            and res.get("after") == res.get("before"), res or got.get("error"))
+        ck("the ribbon shows both buttons, pointing where the agent said",
+           res.get("ribbon") == ["Get this website|https://www.jomiez.com/get?lead=acme",
+                                 "Not interested|/preview/lead-acme/declined"], res)
         ck("the extras are placed on the page", set(res.get("blocks") or [])
            >= {"ae-pv-block ae-pv-map", "ae-pv-block ae-pv-rev"}, res)
     finally:

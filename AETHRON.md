@@ -5661,6 +5661,18 @@ readable. 17/17 at a 512MB cap, peak 439MB — passes, small margin.
 NOT PROVEN: the amd64 image (this Mac builds ARM; the legacy builder
 ignores --platform), and a live Render deploy — the owner's account.
 
+## THE JOMIEZ RIBBON — 2026-10-07
+The keeper's session asked for it: jomiez.com serves previews unchanged,
+so the bar has to be IN the export. make_preview(ribbon={text, get_url,
+decline_url?, labels?}) and tool `preview_ribbon` (set/change/remove);
+https:// or /path only. The layer's click interceptor skips the ribbon so
+its buttons go where they say. ONE BUG ON THE WAY: the button variable was
+named `go`, which overwrote the layer's own `go()` — setTimeout(go) then
+ran the button's URL as code ("Unexpected end of input" at 1:16) and the
+extras silently stopped being placed. The battery caught it as "extras
+missing", not as a ribbon fault: a new name in a shared scope can break
+something else entirely. preview battery 17 -> 19.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
