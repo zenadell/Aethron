@@ -1637,6 +1637,12 @@ def _flex_pat(old):
 # rewriting them points at CDN files that don't exist and kills the
 # stylesheet. Shield template-CDN urls from all replacement unless the
 # owner deliberately retargeted that exact asset (it's a pair old).
+CSS_REGION_RE = re.compile(
+    r"<style\b[^>]*>.*?</style>"                       # a style sheet
+    r"|\sstyle=\"[^\"]*\"|\sstyle='[^']*'"               # a style attribute
+    r"|(?<=[\w\])*-])\{[-a-z]+:[^{}\"'`<>]*\}",           # a rule
+    re.S | re.I)
+
 CDN_URL_RE = re.compile(
     r"https://[a-z0-9.-]*(?:website-files\.com|framerusercontent\.com)"
     r"[^\"'\s<>`]+")  # backtick ends template-literal urls in chunks;
@@ -1917,6 +1923,12 @@ def _apply(text, pairs, escaped=False, stats=None, code=False):
             stats[orig] = stats.get(orig, 0) + n
 
     text = CDN_URL_RE.sub(_shield, text)
+    # CSS IS NOT COPY. A fill "10" -> "Ready to use" also rewrote
+    # `z-index:10` in Graft's nav rule, so the sticky menu lost its
+    # stacking and the hero covered it. Style sheets, style attributes and
+    # CSS declaration blocks (also the ones carried in chunk strings) are
+    # vaulted like CDN urls and restored untouched.
+    text = CSS_REGION_RE.sub(_shield, text)
     mask = trusted = None
     if code:
         mask, trusted = _js_literal_mask(text)
@@ -1966,8 +1978,9 @@ def _apply(text, pairs, escaped=False, stats=None, code=False):
                 return seal(_n)
             text = re.sub(pat, _wrap, text)
     text = re.sub(r"\x00R(\d+)\x00", lambda m: sealed[int(m.group(1))], text)
-    for i, u in enumerate(vault):
-        text = text.replace(f"\x00CDN{i}\x00", u)
+    # newest first: a CSS region can hold a url vaulted before it
+    for i in range(len(vault) - 1, -1, -1):
+        text = text.replace(f"\x00CDN{i}\x00", vault[i])
     return text
 
 

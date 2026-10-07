@@ -742,7 +742,7 @@ def t_add_block(a):
     snapshot(d)
     b = P.add_block(d, str(a["kind"]), str(a["anchor"]),
                     str(a.get("position") or "after"), a.get("data") or {},
-                    str(a.get("page") or ""))
+                    str(a.get("page") or ""), bool(a.get("replace")))
     return (f"added {b['kind']} block {b['id']} {b['position']} the section "
             f"holding {b['anchor']!r} on {', '.join(b['pages'])}. It is "
             "placed when the preview is exported.")
@@ -1547,6 +1547,9 @@ TOOLS = [
         "anchor": {"type": "string"},
         "position": {"type": "string", "enum": ["before", "after"]},
         "page": {"type": "string"},
+        "replace": {"type": "boolean", "description": "swap out an "
+                    "existing extra of the same kind on that page; without "
+                    "it a second one is refused"},
         "data": {"type": "object"}},
        ["project", "kind", "anchor"]), t_add_block),
     ("export_preview", "Build a preview and write its chosen pages, ready to "

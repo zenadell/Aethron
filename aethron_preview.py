@@ -210,7 +210,7 @@ KINDS = ("map", "reviews", "html")
 
 
 def add_block(d: Path, kind: str, anchor: str, position: str = "after",
-              data=None, page: str = "") -> dict:
+              data=None, page: str = "", replace: bool = False) -> dict:
     """Record an extra section; export_preview renders it.
 
     kind     map (data: {"query": "address or place name", "title"?}),
@@ -259,7 +259,17 @@ def add_block(d: Path, kind: str, anchor: str, position: str = "after",
         raise ValueError(f"the words {anchor!r} are not on the chosen pages "
                          "— use words that appear in the section to sit "
                          "next to (the template's original words)")
-    block = {"id": f"b{len(cfg['preview']['blocks']) + 1}", "kind": kind,
+    same = [b for b in cfg["preview"]["blocks"]
+            if b["kind"] == kind and set(b.get("pages") or []) & set(found)]
+    if same and not replace:
+        raise ValueError(f"there is already a {kind} on "
+                         f"{', '.join(sorted(set(same[0]['pages']) & set(found)))} "
+                         f"({same[0]['id']}) — one {kind} per page; pass "
+                         "replace=true to swap it for this one")
+    if same:
+        cfg["preview"]["blocks"] = [b for b in cfg["preview"]["blocks"]
+                                    if b not in same]
+    block = {"id": f"b{max([int(b['id'][1:]) for b in cfg['preview']['blocks']] + [0]) + 1}", "kind": kind,
              "anchor": anchor, "position": position, "data": data,
              "pages": found, "page": pages[0] if page else ""}
     cfg["preview"]["blocks"].append(block)

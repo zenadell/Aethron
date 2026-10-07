@@ -187,6 +187,15 @@ def main():
                                                          "text": "Test review text.",
                                                          "stars": 5}]}})
         ck("reviews are added with the caller's own review text", ok, out)
+        ok, out = call("add_block", {"project": "lead-acme", "kind": "map",
+                                     "anchor": anchor, "page": "home",
+                                     "data": {"query": "Somewhere else"}})
+        ck("a second map on the same page is refused", not ok and "already" in out, out)
+        ok, out = call("add_block", {"project": "lead-acme", "kind": "map",
+                                     "anchor": anchor, "page": "home", "replace": True,
+                                     "data": {"query": "Acme Furniture, Lagos",
+                                              "title": "Visit us"}})
+        ck("…and replace=true swaps it", ok, out)
 
         ok, out = call("export_preview", {"project": "lead-acme"}, timeout=900)
         ck("the export's browser check PASSES at the preview address",
