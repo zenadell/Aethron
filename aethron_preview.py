@@ -303,6 +303,27 @@ def set_pages(d: Path, pages) -> dict:
             "lines": len(page_lines(d, chosen)), "of": _count_all(d)}
 
 
+# A SANDBOXED PAGE HAS NO STORAGE. A host that serves previews under a CSP
+# sandbox (so template scripts never run where an admin is signed in)
+# gives the page an opaque origin, and then localStorage, sessionStorage
+# and document.cookie THROW. Framer's runtime reads storage at start-up
+# and dies with "Fatal error": measured, 308 of 6,464 characters
+# rendered. An in-memory stand-in, installed before any other script and
+# only when the real one throws, renders the same 6,464. Unsandboxed
+# pages never see it.
+STORAGE_SHIM = (
+    "<script data-ae-preview>(function(){function M(){var d={};return{"
+    "getItem:function(k){return k in d?d[k]:null},setItem:function(k,v){"
+    "d[k]=String(v)},removeItem:function(k){delete d[k]},clear:function(){"
+    "d={}},key:function(i){return Object.keys(d)[i]||null},get length(){"
+    "return Object.keys(d).length}}}['localStorage','sessionStorage']"
+    ".forEach(function(n){try{window[n].getItem('x')}catch(e){try{"
+    "Object.defineProperty(window,n,{value:M(),configurable:true})}catch(_)"
+    "{}}});try{document.cookie}catch(e){try{Object.defineProperty(document,"
+    "'cookie',{get:function(){return ''},set:function(){},configurable:true"
+    "})}catch(_){}}})();</script>")
+
+
 # ─────────────────────────── the layer ─────────────────────────────────
 
 LAYER_CSS = """
@@ -514,6 +535,8 @@ def export_preview(d: Path, out: Path) -> dict:
                 for href in (f'"./{p}"', f'"./{k}"' if k else '"./"'):
                     t = t.replace("href=" + href, f'href="{base}/{p}"')
         t = t.replace("</body>", layer + "</body>", 1)
+        t = re.sub(r"<head\b[^>]*>", lambda m: m.group(0) + STORAGE_SHIM, t,
+                   count=1)
         (out / page).write_text(t, encoding="utf-8")
     # the address itself (…/preview/<slug>) serves the home page
     home = "index.html" if "index.html" in pages else next(iter(pages))
@@ -569,7 +592,7 @@ def _rebase_assets(out: Path, base: str) -> int:
 
 # ───────────────────────────── the check ───────────────────────────────
 
-def check_preview(out: Path, base: str) -> dict:
+def check_preview(out: Path, base: str, sandbox: bool = False) -> dict:
     """Open every exported page AT ITS PREVIEW ADDRESS in a headless
     browser and report what a visitor would get. The agent does not decide
     that a preview works; this does. No browser -> SKIPPED, never PASS."""
@@ -602,6 +625,13 @@ def check_preview(out: Path, base: str) -> dict:
             if code >= 400:
                 failed.append(f"{code} {s.path}")
             super().send_response(code, msg)
+
+        def end_headers(s):
+            if sandbox:      # the way a host isolating template scripts serves it
+                s.send_header("Content-Security-Policy",
+                              "sandbox allow-scripts allow-popups allow-forms")
+                s.send_header("Access-Control-Allow-Origin", "*")
+            super().end_headers()
 
         def log_message(s, *a):
             pass

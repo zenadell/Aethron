@@ -62,6 +62,16 @@ from forge import (image_slot_styles, _locate_element, word_fragments,  # noqa: 
 
 # ───────────────────────── shared plumbing ───────────────────────────
 
+class Result(str):
+    """A tool's answer: readable text for a model, plus `data` — the same
+    facts as JSON for a program (sent as MCP structuredContent), so no
+    caller has to parse prose."""
+    def __new__(cls, text, data):
+        o = str.__new__(cls, text)
+        o.data = data
+        return o
+
+
 def pdir(name: str) -> Path:
     d = (PROJECTS / str(name)).resolve()
     if not d.is_relative_to(PROJECTS) or not (d / "forge.json").exists():
@@ -517,9 +527,10 @@ def t_get_content(a):
         pv_note = (f"preview — only the lines on: {', '.join(pv['pages'])}\n")
     if a.get("only_unfilled"):
         entries = [e for e in entries if not e.get("new")]
-    flt = str(a.get("filter", "")).lower()
+    flt = [f.strip() for f in str(a.get("filter", "")).lower().split("|")
+           if f.strip()]                       # "Contact|Visit" = either
     if flt:
-        entries = [e for e in entries if flt in e["old"].lower()]
+        entries = [e for e in entries if any(f in e["old"].lower() for f in flt)]
     off, lim = int(a.get("offset", 0)), min(int(a.get("limit", 60)), 200)
     page = entries[off:off + lim]
     slim = [{"old": e["old"], "new": e.get("new", ""),
@@ -558,11 +569,13 @@ def t_get_content(a):
     if hidden:
         head += (f"{hidden} single words of animated headings are not listed: "
                  "each heading is its own line here — write the whole line\n")
-    return (f"{section}: showing {off}-{off + len(page)} of {len(entries)} "
-            f"(only_unfilled={bool(a.get('only_unfilled'))})\n"
-            "max_bytes = UTF-8 byte budget the 'new' value MUST fit\n"
-            + head
-            + json.dumps(slim, indent=1, ensure_ascii=False))
+    return Result(f"{section}: showing {off}-{off + len(page)} of {len(entries)} "
+                  f"(only_unfilled={bool(a.get('only_unfilled'))})\n"
+                  "max_bytes = UTF-8 byte budget the 'new' value MUST fit\n"
+                  + head
+                  + json.dumps(slim, indent=1, ensure_ascii=False),
+                  {"section": section, "offset": off, "total": len(entries),
+                   "entries": slim})
 
 
 def t_learn_brand(a):
@@ -612,13 +625,14 @@ def t_set_content_bulk(a):
     snapshot(d)
     idx = {sec: {e["old"]: e for e in cm.get(sec, [])}
            for sec in ("strings", "images", "links")}
-    applied, rejected = 0, []
+    applied, rejected, refused = 0, [], []
     frag = word_fragments(d, cm)
     for item in a["entries"]:
         sec = item.get("section", "strings")
         tgt = idx.get(sec, {}).get(item.get("old", ""))
         if tgt is None:
             rejected.append(f"not found in {sec}: {item.get('old','')[:50]!r}")
+            refused.append({"old": item.get("old", ""), "reason": f"not found in {sec}"})
             continue
         old, new = item.get("old", ""), item.get("new", "")
         if sec == "strings" and old in frag and new not in ("", old):
@@ -627,10 +641,13 @@ def t_set_content_bulk(a):
                             f"{line[:70]!r} — write that whole line instead "
                             "(a word changed on its own changes it everywhere "
                             "on the site)")
+            refused.append({"old": old, "reason": "one word of the animated "
+                            f"heading {line!r} — write that whole line"})
             continue
         err = guard_write(tgt, item.get("new", ""))
         if err:
             rejected.append(f"{item.get('old','')[:40]!r}: {err}")
+            refused.append({"old": item.get("old", ""), "reason": err})
             continue
         tgt["new"] = item.get("new", "")
         applied += 1
@@ -652,7 +669,7 @@ def t_set_content_bulk(a):
                 out += ("\n⚠ BROKEN FILLS (zero-effect or hydration would "
                         "revert them). Run the heal tool, then build:\n- "
                         + "\n- ".join(z[:60] for z in (zero + risk)[:15]))
-    return out
+    return Result(out, {"applied": applied, "rejected": refused})
 
 
 def t_set_content(a):
@@ -676,12 +693,14 @@ def t_make_preview(a):
     base = str(a.get("base") or f"/preview/{name}")
     r = P.make_preview(tpl, PROJECTS / name, a.get("pages") or ["home"],
                        base, str(a.get("notice") or ""), a.get("ribbon"))
-    return (f"preview project {r['project']!r} made from {tpl.name!r} — pages: "
+    return Result(f"preview project {r['project']!r} made from {tpl.name!r} — pages: "
             f"{', '.join(r['pages'])}; it will live at {r['base']}.\n"
             f"{r['lines']} of the template's {r['of']} lines are on those "
             f"pages; get_content lists only those (text by default).\n"
             "Next: get_content (only_unfilled) -> set_content_bulk "
-            "(build=false) -> optional add_block -> export_preview.")
+            "(build=false) -> optional add_block -> export_preview.",
+                  {"project": r["project"], "pages": r["pages"],
+                   "base": r["base"], "lines": r["lines"], "of": r["of"]})
 
 
 def t_preview_ribbon(a):
@@ -702,17 +721,19 @@ def t_preview_pages(a):
     if "preview" not in cfg or not a.get("pages"):
         now = [P._route(p) or "home" for p in
                (cfg.get("preview") or {}).get("pages", [])]
-        return (f"pages this template has: {', '.join(have)}\n"
-                + (f"this preview builds: {', '.join(now)}" if now else
-                   "not a preview — make_preview(template=…, pages=[…])"))
+        return Result(f"pages this template has: {', '.join(have)}\n"
+                      + (f"this preview builds: {', '.join(now)}" if now else
+                         "not a preview — make_preview(template=…, pages=[…])"),
+                      {"pages": have, "building": now})
     snapshot(d)
     r = P.set_pages(d, a["pages"])
     names = [P._route(p) or "home" for p in r["pages"]]
-    return (f"this preview now builds: {', '.join(names)} "
-            f"({r['lines']} of {r['of']} lines; fills already written are "
-            "kept)." + (f"\nextras not shown on these pages: "
-                       f"{', '.join(r['parked'])}" if r["parked"] else "")
-            + "\nRun export_preview to publish the change.")
+    return Result(f"this preview now builds: {', '.join(names)} "
+                  f"({r['lines']} of {r['of']} lines; fills already written are "
+                  "kept)." + (f"\nextras not shown on these pages: "
+                             f"{', '.join(r['parked'])}" if r["parked"] else "")
+                  + "\nRun export_preview to publish the change.",
+                  {"pages": have, "building": names, "parked": r["parked"]})
 
 
 def t_add_block(a):
@@ -751,7 +772,10 @@ def t_export_preview(a):
                      + (f"; console: {v['console_errors'][0]}"
                         if v["console_errors"] else "")
                      + ("" if v["layer"] else "; preview layer MISSING"))
-    return "\n".join(lines)
+    return Result("\n".join(lines),
+                  {"verdict": c["verdict"], "why": c.get("why", ""),
+                   "folder": r["out"], "base": r["base"], "home": r["home"],
+                   "pages": c.get("pages", {})})
 
 
 def t_add_style(a):
@@ -1593,7 +1617,10 @@ def dispatch(msg):
             if name not in HANDLERS:
                 raise ValueError(f"unknown tool {name!r}")
             text = HANDLERS[name](args)
-            return ok({"content": [{"type": "text", "text": text}]})
+            res = {"content": [{"type": "text", "text": str(text)}]}
+            if isinstance(text, Result):
+                res["structuredContent"] = text.data
+            return ok(res)
         except Exception as e:
             return ok({"content": [{"type": "text", "text": f"ERROR: {e}"}],
                        "isError": True})

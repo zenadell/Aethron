@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = sys.argv[1] if len(sys.argv) > 1 else "agero"
 APP = Path(sys.argv[2]) if len(sys.argv) > 2 else None
 checks = []
+LAST = {}
 
 
 def ck(name, ok, detail=""):
@@ -88,6 +89,7 @@ def main():
             time.sleep(0.1)
         r = replies.pop(i)
         res = r.get("result") or {}
+        LAST.clear(); LAST.update(res)
         text = " ".join(c.get("text", "") for c in res.get("content", []))
         if "error" in r:
             text = json.dumps(r["error"])
@@ -128,6 +130,15 @@ def main():
 
         ok, out = call("get_content", {"project": "lead-acme", "limit": 200,
                                        "brand_notes": False})
+        st = LAST.get("structuredContent") or {}
+        ck("get_content also returns its entries as JSON (structuredContent)",
+           isinstance(st.get("entries"), list) and st["entries"]
+           and "old" in st["entries"][0], str(st)[:200])
+        ok2, _ = call("get_content", {"project": "lead-acme", "limit": 5,
+                                      "brand_notes": False,
+                                      "filter": "zzqq-none|" + st["entries"][0]["old"][:12]})
+        ck("filter accepts alternatives (a|b)",
+           (LAST.get("structuredContent") or {}).get("entries"), LAST)
         listed = json.loads(out[out.index("["):]) if "[" in out else []
         ck("get_content lists just those pages' lines",
            ok and "preview — only the lines on" in out and 0 < len(listed) < total,
@@ -142,6 +153,11 @@ def main():
         ok, out = call("set_content_bulk", {"project": "lead-acme",
                                             "build": False, "entries": fills})
         ck("the agent's lines are written", ok and f"applied {len(fills)}" in out, out)
+        ok, out = call("set_content_bulk", {"project": "lead-acme", "build": False,
+                                            "entries": [{"old": "no such line zz", "new": "x"}]})
+        rj = (LAST.get("structuredContent") or {}).get("rejected") or []
+        ck("a refused line comes back as {old, reason}",
+           rj and rj[0].get("old") == "no such line zz" and rj[0].get("reason"), LAST)
 
         page = (lead / "pristine" / "index.html").read_text(errors="ignore")
         anchor = next((e["old"] for e in listed
@@ -175,7 +191,14 @@ def main():
         ok, out = call("export_preview", {"project": "lead-acme"}, timeout=900)
         ck("the export's browser check PASSES at the preview address",
            ok and "browser check at /preview/lead-acme: PASS" in out, out)
+        ck("export_preview returns its verdict and folder as JSON",
+           (LAST.get("structuredContent") or {}).get("verdict") == "PASS"
+           and (LAST.get("structuredContent") or {}).get("folder"), str(LAST)[:300])
         outdir = home / "previews" / "lead-acme"
+        import aethron_preview as P
+        sb = P.check_preview(outdir, "/preview/lead-acme", sandbox=True)
+        ck("it also renders inside a CSP sandbox (storage throws there)",
+           sb["verdict"] == "PASS", sb)
         ck("only the chosen pages are exported",
            sorted(x.name for x in outdir.glob("*.html"))
            == ["about.html", "contact.html", "index.html"],

@@ -5673,6 +5673,21 @@ extras silently stopped being placed. The battery caught it as "extras
 missing", not as a ribbon fault: a new name in a shared scope can break
 something else entirely. preview battery 17 -> 19.
 
+## THE KEEPER'S ASSUMPTIONS, CHECKED — 2026-10-07
+The Jomiez session built its runner against a stand-in and asked for its
+assumptions to be checked. Four would have failed on the real tools:
+(1) they parse results as JSON and ours are prose -> the tools they read
+now ALSO return MCP `structuredContent` (forge_mcp.Result: text for a
+model, data for a program); (2) `filter: "Contact|Visit|…"` was one
+substring -> `|` now means alternatives; (3) refusals were text lines ->
+`{old, reason}`; (4) THEIR TEMPORARY CSP SANDBOX KILLED FRAMER: an opaque
+origin makes localStorage/sessionStorage/cookie throw and the runtime
+dies ("Fatal error", 308 of 6,464 chars). Every export now opens <head>
+with an in-memory storage stand-in that only takes over when the real one
+throws: 6,464 chars, zero errors, under the same sandbox. check_preview
+gained sandbox=True; preview battery 19 -> 24. Reply in
+docs/AETHRON_TO_JOMIEZ.md.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5872,3 +5887,5 @@ something else entirely. preview battery 17 -> 19.
   start without a long secret; only finished previews are public.
 - NEVER JOIN A WHOLE PROJECT INTO MEMORY. Read one file at a time; a
   build must fit a 512MB server.
+- A PROGRAM READS DATA, NOT PROSE. A tool another program drives returns
+  structuredContent alongside its text; never make a caller parse prose.
