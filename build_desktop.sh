@@ -14,6 +14,11 @@ rm -rf build dist
 
 python3 -m PyInstaller aethron.spec --noconfirm
 
+# A built copy must never show up as a SECOND Aethron in Spotlight or
+# Launchpad: the owner's real app is the one in /Applications, updated in
+# place by its Update button. Keep the build folders out of the index.
+touch dist/.metadata_never_index build/.metadata_never_index 2>/dev/null || true
+
 echo
 if [ -d "dist/Aethron.app" ]; then
   echo "✓ built dist/Aethron.app"
