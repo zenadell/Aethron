@@ -5707,6 +5707,18 @@ project's overflow menu. Now: checked at startup + every 30 min, and an
 builds left dist/Aethron.app, which Spotlight listed as a SECOND Aethron
 — the owner's "it installs a new one instead of updating" — deleted, and
 build folders are now .metadata_never_index.
+Then, from the owner using it: the corner box covered the chat, so the
+update is now a small chip in the TOP BAR (left of ?), with a drop-down
+for Update and restart / Later and its own progress while installing;
+Settings → Version is the second home. And a 30-minute setInterval was
+not enough: it counts from app launch and macOS pauses a background
+window's timers, so a release only showed after quitting. The app now
+checks when its window is brought back (focus/visibilitychange, at most
+every 2 min) plus every 10 min. Proven live: 1.1.8 -> 1.1.9 appeared on
+clicking back into the window, no restart.
+FOR CLOUD SESSIONS: every push to main builds and ships to the owner's
+Mac within ~20 min. Push to main only work that is checked; put
+[skip ci] in a commit message (docs-only changes) to not cut a release.
 
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
