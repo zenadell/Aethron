@@ -24,6 +24,8 @@ jobs:
     env:
       AETHRON_SUPABASE_URL: ${{ secrets.AETHRON_SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      AETHRON_GOOGLE_CLIENT_ID: ${{ secrets.AETHRON_GOOGLE_CLIENT_ID }}
+      AETHRON_GOOGLE_CLIENT_SECRET: ${{ secrets.AETHRON_GOOGLE_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -66,12 +68,35 @@ jobs:
           python3 tests/engine_battery.py
           python3 tests/provider_battery.py
 
+      # The app reads where to find updates (supabase_url) and its login
+      # setup from aethron_config.json inside the bundle. That file is
+      # never committed (it holds API keys locally), so the release copy
+      # is built from release_config.json — the shareable parts only.
+      # Without it a release cannot find the next one.
+      - name: Add the release settings
+        run: |
+          python3 - <<'PY2'
+          import json, os
+          c = json.load(open("release_config.json"))
+          # Google sign-in: from repo secrets, never from the repo itself
+          for k, env in (("google_client_id", "AETHRON_GOOGLE_CLIENT_ID"),
+                         ("google_client_secret", "AETHRON_GOOGLE_CLIENT_SECRET")):
+              if os.environ.get(env):
+                  c[k] = os.environ[env]
+          if "google_client_id" not in c:
+              print("::warning::no AETHRON_GOOGLE_CLIENT_ID secret — Google sign-in is off in this release")
+          json.dump(c, open("aethron_config.json", "w"))
+          PY2
+          python3 -c "import json;c=json.load(open('aethron_config.json'));assert c.get('supabase_url'),'no supabase_url';assert 'ai' not in c,'API keys must not ship'"
+
       - name: Build the app
         run: bash build_desktop.sh
 
       - name: Check the built app
         run: |
           test -d dist/Aethron.app
+          # the release must know where its next update lives
+          python3 -c "import json;c=json.load(open('dist/Aethron.app/Contents/Resources/aethron_config.json'));assert c.get('supabase_url');assert 'ai' not in c"
           dist/Aethron.app/Contents/MacOS/Aethron --forge 2>&1 | grep -q "known:" \
             || { echo "::error::the packaged engine does not start"; exit 1; }
           # a real migration through the packaged app's own tools

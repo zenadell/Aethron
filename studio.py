@@ -11697,7 +11697,18 @@ async function checkUpdate(){
     }
   }catch(e){}
   try{ UPD=await api('/api/update/check'); }catch(e){ return }
-  if(UPD&&UPD.available)renderHeader();
+  if(UPD&&UPD.available){
+    renderHeader();
+    // AN UPDATE MUST BE FINDABLE WITH NO PROJECT OPEN. It used to live
+    // only in a project's overflow menu, which is not drawn on the home
+    // screen — so a published update was invisible to the owner.
+    updPill('<b>Aethron '+esc(UPD.latest||'')+' is ready</b>'
+      +'<div style="color:var(--dim);margin-top:3px">You have '
+      +esc(UPD.version||'')+'.</div>'
+      +'<button onclick="applyUpdate()" style="margin-top:9px;width:100%;'
+      +'padding:8px 10px;border-radius:9px;border:0;background:var(--acc);'
+      +'color:#fff;font:600 13px/1 inherit;cursor:pointer">Update now</button>');
+  }
 }
 /* An update is MINUTES on a slow connection, not seconds. It gets a
    progress pill you can ignore and keep working behind — not a frozen
