@@ -11620,7 +11620,6 @@ async function delProject(name){
   await api('/api/projects/delete',{name});
   if(S.cur===name){S.view='';S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
   refresh();
-  checkUpdate();
 }
 async function createProject(){
   const fl=[...$('npfile').files],name=$('npname').value,
@@ -16484,6 +16483,11 @@ function endTour(){
 }
 
 refresh();
+// CHECK FOR UPDATES WHEN THE APP OPENS, AND EVERY 30 MINUTES. The only
+// call used to sit inside delProject(), so the app checked solely after
+// a project was deleted and no update button ever appeared on its own.
+setTimeout(checkUpdate, 4000);
+setInterval(checkUpdate, 30*60*1000);
 loadAi();          // the one AI setting, before anything asks for it
 loadPermissionPolicy(); // the chat-level Automatic / Semi-manual / Manual choice
 mountDots();       // the room is lit before anyone asks it to be
