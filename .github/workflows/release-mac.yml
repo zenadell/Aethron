@@ -1,0 +1,95 @@
+# Every push to main builds Aethron on a Mac, checks it, and publishes it
+# to the update feed the installed app reads. The owner's app then
+# updates itself — nobody has to build or install anything by hand, and
+# a session working in the cloud (no Mac) can ship to the owner's Mac.
+#
+# Needs two repository secrets (GitHub → Settings → Secrets → Actions):
+#   AETHRON_SUPABASE_URL   https://<project>.supabase.co
+#   SUPABASE_SERVICE_KEY   the service_role key (never commit it)
+name: Release Aethron for Mac
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-mac
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      AETHRON_SUPABASE_URL: ${{ secrets.AETHRON_SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check the secrets are set
+        run: |
+          if [ -z "$AETHRON_SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
+            echo "::error::Add AETHRON_SUPABASE_URL and SUPABASE_SERVICE_KEY in GitHub → Settings → Secrets → Actions"
+            exit 1
+          fi
+
+      # 1.1.<run number> always rises, so every installed copy sees the
+      # new build as an update (local releases used 1.0.x).
+      - name: Set the version
+        run: |
+          VER="1.1.${{ github.run_number }}"
+          python3 - "$VER" <<'PY'
+          import pathlib, re, sys
+          p = pathlib.Path("aethron_update.py")
+          s = p.read_text()
+          new = re.sub(r'^VERSION = "[^"]*"', f'VERSION = "{sys.argv[1]}"', s, count=1, flags=re.M)
+          if new == s:
+              raise SystemExit("could not set VERSION in aethron_update.py")
+          p.write_text(new)
+          PY
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          echo "version $VER"
+
+      # A broken release installs itself onto every user, so nothing is
+      # published unless these pass.
+      - name: Checks before building
+        run: |
+          python3 -m py_compile studio.py forge.py forge_mcp.py desktop.py aethron_update.py aethron_preview.py
+          python3 -c "import re, studio, pathlib; pathlib.Path('/tmp/_rel.cjs').write_text('\n'.join(re.findall(r'<script>(.*?)</script>', studio.INDEX_HTML, re.S)))"
+          node --check /tmp/_rel.cjs
+          python3 aethron_update.py --selftest
+          python3 tests/engine_battery.py
+          python3 tests/provider_battery.py
+
+      - name: Build the app
+        run: bash build_desktop.sh
+
+      - name: Check the built app
+        run: |
+          test -d dist/Aethron.app
+          dist/Aethron.app/Contents/MacOS/Aethron --forge 2>&1 | grep -q "known:" \
+            || { echo "::error::the packaged engine does not start"; exit 1; }
+          # a real migration through the packaged app's own tools
+          python3 tests/frozen_migration.py dist/Aethron.app
+          # needs a prepared template on disk; reports SKIPPED here
+          python3 tests/preview_battery.py agero dist/Aethron.app
+
+      - name: Zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Aethron.app dist/Aethron-mac.zip
+
+      - name: Publish to the update feed
+        env:
+          NOTES: ${{ github.event.head_commit.message || 'Maintenance release' }}
+        run: python3 publish_release.py "$VER" dist/Aethron-mac.zip "$(printf '%s' "$NOTES" | head -1)"
+
+      - name: Keep the zip on the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aethron-mac-${{ env.VER }}
+          path: dist/Aethron-mac.zip
+          retention-days: 7
