@@ -11431,6 +11431,9 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
     <button class="qrow" id="libbtn" onclick="openLibrary()">
       <span data-ic="library"></span><span class="ql">Design library</span>
       <span class="qc" data-ic="up"></span></button>
+    <button class="qrow" id="updsb" onclick="applyUpdate()" hidden>
+      <span data-ic="download"></span><span class="ql" id="updsbl">Update Aethron</span>
+      <span class="qc" data-ic="up"></span></button>
     <button class="qrow" id="setbtn" onclick="openSettings()">
       <span data-ic="gear"></span><span class="ql">Settings</span>
       <span class="qc" data-ic="up"></span></button>
@@ -11681,6 +11684,32 @@ function togglePanel(){
    a modal, never a nag. Applying replaces the bundle IN PLACE (that is
    what stops a second copy appearing) and relaunches. */
 let UPD=null;
+let updLater=false;
+/* THE UPDATE HAS A PERMANENT HOME. The corner box can be dismissed or
+   missed; the sidebar row and Settings → Version are always there while
+   an update is waiting, so it is never lost. */
+function showUpdateRow(){
+  const r=$('updsb'); if(!r)return;
+  const on=!!(UPD&&UPD.available);
+  r.hidden=!on;
+  if(on)$('updsbl').textContent='Update to '+(UPD.latest||'new version');
+}
+function versionBox(){
+  const v=(UPD&&UPD.version)||'…';
+  if(UPD&&UPD.available)return '<div class="kv"><span>Installed</span><b>'+esc(v)
+    +'</b></div><div class="kv"><span>Available</span><b>'+esc(UPD.latest||'')
+    +'</b></div><button class="btn primary" onclick="applyUpdate()" '
+    +'style="margin-top:10px">Update now</button>';
+  return '<div class="kv"><span>Installed</span><b>'+esc(v)+'</b></div>'
+    +'<div class="kv"><span>Status</span><b>'+(UPD&&UPD.why?esc(UPD.why):'Up to date')
+    +'</b></div><button class="btn" onclick="checkNow(this)" style="margin-top:10px">'
+    +'Check for updates</button>';
+}
+async function checkNow(b){
+  if(b){b.disabled=true;b.textContent='Checking…';}
+  updLater=false; await checkUpdate();
+  if($('verbox'))$('verbox').innerHTML=versionBox();
+}
 async function checkUpdate(){
   /* Confirm the last update BEFORE asking about the next one. The
      restart is the one moment the user is watching, and until now it
@@ -11701,13 +11730,21 @@ async function checkUpdate(){
     // AN UPDATE MUST BE FINDABLE WITH NO PROJECT OPEN. It used to live
     // only in a project's overflow menu, which is not drawn on the home
     // screen — so a published update was invisible to the owner.
-    updPill('<b>Aethron '+esc(UPD.latest||'')+' is ready</b>'
+    showUpdateRow();
+    if(!updLater)updPill('<b>Aethron '+esc(UPD.latest||'')+' is ready</b>'
       +'<div style="color:var(--dim);margin-top:3px">You have '
-      +esc(UPD.version||'')+'.</div>'
-      +'<button onclick="applyUpdate()" style="margin-top:9px;width:100%;'
-      +'padding:8px 10px;border-radius:9px;border:0;background:var(--acc);'
-      +'color:#fff;font:600 13px/1 inherit;cursor:pointer">Update now</button>');
+      +esc(UPD.version||'')+'. Any time later: <b>Update</b> in the left '
+      +'sidebar, or Settings → Version.</div>'
+      +'<div style="display:flex;gap:8px;margin-top:9px">'
+      +'<button onclick="applyUpdate()" style="flex:1;padding:8px 10px;'
+      +'border-radius:9px;border:0;background:var(--acc);color:#fff;'
+      +'font:600 13px/1 inherit;cursor:pointer">Update now</button>'
+      +'<button onclick="updLater=true;const p=$(\'updpill\');if(p)p.remove()" '
+      +'style="padding:8px 12px;border-radius:9px;border:1px solid var(--line2);'
+      +'background:transparent;color:var(--tx);font:600 13px/1 inherit;'
+      +'cursor:pointer">Later</button></div>');
   }
+  if(S.view==='settings'&&$('verbox'))$('verbox').innerHTML=versionBox();
 }
 /* An update is MINUTES on a slow connection, not seconds. It gets a
    progress pill you can ignore and keep working behind — not a frozen
@@ -12887,6 +12924,11 @@ async function renderSettings(c){
         spent=wallet&&wallet.spent_usd;
   c.innerHTML=`<div class="setwrap">
     <h1 class="seth">Settings</h1>
+
+    <section class="card">
+      <h3>${I('download',14)} Version</h3>
+      <div id="verbox">${versionBox()}</div>
+    </section>
 
     <section class="card">
       <h3>${I('user',14)} Profile</h3>
