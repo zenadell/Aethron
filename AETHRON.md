@@ -5688,6 +5688,26 @@ throws: 6,464 chars, zero errors, under the same sandbox. check_preview
 gained sandbox=True; preview battery 19 -> 24. Reply in
 docs/AETHRON_TO_JOMIEZ.md.
 
+## RELEASES BUILD THEMSELVES, AND THE APP FINALLY ASKS — 2026-10-17
+.github/workflows/release-mac.yml: every push to main builds on GitHub's
+Mac, runs the checks, publishes 1.1.<run> to the Supabase feed; the
+installed app updates itself in place. Owner set repo secrets
+AETHRON_SUPABASE_URL, SUPABASE_SERVICE_KEY, AETHRON_GOOGLE_CLIENT_ID/
+SECRET. Three faults found getting the first update onto the owner's Mac:
+(1) the release had NO aethron_config.json (gitignored: it holds API
+keys locally), so it could not find its next update and had no login —
+release_config.json now carries the shareable parts, Google values come
+from secrets, and the build asserts no "ai" keys ship (GitHub push
+protection refused the first attempt that committed the Google secret);
+(2) the ONLY call to checkUpdate() sat inside delProject(), so since the
+updater was built the app checked for updates solely after a project was
+deleted — the button never appeared; (3) the Update item lived only in a
+project's overflow menu. Now: checked at startup + every 30 min, and an
+"Update now" box appears bottom-right with no project open. Also: local
+builds left dist/Aethron.app, which Spotlight listed as a SECOND Aethron
+— the owner's "it installs a new one instead of updating" — deleted, and
+build folders are now .metadata_never_index.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5889,3 +5909,6 @@ docs/AETHRON_TO_JOMIEZ.md.
   build must fit a 512MB server.
 - A PROGRAM READS DATA, NOT PROSE. A tool another program drives returns
   structuredContent alongside its text; never make a caller parse prose.
+- A RELEASE MUST KNOW WHERE ITS NEXT RELEASE IS. Built anywhere, it ships
+  its update address; an update path is proven only when an installed
+  copy offers the next version by itself.
