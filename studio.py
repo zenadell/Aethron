@@ -11328,6 +11328,42 @@ header{gap:12px}
 .steps button.warn{background:none;color:var(--bad);box-shadow:none}
 .steps button.warn:hover{background:rgba(201,106,95,.10)}
 
+/* update chip: lives in the top bar on every screen, never over content */
+#updchip{position:relative}
+#updchip>.uc{position:relative;min-height:32px;padding:0 12px 0 11px;border:0;
+  border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;
+  background:rgba(217,119,87,.12);color:var(--t-1);overflow:hidden;
+  font:510 12.5px/1 var(--sans,inherit);letter-spacing:-.022em;
+  box-shadow:inset 0 0 0 1px rgba(217,119,87,.34);
+  transition:background var(--d-press) var(--eo)}
+#updchip>.uc:hover{background:rgba(217,119,87,.2)}
+#updchip>.uc.fail{background:rgba(201,106,95,.12);color:var(--bad);
+  box-shadow:inset 0 0 0 1px rgba(201,106,95,.34)}
+#updchip>.uc.done{background:var(--g-3);color:var(--t-2);box-shadow:inset 0 0 0 1px var(--edge-1)}
+.ucv{color:var(--t-3);font-variant-numeric:tabular-nums}
+.ucdot{width:7px;height:7px;border-radius:50%;background:var(--a);
+  animation:ucping 2.4s var(--eo) infinite}
+@keyframes ucping{0%{box-shadow:0 0 0 0 rgba(217,119,87,.5)}
+  70%,100%{box-shadow:0 0 0 7px rgba(217,119,87,0)}}
+.ucspin{width:11px;height:11px;border-radius:50%;border:1.5px solid rgba(217,119,87,.3);
+  border-top-color:var(--a);animation:ucspin .8s linear infinite}
+@keyframes ucspin{to{transform:rotate(360deg)}}
+.ucbar{position:absolute;left:0;bottom:0;height:2px;background:var(--a);
+  transition:width .3s var(--eo)}
+.ucbar.ind{width:40%;animation:updslide 1.1s var(--eo) infinite}
+@keyframes updslide{0%{left:-40%}100%{left:100%}}
+.ucpop{position:absolute;right:0;top:40px;z-index:40;width:272px;padding:14px;
+  border-radius:var(--r-lg);background:rgba(26,23,22,.92);
+  backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:0 6px 14px -6px rgba(0,0,0,.28),0 24px 56px -12px rgba(0,0,0,.36),
+             inset 0 0 0 1px rgba(255,255,255,.12);
+  font-size:12.5px;line-height:1.45;color:var(--t-2)}
+.ucpop b{display:block;color:var(--t-1);font-size:13.5px;font-weight:590;margin-bottom:3px}
+.ucpop .ucn{margin-top:8px;padding-top:8px;border-top:1px solid var(--edge-1);color:var(--t-3)}
+.ucpop .ucb{display:flex;gap:8px;margin-top:12px}
+.ucpop .ucb button{flex:1}
+@media (prefers-reduced-motion:reduce){.ucdot,.ucspin,.ucbar.ind{animation:none}}
+
 /* overflow menu */
 .omenu{position:relative}
 .omenu>summary{list-style:none;width:32px;height:32px;border-radius:var(--r-md);
@@ -11431,9 +11467,6 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
     <button class="qrow" id="libbtn" onclick="openLibrary()">
       <span data-ic="library"></span><span class="ql">Design library</span>
       <span class="qc" data-ic="up"></span></button>
-    <button class="qrow" id="updsb" onclick="applyUpdate()" hidden>
-      <span data-ic="download"></span><span class="ql" id="updsbl">Update Aethron</span>
-      <span class="qc" data-ic="up"></span></button>
     <button class="qrow" id="setbtn" onclick="openSettings()">
       <span data-ic="gear"></span><span class="ql">Settings</span>
       <span class="qc" data-ic="up"></span></button>
@@ -11443,6 +11476,7 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
   <header>
     <div id="ptitle">no project selected</div>
     <div class="steps" id="steps"></div>
+    <div id="updchip" hidden></div>
     <button class="iconbtn" id="helpbtn" title="show the walkthrough" onclick="startTour(0)"><span data-ic="help"></span></button>
   </header>
   <div id="progress"><div class="lbl" id="prog-lbl">working…</div>
@@ -11684,22 +11718,46 @@ function togglePanel(){
    a modal, never a nag. Applying replaces the bundle IN PLACE (that is
    what stops a second copy appearing) and relaunches. */
 let UPD=null;
-let updLater=false;
-/* THE UPDATE HAS A PERMANENT HOME. The corner box can be dismissed or
-   missed; the sidebar row and Settings → Version are always there while
-   an update is waiting, so it is never lost. */
-function showUpdateRow(){
-  const r=$('updsb'); if(!r)return;
-  const on=!!(UPD&&UPD.available);
-  r.hidden=!on;
-  if(on)$('updsbl').textContent='Update to '+(UPD.latest||'new version');
+/* THE UPDATE LIVES IN THE TOP BAR. A small chip beside the title, on
+   every screen, that never covers the chat. Click it for the details and
+   the button; the same chip shows progress while it installs. Settings →
+   Version is the second place to find it. */
+let UC=null;            // {mode:'ready'|'busy'|'done'|'fail', line, pct, open}
+function ucRender(){
+  const c=$('updchip'); if(!c)return;
+  if(!UC){c.hidden=true;c.innerHTML='';return;}
+  c.hidden=false;
+  const latest=esc((UPD&&UPD.latest)||''), have=esc((UPD&&UPD.version)||'');
+  let chip='',pop='';
+  if(UC.mode==='ready'){
+    chip=`<button class="uc" onclick="ucToggle()" title="An update is ready"><span class="ucdot"></span>Update<span class="ucv">${latest}</span></button>`;
+    pop=`<b>Aethron ${latest} is ready</b>You have ${have}. It updates in place and restarts; your projects and settings stay.`
+      +(UPD&&UPD.notes?`<div class="ucn">${esc(UPD.notes)}</div>`:'')
+      +`<div class="ucb"><button class="btn primary" onclick="applyUpdate()">Update and restart</button><button class="btn" onclick="ucToggle(false)">Later</button></div>`;
+  }else if(UC.mode==='busy'){
+    const p=UC.pct;
+    chip=`<button class="uc" onclick="ucToggle()" title="Updating"><span class="ucspin"></span>Updating<span class="ucv">${p!=null&&p<100?p+'%':''}</span>`
+      +(p==null?`<span class="ucbar ind"></span>`:`<span class="ucbar" style="width:${p}%"></span>`)+`</button>`;
+    pop=`<b>Updating to ${latest}</b>${esc(UC.line||'working…')}<div class="ucn">You can keep working. Aethron restarts when it is done.</div>`;
+  }else if(UC.mode==='done'){
+    chip=`<button class="uc done" onclick="UC=null;ucRender()">${I('check',13)}Updated<span class="ucv">${esc(UC.line||'')}</span></button>`;
+  }else{
+    chip=`<button class="uc fail" onclick="ucToggle()">${I('alert',13)}Update failed</button>`;
+    pop=`<b>Update failed</b>${esc(UC.line||'unknown')}<br>Your app is untouched.<div class="ucb"><button class="btn primary" onclick="applyUpdate()">Try again</button><button class="btn" onclick="ucToggle(false)">Close</button></div>`;
+  }
+  c.innerHTML=chip+(pop&&UC.open?`<div class="ucpop">${pop}</div>`:'');
 }
+function ucToggle(on){ if(!UC)return; UC.open=on===undefined?!UC.open:on; ucRender(); }
+document.addEventListener('mousedown',e=>{
+  if(UC&&UC.open&&!e.target.closest('#updchip')){UC.open=false;ucRender();}});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&UC&&UC.open){UC.open=false;ucRender();}});
 function versionBox(){
   const v=(UPD&&UPD.version)||'…';
   if(UPD&&UPD.available)return '<div class="kv"><span>Installed</span><b>'+esc(v)
     +'</b></div><div class="kv"><span>Available</span><b>'+esc(UPD.latest||'')
     +'</b></div><button class="btn primary" onclick="applyUpdate()" '
-    +'style="margin-top:10px">Update now</button>';
+    +'style="margin-top:10px">Update and restart</button>';
   return '<div class="kv"><span>Installed</span><b>'+esc(v)+'</b></div>'
     +'<div class="kv"><span>Status</span><b>'+(UPD&&UPD.why?esc(UPD.why):'Up to date')
     +'</b></div><button class="btn" onclick="checkNow(this)" style="margin-top:10px">'
@@ -11707,83 +11765,29 @@ function versionBox(){
 }
 async function checkNow(b){
   if(b){b.disabled=true;b.textContent='Checking…';}
-  updLater=false; await checkUpdate();
+  await checkUpdate();
   if($('verbox'))$('verbox').innerHTML=versionBox();
 }
 async function checkUpdate(){
-  /* Confirm the last update BEFORE asking about the next one. The
-     restart is the one moment the user is watching, and until now it
-     landed in silence — same window, same everything, no way to tell
-     the new build from the old one. */
+  /* Confirm the last update BEFORE asking about the next one: the
+     restart is the one moment the user is watching. */
   try{
     const done=await api('/api/update/just-updated');
     if(done&&done.updated){
-      updPill('<b>Aethron updated</b><div style="color:var(--dim);'
-        +'margin-top:3px">now running '+esc(done.version||'')
-        +(done.from?' — was '+esc(done.from):'')+'</div>'+updBar(100));
-      setTimeout(()=>{ const p=$('updpill'); if(p)p.remove(); },7000);
+      UC={mode:'done',line:done.version||''}; ucRender();
+      setTimeout(()=>{ if(UC&&UC.mode==='done'){UC=null;ucRender();} },7000);
     }
   }catch(e){}
   try{ UPD=await api('/api/update/check'); }catch(e){ return }
-  if(UPD&&UPD.available){
-    renderHeader();
-    // AN UPDATE MUST BE FINDABLE WITH NO PROJECT OPEN. It used to live
-    // only in a project's overflow menu, which is not drawn on the home
-    // screen — so a published update was invisible to the owner.
-    showUpdateRow();
-    if(!updLater)updPill('<b>Aethron '+esc(UPD.latest||'')+' is ready</b>'
-      +'<div style="color:var(--dim);margin-top:3px">You have '
-      +esc(UPD.version||'')+'. Any time later: <b>Update</b> in the left '
-      +'sidebar, or Settings → Version.</div>'
-      +'<div style="display:flex;gap:8px;margin-top:9px">'
-      +'<button onclick="applyUpdate()" style="flex:1;padding:8px 10px;'
-      +'border-radius:9px;border:0;background:var(--acc);color:#fff;'
-      +'font:600 13px/1 inherit;cursor:pointer">Update now</button>'
-      +'<button onclick="updLater=true;const p=$(\'updpill\');if(p)p.remove()" '
-      +'style="padding:8px 12px;border-radius:9px;border:1px solid var(--line2);'
-      +'background:transparent;color:var(--tx);font:600 13px/1 inherit;'
-      +'cursor:pointer">Later</button></div>');
+  if(UPD&&UPD.available&&!(UC&&(UC.mode==='busy'||UC.mode==='fail'))){
+    UC={mode:'ready',open:UC&&UC.mode==='ready'?UC.open:false};
+    ucRender(); renderHeader();
   }
   if(S.view==='settings'&&$('verbox'))$('verbox').innerHTML=versionBox();
 }
-/* An update is MINUTES on a slow connection, not seconds. It gets a
-   progress pill you can ignore and keep working behind — not a frozen
-   button and not a modal that holds the app hostage. */
-function updPill(html){
-  let p=$('updpill');
-  if(!p){ p=document.createElement('div'); p.id='updpill';
-    p.style.cssText='position:fixed;right:18px;bottom:18px;z-index:9999;'
-      +'background:var(--panel);border:1px solid var(--line2);'
-      +'border-radius:var(--r-lg);padding:11px 14px;min-width:210px;'
-      +'box-shadow:0 12px 34px rgba(0,0,0,.45);font-size:12.5px;'
-      +'color:var(--tx)';
-    document.body.appendChild(p); }
-  p.innerHTML=html;
-  return p;
-}
-function updBar(pct){
-  /* pct===null means WORKING, LENGTH UNKNOWN. Unpacking a 43MB bundle,
-     verifying its signature and swapping it are not instant and report
-     no percentage, so the honest bar for them is a moving stripe. The
-     alternatives are both lies: freeze at 100% (looks wedged, and the
-     first update read exactly that way) or drop back to 0% (looks like
-     the download was thrown away). */
-  if(pct===null){
-    if(!$('updkf')){ const s=document.createElement('style'); s.id='updkf';
-      s.textContent='@keyframes updslide{0%{left:-40%}100%{left:100%}}';
-      document.head.appendChild(s); }
-    return '<div style="height:4px;border-radius:3px;background:var(--field);'
-      +'margin-top:8px;overflow:hidden;position:relative"><div style="'
-      +'position:absolute;top:0;height:100%;width:40%;background:var(--acc);'
-      +'animation:updslide 1.1s var(--eo) infinite"></div></div>';
-  }
-  return '<div style="height:4px;border-radius:3px;background:var(--field);'
-    +'margin-top:8px;overflow:hidden"><div style="height:100%;width:'+pct
-    +'%;background:var(--acc);transition:width .3s var(--eo)"></div></div>';
-}
 /* The updater names its phase; the bar shape follows from the name.
-   Anything unrecognised is treated as work-in-progress rather than as
-   0% — a new phase added later must never read as "nothing happened". */
+   Unpacking and verifying report no percentage, so they show a moving
+   stripe — never a frozen 100% or a fall back to 0%. */
 function updPct(line){
   const m=line.match(/(\d+)%/);
   if(m)return +m[1];
@@ -11792,8 +11796,7 @@ function updPct(line){
   return null;
 }
 async function applyUpdate(){
-  updPill('<b>Updating Aethron</b><div style="color:var(--dim);'
-    +'margin-top:3px">starting…</div>'+updBar(0));
+  UC={mode:'busy',line:'starting…',pct:0,open:false}; ucRender();
   let j;
   try{
     const r=await api('/api/update/apply',{});
@@ -11806,21 +11809,16 @@ async function applyUpdate(){
         try{ j=await api('/api/job?id='+r.job); }
         catch(e){ break; }   // server exited under us = it restarted
         const line=(j.log||'').trim().split('\n').pop()||'';
-        updPill('<b>Updating Aethron</b><div style="color:var(--dim);'
-          +'margin-top:3px">'+esc(line||'working…')+'</div>'
-          +updBar(updPct(line)));
+        UC={mode:'busy',line:line||'working…',pct:updPct(line),open:UC&&UC.open};
+        ucRender();
       }while(!j.done);
     }
   }catch(e){
-    updPill('<b>Update failed</b><div style="color:var(--dim);margin-top:3px">'
-      +esc(e.message)+'<br>Your app is untouched.</div>');
-    return;
+    UC={mode:'fail',line:e.message,open:true}; ucRender(); return;
   }
   if(j&&j.done&&!j.ok){
     const why=((j.log||'').match(/update failed: (.*)/)||[])[1]||'unknown';
-    updPill('<b>Update failed</b><div style="color:var(--dim);margin-top:3px">'
-      +esc(why)+'<br>Your app is untouched.</div>');
-    return;
+    UC={mode:'fail',line:why,open:true}; ucRender(); return;
   }
   document.body.innerHTML='<div class="empty"><div class="focal">'
     +'<h1>Updated to '+esc((UPD&&UPD.latest)||'the latest version')+'</h1>'
