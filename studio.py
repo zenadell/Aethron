@@ -16527,7 +16527,18 @@ refresh();
 // call used to sit inside delProject(), so the app checked solely after
 // a project was deleted and no update button ever appeared on its own.
 setTimeout(checkUpdate, 4000);
-setInterval(checkUpdate, 30*60*1000);
+/* PEOPLE LEAVE THE APP OPEN FOR DAYS. macOS pauses the timers of a
+   window in the background, so a timer alone meant a new release only
+   showed after quitting and reopening. Check when the person comes back
+   to the window (at most every 2 minutes), and every 10 while it's open. */
+let updLastCheck=Date.now();
+function updMaybeCheck(){
+  if(Date.now()-updLastCheck<2*60*1000)return;
+  updLastCheck=Date.now(); checkUpdate();
+}
+window.addEventListener('focus',updMaybeCheck);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden)updMaybeCheck(); });
+setInterval(()=>{ updLastCheck=Date.now(); checkUpdate(); },10*60*1000);
 loadAi();          // the one AI setting, before anything asks for it
 loadPermissionPolicy(); // the chat-level Automatic / Semi-manual / Manual choice
 mountDots();       // the room is lit before anyone asks it to be
