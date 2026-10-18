@@ -11443,6 +11443,55 @@ header{gap:12px}
 /* overflow menu */
 .backbtn{margin-right:6px}.backbtn .ic{transform:rotate(-90deg)}
 .backbtn[hidden]{display:none!important}
+/* ── the rail: the project's cards, pinned right ─────────────────── */
+.prail{display:none}
+@media (min-width:1100px){
+  body.railed:not(.split) #steps,body.railed:not(.split) nav#tabs{display:none!important}
+  body.railed:not(.split) #conv{position:relative}
+  body.railed:not(.split) #conv .conv-shell{padding-right:322px}
+  body.railed:not(.split) #conv .conv-wrap>.pcard{display:none}
+  body.railed:not(.split):not(.pvwopen) .prail{display:flex}
+}
+.prail{position:absolute;top:16px;right:16px;bottom:16px;width:292px;z-index:6;
+  flex-direction:column;gap:12px;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:none;animation:railin .5s var(--spring,cubic-bezier(.2,.8,.2,1)) both}
+.prail::-webkit-scrollbar{display:none}
+@keyframes railin{from{opacity:0;transform:translateX(18px)}}
+.rcard{flex:none;padding:12px;border-radius:16px;display:flex;flex-direction:column;gap:7px;
+  background:rgba(22,19,18,.62);border:1px solid rgba(255,255,255,.07);
+  box-shadow:0 12px 34px rgba(0,0,0,.28)}
+.rshot{position:relative;height:168px;border-radius:11px;overflow:hidden;cursor:pointer;
+  background:#0d0d0f;border:1px solid rgba(255,255,255,.07)}
+.rshot iframe{position:absolute;top:0;left:0;width:1280px;height:800px;border:0;
+  transform:scale(.2094);transform-origin:0 0;pointer-events:none}
+.rshot:hover .pveil{opacity:.25}
+.rplay{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(255,255,255,.92);color:#111;
+  box-shadow:0 4px 14px rgba(0,0,0,.35);transition:transform .25s var(--spring,ease)}
+.rshot:hover .rplay{transform:scale(1.1)}
+.rempty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;
+  gap:6px;color:var(--lo);font-size:12px}
+.rname{font-size:15px;font-weight:600;letter-spacing:-.02em;color:var(--tx);margin-top:4px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.racts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:2px}
+.racts .wide{grid-column:1/-1}
+.racts .cpill{justify-content:center}
+.racts .cpill[disabled]{opacity:.45;pointer-events:none}
+.rhead{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--lo)}
+.rhead b{font-size:13px;letter-spacing:0;text-transform:none;color:var(--tx);font-weight:600}
+.rbar{height:5px;border-radius:9px;background:rgba(255,255,255,.08);overflow:hidden}
+.rbar i{display:block;height:100%;border-radius:9px;background:var(--acc,#d97757);
+  transition:width .6s var(--spring,ease)}
+.rsub{font-size:12px;color:var(--lo)}.rsub a{color:#e5604f;cursor:pointer}
+.rbtns{display:flex;gap:6px;margin-top:3px}.rbtns button{flex:1;justify-content:center}
+.prail button.rrow{justify-content:flex-start;border:0;box-shadow:none;min-height:0}
+.rrow{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:9px;
+  background:none;border:0;color:var(--t-2,#cfc6be);font:inherit;font-size:13px;
+  cursor:pointer;text-align:left}
+.rrow:hover{background:rgba(255,255,255,.07);color:var(--t-1,#fff)}
+.rrow.quiet{color:var(--lo)}
+@media (prefers-reduced-motion:reduce){.prail{animation:none}}
 #toasts{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;
  display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
 .toast{pointer-events:auto;cursor:pointer;max-width:min(560px,90vw);padding:10px 16px;
@@ -11921,6 +11970,7 @@ function updateMenuItem(){
     ${I('download',14)}<span>Update to ${esc(UPD.latest||'')}</span></button>`;
 }
 function renderHeader(){
+  try{syncRail();}catch(e){}
   $('ptitle').textContent=S.view==='settings'?'Settings':S.view==='library'?'Design library'
     :S.view==='runs'?'Agent runs'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
@@ -13244,7 +13294,7 @@ function openSettings(){S.view='settings';S.cur=null;S.panel=false;renderTab();r
 function projectCard(){
   if(!S.cur)return '';
   const i=S.info||{}, plat=(i.platform||'').toUpperCase(),
-        n=i.strings||0, f=i.filled||0,
+        n=i.total||i.strings||0, f=i.filled||0,
         pages=(i.pages&&i.pages.length)||0;
   return `<div class="pcard glass">
     <div class="pshot" onclick="openPreviewPane(false)" title="open the preview">
@@ -13263,6 +13313,71 @@ function projectCard(){
         <button class="cpill opt" onclick="openInBrowser()">${I('compass',13)}Open in browser</button>
       </div>
     </div></div>`;
+}
+/* ── THE RAIL ────────────────────────────────────────────────────────
+   The project card used to sit at the TOP of the conversation, so on a
+   long conversation the preview was a long scroll away — and the old
+   header strip (Build, Undo, Preview/Strings/Images/Links/Logs) sat over
+   the new chat like a second application. Both live here now: a column
+   of cards pinned to the right, always in reach, never scrolled away. */
+function projectRail(){
+  if(!S.cur)return '';
+  const i=S.info||{}, plat=(i.platform||'').toUpperCase(),
+        n=i.total||i.strings||0, f=i.filled||0, ready=!!i.built,
+        pages=(i.pages&&i.pages.length)||0,
+        pct=n?Math.round(100*f/n):0, dead=(S.zeroFx&&S.zeroFx.length)||0;
+  const row=(icon,label,act,cls)=>`<button class="rrow${cls?' '+cls:''}" onclick="${act}">
+      ${I(icon,14)}<span>${label}</span></button>`;
+  return `<aside class="prail" id="prail">
+   <div class="rcard rprev">
+    <div class="rshot" onclick="openPreviewPane(false)" title="open the preview">
+      ${ready?`<iframe src="/edit/${encodeURIComponent(S.cur)}/" tabindex="-1"
+        scrolling="no" aria-hidden="true"></iframe>`
+        :`<div class="rempty">${I('hammer',18)}<span>Not built yet</span></div>`}
+      <span class="pveil"></span>
+      ${ready?`<span class="rplay">${I('play',14)}</span>`:''}
+    </div>
+    <div class="rname">${esc(S.cur)}</div>
+    <div class="pmeta">${plat?`<span class="tag">${esc(plat)}</span>`:''}
+      ${pages?`<span>${pages} page${pages>1?'s':''}</span>`:''}</div>
+    <div class="racts">
+      <button class="cpill" onclick="openPreviewPane(false)" ${ready?'':'disabled'}>${I('play',13)}Preview</button>
+      <button class="cpill" onclick="openPreviewPane(true)" ${ready?'':'disabled'}>${I('pencil',13)}Point and edit</button>
+      <button class="cpill opt wide" onclick="openInBrowser()" ${ready?'':'disabled'}>${I('compass',13)}Open in browser</button>
+    </div>
+   </div>
+   <div class="rcard">
+    <div class="rhead"><span>Progress</span><b>${f} / ${n}</b></div>
+    <div class="rbar"><i style="width:${pct}%"></i></div>
+    <div class="rsub">${n?`${pct}% of the text is yours`:'No text read yet'}${dead?` &middot; <a onclick="showZeroFx()">${dead} edit${dead>1?'s':''} did not land</a>`:''}</div>
+    <div class="rbtns">
+      ${ready?`<button class="big" onclick="runStep('build')">${I('hammer',14)}Build</button>`
+        :`<button class="big" onclick="runAll()">${I('zap',14)}Prepare</button>`}
+      ${i.undo?`<button class="ghost" onclick="doUndo()">${I('undo',14)}Undo</button>`:''}
+    </div>
+   </div>
+   <div class="rcard rlist">
+    <div class="rhead"><span>Edit by hand</span></div>
+    ${row('file','Strings',"openWork('strings')")}
+    ${row('image','Images',"openWork('images')")}
+    ${row('compass','Links',"openWork('links')")}
+    ${row('terminal','Logs',"openWork('logs')")}
+   </div>
+   <div class="rcard rlist">
+    <div class="rhead"><span>Take it with you</span></div>
+    ${row('download','Download site.zip','exportZip(false)')}
+    ${row('package','Dev handoff','exportZip(true)')}
+    ${ready?row('package','Port to a framework','portFramework()'):''}
+    ${row('library','Save design to library','saveToLibrary()')}
+    ${ready?row('zap','Re-run everything',"toast('Re-running fetch, inventory and build — progress is in Logs');openWork('logs');runAll()",'quiet'):''}
+    ${ready?row('home','Localize assets',"if(confirm('Download every remote asset into the project and rebuild? The site stops depending on the platform CDN.')){toast('Localizing assets — progress is in Logs');openWork('logs');runStep('localize').then(ok=>ok!==false&&runStep('build'))}",'quiet'):''}
+   </div>
+  </aside>`;
+}
+function syncRail(){
+  const r=$('prail');
+  if(!r||S.view!=='project'||!S.cur)return;
+  r.outerHTML=projectRail();
 }
 /* ── THE PREVIEW SHEET ─────────────────────────────────────────────
    Inside Aethron, over the conversation. Browse behaves like a browser;
@@ -13671,7 +13786,7 @@ function renderWelcome(c){
 }
 function renderChatTab(c){
   if(!c)return;              // never take the whole layout down with it
-  const n=(S.info&&S.info.strings)||0, f=(S.info&&S.info.filled)||0;
+  const n=(S.info&&(S.info.total||S.info.strings))||0, f=(S.info&&S.info.filled)||0;
   c.innerHTML=convShell({
     top:projectCard(),
     title:`What should <em>${esc(S.cur)}</em> become?`,
@@ -13690,6 +13805,7 @@ function renderChatTab(c){
       {icon:'package',label:'Port to another framework',
        ask:'Port this site to',
        need:'Which framework \u2014 astro, next, vue, svelte? Astro is the proven one.'}]});
+  c.insertAdjacentHTML('beforeend',projectRail());
   switchConversation(S.cur);
   bindStick();renderChat();mountDots(c);mountOrbs(c);
 }
@@ -15859,6 +15975,7 @@ window.addEventListener('unhandledrejection', ev=>{
 function renderTab(){
   noteNav();
   const c=$('content');
+  document.body.classList.toggle('railed', S.view==='project'&&!!S.cur);
   if(S.view!=='settings')c.classList.remove('set-host');
   if(S.view==='settings')return renderSettings(c);
   if(S.view==='code')return renderCode(c);
