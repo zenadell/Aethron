@@ -1,5 +1,14 @@
 # Next session: see what every agent does with Aethron
 
+## Status 2026-10-18 (cloud session)
+Built and tested — see AETHRON.md "RUN RECORDS + THE PROGREX HERO":
+items 1, 2, 4 done; item 3 done for pictures that FAIL TO LOAD (the
+reproduced hero loss). Both owner questions answered: the keeper reaches
+Aethron on the owner's Mac (terminal-started server), and records upload to
+Supabase (docs/CLOUD_SETUP.md §5). To read them here, the cloud
+environment needs AETHRON_SUPABASE_URL + SUPABASE_SERVICE_KEY secrets.
+Not done: pictures REMOVED without error (count vs template).
+
 Written 2026-10-18 for the cloud session. Read AETHRON.md first.
 
 ## The problem, in the owner's words

@@ -609,7 +609,68 @@ def _rebase_assets(out: Path, base: str) -> int:
 
 # ───────────────────────────── the check ───────────────────────────────
 
-def check_preview(out: Path, base: str, sandbox: bool = False) -> dict:
+# A PICTURE THAT DOES NOT LOAD RAISES NO ERROR. It sits on someone else's
+# server, so our request log never sees it, and the page keeps every word.
+# The page is asked instead, after it settles: every <img> that finished
+# loading with nothing to show (complete, naturalWidth 0) is dead. One
+# still loading is not — a lazy image below the fold has not been asked
+# for yet. Rendered size rides along so the report can say "the hero".
+IMAGES_JS = r"""
+(function () {
+ function measure() {
+  var dead = [], n = 0;
+  try {
+   var list = document.images || [];
+   for (var i = 0; i < list.length; i++) {
+    var im = list[i];
+    if (!im.getAttribute('src') && !im.getAttribute('srcset')) continue;
+    n++;
+    if (im.complete && im.naturalWidth === 0 && dead.length < 20) {
+     var r = im.getBoundingClientRect();
+     dead.push({src: im.currentSrc || im.src, w: Math.round(r.width),
+                h: Math.round(r.height), alt: im.alt || ''});
+    }
+   }
+  } catch (e) {}
+  var old = document.getElementById('__ae_images');
+  if (old) old.remove();
+  var s = document.createElement('script');
+  s.type = 'application/json'; s.id = '__ae_images';
+  s.textContent = JSON.stringify({images: n, dead: dead});
+  document.documentElement.appendChild(s);
+ }
+ function later() { setTimeout(measure, 60); setTimeout(measure, 2500); }
+ if (document.readyState === 'complete') later();
+ else window.addEventListener('load', later);
+})();
+"""
+
+
+def _dead_images(dom: str) -> dict:
+    m = re.search(r'<script[^>]*id="__ae_images"[^>]*>(.*?)</script>', dom,
+                  re.S)
+    if not m:
+        return {}
+    try:
+        return json.loads(html_mod.unescape(m.group(1)))
+    except Exception:
+        return {}
+
+
+def _template_text(pristine) -> str:
+    """Everything the untouched template ships, to tell a picture the
+    template ALREADY had broken from one the preview broke."""
+    if not pristine or not Path(pristine).is_dir():
+        return ""
+    parts = []
+    for f in Path(pristine).rglob("*"):
+        if f.suffix in (".html", ".mjs", ".js", ".json") and f.is_file():
+            parts.append(f.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(parts)
+
+
+def check_preview(out: Path, base: str, sandbox: bool = False,
+                  pristine=None) -> dict:
     """Open every exported page AT ITS PREVIEW ADDRESS in a headless
     browser and report what a visitor would get. The agent does not decide
     that a preview works; this does. No browser -> SKIPPED, never PASS."""
@@ -653,6 +714,23 @@ def check_preview(out: Path, base: str, sandbox: bool = False) -> dict:
         def log_message(s, *a):
             pass
 
+        def send_head(s):
+            p = s.translate_path(s.path)
+            if not p.endswith(".html") or not Path(p).is_file():
+                return super().send_head()
+            t = Path(p).read_text(encoding="utf-8", errors="ignore")
+            tag = '<script data-aethron-probe="1">' + IMAGES_JS + "</script>"
+            t = t.replace("</body>", tag + "</body>", 1) if "</body>" in t \
+                else t + tag
+            body = t.encode("utf-8", "replace")
+            s.send_response(200)
+            s.send_header("Content-Type", "text/html; charset=utf-8")
+            s.send_header("Content-Length", str(len(body)))
+            s.end_headers()
+            import io
+            return io.BytesIO(body)
+
+    tpl = None                       # read only if a picture is dead
     srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     report, ok = {}, True
@@ -674,7 +752,18 @@ def check_preview(out: Path, base: str, sandbox: bool = False) -> dict:
                 errs = [c for c in (got.get("console") or [])
                         if re.search(r"error|failed|uncaught", str(c), re.I)]
                 bad = failed[before:]
-                page_ok = len(text) >= floor and not bad \
+                imgs = _dead_images(dom)
+                dead, had = [], []
+                for im in imgs.get("dead", []):
+                    if tpl is None:
+                        tpl = _template_text(pristine)
+                    key = im["src"].split("?")[0].split("#")[0]
+                    # the template's own broken picture is not the
+                    # preview's doing (compare, never against zero)
+                    (had if key and tpl and key in tpl and
+                     not key.startswith(f"http://127.0.0.1")
+                     else dead).append(im)
+                page_ok = len(text) >= floor and not bad and not dead \
                     and not got.get("error")
                 # headless Chrome is killed once the page is dumped and a
                 # module still loading then reports itself failed; a real
@@ -686,6 +775,9 @@ def check_preview(out: Path, base: str, sandbox: bool = False) -> dict:
             report[page] = {"ok": page_ok, "chars": len(text), "ssr": ssr,
                             "renders": attempt,
                             "failed_requests": bad[:8],
+                            "images": imgs.get("images"),
+                            "dead_images": dead[:8],
+                            "template_dead_images": len(had),
                             "console_errors": [str(c)[:160] for c in errs[:5]],
                             "layer": "__AE_PREVIEW__" in dom}
     finally:

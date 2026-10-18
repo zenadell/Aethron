@@ -217,8 +217,11 @@ def main():
            not re.search(r'["\'( ,]\./assets/', idx), "relative refs left")
         ck("template sales links are hidden in the preview (Buy now, builder, shops)",
            'a[href*="framer.link"]' in idx and 'a[href*="webflow.com"]' in idx, "rule missing")
-        ck("the agent's lines are in the exported page",
-           all(f["new"] in idx for f in fills), [f["new"] for f in fills])
+        # on whichever chosen page each line lives (agero's sat on home;
+        # another template's may be on about or contact)
+        every = "".join(x.read_text() for x in outdir.glob("*.html"))
+        ck("the agent's lines are in the exported pages",
+           all(f["new"] in every for f in fills), [f["new"] for f in fills])
 
         # BEHAVIOUR, in a browser, at the preview address: a click on a page
         # that was not built opens the notice and goes nowhere; the extras

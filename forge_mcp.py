@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import secrets
 import time
 import urllib.parse
 import os
@@ -139,6 +140,42 @@ def guard_write(entry: dict, new: str):
         return (f"over CMS byte budget: {len(new.encode())} > {mb} bytes "
                 "(em-dash/curly quotes are 3 bytes) — shorten it")
     return None
+
+
+# AN IMAGE ADDRESS IS CHECKED BEFORE IT GOES IN. A dead one raises no error
+# anywhere: the build copies it, the page still has its text, and the
+# picture is simply gone (the Progrex hero: a lead photo address that did
+# not load left a blank hero and white headline on white). Asked once, with
+# the answer cached for the call. Unreachable is not dead — that is a note.
+def image_problem(url: str, _seen={}):
+    """'' when the address serves an image, else the reason it does not.
+    None when it could not be asked (no network) — not a refusal."""
+    if not re.match(r"https?://", url or ""):
+        return ""
+    if url in _seen:
+        return _seen[url]
+    import urllib.request
+    import urllib.error
+    req = urllib.request.Request(url.replace("&amp;", "&"), headers={
+        "User-Agent": "Mozilla/5.0 (Aethron image check)",
+        "Range": "bytes=0-2047", "Accept": "image/*,*/*;q=0.5"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            ctype = (r.headers.get("Content-Type") or "").split(";")[0].lower()
+            head = r.read(16)
+        magic = (head[:4] in (b"\x89PNG", b"GIF8", b"RIFF")
+                 or head[:3] == b"\xff\xd8\xff" or b"ftyp" in head[:12])
+        ok = ctype.startswith("image/") or (
+            ctype in ("", "application/octet-stream", "binary/octet-stream")
+            and magic)
+        why = "" if ok else (f"the address answers with {ctype or 'no type'}, "
+                             "not an image")
+    except urllib.error.HTTPError as e:
+        why = f"the address answers {e.code} — it does not load"
+    except Exception:
+        why = None
+    _seen[url] = why
+    return why
 
 
 # ───────────────────────── tool handlers ─────────────────────────────
@@ -625,7 +662,7 @@ def t_set_content_bulk(a):
     snapshot(d)
     idx = {sec: {e["old"]: e for e in cm.get(sec, [])}
            for sec in ("strings", "images", "links")}
-    applied, rejected, refused = 0, [], []
+    applied, rejected, refused, unchecked = 0, [], [], []
     frag = word_fragments(d, cm)
     for item in a["entries"]:
         sec = item.get("section", "strings")
@@ -645,6 +682,12 @@ def t_set_content_bulk(a):
                             f"heading {line!r} — write that whole line"})
             continue
         err = guard_write(tgt, item.get("new", ""))
+        if not err and sec == "images" and new not in ("", old):
+            why = image_problem(new)
+            if why:
+                err = f"image not used: {why} ({new[:80]})"
+            elif why is None:
+                unchecked.append(new)
         if err:
             rejected.append(f"{item.get('old','')[:40]!r}: {err}")
             refused.append({"old": item.get("old", ""), "reason": err})
@@ -655,6 +698,10 @@ def t_set_content_bulk(a):
     out = f"applied {applied}, rejected {len(rejected)}"
     if rejected:
         out += "\nREJECTED (fix and resend just these):\n- " + "\n- ".join(rejected[:20])
+    if unchecked:
+        out += (f"\nNOTE {len(unchecked)} image address(es) could not be "
+                "checked (no answer) — export_preview's browser check will "
+                "say whether they load")
     if a.get("build", True) and applied:
         ok, log = run_forge(str(a["project"]), "build")
         out += "\nbuild: " + ("OK" if ok else "FAILED\n" + log)
@@ -753,7 +800,7 @@ def t_export_preview(a):
     d = pdir(str(a["project"]))
     out = Path(str(a.get("out") or (HOME / "previews" / d.name))).expanduser()
     r = P.export_preview(d, out)
-    c = P.check_preview(out, r["base"])
+    c = P.check_preview(out, r["base"], pristine=d / "pristine")
     lines = [f"exported {len(r['pages'])} page(s) to {r['out']}",
              f"serve that folder at {r['base']} — the address itself answers "
              f"with {r['home']}; other pages at {r['base']}/<page>.html. "
@@ -771,6 +818,10 @@ def t_export_preview(a):
                         if v["failed_requests"] else "")
                      + (f"; console: {v['console_errors'][0]}"
                         if v["console_errors"] else "")
+                     + "".join(f"; IMAGE DID NOT LOAD ({im['w']}x{im['h']}"
+                               f"{', the biggest on the page' if im is max(v['dead_images'], key=lambda x: x['w'] * x['h']) else ''}"
+                               f"): {im['src'][:100]}"
+                               for im in v.get("dead_images", []))
                      + ("" if v["layer"] else "; preview layer MISSING"))
     return Result("\n".join(lines),
                   {"verdict": c["verdict"], "why": c.get("why", ""),
@@ -1014,6 +1065,31 @@ def S(props, req):
     return {"type": "object", "properties": props, "required": req}
 
 P = {"project": {"type": "string", "description": "project name (see list_projects)"}}
+
+def t_list_runs(a):
+    import aethron_runlog as RL
+    cs = RL.callers()
+    if a.get("caller"):
+        cs = [c for c in cs if c["caller"] == RL.slug(a["caller"])]
+    if not cs:
+        return Result("no runs recorded yet — every MCP call is recorded "
+                      f"under {RL.runs_dir()}", {"callers": []})
+    lines = []
+    for c in cs:
+        lines.append(c["caller"])
+        for r in c["runs"][:int(a.get("limit") or 10)]:
+            lines.append(f"  {r['run']}  {r['calls']} call(s), "
+                         f"{r['problems']} problem(s), {r['findings']} "
+                         f"finding(s)  {', '.join(r['projects'])}")
+    return Result("\n".join(lines) + "\nget_run(caller, run) reads one.",
+                  {"callers": cs})
+
+
+def t_get_run(a):
+    import aethron_runlog as RL
+    r = RL.get_run(str(a["caller"]), str(a.get("run") or ""))
+    return Result(RL.timeline(r), r)
+
 
 def t_list_library(a):
     cards = []
@@ -1567,6 +1643,21 @@ TOOLS = [
     ("delete_project", "Delete a project entirely (needs confirm=true).",
      S({**P, "confirm": {"type": "boolean"}}, ["project"]),
      t_delete_project),
+    ("list_runs", "RUN RECORDS: every agent that drives Aethron over MCP is "
+     "recorded — which tool, with what, what Aethron answered, how long, "
+     "and what failed or went missing. Lists callers and their runs, "
+     "newest first, with problem counts. Secrets are never recorded.",
+     S({"caller": {"type": "string", "description": "only this caller"},
+        "limit": {"type": "integer", "description": "runs per caller "
+                  "(default 10)"}}, []), t_list_runs),
+    ("get_run", "One run as a timeline: each call with its status (ok / "
+     "partial / FAIL / ERR), time taken and findings (refused fills, "
+     "pages that FAIL, images that did not load). structuredContent "
+     "carries every call in full.",
+     S({"caller": {"type": "string"},
+        "run": {"type": "string", "description": "run id from list_runs, "
+                "or 0 = newest (default), 1 = the one before…"}},
+       ["caller"]), t_get_run),
     ("list_library", "Read the DESIGN LIBRARY: one card per saved "
      "template — palette, fonts, section structure, motion features "
      "(hover variants, split text, rotators, marquee), scale, source "
@@ -1598,14 +1689,18 @@ def send(obj):
     sys.stdout.flush()
 
 
-def dispatch(msg):
+def dispatch(msg, run=None):
     """One JSON-RPC message in, its reply out (None for a notification).
-    The same answers whether the message came over stdio or HTTP."""
+    The same answers whether the message came over stdio or HTTP. `run`
+    is the caller's run record (aethron_runlog.Session): every tool call
+    is written to it, with what was asked and what Aethron answered."""
     mid, method = msg.get("id"), msg.get("method")
     params = msg.get("params") or {}
 
     def ok(result):
         return {"jsonrpc": "2.0", "id": mid, "result": result}
+    if method == "initialize" and run is not None:
+        run.hello(params)
     if method == "initialize":
         return ok({"protocolVersion": params.get("protocolVersion",
                                                  "2024-11-05"),
@@ -1616,6 +1711,7 @@ def dispatch(msg):
     if method == "tools/call":
         name = params.get("name", "")
         args = params.get("arguments") or {}
+        t0 = time.time()
         try:
             if name not in HANDLERS:
                 raise ValueError(f"unknown tool {name!r}")
@@ -1623,8 +1719,15 @@ def dispatch(msg):
             res = {"content": [{"type": "text", "text": str(text)}]}
             if isinstance(text, Result):
                 res["structuredContent"] = text.data
+            if run is not None and name not in ("list_runs", "get_run"):
+                run.call(name, args, str(text), False,
+                         (time.time() - t0) * 1000,
+                         getattr(text, "data", None))
             return ok(res)
         except Exception as e:
+            if run is not None:
+                run.call(name, args, f"ERROR: {e}", True,
+                         (time.time() - t0) * 1000)
             return ok({"content": [{"type": "text", "text": f"ERROR: {e}"}],
                        "isError": True})
     if method == "ping":
@@ -1642,6 +1745,8 @@ def dispatch(msg):
 
 
 def main():
+    import aethron_runlog as RL
+    run = RL.Session("stdio")
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -1650,7 +1755,7 @@ def main():
             msg = json.loads(line)
         except Exception:
             continue
-        reply = dispatch(msg)
+        reply = dispatch(msg, run)
         if reply is not None:
             send(reply)
 
@@ -1665,19 +1770,52 @@ def main():
 # else; /health answers for the host's health check.
 
 TOKEN_ENV = "AETHRON_MCP_TOKEN"
+# One token per caller, so a run record can say WHO called without
+# trusting what an agent says it is: AETHRON_MCP_TOKENS="keeper=<secret>,
+# other=<secret>". AETHRON_MCP_TOKEN alone is the caller "default".
+TOKENS_ENV = "AETHRON_MCP_TOKENS"
+
+
+def http_tokens() -> dict:
+    """{secret: label}. Every secret 24+ characters, or the server will
+    not start."""
+    out = {}
+    one = os.environ.get(TOKEN_ENV, "").strip()
+    if one:
+        out[one] = "default"
+    for part in os.environ.get(TOKENS_ENV, "").split(","):
+        if "=" in part:
+            label, sec = part.split("=", 1)
+            if sec.strip():
+                out[sec.strip()] = re.sub(r"[^\w.-]+", "-",
+                                          label.strip()) or "caller"
+    return out
 
 
 def serve_http(port: int, host: str = "0.0.0.0"):
     import hmac
     import http.server
     import mimetypes
-    token = os.environ.get(TOKEN_ENV, "").strip()
-    if len(token) < 24:
-        sys.exit(f"refusing to start: set {TOKEN_ENV} to a long random "
-                 "secret (24+ characters) — anyone holding it controls "
-                 "this Aethron")
+    import threading
+    import aethron_runlog as RL
+    tokens = http_tokens()
+    if not tokens or any(len(t) < 24 for t in tokens):
+        sys.exit(f"refusing to start: set {TOKEN_ENV} (or {TOKENS_ENV}="
+                 "label=secret,…) to long random secrets (24+ characters "
+                 "each) — anyone holding one controls this Aethron")
     mimetypes.add_type("text/javascript", ".mjs")
     previews = (HOME / "previews").resolve()
+    runs, runs_lock = {}, threading.Lock()   # session id -> run record
+
+    def run_for(label, sid):
+        with runs_lock:
+            if len(runs) > 500:              # forget the oldest
+                for k in list(runs)[:100]:
+                    runs.pop(k, None)
+            key = (label, sid)
+            if key not in runs:
+                runs[key] = RL.Session("http", caller=label, sid=sid)
+            return runs[key]
 
     class H(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -1698,14 +1836,20 @@ def serve_http(port: int, host: str = "0.0.0.0"):
                 self.wfile.write(body)
 
         def _authed(self):
+            """The caller's label, or None."""
             got = self.headers.get("Authorization", "")
-            return hmac.compare_digest(got.encode(),
-                                       f"Bearer {token}".encode())
+            hit = None
+            for sec, label in tokens.items():   # compare all: constant time
+                if hmac.compare_digest(got.encode(),
+                                       f"Bearer {sec}".encode()):
+                    hit = label
+            return hit
 
         def do_POST(self):
             if self.path.split("?")[0].rstrip("/") != "/mcp":
                 return self._send(404, b'{"error":"not found"}')
-            if not self._authed():
+            label = self._authed()
+            if not label:
                 return self._send(401, b'{"error":"bad or missing token"}',
                                   extra={"WWW-Authenticate": "Bearer"})
             n = int(self.headers.get("Content-Length") or 0)
@@ -1716,12 +1860,22 @@ def serve_http(port: int, host: str = "0.0.0.0"):
                     "jsonrpc": "2.0", "id": None, "error": {
                         "code": -32700, "message": "parse error"}}).encode())
             msgs = body if isinstance(body, list) else [body]
-            replies = [r for r in (dispatch(m) for m in msgs
+            sid = re.sub(r"[^\w-]", "", self.headers.get(
+                "Mcp-Session-Id", ""))[:64]
+            fresh = any(isinstance(m, dict) and m.get("method") ==
+                        "initialize" for m in msgs)
+            if fresh or not sid:
+                # a new connection gets its own run; a client that never
+                # sends the id back still gets one run per initialize
+                sid = secrets.token_hex(8) if fresh else "no-session"
+            run = run_for(label, sid)
+            replies = [r for r in (dispatch(m, run) for m in msgs
                                    if isinstance(m, dict)) if r is not None]
+            extra = {"Mcp-Session-Id": sid} if fresh else None
             if not replies:
-                return self._send(202)
+                return self._send(202, extra=extra)
             out = replies if isinstance(body, list) else replies[0]
-            self._send(200, json.dumps(out).encode())
+            self._send(200, json.dumps(out).encode(), extra=extra)
 
         def do_GET(self):
             path = urllib.parse.unquote(self.path.split("?")[0].split("#")[0])

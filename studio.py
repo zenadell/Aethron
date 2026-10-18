@@ -1637,6 +1637,21 @@ class Handler(BaseHTTPRequestHandler):
                     if left:
                         batch[sec] = left
                 self.send_json({"prompt": build_prompt(plan, batch)})
+            elif u.path == "/api/runs":
+                # what every agent driving Aethron over MCP did
+                import aethron_runlog as RL
+                self.send_json({"callers": RL.callers(),
+                                "where": str(RL.runs_dir())})
+            elif u.path == "/api/runs/upload":
+                import aethron_runlog as RL
+                self.send_json(RL.upload_status())
+            elif u.path == "/api/run":
+                import aethron_runlog as RL
+                try:
+                    self.send_json(RL.get_run(q.get("caller", [""])[0],
+                                              q.get("run", [""])[0]))
+                except ValueError as e:
+                    self.send_json({"error": str(e)}, 404)
             elif u.path == "/api/library":
                 cards = []
                 for f in sorted(LIBRARY.glob("*.json")) \
@@ -2134,6 +2149,12 @@ class Handler(BaseHTTPRequestHandler):
                 f.parent.mkdir(parents=True, exist_ok=True)
                 f.write_text(body.get("text", ""), encoding="utf-8")
                 self.send_json({"ok": True, "size": f.stat().st_size})
+            elif u.path == "/api/runs/upload":
+                import aethron_runlog as RL
+                st = RL.set_upload(bool(body.get("on")))
+                if st["on"]:
+                    RL.UPLOAD.flush(8)
+                self.send_json(RL.upload_status())
             elif u.path == "/api/library/save":
                 d = self.project_dir({"name": [body.get("project", "")]})
                 r = subprocess.run(forge_argv("card"),
@@ -9023,6 +9044,20 @@ flex-direction:column;gap:9px;background:rgba(255,255,255,.015)}
 
 /* ── design library ──────────────────────────────────────── */
 .libwrap{padding:20px;overflow:auto;height:100%}
+.runcaller{margin-top:16px}.runcaller h3,#runview h3{margin:6px 0}
+.runrow{display:grid;grid-template-columns:150px 70px 100px 1fr;gap:10px;width:100%;
+ text-align:left;padding:8px 10px;border:1px solid var(--line,#333);border-radius:10px;
+ background:transparent;color:inherit;margin:4px 0;cursor:pointer;font:inherit}
+.runrow.bad .rp,.runline li.failed .rs,.runline li.error .rs{color:#e5604f}
+.runrow .rt,.runrow .rc,.runrow .rj{opacity:.75}
+.runline{list-style:none;padding:0;margin:8px 0}
+.runline li{border-left:3px solid var(--line,#444);padding:6px 10px;margin:6px 0}
+.runline li.failed,.runline li.error{border-left-color:#e5604f}
+.runline li.partial{border-left-color:#d9a441}
+.runline .rh{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.runline .rs{font-size:12px;opacity:.85}.runline .rt{margin-left:auto;opacity:.6;font-size:12px}
+.runline .rf{font-size:12.5px;color:#e5604f;margin-top:3px;word-break:break-word}
+.runline pre{white-space:pre-wrap;word-break:break-word;font-size:12px;opacity:.8;max-height:260px;overflow:auto}
 .libmatch{display:flex;gap:10px;align-items:stretch}
 .libmatch textarea{flex:1;resize:vertical}
 .libgrid{display:grid;gap:14px;margin-top:16px;
@@ -11467,6 +11502,9 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
     <button class="qrow" id="libbtn" onclick="openLibrary()">
       <span data-ic="library"></span><span class="ql">Design library</span>
       <span class="qc" data-ic="up"></span></button>
+    <button class="qrow" id="runsbtn" onclick="openRuns()">
+      <span data-ic="compass"></span><span class="ql">Agent runs</span>
+      <span class="qc" data-ic="up"></span></button>
     <button class="qrow" id="setbtn" onclick="openSettings()">
       <span data-ic="gear"></span><span class="ql">Settings</span>
       <span class="qc" data-ic="up"></span></button>
@@ -11831,6 +11869,7 @@ function updateMenuItem(){
 }
 function renderHeader(){
   $('ptitle').textContent=S.view==='settings'?'Settings':S.view==='library'?'Design library'
+    :S.view==='runs'?'Agent runs'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
   if(!S.cur){$('steps').innerHTML='';$('tabs').innerHTML='';return;}
   const done={fetch:S.info?.fetched,inventory:S.info?.inventoried,
@@ -12234,6 +12273,54 @@ async function renderDesign(c){
       border-radius:10px;padding:12px;max-height:340px;overflow:auto;margin:0">${esc(DESIGN.log)}</pre>
   </div>`;
   showWallet();
+}
+
+// ---------- agent runs ----------
+/* Every agent that drives Aethron over MCP (the keeper on the Jomiez
+   admin, anyone else's agent) leaves a record: which tool, with what, what
+   came back, how long, and what failed or went MISSING. One list of
+   callers and their runs; a run opens as a timeline, failures marked. */
+async function openRuns(){
+  S.view='runs';S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}
+  renderSidebar();renderHeader();
+  const rb=$('runsbtn');if(rb)rb.classList.add('sel');
+  renderTab();
+}
+async function renderRuns(c){
+  c.dataset.split='';
+  let d={callers:[],where:''};
+  try{d=await api('/api/runs')}catch(e){}
+  const runRow=r=>`<button class="runrow${r.problems?' bad':''}" onclick="openRun('${esc(r.caller)}','${esc(r.run)}')">
+     <span class="rt">${esc((r.started||'').replace('T',' '))}</span>
+     <span class="rc">${r.calls} call${r.calls===1?'':'s'}</span>
+     <span class="rp">${r.problems?`${r.problems} problem${r.problems===1?'':'s'}`:'clean'}</span>
+     <span class="rj">${esc((r.projects||[]).join(', '))}</span></button>`;
+  c.innerHTML=`<div class="libwrap runswrap">
+   <h2>Agent runs</h2>
+   <div class="hint">every MCP call an agent makes is recorded here — never a key
+    or token. Kept in <code>${esc(d.where||'')}</code>.</div>
+   ${(d.callers||[]).map(cl=>`<div class="runcaller"><h3>${esc(cl.caller)}</h3>
+      ${cl.runs.slice(0,30).map(runRow).join('')}</div>`).join('')
+     ||'<div class="empty">no agent has called Aethron yet</div>'}
+   <div id="runview"></div></div>`;
+}
+async function openRun(caller,run){
+  let r;
+  try{r=await api('/api/run?caller='+encodeURIComponent(caller)+'&run='+encodeURIComponent(run))}
+  catch(e){$('runview').innerHTML=`<div class="empty">${esc(e.message)}</div>`;return;}
+  const h=r.session||{},cl=h.client||{};
+  const st={ok:'ok',partial:'partly refused',failed:'FAIL',error:'error'};
+  $('runview').innerHTML=`<h3>${esc(h.caller||caller)} · ${esc((h.started||'').replace('T',' '))}</h3>
+   <div class="hint">${esc(cl.name||'client unnamed')} ${esc(cl.version||'')} · ${esc(h.transport||'')}</div>
+   <ol class="runline">${(r.calls||[]).map(x=>`<li class="${esc(x.status)}">
+     <div class="rh"><b>${esc(x.tool)}</b>${x.project?` <span class="rj">${esc(x.project)}</span>`:''}
+      <span class="rs">${esc(st[x.status]||x.status)}</span>
+      <span class="rt">${esc((x.t||'').slice(11))} · ${(x.ms/1000).toFixed(1)}s</span></div>
+     ${(x.result.findings||[]).map(f=>`<div class="rf">${esc(f)}</div>`).join('')}
+     <details><summary>asked · answered</summary>
+      <pre>${esc(JSON.stringify(x.args,null,1))}</pre>
+      <pre>${esc(x.result.text||'')}</pre></details></li>`).join('')}</ol>`;
+  $('runview').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 // ---------- design library ----------
@@ -12963,8 +13050,38 @@ async function renderSettings(c){
           estimate — free keys never touch it.</div>`
       :`<div class="hint">No wallet is configured for this copy.</div>`}
     </section>
+
+    <section class="card">
+      <h3>${I('compass',14)} Agent runs</h3>
+      <div id="runshare"><div class="hint">reading…</div></div>
+    </section>
   </div>`;
   bindAiSettings();
+  showRunShare();
+}
+/* Upload this machine's agent run records to Aethron's Supabase, so a
+   session that is not on this computer can read what an agent did. Off
+   unless switched on here: records hold the copy agents write. */
+async function showRunShare(){
+  const box=$('runshare');if(!box)return;
+  let u;
+  try{u=await api('/api/runs/upload')}catch(e){box.innerHTML=`<div class="hint">${esc(e.message)}</div>`;return;}
+  box.innerHTML=`
+    <div class="kv"><span>Upload to Aethron's cloud</span><b>${u.on?'on':'off'}</b></div>
+    ${u.on?`<div class="kv"><span>Waiting to send</span><b>${u.waiting}</b></div>`:''}
+    ${u.last_error?`<div class="hint" style="color:#e5604f">last attempt: ${esc(u.last_error)}</div>`:''}
+    <div class="rowbtns">
+      <button onclick="setRunShare(${!u.on})" ${u.configured?'':'disabled'}>${u.on?'Stop uploading':'Upload agent runs'}</button>
+      <button onclick="openRuns()">See runs</button></div>
+    <div class="hint">${u.configured?`Every MCP call an agent makes is recorded on this computer.
+      Switched on, each record is also sent to Aethron's Supabase (machine
+      ${esc(u.machine)}) so it can be read from anywhere — keys and tokens are
+      never in it, but the words agents write are.`
+      :'No Supabase project is configured in this copy.'}</div>`;
+}
+async function setRunShare(on){
+  try{await api('/api/runs/upload',{on});}catch(e){alert(e.message)}
+  showRunShare();
 }
 async function setWallet(){
   const v=parseFloat(($('wlimit')||{}).value);
@@ -13321,6 +13438,8 @@ const FIND_GO=[
   {icon:'plus',     label:'New project',    k:'new project start',  go:()=>newProject()},
   {icon:'terminal', label:'Code workspace', k:'code ide editor',    go:()=>openCode()},
   {icon:'library',  label:'Design library', k:'library designs',    go:()=>openLibrary()},
+  {icon:'compass',  label:'Agent runs',     k:'runs agents log mcp calls keeper history',
+                                                                    go:()=>openRuns()},
   {icon:'gear',     label:'Settings',       k:'settings key model wallet provider',
                                                                     go:()=>openSettings()},
 ];
@@ -15620,6 +15739,7 @@ function renderTab(){
   if(S.view==='code')return renderCode(c);
   if(S.view==='design')return renderDesign(c);
   if(S.view==='library')return renderLibrary(c);
+  if(S.view==='runs')return renderRuns(c);
   /* THE FRONT DOOR HAD NO RENDERER. This branch used to `return` and
      leave whatever was already in #content — which is fine on a fresh
      load, where the welcome is static HTML, and wrong the moment any

@@ -37,7 +37,8 @@ SUITES = [
                 "tests/adopt_battery.py",
                 "tests/alive_battery.py", "tests/engine_battery.py",
                 "tests/provider_battery.py", "tests/preview_battery.py",
-                "tests/remote_battery.py",
+                "tests/remote_battery.py", "aethron_runlog.py",
+                "tests/keeper_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
@@ -150,6 +151,15 @@ SUITES = [
     # served from the same address and rendered in a browser.
     ("remote battery (Aethron over HTTP for a hosted agent)",
      [PY, "tests/remote_battery.py"], True),
+    # Run records: every agent that drives Aethron, what it called and
+    # what Aethron answered — no secret ever written.
+    ("run records (who called what, what came back)",
+     [PY, "aethron_runlog.py", "--selftest"], False),
+    # A keeper-like agent loses a hero image: Aethron refuses the dead
+    # address, FAILs the preview when a picture dies later, and the run
+    # record holds both as findings.
+    ("keeper battery (an agent's run, and what went missing)",
+     [PY, "tests/keeper_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and
     # asks whether the probe hands them over as healthy. It did, eight
     # times out of nine, because it measured the HTML string instead of
