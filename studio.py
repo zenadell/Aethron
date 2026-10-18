@@ -10509,7 +10509,11 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
   border:1px solid rgba(255,255,255,.07)}
 .pvw-stage.dark .pane,.pvw-stage.dark .empty{margin:0}
 .pvw-stage iframe{width:100%;height:100%;border:0;display:block}
-.pvw-hint{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);
+/* centred with margins, not translateX(-50%): the fadeup animation sets
+   transform, which dropped the centring and pushed the hint off the right
+   edge of the preview. */
+.pvw-hint{position:absolute;left:0;right:0;margin:0 auto;width:max-content;
+  max-width:calc(100% - 32px);bottom:16px;text-align:center;
   font-size:11.5px;color:var(--tx);padding:7px 14px;border-radius:99px;
   background:rgba(16,15,17,.82);border:1px solid rgba(255,255,255,.09);
   -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
@@ -11897,6 +11901,7 @@ new MutationObserver(ms=>{for(const m of ms)for(const a of m.addedNodes){
 }}).observe(document.documentElement,{childList:true,subtree:true});
 const S={projects:[],cur:null,info:null,cm:null,tab:'plan',log:'',running:null};
 const enc=new TextEncoder();
+const usd=v=>{v=Number(v)||0;return '$'+(v>0&&v<0.01?v.toFixed(4):v.toFixed(2));};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function api(path,body){
   const r=await fetch(path,body?{method:'POST',body:JSON.stringify(body)}:undefined);
@@ -12509,7 +12514,7 @@ async function showWallet(){
 async function designWallet(){
   const w=await api('/api/wallet').catch(()=>null);if(!w)return;
   const v=prompt('How much may Aethron spend on paid model calls, in total?\\n\\n'
-    +'$'+w.spent_usd.toFixed(4)+' of $'+w.limit_usd.toFixed(2)+' has been spent over '+w.calls
+    +usd(w.spent_usd)+' of '+usd(w.limit_usd)+' has been spent over '+w.calls
     +' paid calls. Free calls never touch this.\\n\\nNew ceiling in dollars:', w.limit_usd.toFixed(2));
   if(v===null)return;
   try{await api('/api/wallet',{limit_usd:parseFloat(v)});await showWallet();}
@@ -13402,8 +13407,8 @@ async function renderSettings(c){
       <h3>${I('coins',14)} Spending</h3>
       ${typeof left==='number'?`
         <div class="kv"><span>Ceiling</span><b>$${Number(lim).toFixed(2)}</b></div>
-        <div class="kv"><span>Spent</span><b>$${Number(spent).toFixed(4)}</b></div>
-        <div class="kv"><span>Left</span><b>$${Number(left).toFixed(4)}</b></div>
+        <div class="kv"><span>Spent</span><b>${usd(spent)}</b></div>
+        <div class="kv"><span>Left</span><b>${usd(left)}</b></div>
         <div class="meter"><i style="width:${Math.max(0,Math.min(100,
            (Number(spent)/Math.max(0.0001,Number(lim)))*100)).toFixed(1)}%"></i></div>
         <div class="rowbtns">
@@ -16001,7 +16006,8 @@ function runHtml(b){
       ${I(bad?'alert':'check',13)}
       <span class="rs-n">${b.steps.length} step${b.steps.length>1?'s':''}</span>
       ${bad?`<span class="rs-bad">${bad} failed</span>`:''}${blkTxt}
-      <span class="st">${esc(toolVerb(b.steps[b.steps.length-1].name))}</span>
+      <span class="st">last: ${esc(toolVerb(b.steps[b.steps.length-1].name)
+        .replace(/^./,c=>c.toLowerCase()))}</span>
       <span class="rs-c">show${I('up',12)}</span></button></div>`;
   }
   return '<div class="run'+(done?' open':'')+'">'+(done?`<button
@@ -16091,7 +16097,7 @@ function dockMeta(){
   }
   const bits=[];
   if(model)bits.push(esc(model));
-  if(spent)bits.push('$'+spent.toFixed(4)+' this session');
+  if(spent)bits.push(usd(spent)+' this session');
   if(CODE.poll)bits.push('working…');
   m.innerHTML=bits.length?bits.join('<span class="dot"></span>'):'';
 }
@@ -16386,7 +16392,7 @@ function aiSettingsHtml(compact){
    <span class="hint" id="aisaved">${AI.resolved&&AI.resolved.ready
      ?'ready · '+esc(AI.resolved.label)+' · '+esc(AI.resolved.model||'')
      :esc((AI.resolved&&AI.resolved.why)||'')}</span></div>
-  ${compact?'':`<div class="hint">this one setting powers copy fill, plan
+  ${compact?'':`<div class="hint">This one setting powers copy fill, plan
    polish, design matching, self-heal and the coding agent. Providers
    that don't speak Anthropic's API are translated automatically, so a
    DeepSeek or Gemini key drives the code side too.</div>`}`;
