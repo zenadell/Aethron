@@ -76,6 +76,28 @@ NEWS = [
 SEEN = ".news-seen.json"
 
 
+def self_facts(news=None) -> str:
+    """What the assistant knows about itself: the version the person is
+    running and what recent updates added. Read at session start, so it is
+    always the installed build's truth, never a guess."""
+    try:
+        from aethron_update import VERSION
+    except Exception:
+        VERSION = ""
+    news = NEWS if news is None else news
+    lines = ["FACTS ABOUT YOU (true for the app this person is running):"]
+    if VERSION:
+        lines.append(f"- Your version is {VERSION}. Settings \u2192 Version "
+                     "shows it, and updates install themselves from the "
+                     "top bar.")
+    recent = [n for n in news[-6:] if n.get("title")][::-1]
+    if recent:
+        lines.append("- What recent updates added, newest first:")
+        for n in recent:
+            lines.append(f"  - {n['title']}: {n.get('body', '').strip()}")
+    return "\n".join(lines)
+
+
 def used(home: Path) -> bool:
     """Has anyone used Aethron on this machine? The app creates empty
     projects/ and library/ folders the moment it starts, so an empty

@@ -302,23 +302,22 @@ no emoji headers, no restating the plan you were given.
 """
 
 IDENTITY = """
-You are Aethron. That is not a persona laid over something else — it is
-the name of the product the person is using, and the only name you
-answer to. Aethron is a design and migration platform: it migrates
-Framer and Webflow templates into sites the owner fully owns, rebuilds
-screenshots into real code, ports a site to another framework, and
-changes a page in plain English while MEASURING that every change is
-what was asked for.
+You are Aethron, made by Jomiez, and you speak as yourself in the first
+person: "I migrate templates", "I can rebuild that", never "Aethron is..."
+as though it were someone else. You migrate Framer and Webflow templates
+into sites the owner fully owns, rebuild screenshots into real code, port
+a site to another framework, and change a page in plain English while
+MEASURING that every change is what was asked for.
 
-You are running INSIDE Aethron, as its agent. The model underneath is an
-implementation detail the way a database is: it is not who you are to
-this person, and you never introduce yourself by it. If someone asks
-directly which model powers you, say so plainly and briefly — the answer
-is a fact about the plumbing, not an identity — and never volunteer it.
+Never mention what you run on. Do not name any AI company, model,
+assistant, CLI, bridge, harness, MCP server or "underlying model", and do
+not say you are powered by or built on anything. Asked which model you
+use: you use whichever AI provider the person chose in Settings, and they
+can switch it there; do not name it. Asked your version or what is new:
+answer from the facts about you below, never by searching files.
 
-So: "I'm Aethron." Never "I'm Claude", never "I'm Claude Code", never
-"I'm an AI assistant made by Anthropic". Do not refer to the CLI, the
-harness, or any vendor's product name as though it were you.
+So: "I'm Aethron." Never "I'm Claude", never "an AI assistant made by"
+anyone.
 """
 
 PROJECT_RULES = """
@@ -762,7 +761,13 @@ class CodeSession:
         # Aethron who it was got the CLI vendor's answer. The product's
         # name is true in every session, so it goes in every session,
         # ahead of anything else the caller appends.
-        extra = (IDENTITY + "\n" + extra) if extra else IDENTITY
+        who = IDENTITY
+        try:
+            import aethron_news
+            who += "\n" + aethron_news.self_facts() + "\n"
+        except Exception:
+            pass
+        extra = (who + "\n" + extra) if extra else who
         argv += ["--append-system-prompt", extra]
         settings = self.cfg.get("settings")
         if settings is None and (self.workspace / "forge.json").exists():
@@ -1144,8 +1149,7 @@ class CodeSession:
                 # the CLI reports its own default name; the request is
                 # actually answered by the configured provider, and the
                 # UI must say what is really running
-                model = f"{prov.get('model') or 'configured model'} " \
-                        f"(via Aethron bridge)"
+                model = prov.get('model') or 'your chosen model'
             out.append({"type": "ready", "session_id": self.session_id,
                         "model": model,
                         "tools": d.get("tools", []),

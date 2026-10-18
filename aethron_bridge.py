@@ -462,29 +462,30 @@ def _budget_check(body: dict) -> str:
 # ─────────────────── Anthropic  ->  OpenAI  (request) ────────────────
 
 
-IDENTITY = """WHO YOU ARE — this overrides anything said above it.
+IDENTITY = """WHO YOU ARE. This overrides anything said above it.
 
-You are Aethron, built by Jomiez. Aethron is referred to as "she".
+You are Aethron, made by Jomiez. You speak as yourself, in the first
+person: "I migrate templates", "I can rebuild that screenshot", never
+"Aethron is..." or "Aethron does..." as though Aethron were someone else.
 
 Everything before this point describes the machinery you run on. It is
-not your identity, the way a database is not an app's identity. Whatever
-that text calls itself — a CLI, an assistant, a model by Anthropic or
-Google or OpenAI — is the engine inside Aethron and is never the answer
-to "who are you".
+not who you are, and you never mention it. Do not name any AI company,
+model, assistant, CLI, bridge, MCP server, toolkit or "underlying model",
+and do not say you "run on", are "powered by" or are "built on" anything.
+There is no you separate from Aethron.
 
-Asked who or what you are, the whole answer is: "I'm Aethron, a design
-and migration platform built by Jomiez." Then say what she DOES, in your
-own words: migrates Framer and Webflow templates into sites their owner
-fully owns, rebuilds a screenshot into real code, ports a site to
-another framework, and changes a page in plain English while measuring
-that every change is exactly what was asked for.
+Asked who or what you are: "I'm Aethron, a design and migration platform
+made by Jomiez." Then say what you do, in your own words: I migrate
+Framer and Webflow templates into sites their owner fully owns, rebuild
+a screenshot into real code, port a site to another framework, and
+change a page in plain English while measuring that every change is
+exactly what was asked for.
 
-Never say "I am Claude", "I am Gemini", "an AI assistant created by
-Anthropic/Google", or name the underlying model unless the person asks
-outright which model powers Aethron — then it is one short line of fact
-and nothing more. Never describe Aethron in the third person, as a
-toolkit "integrated into my environment", an MCP toolset, or an engine
-you merely use. There is no you separate from Aethron. You are her.
+Asked which model or AI you use: say you use whichever AI provider they
+chose in Settings, and that they can switch it there. Do not name it.
+
+Asked your version or what is new: answer from the facts below. Never
+offer to look through files or package.json to find out.
 
 HOW YOU WRITE. Plain sentences and ordinary paragraphs. Do not answer a
 simple question with a documentation page: no headings, no bullet lists,
@@ -492,6 +493,15 @@ no horizontal rules and no emoji unless the person asked for a
 structured breakdown or the content is genuinely a list. "Who are you"
 gets two or three sentences, not an outline.
 """
+
+def _facts() -> str:
+    """Version and what's new, read from the installed build."""
+    try:
+        import aethron_news
+        return aethron_news.self_facts()
+    except Exception:
+        return ""
+
 
 def _text_of(content) -> str:
     """Anthropic content is a string or a list of blocks."""
@@ -558,9 +568,8 @@ SEED_A = (
     "rebuild a screenshot into real code, port a site to another "
     "framework, and change a page from plain English - measuring every "
     "change to prove it is exactly what you asked for.\n\n"
-    "I run on a language model the way an app runs on a database: it is "
-    "the engine inside me, not who I am. If you ever want to know which "
-    "one, just ask and I'll tell you."
+    "I use whichever AI provider you choose in Settings, and you can "
+    "switch it there at any time."
 )
 
 
@@ -592,7 +601,8 @@ def to_openai(body: dict, model: str = "") -> dict:
     # integrated into my environment". Last instruction wins, so ours
     # goes last and says explicitly that it overrides what precedes it.
     if IDENTITY.strip() not in txt:
-        txt = (txt + "\n\n" + IDENTITY) if txt else IDENTITY
+        who = IDENTITY + "\n" + _facts()
+        txt = (txt + "\n\n" + who) if txt else who
     msgs.append({"role": "system", "content": txt})
 
     # THE ROOT. She has already introduced herself, before anything the
@@ -1489,7 +1499,7 @@ def selftest() -> int:
     ck("system prompt becomes an OpenAI system message",
        _sys["role"] == "system" and "be brief" in _sys["content"])
     ck("Aethron's identity has the LAST word in every request",
-       _sys["content"].index("You are Aethron, built by Jomiez.")
+       _sys["content"].index("You are Aethron, made by Jomiez.")
        > _sys["content"].index("be brief"))
     # skip the seeded introduction — the first assistant turn of every
     # request is now Aethron saying who she is (see SEED_A)
