@@ -12,6 +12,20 @@ python3 -m pip install --quiet --upgrade pyinstaller fonttools brotli pywebview
 # clean previous build artifacts (never touches projects/ or library/)
 rm -rf build dist
 
+# THE TEXT-RECOGNITION HELPER SHIPS COMPILED. Screenshot-to-page reads the
+# words with macOS Vision through a small Swift helper; the app used to
+# compile it on first use, which an installed copy can never do (the bundle
+# is read-only, the source was not in it, and most Macs have no swiftc).
+# Built here for both Apple silicon and Intel, and packed by aethron.spec.
+rm -f aethron_ocr
+if [ "$(uname)" = "Darwin" ]; then
+  swiftc -O -target arm64-apple-macos11 aethron_ocr.swift -o build_ocr_arm64
+  swiftc -O -target x86_64-apple-macos11 aethron_ocr.swift -o build_ocr_x86_64
+  lipo -create build_ocr_arm64 build_ocr_x86_64 -output aethron_ocr
+  rm -f build_ocr_arm64 build_ocr_x86_64
+  chmod +x aethron_ocr
+fi
+
 python3 -m PyInstaller aethron.spec --noconfirm
 
 # A built copy must never show up as a SECOND Aethron in Spotlight or

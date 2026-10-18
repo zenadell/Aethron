@@ -5899,6 +5899,21 @@ real bridge into a recording upstream (image arrives; refusal fallback
 finishes the turn; replay and transcript keep the picture), and the
 studio in a browser. The OCR-based rebuild itself still needs macOS.
 
+## THE INSTALLED APP COULD NOT READ TEXT — 2026-10-18
+Owner, on 1.1.24 with gpt-4.1-mini: the image reached the model, but
+screenshot_to_page answered "OCR unavailable" on a Mac, and the agent then
+stopped to ask. ocr() compiled aethron_ocr.swift beside itself on first
+use; the bundle shipped neither the source nor a binary, is read-only,
+and most Macs have no swiftc. So OCR worked from source and never in an
+installed copy. build_desktop.sh now compiles the helper universal
+(arm64 + x86_64) and aethron.spec packs it; ocr_binary() finds it in the
+bundle and only compiles as a last resort into AETHRON_HOME; OCR_WHY
+carries the real reason into every SKIPPED. The release workflow refuses a
+bundle with no helper, a non-universal one, or one that reads no text, and
+tests/ocr_frozen.py runs the app's own engine with no swiftc on PATH.
+A SKIPPED screenshot_to_page now tells the agent to build the page from
+the image itself at once, and the attachment note says the same.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

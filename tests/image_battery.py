@@ -80,6 +80,22 @@ check("a model without eyes gets the same request with a note instead",
 said = C.attached_paths(blocks[-1]["text"])
 check("the saved path is read back out of the note", said == [str(PIC)])
 
+# when measuring cannot run, the agent is told to build, not to ask
+import forge_mcp as FM
+import aethron_vision as V
+_orig = V.ocr
+V.ocr = lambda *a, **k: (V.OCR_WHY.__setitem__(0, "test: no helper"), None)[1]
+try:
+    msg = FM.t_screenshot_to_page({"image": str(PIC), "outdir": str(SP / "rb")})
+finally:
+    V.ocr = _orig
+check("a skipped measurement names why and says to build from the image now",
+      msg.startswith("SKIPPED") and "test: no helper" in msg
+      and "build the page from it yourself NOW" in msg
+      and "Do not ask" in msg)
+check("the attachment note says the same",
+      "do not stop to ask" in blocks[-1]["text"])
+
 # ── B: the real engine, real bridge, recording upstream ───────────────
 SEEN, REFUSE = [], {"on": False}
 
