@@ -59,3 +59,4 @@ vendor/metal.js
 
 # labelled preview builds — installable side by side, never committed
 preview-build/
+/aethron_ocr

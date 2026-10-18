@@ -2223,6 +2223,61 @@ def locate_elements(html: str, render_fn, verbose=False):
 
 OCR_SRC = ROOT / "aethron_ocr.swift"
 OCR_BIN = ROOT / ".aethron_ocr"
+OCR_WHY = [""]          # why ocr() returned None, for the caller to say
+
+
+def ocr_binary():
+    """The compiled text-recognition helper, or None (with OCR_WHY set).
+
+    THE PACKAGED APP HAD NO OCR AT ALL. ocr() compiled the Swift source
+    beside this file on first use — but the app bundle shipped neither
+    the source nor a compiled helper, the bundle is read-only, and most
+    Macs have no swiftc. So on every installed copy screenshot-to-page
+    stopped with "OCR unavailable" while it worked from source. The
+    release build now compiles the helper (both architectures) and ships
+    it; this finds it, and only compiles as a last resort, into a
+    writable folder.
+    """
+    OCR_WHY[0] = ""
+    if sys.platform != "darwin":
+        OCR_WHY[0] = "text recognition needs macOS (Vision); this is " + sys.platform
+        return None
+    env = os.environ.get("AETHRON_OCR")
+    if env and Path(env).is_file():
+        return Path(env)
+    cache = Path(os.environ.get("AETHRON_HOME") or ROOT) / ".aethron_ocr"
+    here = [ROOT, cache.parent, Path(getattr(sys, "_MEIPASS", ROOT)),
+            Path(sys.executable).resolve().parent,
+            Path(sys.executable).resolve().parent.parent / "Resources",
+            Path(sys.executable).resolve().parent.parent / "Frameworks"]
+    for d in here:
+        for name in ("aethron_ocr", ".aethron_ocr"):
+            p = d / name
+            if p.is_file() and os.access(p, os.X_OK) and (
+                    name == "aethron_ocr" or not OCR_SRC.exists()
+                    or p.stat().st_mtime >= OCR_SRC.stat().st_mtime):
+                return p
+    if not OCR_SRC.exists():
+        OCR_WHY[0] = ("the text-recognition helper is missing from this "
+                      "copy of Aethron")
+        return None
+    sw = shutil.which("swiftc")
+    if not sw:
+        OCR_WHY[0] = ("the text-recognition helper is missing and this Mac "
+                      "has no Swift compiler to build it")
+        return None
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run([sw, "-O", str(OCR_SRC), "-o", str(cache)],
+                           capture_output=True, text=True, timeout=600)
+    except Exception as e:
+        OCR_WHY[0] = f"building the text-recognition helper failed ({e})"
+        return None
+    if r.returncode or not cache.exists():
+        OCR_WHY[0] = ("building the text-recognition helper failed: "
+                      + (r.stderr or "").strip()[:200])
+        return None
+    return cache
 
 
 def ocr(image, timeout=120):
@@ -2245,22 +2300,18 @@ def ocr(image, timeout=120):
     None if it cannot build or run, and the caller must then say so
     rather than pretend it read anything.
     """
-    if not OCR_SRC.exists():
+    exe = ocr_binary()
+    if not exe:
         return None
-    if not OCR_BIN.exists() or OCR_BIN.stat().st_mtime < OCR_SRC.stat().st_mtime:
-        sw = shutil.which("swiftc")
-        if not sw:
-            return None
-        r = subprocess.run([sw, "-O", str(OCR_SRC), "-o", str(OCR_BIN)],
-                           capture_output=True, text=True, timeout=600)
-        if r.returncode or not OCR_BIN.exists():
-            return None
     try:
-        r = subprocess.run([str(OCR_BIN), str(image)], capture_output=True,
+        r = subprocess.run([str(exe), str(image)], capture_output=True,
                            text=True, timeout=timeout)
-    except Exception:
+    except Exception as e:
+        OCR_WHY[0] = f"the text-recognition helper could not run ({e})"
         return None
     if r.returncode:
+        OCR_WHY[0] = ("the text-recognition helper failed: "
+                      + (r.stderr or "").strip()[:200])
         return None
     out = []
     for line in r.stdout.splitlines():
@@ -2640,8 +2691,8 @@ def rebuild(image, outdir, font="Inter", rounds=7, fit=True,
 
     lines = ocr(image)
     if lines is None:
-        return {"verdict": "SKIPPED", "why": "no OCR on this machine — "
-                "UNVERIFIED, not proven good", "findings": []}
+        return {"verdict": "SKIPPED", "why": (OCR_WHY[0] or "no OCR on this "
+                "machine") + " — UNVERIFIED, not proven good", "findings": []}
     say(f"  {len(lines)} lines read")
 
     shot = load(image)
@@ -2716,8 +2767,8 @@ def verify_rebuild(original, rebuild_png, tol=4, size_tol=0.15, carried=()):
     want = ocr(original)
     got = ocr(rebuild_png)
     if want is None or got is None:
-        return {"verdict": "SKIPPED", "why": "no OCR available — "
-                "UNVERIFIED, not proven good", "findings": []}
+        return {"verdict": "SKIPPED", "why": (OCR_WHY[0] or "no OCR "
+                "available") + " — UNVERIFIED, not proven good", "findings": []}
     # MATCH ON SIMILARITY, NOT ON AN EQUAL STRING. The rebuild is set in
     # a different face, so OCR reads its "Docs" as "Dacs" and its
     # "effective\"" as "effective*". Demanding an exact string reported

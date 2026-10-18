@@ -394,7 +394,15 @@ def t_screenshot_to_page(a):
     except Exception as e:
         return f"FAILED {type(e).__name__}: {e}"
     if v.get("verdict") == "SKIPPED":
-        return "SKIPPED " + v.get("why", "") + " — UNVERIFIED, not good"
+        # DO NOT STOP AND ASK. The person attached a picture and asked
+        # for a page; when measuring cannot run, the model still has the
+        # picture in front of it, so it builds the page from it.
+        return ("SKIPPED " + v.get("why", "") + " — UNVERIFIED, not good.\n"
+                "Measuring could not run, but you can see the image: build "
+                "the page from it yourself NOW (write the files in the "
+                "workspace), matching its layout, text, colours and effects "
+                "as closely as you can. Do not ask the person to confirm "
+                "first; say afterwards that this build was not measured.")
     head = (f"{v['verdict']}: {v.get('lines_correct')} of "
             f"{v.get('lines_expected')} checks correct\npage: {v['page']}\n")
     return head + _j.dumps(v.get("findings", []), indent=1)[:40000]
@@ -1429,7 +1437,9 @@ TOOLS = [
      "referee, then CHECKS every line and reports a checklist. Use this "
      "instead of writing the HTML yourself — measured head to head, a "
      "model given the same measurements got 6 of 21 lines right where "
-     "this got 21. Then use edit_page for the wording and the colours.",
+     "this got 21. Then use edit_page for the wording and the colours. "
+     "If it answers SKIPPED, build the page from the image yourself "
+     "straight away instead of asking.",
      {"type": "object", "properties": {
         "image": {"type": "string", "description":
                   "path to a PNG/JPG screenshot"},

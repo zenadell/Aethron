@@ -1943,10 +1943,9 @@ def replicate(image, out, fast=False):
     lines = read_lines(image)
     if not lines:
         say("VERDICT: SKIPPED — no text could be read (OCR unavailable or empty); UNVERIFIED")
-        return {"verdict": "SKIPPED", "why": "no text could be read from the image — macOS "
-                                             "text recognition is unavailable (aethron_ocr.swift "
-                                             "missing or swiftc absent), or the picture has no "
-                                             "words in it"}
+        return {"verdict": "SKIPPED", "why": "no text could be read from the image — "
+                + (V.OCR_WHY[0] if lines is None and V.OCR_WHY[0]
+                   else "the picture has no words in it")}
     say(f"  lines: {len(lines)}")
     surfaces = find_surfaces(img, lines)
     say(f"  surfaces: {len(surfaces)} — " + ", ".join(f"{s['w']}x{s['h']} r{s['r']}" for s in surfaces))

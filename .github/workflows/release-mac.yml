@@ -99,6 +99,14 @@ jobs:
           python3 -c "import json;c=json.load(open('dist/Aethron.app/Contents/Resources/aethron_config.json'));assert c.get('supabase_url');assert 'ai' not in c"
           dist/Aethron.app/Contents/MacOS/Aethron --forge 2>&1 | grep -q "known:" \
             || { echo "::error::the packaged engine does not start"; exit 1; }
+          # screenshot-to-page needs text recognition INSIDE the app
+          OCR=$(find dist/Aethron.app -name aethron_ocr -type f | head -1)
+          test -n "$OCR" || { echo "::error::the app ships no text-recognition helper"; exit 1; }
+          lipo -archs "$OCR" | grep -q arm64 && lipo -archs "$OCR" | grep -q x86_64 \
+            || { echo "::error::the OCR helper is not universal"; exit 1; }
+          "$OCR" docs/screenshots/library.png | grep -q '"text"' \
+            || { echo "::error::the packaged OCR helper read no text"; exit 1; }
+          python3 tests/ocr_frozen.py dist/Aethron.app
           # a real migration through the packaged app's own tools
           python3 tests/frozen_migration.py dist/Aethron.app
           # needs a prepared template on disk; reports SKIPPED here

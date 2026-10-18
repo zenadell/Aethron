@@ -573,7 +573,9 @@ def image_blocks(paths) -> list:
             "shown above and saved at:\n" + "\n".join(kept)
             + "\nTo rebuild one as a page, pass its path to "
             "mcp__aethron__screenshot_to_page (it measures the pixels "
-            f"exactly).\n{IMAGES_CLOSE}")})
+            "exactly). If that cannot run, build the page directly from "
+            "the image yourself — do not stop to ask for confirmation."
+            f"\n{IMAGES_CLOSE}")})
     return blocks
 
 

@@ -32,10 +32,13 @@ _BUNDLE_ID = ("app.aethron.studio" if _BUILD_NAME == "Aethron" else
               "app.aethron.studio." + _BUNDLE_SUFFIX)
 _DISPLAY_VERSION = (_VERSION if not _BUILD_LABEL else
                     f"{_VERSION} ({_BUILD_LABEL})")
+# the compiled text-recognition helper (build_desktop.sh makes it on macOS)
+_binaries = [("aethron_ocr", ".")] if _os.path.isfile("aethron_ocr") else []
 a = Analysis(
     ["desktop.py"],
     pathex=["."],
     datas=_datas,
+    binaries=_binaries,
     hiddenimports=[
         "forge", "studio", "aethron_cloud",
         # THE AGENT'S TOOLS. Spawned as a SUBPROCESS entry point
