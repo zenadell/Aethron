@@ -1484,6 +1484,25 @@ class Handler(BaseHTTPRequestHandler):
                 return self.wfile.write(body)
             if u.path.startswith("/edit/"):
                 return self.serve_edit(u, q)
+            if u.path.startswith("/uploads/"):
+                # an attached image, drawn in the conversation. Names are
+                # the content hash /api/image gave them — nothing else in
+                # the folder, and nothing outside it, is reachable.
+                name = u.path[len("/uploads/"):]
+                if not re.fullmatch(r"[0-9a-f]{16}\.(png|jpg|gif|webp)", name):
+                    return self.fail("not an attached image", 404)
+                p = HOME / "uploads" / name
+                if not p.is_file():
+                    return self.fail("no such image", 404)
+                body = p.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", {
+                    "png": "image/png", "jpg": "image/jpeg", "gif": "image/gif",
+                    "webp": "image/webp"}[name.rsplit(".", 1)[1]])
+                self.send_header("Cache-Control", "private, max-age=86400")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             if u.path == "/metal.js":
                 # A vendored engine never changes between renders, so it
                 # is cached hard. Everything else in this server sends
@@ -2220,8 +2239,19 @@ class Handler(BaseHTTPRequestHandler):
                 if not s or not s.alive:
                     return self.fail("no running session — start one first")
                 text = (body.get("text") or "").strip()
-                if not text:
+                # only images /api/image stored can be attached — a path
+                # sent from the page is never trusted to read anything else
+                up = (HOME / "uploads").resolve()
+                images = []
+                for n in body.get("images") or []:
+                    n = Path(str(n)).name
+                    if re.fullmatch(r"[0-9a-f]{16}\.(png|jpg|gif|webp)", n) \
+                            and (up / n).is_file():
+                        images.append(str(up / n))
+                if not text and not images:
                     return self.fail("empty message")
+                if not text:
+                    text = "(image attached)"
                 ctx = ""
                 if (s.workspace / "forge.json").exists():
                     try:
@@ -2229,7 +2259,7 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         ctx = ""          # a status is a help, never a blocker
                 try:
-                    s.send(text, context=ctx)
+                    s.send(text, context=ctx, images=images)
                 except Exception as e:
                     return self.fail(str(e))
                 self.send_json({"ok": True})
@@ -10904,6 +10934,22 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
 .clog>*{flex:0 0 auto}
 .turn{margin:2px 0 16px}
 .turn.you{display:flex;justify-content:flex-end}
+.turn.you{flex-direction:column;align-items:flex-end;gap:6px}
+.youpics{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;max-width:80%}
+.youpics img{display:block;max-width:260px;max-height:200px;border-radius:14px;
+  border:1px solid var(--line,rgba(255,255,255,.12));object-fit:cover}
+.cattach{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.cattach[hidden]{display:none}
+.cthumb{position:relative;width:64px;height:64px;border-radius:12px;overflow:hidden;
+  border:1px solid var(--line,rgba(255,255,255,.14));background:rgba(255,255,255,.04);
+  display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--dim)}
+.cthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.cthumb.busy span{animation:aepulse 1.2s ease-in-out infinite}
+.cthumb.err{width:auto;max-width:240px;padding:0 26px 0 10px;color:#e88}
+@keyframes aepulse{50%{opacity:.4}}
+.cthumb button{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:9px;
+  border:0;background:rgba(0,0,0,.65);color:#fff;font-size:12px;line-height:18px;
+  padding:0;cursor:pointer}
 .turn.you .bubble{background:var(--panel2);border:1px solid var(--line);
   border-radius:15px 15px 5px 15px;padding:10px 14px;max-width:84%;
   font-size:14px;line-height:1.55;color:var(--tx);white-space:pre-wrap;
@@ -12082,13 +12128,15 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
    </div></div>
    <div class="conv-dock"><div class="conv-wrap">
      <div class="composer" data-beam="ae"><span data-beam-bloom></span>
+       <div class="cattach" hidden></div>
        <textarea id="npurl" rows="1"
         placeholder="Paste a template URL, or tell Aethron what you want…"
         oninput="growTa(this)"
         onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
        <div class="cbar">
-         <label class="cpill" for="npfile"
-          title="an export, a zip, or pages you saved separately"><span
+         <label class="cpill" title="a screenshot to rebuild, an export, a zip, or saved pages"><input
+          type="file" class="cattach-in" accept="image/*,.html,.htm,.zip" multiple
+          hidden onchange="composerFiles(this)"><span
           data-ic="file" data-ics="13"></span>attach</label>
          <button class="cpill opt" onclick="openSettings()"
           title="change the model or the key"><span data-ic="key"
@@ -13303,19 +13351,40 @@ async function stopCode(){
    whenever the view changes, and per-element listeners would silently
    stop working after the first navigation. */
 const IMG_TAS=['npurl','chatta'];
-function imgNote(ta,msg,busy){
-  const row=ta.closest('.startrow')||ta.parentElement;
-  let n=row.parentElement.querySelector('.imgnote');
-  if(!n){ n=document.createElement('div'); n.className='imgnote';
-    n.style.cssText='font-size:12px;color:var(--dim);margin-top:6px;'
-      +'display:flex;align-items:center;gap:7px';
-    row.parentElement.insertBefore(n,row.nextSibling); }
-  n.textContent=(busy?'· ':'')+msg;
-  return n;
+/* AN ATTACHED IMAGE IS SHOWN, NOT DESCRIBED. It used to arrive as a file
+   path typed into the message and one grey line under the box, so a
+   person could not tell it was there, and the model behind the bridge was
+   never shown it at all. Now it is a thumbnail in the composer, the same
+   picture in the sent message, and real image input to the model. */
+CODE.pending=CODE.pending||[];
+function chipRow(ta){
+  const comp=ta&&ta.closest('.composer');
+  let row=comp?comp.querySelector('.cattach'):null;
+  if(!row&&ta){ row=document.createElement('div'); row.className='cattach';
+    ta.parentElement.insertBefore(row,ta); }
+  return row;
+}
+function renderPending(ta){
+  ta=ta||activeImgTa();
+  const row=chipRow(ta); if(!row)return;
+  row.hidden=!CODE.pending.length;
+  row.innerHTML=CODE.pending.map((p,i)=>p.busy
+    ?`<div class="cthumb busy" title="attaching…"><span>attaching…</span></div>`
+    :p.err?`<div class="cthumb err" title="${esc(p.err)}"><span>${esc(p.err)}</span>
+       <button onclick="unattach(${i})" aria-label="Remove">×</button></div>`
+    :`<div class="cthumb" title="${esc(p.label)}"><img src="${p.url}" alt="${esc(p.label)}">
+       <button onclick="unattach(${i})" aria-label="Remove image">×</button></div>`).join('');
+}
+function unattach(i){ CODE.pending.splice(i,1); renderPending(); }
+function takePending(){
+  const ok=CODE.pending.filter(p=>p.name&&!p.busy&&!p.err);
+  CODE.pending=[]; renderPending();
+  return ok;
 }
 async function attachImage(file,ta){
   if(!file)return;
-  imgNote(ta,'reading '+(file.name||'pasted image')+'…',true);
+  const slot={busy:true,label:file.name||'pasted image'};
+  CODE.pending.push(slot); renderPending(ta);
   try{
     const b64=await new Promise((res,rej)=>{
       const r=new FileReader();
@@ -13323,15 +13392,35 @@ async function attachImage(file,ta){
       r.readAsDataURL(file);
     });
     const r=await api('/api/image',{data:b64});
-    const cur=ta.value.trim();
-    ta.value=(cur?cur+'\n':'')+r.path;
-    growTa(ta); ta.focus();
-    imgNote(ta,'attached '+r.name+' ('+Math.round(r.bytes/1024)+' KB) — '
-      +'its path is in the message');
-  }catch(e){ imgNote(ta,'could not attach that image: '+e.message); }
+    Object.assign(slot,{busy:false,name:r.name,url:'/uploads/'+r.name});
+  }catch(e){ Object.assign(slot,{busy:false,err:'could not attach: '+e.message}); }
+  renderPending(ta); if(ta)ta.focus();
+}
+async function composerFiles(inp){
+  const fl=[...(inp.files||[])]; inp.value='';
+  const ta=activeImgTa(inp)||$('npurl');
+  const pics=fl.filter(f=>/^image\//.test(f.type)), rest=fl.filter(f=>!/^image\//.test(f.type));
+  pics.forEach(f=>attachImage(f,ta));
+  if(rest.length){
+    /* an export or saved pages: start a project from them, as the box says */
+    const name=(rest[0].name||'site').replace(/\.(html?|zip)$/i,'')
+      .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'site';
+    try{
+      const files=[];
+      for(const f of rest)files.push({filename:f.name,data_b64:await b64of(f)});
+      const r=await api('/api/projects',{name,files});
+      await select(r.name);
+    }catch(e){ alert('could not start a project from that file: '+e.message); }
+  }
+}
+function youImages(e){
+  return (e.images||[]).map(u=>String(u).indexOf('/uploads/')===0?u
+    :'/uploads/'+String(u).split(/[\\/]/).pop());
 }
 function activeImgTa(t){
   if(t&&t.id&&IMG_TAS.indexOf(t.id)>=0)return t;
+  const c=t&&t.closest&&t.closest('.composer');
+  if(c){ const x=c.querySelector('textarea'); if(x)return x; }
   for(const id of IMG_TAS){ const e=$(id); if(e&&e.offsetParent!==null)return e; }
   return null;
 }
@@ -13357,12 +13446,14 @@ document.addEventListener('drop',ev=>{
 async function sendCode(){
   CODE.nudges=0;
   const ta=$('chatta'),text=ta.value.trim();
-  if(!text)return;
+  if(!text&&!CODE.pending.some(p=>p.name))return;
+  if(CODE.pending.some(p=>p.busy))return;     // still attaching
   if(!CODE.key)return alert('start a session first');
+  const pics=takePending();
   ta.value='';
-  CODE.events.push({type:'you',text});renderChat();
+  CODE.events.push({type:'you',text,images:pics.map(p=>p.url)});renderChat();
   CODE.lastEv=Date.now();CODE.slowNote='';
-  try{await api('/api/code/send',{key:CODE.key,text});}
+  try{await api('/api/code/send',{key:CODE.key,text,images:pics.map(p=>p.name)});}
   catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
 }
 /* One place stops a turn, so the log, the composer and the field can
@@ -13632,12 +13723,14 @@ function convShell(o){
     </div>
     <div class="conv-dock"><div class="conv-wrap">
       <div class="composer" data-beam="ae"><span data-beam-bloom></span>
+        <div class="cattach" hidden></div>
         <textarea id="npurl" rows="1" placeholder="${esc(o.hint||'')}"
          oninput="growTa(this)"
          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
         <div class="cbar">
-          <label class="cpill" for="npfile"
-           title="an export, a zip, or pages you saved separately">${I('file',13)}attach</label>
+          <label class="cpill" title="a screenshot to rebuild, an export, a zip, or saved pages"><input
+           type="file" class="cattach-in" accept="image/*,.html,.htm,.zip" multiple
+           hidden onchange="composerFiles(this)">${I('file',13)}attach</label>
           <button class="cpill opt" onclick="openSettings()"
            title="change the model or the key">${I('key',13)}<span
            class="cv" id="cbarmodel">model</span></button>
@@ -14740,8 +14833,10 @@ async function newConversation(){
 async function consoleSend(){
   CODE.nudges=0;
   const ta=$('npurl'), text=(ta&&ta.value||'').trim();
-  if(!text)return;
-  if(CODE.loading)await CODE.loading;    // never start before the history is known
+  if(!text&&!CODE.pending.some(p=>p.name))return;
+  if(CODE.pending.some(p=>p.busy))return;     // still attaching
+  if(CODE.loading)await CODE.loading;
+  const pics=takePending();    // never start before the history is known
   const w=$('welcome'), log=$('chatlog'),
         rows=document.querySelector('.focal .qrows'),
         meta=document.querySelector('.focal .startmeta');
@@ -14760,9 +14855,9 @@ async function consoleSend(){
       CODE.key=r.key;
       CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
     }
-    CODE.events.push({type:'you',text});renderChat();
+    CODE.events.push({type:'you',text,images:pics.map(p=>p.url)});renderChat();
     CODE.lastEv=Date.now();CODE.slowNote='';
-    await api('/api/code/send',{key:CODE.key,text});
+    await api('/api/code/send',{key:CODE.key,text,images:pics.map(p=>p.name)});
     if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
   }catch(e){
     CODE.events.push({type:'text',text:'Could not reach the agent: '
@@ -16477,7 +16572,7 @@ function convBlocks(evs){
     if(e.type==='earlier'){out.push({kind:'earlier',when:e.when||0});continue;}
     if(e.type==='truth'){out.push({kind:'truth',project:e.project,t:e.t,gaps:e.gaps||[]});continue;}
     if(e.type==='you'&&e.auto){out.push({kind:'sys',text:'Aethron sent the agent back: the project on disk is not finished.'});continue;}
-    if(e.type==='you')out.push({kind:'you',text:e.text});
+    if(e.type==='you')out.push({kind:'you',text:e.text,images:youImages(e)});
     else if(e.type==='text'&&String(e.text||'').trim())
       out.push({kind:'bot',text:e.text});
     else if(e.type==='thinking'&&String(e.text||'').trim())
@@ -16656,6 +16751,7 @@ function nowHtml(){
     ${state}</div>`;
 }
 function renderChat(){
+  if(CODE.pending&&CODE.pending.length)renderPending();
   const box=$('chatlog');if(!box)return;
   const talking=!!CODE.events.length;
   box.hidden=!talking;
@@ -16670,7 +16766,9 @@ function renderChat(){
   document.querySelectorAll('.conv-dock .startmeta,.conv-dock .qrows')
     .forEach(e=>{e.hidden=talking});
   box.innerHTML=convBlocks(CODE.events).map(b=>
-      b.kind==='you' ?`<div class="turn you"><div class="bubble">${esc(b.text)}</div></div>`
+      b.kind==='you' ?`<div class="turn you">${(b.images||[]).length?`<div class="youpics">${
+          b.images.map(u=>`<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="attached image" loading="lazy"></a>`).join('')}</div>`:''}${
+          b.text&&b.text!=='(image attached)'?`<div class="bubble">${esc(b.text)}</div>`:''}</div>`
     : b.kind==='bot' ?`<div class="turn bot"><div class="prose">${fmt(b.text)}</div></div>`
     : b.kind==='think'?`<details class="think"><summary>${I('sparkles',12)
         }Aethron thought this through</summary><div class="body">${esc(b.text)}</div></details>`

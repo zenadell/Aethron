@@ -5873,6 +5873,32 @@ credit. The causes were ours, each now refused by tests/openai_battery.py
    carry the provider's sentence plus what to check — for OpenAI's
    insufficient_quota: balance, EXPIRED prepaid credit, project budget.
 
+## AN ATTACHED IMAGE NEVER REACHED THE MODEL — 2026-10-18
+Owner: attached an image to test image-to-code on gpt-4.1-mini, nothing
+showed in the chat, no way to tell if it was sent. Three faults:
+1. The composer's "attach" pointed at the project-export input (.html/.zip
+   only), which exists only on the home screen and which nothing ever read
+   (createProject() had no caller). An image could not be chosen; in a
+   project the button did nothing.
+2. Paste/drop typed the file's PATH into the message plus one grey line.
+3. THE BRIDGE DROPPED EVERY PICTURE: Anthropic image blocks became
+   "[image omitted by the Aethron bridge]", and images inside tool results
+   were reduced to their text. No OpenAI/Gemini/DeepSeek model behind the
+   bridge had ever been shown an image.
+Now: attach takes images (and exports, which start a project); images are
+thumbnails in the composer and in the sent message (served from
+/uploads/<sha1>.png, names validated); /api/code/send takes `images`
+(names only, resolved inside HOME/uploads); the session sends real image
+blocks plus a tagged <aethron-attached> note with the saved paths (so
+screenshot_to_page can measure them, and restored conversations redraw
+the pictures). The bridge sends image_url data URLs, puts tool-returned
+images in a following user message, and when a model refuses image input
+(400 naming image/vision/content type) asks again with a note instead.
+tests/image_battery.py 19/19: translation, the real engine through the
+real bridge into a recording upstream (image arrives; refusal fallback
+finishes the turn; replay and transcript keep the picture), and the
+studio in a browser. The OCR-based rebuild itself still needs macOS.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6086,3 +6112,6 @@ credit. The causes were ours, each now refused by tests/openai_battery.py
 - A PROVIDER-SPECIFIC FIELD GOES ONLY TO MODELS THAT ACCEPT IT. Gate it on
   the model, not the provider: OpenAI's own models disagree.
 - A PAID KEY'S REFUSAL IS REPORTED, NEVER REMEMBERED past the request.
+- AN ATTACHMENT THE PERSON CANNOT SEE WAS NOT ATTACHED, AND ONE THE MODEL
+  CANNOT SEE WAS NOT SENT. Show it; send it as image input; say so when a
+  model has no eyes.
