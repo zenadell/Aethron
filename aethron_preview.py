@@ -617,6 +617,38 @@ def _rebase_assets(out: Path, base: str) -> int:
 # for yet. Rendered size rides along so the report can say "the hero".
 IMAGES_JS = r"""
 (function () {
+ function shownList() {
+  // every picture a visitor can see: <img> and CSS background images with
+  // a real box, not display:none / visibility:hidden. Opacity is NOT asked:
+  // entrance animations park content at opacity 0.001 under a virtual
+  // clock, and that would make the same picture count as gone at random.
+  var out = [];
+  try {
+   var all = document.body ? document.body.getElementsByTagName('*') : [];
+   for (var i = 0; i < all.length && out.length < 400; i++) {
+    var el = all[i], src = '', kind = '';
+    if (el.tagName === 'IMG') {
+     if (!el.getAttribute('src') && !el.getAttribute('srcset')) continue;
+     src = el.currentSrc || el.src; kind = 'img';
+    } else {
+     var bg = getComputedStyle(el).backgroundImage || '';
+     var m = bg.match(/url\(["']?([^"')]+)/);
+     if (!m) continue;
+     src = m[1]; kind = 'bg';
+    }
+    if (el.closest && el.closest('[data-ae-preview],[data-ae-block]')) continue;
+    var r = el.getBoundingClientRect();
+    if (r.width * r.height < 4000) continue;
+    var cs = getComputedStyle(el);
+    if (cs.visibility === 'hidden') continue;
+    if (el.checkVisibility && !el.checkVisibility()) continue;
+    out.push({src: src, kind: kind, w: Math.round(r.width),
+              h: Math.round(r.height), alt: el.alt || '',
+              y: Math.round(r.top + window.scrollY)});
+   }
+  } catch (e) {}
+  return out;
+ }
  function measure() {
   var dead = [], n = 0;
   try {
@@ -636,7 +668,7 @@ IMAGES_JS = r"""
   if (old) old.remove();
   var s = document.createElement('script');
   s.type = 'application/json'; s.id = '__ae_images';
-  s.textContent = JSON.stringify({images: n, dead: dead});
+  s.textContent = JSON.stringify({images: n, dead: dead, shown: shownList()});
   document.documentElement.appendChild(s);
  }
  function later() { setTimeout(measure, 60); setTimeout(measure, 2500); }
@@ -670,7 +702,7 @@ def _template_text(pristine) -> str:
 
 
 def check_preview(out: Path, base: str, sandbox: bool = False,
-                  pristine=None) -> dict:
+                  pristine=None, baseline=None) -> dict:
     """Open every exported page AT ITS PREVIEW ADDRESS in a headless
     browser and report what a visitor would get. The agent does not decide
     that a preview works; this does. No browser -> SKIPPED, never PASS."""
@@ -763,8 +795,11 @@ def check_preview(out: Path, base: str, sandbox: bool = False,
                     (had if key and tpl and key in tpl and
                      not key.startswith(f"http://127.0.0.1")
                      else dead).append(im)
+                shown = imgs.get("shown") or []
+                gone = missing_pictures((baseline or {}).get(page), shown,
+                                        base) if baseline else []
                 page_ok = len(text) >= floor and not bad and not dead \
-                    and not got.get("error")
+                    and not gone and not got.get("error")
                 # headless Chrome is killed once the page is dumped and a
                 # module still loading then reports itself failed; a real
                 # fault (a 404, a wiped page) happens on the second render
@@ -778,8 +813,107 @@ def check_preview(out: Path, base: str, sandbox: bool = False,
                             "images": imgs.get("images"),
                             "dead_images": dead[:8],
                             "template_dead_images": len(had),
+                            "shown": shown,
+                            "missing_images": gone[:8],
                             "console_errors": [str(c)[:160] for c in errs[:5]],
                             "layer": "__AE_PREVIEW__" in dom}
     finally:
         srv.shutdown()
-    return {"verdict": "PASS" if ok else "FAIL", "pages": report}
+    return {"verdict": "PASS" if ok else "FAIL", "pages": report,
+            "compared": baseline is not None}
+
+
+# A PICTURE CAN GO MISSING WITHOUT AN ERROR. Hidden by a rule, its slot
+# removed, its section rewritten: nothing fails to load, every word is
+# still there, and the check above passes (the Progrex hero case). The only
+# way to see it is to ask what the template showed in the same place. So
+# the same pages are built once more from the template's own content,
+# exported at the same address and rendered the same way; any picture
+# that showed there and has no counterpart here is MISSING.
+# A counterpart is the same picture (same file), or one of the same size
+# in the same order — a swapped photo keeps its slot's size. Small pictures
+# (icons, under 100x100) are left out: an icon changed by design is not a
+# lost hero, and a check that cries wolf is one people stop reading.
+MISSING_MIN_AREA = 100 * 100
+
+
+def _src_key(src: str, base: str) -> str:
+    k = (src or "").split("?")[0].split("#")[0]
+    k = re.sub(r"^https?://127\.0\.0\.1:\d+", "", k)
+    if base and k.startswith(base + "/"):
+        k = k[len(base):]
+    return k
+
+
+def missing_pictures(before, after, base: str = "") -> list:
+    if not before:
+        return []
+    after = list(after or [])
+    used = [False] * len(after)
+    gone = []
+    for b in before:
+        if b["w"] * b["h"] < MISSING_MIN_AREA:
+            continue
+        kb = _src_key(b["src"], base)
+        hit = next((i for i, a in enumerate(after) if not used[i]
+                    and _src_key(a["src"], base) == kb), None)
+        if hit is None:
+            hit = next((i for i, a in enumerate(after) if not used[i]
+                        and abs(a["w"] - b["w"]) <= 0.15 * b["w"]
+                        and abs(a["h"] - b["h"]) <= 0.15 * b["h"]), None)
+        if hit is None:
+            gone.append({"src": b["src"], "w": b["w"], "h": b["h"],
+                         "kind": b.get("kind", "img"), "y": b.get("y", 0),
+                         "alt": b.get("alt", "")})
+        else:
+            used[hit] = True
+    return gone
+
+
+def template_pictures(d: Path, base: str) -> dict:
+    """What the chosen pages show when built from the TEMPLATE'S content:
+    the preview with every fill, style, removal and extra taken out, and
+    the template's own hide rules. Rendered at the preview's address, so
+    the two runs differ only by what was changed. {page: [pictures]}."""
+    import tempfile
+    d = Path(d)
+    cfg = _cfg(d)
+    work = Path(tempfile.mkdtemp(prefix="ae-baseline-"))
+    try:
+        twin = work / d.name
+
+        def _share(src, dst):
+            if "pristine" in Path(src).relative_to(d).parts \
+                    and not Path(src).name.startswith(".forge-"):
+                try:
+                    return os.link(src, dst)
+                except OSError:
+                    pass
+            return shutil.copy2(src, dst)
+        keep = {"pristine", "assets", "copy_map.json", "forge.json",
+                "project_plan.md", "animations.json"}
+        shutil.copytree(d, twin, copy_function=_share,
+                        ignore=lambda w, n: [] if Path(w) != d
+                        else [x for x in n if x not in keep])
+        cm = json.loads((twin / "copy_map.json").read_text(encoding="utf-8"))
+        for sec, v in list(cm.items()):
+            if isinstance(v, list):
+                for e in v:
+                    if isinstance(e, dict) and "new" in e:
+                        e["new"] = ""
+            if sec in ("styles", "remove"):
+                cm[sec] = []
+        (twin / "copy_map.json").write_text(json.dumps(cm, indent=1),
+                                            encoding="utf-8")
+        tcfg = _cfg(twin)
+        tpl = d.parent / str((cfg.get("preview") or {}).get("template", ""))
+        if (tpl / "forge.json").is_file() and tpl != d:
+            tcfg["hide_selectors"] = _cfg(tpl).get("hide_selectors", [])
+        tcfg["preview"] = dict(tcfg["preview"], blocks=[])
+        _save_cfg(twin, tcfg)
+        out = work / "out"
+        export_preview(twin, out)
+        c = check_preview(out, base, pristine=twin / "pristine")
+        return {p: v.get("shown") or [] for p, v in c.get("pages", {}).items()}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)

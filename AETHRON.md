@@ -5832,6 +5832,29 @@ studio, real browser, a project built from tests/pages/site.html: card
 after an update, each Try-it lands with a ring, seen is remembered,
 Esc, reduced motion still drawn, no console errors). Both in run_all.
 
+## A PICTURE THAT VANISHES WITHOUT AN ERROR — 2026-10-18
+The last open item from the run-records work. A picture hidden by a rule,
+its slot removed or its section rewritten fails nothing: no request
+errors, every word stays, and check_preview said PASS. export_preview
+(MCP) now asks what the TEMPLATE shows: `template_pictures` copies the
+preview with every fill, style, removal and extra taken out (and the
+template's own hide rules), exports it at the SAME address, renders it
+the same way, and `missing_pictures` matches each picture there (>=100x100,
+<img> or CSS background, not display:none/visibility:hidden) to one in the
+preview — the same file, or one of the same size (±15%) in order, because
+a swapped photo keeps its slot's size. Unmatched = "PICTURE MISSING", a
+FAIL and a run-record finding. Opacity is not asked: entrance animations
+park content at 0.001 under the virtual clock, and that would make the
+same picture count as gone at random. Costs one extra build + render
+(~5s on a one-page Progrex preview).
+MEASURED on a real Progrex scrape: unfilled home PASS; the 1447x2324 hero
+hidden by `img[src*=…]{display:none}` -> FAIL naming it; the hero swapped
+for another photo -> PASS; all 6 pages with nothing changed -> PASS (no
+false alarm); preview battery (fills text, adds a map + reviews) still
+PASSes before the hide. preview battery 27 -> 29, keeper 19/19, runlog
+18/18. NOT caught: a picture made transparent (opacity 0), and an icon
+under 100x100.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6040,3 +6063,5 @@ Esc, reduced motion still drawn, no console errors). Both in run_all.
   called is the token's label, never what the agent says it is.
 - A PICTURE THAT DOES NOT LOAD IS A FAILURE, NOT A DETAIL. Ask an image
   address before taking it; ask the page whether each picture decoded.
+- A PICTURE THE TEMPLATE SHOWED AND THE PREVIEW DOES NOT IS MISSING,
+  error or no error. Compare with the template, rendered the same way.

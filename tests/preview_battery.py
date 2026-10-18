@@ -198,6 +198,7 @@ def main():
         ck("…and replace=true swaps it", ok, out)
 
         ok, out = call("export_preview", {"project": "lead-acme"}, timeout=900)
+        first = dict(LAST.get("structuredContent") or {})
         ck("the export's browser check PASSES at the preview address",
            ok and "browser check at /preview/lead-acme: PASS" in out, out)
         ck("export_preview returns its verdict and folder as JSON",
@@ -278,6 +279,26 @@ window.addEventListener('load',function(){setTimeout(function(){
                                  "Not interested|/preview/lead-acme/declined"], res)
         ck("the extras are placed on the page", set(res.get("blocks") or [])
            >= {"ae-pv-block ae-pv-map", "ae-pv-block ae-pv-rev"}, res)
+
+        # A PICTURE CAN GO MISSING WITHOUT AN ERROR (the Progrex hero): hide
+        # the home page's biggest picture with a rule — nothing fails to
+        # load, every word stays — and the export must still FAIL, naming it
+        home_pics = ((first.get("pages") or {}).get("index.html") or {}) \
+            .get("shown") or []
+        imgs = [i for i in home_pics if i.get("kind") == "img"]
+        ck("the check sees the home page's pictures", imgs, home_pics[:3])
+        if imgs:
+            big = max(imgs, key=lambda i: i["w"] * i["h"])
+            stem = re.sub(r"\.\w+$", "", big["src"].split("?")[0]
+                          .rstrip("/").rsplit("/", 1)[-1])
+            ok, out = call("add_style", {"project": "lead-acme",
+                                         "selector": f'img[src*="{stem}"]',
+                                         "css": {"display": "none"}})
+            ok, out = call("export_preview", {"project": "lead-acme"},
+                           timeout=900)
+            ck("a picture hidden without any error FAILS the export, named",
+               "browser check at /preview/lead-acme: FAIL" in out
+               and "PICTURE MISSING" in out and stem in out, out[-600:])
     finally:
         p.kill()
         shutil.rmtree(home, ignore_errors=True)
