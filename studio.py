@@ -217,6 +217,44 @@ def is_locked(root: Path, f: Path) -> bool:
 LOCKED_DIRS = ("site", "pristine")
 
 
+def zip_project(d: Path, full: bool) -> tuple:
+    """(zip bytes, file name): the built site, or with full=True the whole
+    rebuildable project (dev/AI handoff: backend + guide included)."""
+    site = d / "site"
+    buf = io.BytesIO()
+    if full:
+        subprocess.run(forge_argv("backend"), cwd=d, capture_output=True)
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(FORGE, "forge.py")
+            for f in d.rglob("*"):
+                if f.is_file() and ".history" not in f.parts:
+                    z.write(f, f.relative_to(d))
+        return buf.getvalue(), f"{d.name}-project.zip"
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in site.rglob("*"):
+            if f.is_file():
+                z.write(f, f.relative_to(site))
+    return buf.getvalue(), f"{d.name}-site.zip"
+
+
+# THE APP WINDOW IS NOT A BROWSER. Inside Aethron.app the page runs in a
+# WKWebView, which silently drops window.open() and link-started downloads
+# — so "Open in browser", "Download site.zip" and "Dev handoff" did
+# nothing at all. The studio runs on the same computer as the person, so
+# it does those itself: opens the real browser, and saves into Downloads
+# then shows the file in Finder.
+def reveal(path: Path):
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(path)])
+        elif sys.platform.startswith("win"):
+            subprocess.Popen(["explorer", "/select,", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path.parent)])
+    except Exception:
+        pass
+
+
 def forge_argv(*args):
     """argv prefix that runs the forge engine, dev or frozen."""
     if FROZEN:
@@ -1665,29 +1703,9 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(cards)
             elif u.path == "/api/download":
                 d = self.project_dir(q)
-                site = d / "site"
-                if not site.exists():
+                if not (d / "site").exists():
                     return self.fail("run build first", 404)
-                full = q.get("full", ["0"])[0] == "1"
-                buf = io.BytesIO()
-                if full:
-                    # dev/AI handoff: the WHOLE self-contained project —
-                    # rebuildable, extendable, with the backend + guide
-                    subprocess.run(forge_argv("backend"),
-                                   cwd=d, capture_output=True)
-                    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-                        z.write(FORGE, "forge.py")
-                        for f in d.rglob("*"):
-                            if f.is_file() and ".history" not in f.parts:
-                                z.write(f, f.relative_to(d))
-                    fname = f"{d.name}-project.zip"
-                else:
-                    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-                        for f in site.rglob("*"):
-                            if f.is_file():
-                                z.write(f, f.relative_to(site))
-                    fname = f"{d.name}-site.zip"
-                data = buf.getvalue()
+                data, fname = zip_project(d, q.get("full", ["0"])[0] == "1")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/zip")
                 self.send_header("Content-Disposition",
@@ -2149,6 +2167,29 @@ class Handler(BaseHTTPRequestHandler):
                 f.parent.mkdir(parents=True, exist_ok=True)
                 f.write_text(body.get("text", ""), encoding="utf-8")
                 self.send_json({"ok": True, "size": f.stat().st_size})
+            elif u.path == "/api/open":
+                url = str(body.get("url") or "")
+                if not re.match(r"(https?://(127\.0\.0\.1|localhost)[:/]|https://)",
+                                url):
+                    return self.fail("only web addresses can be opened")
+                import webbrowser
+                threading.Thread(target=webbrowser.open, args=(url,),
+                                 daemon=True).start()
+                self.send_json({"opened": url})
+            elif u.path == "/api/export":
+                d = self.project_dir({"name": [str(body.get("project", ""))]})
+                if not (d / "site").exists():
+                    return self.fail("build the site first", 404)
+                data, fname = zip_project(d, bool(body.get("full")))
+                dl = Path.home() / "Downloads"
+                dl.mkdir(exist_ok=True)
+                out, n = dl / fname, 1
+                while out.exists():
+                    n += 1
+                    out = dl / fname.replace(".zip", f" ({n}).zip")
+                out.write_bytes(data)
+                reveal(out)
+                self.send_json({"path": str(out), "bytes": len(data)})
             elif u.path == "/api/runs/upload":
                 import aethron_runlog as RL
                 st = RL.set_upload(bool(body.get("on")))
@@ -11400,6 +11441,66 @@ header{gap:12px}
 @media (prefers-reduced-motion:reduce){.ucdot,.ucspin,.ucbar.ind{animation:none}}
 
 /* overflow menu */
+.backbtn{margin-right:6px}.backbtn .ic{transform:rotate(-90deg)}
+.backbtn[hidden]{display:none!important}
+/* ── the rail: the project's cards, pinned right ─────────────────── */
+.prail{display:none}
+@media (min-width:1100px){
+  body.railed:not(.split) #steps,body.railed:not(.split) nav#tabs{display:none!important}
+  body.railed:not(.split) #conv{position:relative}
+  body.railed:not(.split) #conv .conv-shell{padding-right:322px}
+  body.railed:not(.split) #conv .conv-wrap>.pcard{display:none}
+  body.railed:not(.split):not(.pvwopen) .prail{display:flex}
+}
+.prail{position:absolute;top:16px;right:16px;bottom:16px;width:292px;z-index:6;
+  flex-direction:column;gap:12px;overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:none;animation:railin .5s var(--spring,cubic-bezier(.2,.8,.2,1)) both}
+.prail::-webkit-scrollbar{display:none}
+@keyframes railin{from{opacity:0;transform:translateX(18px)}}
+.rcard{flex:none;padding:12px;border-radius:16px;display:flex;flex-direction:column;gap:7px;
+  background:rgba(22,19,18,.62);border:1px solid rgba(255,255,255,.07);
+  box-shadow:0 12px 34px rgba(0,0,0,.28)}
+.rshot{position:relative;height:168px;border-radius:11px;overflow:hidden;cursor:pointer;
+  background:#0d0d0f;border:1px solid rgba(255,255,255,.07)}
+.rshot iframe{position:absolute;top:0;left:0;width:1280px;height:800px;border:0;
+  transform:scale(.2094);transform-origin:0 0;pointer-events:none}
+.rshot:hover .pveil{opacity:.25}
+.rplay{position:absolute;right:10px;bottom:10px;width:30px;height:30px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(255,255,255,.92);color:#111;
+  box-shadow:0 4px 14px rgba(0,0,0,.35);transition:transform .25s var(--spring,ease)}
+.rshot:hover .rplay{transform:scale(1.1)}
+.rempty{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;
+  gap:6px;color:var(--lo);font-size:12px}
+.rname{font-size:15px;font-weight:600;letter-spacing:-.02em;color:var(--tx);margin-top:4px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.racts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:2px}
+.racts .wide{grid-column:1/-1}
+.racts .cpill{justify-content:center}
+.racts .cpill[disabled]{opacity:.45;pointer-events:none}
+.rhead{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--lo)}
+.rhead b{font-size:13px;letter-spacing:0;text-transform:none;color:var(--tx);font-weight:600}
+.rbar{height:5px;border-radius:9px;background:rgba(255,255,255,.08);overflow:hidden}
+.rbar i{display:block;height:100%;border-radius:9px;background:var(--acc,#d97757);
+  transition:width .6s var(--spring,ease)}
+.rsub{font-size:12px;color:var(--lo)}.rsub a{color:#e5604f;cursor:pointer}
+.rbtns{display:flex;gap:6px;margin-top:3px}.rbtns button{flex:1;justify-content:center}
+.prail button.rrow{justify-content:flex-start;border:0;box-shadow:none;min-height:0}
+.rrow{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:9px;
+  background:none;border:0;color:var(--t-2,#cfc6be);font:inherit;font-size:13px;
+  cursor:pointer;text-align:left}
+.rrow:hover{background:rgba(255,255,255,.07);color:var(--t-1,#fff)}
+.rrow.quiet{color:var(--lo)}
+@media (prefers-reduced-motion:reduce){.prail{animation:none}}
+#toasts{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;
+ display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{pointer-events:auto;cursor:pointer;max-width:min(560px,90vw);padding:10px 16px;
+ border-radius:12px;background:rgba(28,24,22,.94);color:#f4ede6;font-size:13.5px;
+ box-shadow:0 10px 30px rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);
+ animation:toastin .28s cubic-bezier(.2,.8,.2,1)}
+.toast.bad{border-color:rgba(229,96,79,.6)}
+.toast.out{opacity:0;transform:translateY(6px);transition:all .35s}
+@keyframes toastin{from{opacity:0;transform:translateY(10px)}}
 .omenu{position:relative}
 .omenu>summary{list-style:none;width:32px;height:32px;border-radius:var(--r-md);
   display:grid;place-items:center;cursor:pointer;color:var(--t-3);
@@ -11512,6 +11613,7 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
   </aside>
 <main>
   <header>
+    <button class="iconbtn backbtn" id="backbtn" hidden title="Back (Esc)" onclick="goBack()"><span data-ic="up"></span></button>
     <div id="ptitle">no project selected</div>
     <div class="steps" id="steps"></div>
     <div id="updchip" hidden></div>
@@ -11868,6 +11970,7 @@ function updateMenuItem(){
     ${I('download',14)}<span>Update to ${esc(UPD.latest||'')}</span></button>`;
 }
 function renderHeader(){
+  try{syncRail();}catch(e){}
   $('ptitle').textContent=S.view==='settings'?'Settings':S.view==='library'?'Design library'
     :S.view==='runs'?'Agent runs'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
@@ -11886,13 +11989,13 @@ function renderHeader(){
   // advances the work in front of you; the rest is one click away and
   // silent until wanted.
   const menu=[
-    ready?['Re-run everything','zap',"runAll()"]:null,
-    ready?['Localize assets','home',"if(confirm('Download every remote asset into the project and rebuild? The site stops depending on the platform CDN.'))runStep('localize').then(ok=>ok!==false&&runStep('build'))"]:null,
+    ready?['Re-run everything','zap',"toast('Re-running fetch, inventory and build — progress is in Logs');openWork('logs');runAll()"]:null,
+    ready?['Localize assets','home',"if(confirm('Download every remote asset into the project and rebuild? The site stops depending on the platform CDN.')){toast('Localizing assets — progress is in Logs');openWork('logs');runStep('localize').then(ok=>ok!==false&&runStep('build'))}"]:null,
     null,
     ready?['Port to a framework','package',"portFramework()"]:null,
     null,
-    ['Download site.zip','download',"location='/api/download?project='+S.cur"],
-    ['Dev handoff','package',"location='/api/download?full=1&project='+S.cur"],
+    ['Download site.zip','download',"exportZip(false)"],
+    ['Dev handoff','package',"exportZip(true)"],
     ['Save design to library','library',"saveToLibrary()"],
   ];
   $('steps').innerHTML=
@@ -12322,6 +12425,76 @@ async function openRun(caller,run){
       <pre>${esc(x.result.text||'')}</pre></details></li>`).join('')}</ol>`;
   $('runview').scrollIntoView({behavior:'smooth',block:'start'});
 }
+
+// ---------- feedback that the app window cannot drop ----------
+/* THE APP WINDOW IS NOT A BROWSER. Inside Aethron.app this page runs in a
+   WKWebView: window.open(), link-started downloads and alert() can vanish
+   without a trace, which is why menu actions looked dead. Opening and
+   saving go through the studio (it runs on the same computer), and every
+   message is a toast the page draws itself. */
+function toast(msg,kind){
+  let box=document.getElementById('toasts');
+  if(!box){box=document.createElement('div');box.id='toasts';document.body.appendChild(box);}
+  const t=document.createElement('div');
+  t.className='toast'+(kind?' '+kind:'');t.textContent=String(msg);
+  t.onclick=()=>t.remove();
+  box.appendChild(t);
+  setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),400);},kind==='bad'?9000:5200);
+}
+window.alert=m=>toast(m);
+async function openExternal(url){
+  try{await api('/api/open',{url});}
+  catch(e){window.open(url,'_blank');}
+}
+async function exportZip(full){
+  if(!S.cur)return;
+  toast(full?'Packing the whole project…':'Packing the site…');
+  try{
+    const r=await api('/api/export',{project:S.cur,full:!!full});
+    toast('Saved '+r.path.split('/').pop()+' to Downloads — shown in Finder');
+  }catch(e){toast(e.message,'bad');}
+}
+
+// ---------- back ----------
+/* EVERY VIEW CHANGE PASSES THROUGH renderTab, so that is where the
+   history is kept: Settings, Library, Agent runs, Code and Design used to
+   be one-way doors — the only way back to a project was finding it again
+   in the sidebar. Back (the button, Esc, ⌘[ or the mouse's back button)
+   returns to exactly the project or page you came from. */
+const NAV={stack:[],cur:null,back:false};
+function navKey(){return (S.view||'')+'|'+(S.cur||'');}
+function noteNav(){
+  const k=navKey();
+  if(k!==NAV.cur){
+    if(NAV.cur!==null&&!NAV.back&&NAV.stack[NAV.stack.length-1]!==NAV.cur){
+      NAV.stack.push(NAV.cur);
+      if(NAV.stack.length>40)NAV.stack.shift();
+    }
+    NAV.back=false;NAV.cur=k;
+  }
+  const b=$('backbtn');if(b)b.hidden=!NAV.stack.length;
+}
+async function goBack(){
+  let prev=NAV.stack.pop();
+  while(prev===NAV.cur&&NAV.stack.length)prev=NAV.stack.pop();
+  if(prev===undefined||prev===NAV.cur){const b=$('backbtn');if(b)b.hidden=true;return;}
+  NAV.back=true;
+  const [view,cur]=prev.split('|');
+  const lb=$('libbtn');if(lb)lb.classList.remove('sel');
+  const rb=$('runsbtn');if(rb)rb.classList.remove('sel');
+  if(cur&&S.projects&&S.projects.some(p=>p.name===cur))return select(cur);
+  const open={settings:openSettings,library:openLibrary,runs:openRuns,
+              code:openCode,design:openDesign}[view];
+  if(open)return open();
+  newProject();
+}
+document.addEventListener('keydown',e=>{
+  const t=e.target,typing=t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+  if((e.metaKey||e.ctrlKey)&&e.key==='['){e.preventDefault();goBack();return;}
+  if(e.key==='Escape'&&!typing&&['settings','library','runs','code','design'].includes(S.view)
+     &&!document.querySelector('details[open], .modal.on, #tour.on')){goBack();}
+});
+document.addEventListener('mouseup',e=>{if(e.button===3){e.preventDefault();goBack();}});
 
 // ---------- design library ----------
 async function openLibrary(){
@@ -13121,7 +13294,7 @@ function openSettings(){S.view='settings';S.cur=null;S.panel=false;renderTab();r
 function projectCard(){
   if(!S.cur)return '';
   const i=S.info||{}, plat=(i.platform||'').toUpperCase(),
-        n=i.strings||0, f=i.filled||0,
+        n=i.total||i.strings||0, f=i.filled||0,
         pages=(i.pages&&i.pages.length)||0;
   return `<div class="pcard glass">
     <div class="pshot" onclick="openPreviewPane(false)" title="open the preview">
@@ -13140,6 +13313,71 @@ function projectCard(){
         <button class="cpill opt" onclick="openInBrowser()">${I('compass',13)}Open in browser</button>
       </div>
     </div></div>`;
+}
+/* ── THE RAIL ────────────────────────────────────────────────────────
+   The project card used to sit at the TOP of the conversation, so on a
+   long conversation the preview was a long scroll away — and the old
+   header strip (Build, Undo, Preview/Strings/Images/Links/Logs) sat over
+   the new chat like a second application. Both live here now: a column
+   of cards pinned to the right, always in reach, never scrolled away. */
+function projectRail(){
+  if(!S.cur)return '';
+  const i=S.info||{}, plat=(i.platform||'').toUpperCase(),
+        n=i.total||i.strings||0, f=i.filled||0, ready=!!i.built,
+        pages=(i.pages&&i.pages.length)||0,
+        pct=n?Math.round(100*f/n):0, dead=(S.zeroFx&&S.zeroFx.length)||0;
+  const row=(icon,label,act,cls)=>`<button class="rrow${cls?' '+cls:''}" onclick="${act}">
+      ${I(icon,14)}<span>${label}</span></button>`;
+  return `<aside class="prail" id="prail">
+   <div class="rcard rprev">
+    <div class="rshot" onclick="openPreviewPane(false)" title="open the preview">
+      ${ready?`<iframe src="/edit/${encodeURIComponent(S.cur)}/" tabindex="-1"
+        scrolling="no" aria-hidden="true"></iframe>`
+        :`<div class="rempty">${I('hammer',18)}<span>Not built yet</span></div>`}
+      <span class="pveil"></span>
+      ${ready?`<span class="rplay">${I('play',14)}</span>`:''}
+    </div>
+    <div class="rname">${esc(S.cur)}</div>
+    <div class="pmeta">${plat?`<span class="tag">${esc(plat)}</span>`:''}
+      ${pages?`<span>${pages} page${pages>1?'s':''}</span>`:''}</div>
+    <div class="racts">
+      <button class="cpill" onclick="openPreviewPane(false)" ${ready?'':'disabled'}>${I('play',13)}Preview</button>
+      <button class="cpill" onclick="openPreviewPane(true)" ${ready?'':'disabled'}>${I('pencil',13)}Point and edit</button>
+      <button class="cpill opt wide" onclick="openInBrowser()" ${ready?'':'disabled'}>${I('compass',13)}Open in browser</button>
+    </div>
+   </div>
+   <div class="rcard">
+    <div class="rhead"><span>Progress</span><b>${f} / ${n}</b></div>
+    <div class="rbar"><i style="width:${pct}%"></i></div>
+    <div class="rsub">${n?`${pct}% of the text is yours`:'No text read yet'}${dead?` &middot; <a onclick="showZeroFx()">${dead} edit${dead>1?'s':''} did not land</a>`:''}</div>
+    <div class="rbtns">
+      ${ready?`<button class="big" onclick="runStep('build')">${I('hammer',14)}Build</button>`
+        :`<button class="big" onclick="runAll()">${I('zap',14)}Prepare</button>`}
+      ${i.undo?`<button class="ghost" onclick="doUndo()">${I('undo',14)}Undo</button>`:''}
+    </div>
+   </div>
+   <div class="rcard rlist">
+    <div class="rhead"><span>Edit by hand</span></div>
+    ${row('file','Strings',"openWork('strings')")}
+    ${row('image','Images',"openWork('images')")}
+    ${row('compass','Links',"openWork('links')")}
+    ${row('terminal','Logs',"openWork('logs')")}
+   </div>
+   <div class="rcard rlist">
+    <div class="rhead"><span>Take it with you</span></div>
+    ${row('download','Download site.zip','exportZip(false)')}
+    ${row('package','Dev handoff','exportZip(true)')}
+    ${ready?row('package','Port to a framework','portFramework()'):''}
+    ${row('library','Save design to library','saveToLibrary()')}
+    ${ready?row('zap','Re-run everything',"toast('Re-running fetch, inventory and build — progress is in Logs');openWork('logs');runAll()",'quiet'):''}
+    ${ready?row('home','Localize assets',"if(confirm('Download every remote asset into the project and rebuild? The site stops depending on the platform CDN.')){toast('Localizing assets — progress is in Logs');openWork('logs');runStep('localize').then(ok=>ok!==false&&runStep('build'))}",'quiet'):''}
+   </div>
+  </aside>`;
+}
+function syncRail(){
+  const r=$('prail');
+  if(!r||S.view!=='project'||!S.cur)return;
+  r.outerHTML=projectRail();
 }
 /* ── THE PREVIEW SHEET ─────────────────────────────────────────────
    Inside Aethron, over the conversation. Browse behaves like a browser;
@@ -13513,8 +13751,9 @@ function selSend(){
 async function openInBrowser(){
   if(!S.cur)return;
   try{const {port}=await api('/api/preview',{project:S.cur});
-      window.open('http://127.0.0.1:'+port+'/','_blank');}
-  catch(e){note&&note('could not start the preview: '+e.message);}
+      await openExternal('http://127.0.0.1:'+port+'/');
+      toast('Opened the site in your browser');}
+  catch(e){toast('Could not start the preview: '+e.message,'bad');}
 }
 /* The front door, rebuilt rather than remembered. Same words the page
    ships with, so returning here is indistinguishable from launching. */
@@ -13547,7 +13786,7 @@ function renderWelcome(c){
 }
 function renderChatTab(c){
   if(!c)return;              // never take the whole layout down with it
-  const n=(S.info&&S.info.strings)||0, f=(S.info&&S.info.filled)||0;
+  const n=(S.info&&(S.info.total||S.info.strings))||0, f=(S.info&&S.info.filled)||0;
   c.innerHTML=convShell({
     top:projectCard(),
     title:`What should <em>${esc(S.cur)}</em> become?`,
@@ -13566,6 +13805,7 @@ function renderChatTab(c){
       {icon:'package',label:'Port to another framework',
        ask:'Port this site to',
        need:'Which framework \u2014 astro, next, vue, svelte? Astro is the proven one.'}]});
+  c.insertAdjacentHTML('beforeend',projectRail());
   switchConversation(S.cur);
   bindStick();renderChat();mountDots(c);mountOrbs(c);
 }
@@ -15733,7 +15973,9 @@ window.addEventListener('unhandledrejection', ev=>{
 });
 
 function renderTab(){
+  noteNav();
   const c=$('content');
+  document.body.classList.toggle('railed', S.view==='project'&&!!S.cur);
   if(S.view!=='settings')c.classList.remove('set-host');
   if(S.view==='settings')return renderSettings(c);
   if(S.view==='code')return renderCode(c);
