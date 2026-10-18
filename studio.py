@@ -583,6 +583,11 @@ def project_info(d: Path) -> dict:
         "filled": filled, "total": total,
         "undo": undo_count(d),
         "pages": cfg.get("pages", []),
+        # when it was last touched, for "edited 2h ago" on its card
+        "edited": int(max((f.stat().st_mtime for f in
+                           (d / "copy_map.json", d / "forge.json",
+                            d / "site" / "index.html") if f.exists()),
+                          default=0)),
     }
 
 
@@ -1583,6 +1588,30 @@ class Handler(BaseHTTPRequestHandler):
                     if (d / "forge.json").exists():
                         out.append(project_info(d))
                 self.send_json(out)
+            elif u.path in ("/api/thumb", "/api/thumb.png"):
+                # A picture of the project's site: "site" is what it builds
+                # today, "original" is the template's own content. Made in
+                # the background; the page asks for the state and loads the
+                # picture once it is ready.
+                import aethron_thumbs as thumbs
+                d = self.project_dir(q)
+                which = q.get("which", ["site"])[0]
+                page = q.get("page", ["index.html"])[0] or "index.html"
+                if which not in thumbs.WHICH:
+                    return self.fail("which must be site or original")
+                if u.path == "/api/thumb":
+                    return self.send_json(
+                        thumbs.request(d, which, page, forge_argv()))
+                f = thumbs.path(d, which, page)
+                if not f.is_file():
+                    return self.fail("no picture yet", 404)
+                body = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "private, max-age=31536000")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             elif u.path == "/api/copymap":
                 d = self.project_dir(q)
                 f = d / "copy_map.json"
@@ -11579,6 +11608,18 @@ header>.iconbtn,header>.steps{flex:none}
 
 .nart .c-flow{animation:nFlow 1.6s linear infinite both}
 .nart .c-row{animation:nRow 6.4s var(--eo) infinite both}
+.nart .g-card{animation:nGCard 6.4s var(--eo) infinite both}
+.nart .g-pic{transform-origin:left center;animation:nGPic 6.4s var(--eo) infinite both}
+.nart .g-fill{transform-origin:left center;animation:nFill 6.4s var(--eo) infinite both}
+.nart .g-cur{animation:nGCur 6.4s var(--eo) infinite both}
+.nart .k-clip{animation:nKClip 4.8s cubic-bezier(.65,0,.35,1) infinite both}
+.nart .k-hand{animation:nKHand 4.8s cubic-bezier(.65,0,.35,1) infinite both}
+@keyframes nGCard{0%{opacity:0;transform:translateY(12px)}10%,90%{opacity:1;transform:none}100%{opacity:0}}
+@keyframes nGPic{0%,8%{opacity:0;transform:scaleX(.2)}20%,100%{opacity:1;transform:none}}
+@keyframes nGCur{0%,40%{opacity:0;transform:translate(330px,206px)}50%{opacity:1;transform:translate(150px,140px)}
+  60%{transform:translate(150px,140px) scale(.85)}66%,88%{opacity:1;transform:translate(150px,140px)}100%{opacity:0;transform:translate(150px,140px)}}
+@keyframes nKClip{0%,100%{transform:translateX(0)}30%{transform:translateX(-120px)}65%{transform:translateX(110px)}}
+@keyframes nKHand{0%,100%{transform:translateX(0)}30%{transform:translateX(-120px)}65%{transform:translateX(110px)}}
 @keyframes nFlow{0%{opacity:0;transform:translateX(0)}15%{opacity:1}85%{opacity:1}100%{opacity:0;transform:translateX(64px)}}
 @keyframes nRow{0%{opacity:0;transform:translateX(-10px)}8%,88%{opacity:1;transform:none}100%{opacity:0}}
 
@@ -11593,7 +11634,7 @@ header>.iconbtn,header>.steps{flex:none}
   100%{box-shadow:0 0 0 2px var(--a),0 0 0 16px rgba(217,119,87,0)}}
 @media (prefers-reduced-motion:reduce){
   .nart *{animation:none!important}
-  .nart .a-cur,.nart .b-cur,.nart .c-flow{display:none}
+  .nart .a-cur,.nart .b-cur,.nart .c-flow,.nart .g-cur{display:none}
   .newscard,.nswap,.aespot{animation:none!important;transition:none!important}
 }
 /* ── the rail: the project's cards, pinned right ─────────────────── */
@@ -11732,9 +11773,92 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
   body.editing #editdock{max-width:none;width:100%!important;
     height:auto;max-height:44vh}
   body.editing #editframe{height:auto;flex:1 1 56%;min-height:340px}}
+
+/* ── HOME: YOUR PROJECTS ─────────────────────────────────────────── */
+.hgal{margin-top:34px}
+.hgal-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--t-3);
+  margin:0 2px 12px}
+.hgal-n{text-transform:none;letter-spacing:0;color:var(--t-4)}
+.hgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
+.hcard{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;
+  border-radius:16px;overflow:hidden;background:var(--g-1);
+  border:1px solid var(--edge-1);box-shadow:var(--lift-1);
+  transition:transform .35s var(--spring,var(--eo)),border-color .2s,box-shadow .35s;
+  animation:hcardin .6s var(--spring,var(--eo)) both;animation-delay:calc(var(--i,0)*55ms)}
+@keyframes hcardin{from{opacity:0;transform:translateY(10px) scale(.985)}}
+.hcard:hover{transform:translateY(-3px);border-color:var(--edge-2);
+  box-shadow:0 18px 40px -12px rgba(0,0,0,.55),0 0 0 1px var(--a-16)}
+.hcard:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+.hcard:active{transform:translateY(-1px) scale(.99)}
+.hshot{position:relative;aspect-ratio:16/10;overflow:hidden;background:var(--g-3);
+  border-bottom:1px solid var(--edge-1)}
+.hshot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:top center;opacity:0;transform:scale(1.03);
+  transition:opacity .5s var(--eo),transform 1.2s var(--eo)}
+.hshot.has img{opacity:1;transform:scale(1)}
+.hcard:hover .hshot.has img{transform:scale(1.045)}
+.hshot.has .hskel{opacity:0}
+.hshot.nopic .hskel{animation:none;opacity:.5}
+.hskel{position:absolute;inset:0;transition:opacity .4s;
+  background:linear-gradient(100deg,transparent 30%,rgba(255,255,255,.05) 50%,transparent 70%) var(--g-3);
+  background-size:220% 100%;animation:hshim 1.4s linear infinite}
+@keyframes hshim{from{background-position:120% 0}to{background-position:-120% 0}}
+.hopen{position:absolute;right:10px;top:10px;width:26px;height:26px;border-radius:50%;
+  display:grid;place-items:center;background:rgba(255,255,255,.92);color:#111;
+  opacity:0;transform:scale(.8) rotate(45deg);
+  transition:opacity .2s,transform .3s var(--spring,var(--eo))}
+.hcard:hover .hopen{opacity:1;transform:scale(1) rotate(45deg)}
+.hbody{padding:11px 13px 13px;display:flex;flex-direction:column;gap:6px}
+.hname{font-size:14.5px;font-weight:590;letter-spacing:-.02em;color:var(--t-1);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hmeta{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--t-3)}
+.hmeta .plat{font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:2px 6px;
+  border-radius:5px;background:var(--g-4);color:var(--t-2)}
+.hbar{height:3px;border-radius:9px;background:var(--g-4);overflow:hidden}
+.hbar i{display:block;height:100%;border-radius:inherit;
+  background:linear-gradient(90deg,var(--a-lo),var(--a-hi))}
+.hsub{font-size:11.5px;color:var(--t-3)}
+@media (prefers-reduced-motion:reduce){.hcard,.hshot img,.hskel{animation:none;transition:none}}
+
+/* ── BEFORE / AFTER ───────────────────────────────────────────────── */
+.cmp{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:22px;box-sizing:border-box}
+.cmp-frame{--x:50%;position:relative;width:100%;max-width:1200px;aspect-ratio:1440/900;
+  max-height:calc(100% - 40px);border-radius:14px;overflow:hidden;background:var(--g-1);
+  border:1px solid var(--edge-2);box-shadow:0 30px 70px -20px rgba(0,0,0,.6);
+  cursor:ew-resize;touch-action:none;user-select:none;outline:none}
+.cmp-frame:focus-visible{box-shadow:0 0 0 2px var(--a),0 30px 70px -20px rgba(0,0,0,.6)}
+.cmp-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:top center;pointer-events:none;-webkit-user-drag:none}
+.cmp-bclip{position:absolute;inset:0;clip-path:inset(0 0 0 var(--x))}
+.cmp-frame:not(.ready) img,.cmp-frame:not(.ready) .cmp-handle,
+.cmp-frame:not(.ready) .cmp-tag{opacity:0}
+.cmp-frame.ready .cmp-wait{opacity:0;pointer-events:none}
+.cmp-frame.ready .cmp-bclip{transition:clip-path .7s var(--spring,var(--eo))}
+.cmp-frame.ready.drag .cmp-bclip,.cmp-frame.ready.drag .cmp-handle{transition:none}
+.cmp-wait{position:absolute;inset:0;display:grid;place-items:center;transition:opacity .4s;z-index:2}
+.cmp-wait>div{position:relative;display:flex;flex-direction:column;gap:6px;max-width:360px;
+  text-align:center;font-size:13px;color:var(--t-3);line-height:1.5}
+.cmp-wait b{color:var(--t-1);font-weight:590;font-size:14px}
+.cmp-frame.failed .hskel{animation:none}
+.cmp-handle{position:absolute;top:0;bottom:0;left:var(--x);width:2px;margin-left:-1px;
+  background:rgba(255,255,255,.9);box-shadow:0 0 18px rgba(0,0,0,.45);
+  transition:left .7s var(--spring,var(--eo))}
+.cmp-handle span{position:absolute;top:50%;left:50%;width:38px;height:38px;margin:-19px 0 0 -19px;
+  border-radius:50%;display:grid;place-items:center;background:#fff;color:#111;
+  box-shadow:0 6px 20px rgba(0,0,0,.4);transition:transform .25s var(--spring,var(--eo))}
+.cmp-frame.drag .cmp-handle span,.cmp-frame:hover .cmp-handle span{transform:scale(1.08)}
+.cmp-tag{position:absolute;top:12px;padding:4px 10px;border-radius:99px;font-size:11.5px;
+  font-weight:590;letter-spacing:.02em;color:#fff;background:rgba(10,10,10,.55);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transition:opacity .3s}
+.cmp-tag.l{left:12px}.cmp-tag.r{right:12px}
+.cmp-foot{font-size:12px;color:var(--t-3)}
+.cmp-page{flex:none;width:auto;max-width:220px;background:var(--g-3);color:var(--t-1);border:1px solid var(--edge-2);
+  border-radius:9px;padding:5px 9px;font:inherit;font-size:12.5px}
 </style></head><body>
 <aside>
-  <div class="brand"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
+  <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
   <div class="find"><span data-ic="search" data-ics="13"></span>
     <input id="findq" placeholder="Search" autocomplete="off" spellcheck="false"
      oninput="runFind(this.value)"
@@ -11840,6 +11964,8 @@ const $=id=>document.getElementById(id);
 if(location.search.indexOf('glass=1')>=0)
   document.documentElement.classList.add('native-glass');
 const ICONS={
+eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+split:'<path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/>',
 more:'<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
 search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
 terminal:'<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>',
@@ -11930,7 +12056,7 @@ async function refresh(keepTab){
     for(const p of S.projects)
       if(!had.has(p.name)&&p.name!==S.cur)S.fresh.add(p.name);
   }else S.fresh=new Set();   /* the FIRST listing is not news */
-  renderSidebar();
+  renderSidebar(); syncGallery();
   if(S.cur){
     S.info=S.projects.find(p=>p.name===S.cur)||null;
     if(!S.info){S.view='';S.cur=null;S.cm=null;S.panel=false;{const _c=document.getElementById('content');if(_c)_c.dataset.split='';}}
@@ -13357,6 +13483,7 @@ function convShell(o){
           JSON.stringify(q.need||'').replace(/"/g,'&quot;')})">
           <span data-ic="${q.icon}"></span><span class="ql">${esc(q.label)}</span>
           <span class="qc" data-ic="up"></span></button>`).join('')}</div>
+      ${o.after||''}
     </div></div></div>`;
 }
 /* ══ SETTINGS ═══════════════════════════════════════════════════════
@@ -13540,6 +13667,7 @@ function projectRail(){
     <div class="racts">
       <button class="cpill" onclick="openPreviewPane(false)" ${ready?'':'disabled'}>${I('play',13)}Preview</button>
       <button class="cpill" onclick="openPreviewPane(true)" ${ready?'':'disabled'}>${I('pencil',13)}Point and edit</button>
+      <button class="cpill wide" onclick="openCompare()" ${ready?'':'disabled'}>${I('eye',13)}Before / After</button>
       <button class="cpill opt wide" onclick="openInBrowser()" ${ready?'':'disabled'}>${I('compass',13)}Open in browser</button>
     </div>
    </div>
@@ -13570,6 +13698,144 @@ function projectRail(){
     ${ready?row('home','Localize assets',"if(confirm('Download every remote asset into the project and rebuild? The site stops depending on the platform CDN.')){toast('Localizing assets — progress is in Logs');openWork('logs');runStep('localize').then(ok=>ok!==false&&runStep('build'))}",'quiet'):''}
    </div>
   </aside>`;
+}
+/* ── PICTURES OF THE SITE ────────────────────────────────────────────
+   A project's card on Home and the Before / After slider both show a real
+   screenshot of the site, made in the background by the server (one
+   browser at a time) and fetched once it is ready. Until then the card
+   shimmers; nothing waits on it. */
+const THUMBS={};               // key -> {state, v}
+function thumbKey(p,w,pg){return p+'|'+w+'|'+(pg||'index.html');}
+function thumbSrc(p,w,pg,v){
+  return `/api/thumb.png?project=${encodeURIComponent(p)}&which=${w}`
+    +`&page=${encodeURIComponent(pg||'index.html')}&v=${v||0}`;
+}
+async function thumbWait(p,w,pg,tries){
+  const k=thumbKey(p,w,pg);
+  for(let i=0;i<(tries||80);i++){
+    let r;
+    try{r=await api(`/api/thumb?project=${encodeURIComponent(p)}&which=${w}`
+      +`&page=${encodeURIComponent(pg||'index.html')}`);}catch(e){r={state:'failed',why:e.message};}
+    THUMBS[k]=r;
+    if(r.state!=='pending')return r;
+    await new Promise(res=>setTimeout(res,i<4?1500:3000));
+  }
+  return THUMBS[k]||{state:'failed',why:'took too long'};
+}
+/* Fill every [data-thumb] inside root with its picture once it exists. */
+function loadThumbs(root){
+  (root||document).querySelectorAll('[data-thumb]:not([data-tl])').forEach(async el=>{
+    el.dataset.tl='1';
+    const r=await thumbWait(el.dataset.thumb,'site');
+    if(!el.isConnected)return;
+    if(r.state==='ready'){
+      const img=new Image();
+      img.alt='';img.decoding='async';
+      img.onload=()=>{el.appendChild(img);requestAnimationFrame(()=>el.classList.add('has'));};
+      img.src=thumbSrc(el.dataset.thumb,'site','',r.v);
+    }else el.classList.add('nopic');
+  });
+}
+function agoText(t){
+  if(!t)return '';
+  const s=Math.max(0,Date.now()/1000-t);
+  if(s<60)return 'just now';
+  const m=s/60,h=m/60,d=h/24;
+  if(m<60)return Math.round(m)+' min ago';
+  if(h<24)return Math.round(h)+' h ago';
+  if(d<30)return Math.round(d)+(Math.round(d)===1?' day ago':' days ago');
+  return new Date(t*1000).toLocaleDateString();
+}
+function homeGallery(){
+  const all=S.projects||[];
+  if(!all.length)return '';
+  const ps=all.slice().sort((a,b)=>(b.edited||0)-(a.edited||0)).slice(0,6);
+  return `<section class="hgal" id="hgal" ${CODE.events.length?'hidden':''}>
+    <div class="hgal-h"><span>Your projects</span>
+      ${all.length>ps.length?`<span class="hgal-n">${ps.length} of ${all.length} &middot; the rest are in the sidebar</span>`:''}</div>
+    <div class="hgrid">${ps.map((p,i)=>{
+      const pct=p.total?Math.round(100*p.filled/p.total):0;
+      const nm=JSON.stringify(p.name).replace(/"/g,'&quot;');
+      return `<button class="hcard" style="--i:${i}" onclick="select(${nm})">
+        <div class="hshot" ${p.built?`data-thumb="${esc(p.name)}"`:''}>
+          ${p.built?'<span class="hskel"></span>'
+            :`<div class="rempty">${I('hammer',18)}<span>Not built yet</span></div>`}
+          <span class="hopen">${I('up',13)}</span>
+        </div>
+        <div class="hbody">
+          <div class="hname">${esc(p.name)}</div>
+          <div class="hmeta"><span class="plat ${esc(p.platform)}">${esc(p.platform)}</span>
+            <span>${p.edited?'edited '+agoText(p.edited):''}</span></div>
+          <div class="hbar"><i style="width:${pct}%"></i></div>
+          <div class="hsub">${p.total?`${pct}% of the text is yours`:'Text not read yet'}</div>
+        </div></button>`;}).join('')}</div>
+  </section>`;
+}
+function syncGallery(){
+  const g=$('hgal');
+  if(!g||S.view||S.cur)return;
+  g.outerHTML=homeGallery();
+  loadThumbs($('hgal'));
+}
+/* ── BEFORE / AFTER ──────────────────────────────────────────────────
+   The template as it came, and the site as it is now, one over the other
+   with a handle to drag between them. "Before" is the same pages built
+   from the template's own content by the same engine, so the only thing
+   that differs is what was changed. */
+function openCompare(page){
+  if(!S.cur)return;
+  const pages=(S.info&&S.info.pages)||[];
+  page=page||'index.html';
+  openSheet({name:S.cur, sub:'before / after', dark:true,
+    bar:pages.length>1?`<select class="cmp-page" onchange="openCompare(this.value)">${
+      pages.map(pg=>`<option value="${esc(pg)}" ${pg===page?'selected':''}>${
+        esc(pg.replace(/\.html$/,'').replace(/^index$/,'home'))}</option>`).join('')}</select>`:'',
+    body:`<div class="cmp" id="cmp" data-page="${esc(page)}">
+      <div class="cmp-frame" id="cmpframe" tabindex="0"
+        aria-label="Before and after. Use the arrow keys to move the divider.">
+        <div class="cmp-wait" id="cmpwait"><span class="hskel"></span>
+          <div><b>Making the pictures</b><span id="cmpwhy">The first time, Aethron builds
+          the template's own version to compare against. That takes a moment.</span></div></div>
+        <img class="cmp-a" id="cmpa" alt="Before">
+        <div class="cmp-bclip" id="cmpb"><img class="cmp-b" id="cmpbi" alt="After"></div>
+        <div class="cmp-handle" id="cmph"><span>${I('split',15)}</span></div>
+        <span class="cmp-tag l">Before</span><span class="cmp-tag r">After</span>
+      </div>
+      <div class="cmp-foot">Drag the handle, or use the arrow keys. Before is the
+        template as it came; after is what you have built.</div>
+    </div>`,
+    onMount:()=>cmpLoad(S.cur,page)});
+}
+async function cmpLoad(proj,page){
+  const [a,b]=await Promise.all([thumbWait(proj,'original',page,120),
+                                 thumbWait(proj,'site',page,120)]);
+  const f=$('cmpframe'); if(!f||$('cmp').dataset.page!==page)return;
+  if(a.state!=='ready'||b.state!=='ready'){
+    const why=(a.state!=='ready'?a:b).why||'';
+    $('cmpwhy').textContent=(b.state==='none'&&why==='not built yet')
+      ?'Build the site first. There is nothing to compare yet.'
+      :'Could not make the pictures'+(why?': '+why:'.');
+    f.classList.add('failed');return;
+  }
+  let n=0;const done=()=>{if(++n<2)return;f.classList.add('ready');cmpSet(f,50);};
+  $('cmpa').onload=done;$('cmpbi').onload=done;
+  $('cmpa').src=thumbSrc(proj,'original',page,a.v);
+  $('cmpbi').src=thumbSrc(proj,'site',page,b.v);
+  const at=e=>{const r=f.getBoundingClientRect();
+    return Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100));};
+  f.onpointerdown=e=>{f.setPointerCapture(e.pointerId);f.classList.add('drag');cmpSet(f,at(e));};
+  f.onpointermove=e=>{if(f.classList.contains('drag'))cmpSet(f,at(e));};
+  f.onpointerup=f.onpointercancel=()=>f.classList.remove('drag');
+  f.onkeydown=e=>{
+    const x=Number(f.dataset.x||50);
+    if(e.key==='ArrowLeft'){e.preventDefault();cmpSet(f,x-(e.shiftKey?10:2));}
+    if(e.key==='ArrowRight'){e.preventDefault();cmpSet(f,x+(e.shiftKey?10:2));}
+  };
+}
+function cmpSet(f,x){
+  x=Math.max(0,Math.min(100,x));
+  f.dataset.x=x;
+  f.style.setProperty('--x',x+'%');
 }
 function syncRail(){
   const r=$('prail');
@@ -13980,9 +14246,11 @@ function renderWelcome(c){
        need:'Paste the live Framer or Webflow URL, and tell me the brand it should become.'},
       {icon:'image',label:'Rebuild a screenshot into real code',
        ask:'Rebuild this screenshot as ',
-       need:'Attach or paste the screenshot, then say which framework you want.'}]});
+       need:'Attach or paste the screenshot, then say which framework you want.'}],
+    after:homeGallery()});
   switchConversation('');
   bindStick(); renderChat(); mountDots(c); mountOrbs(c); syncComposer();
+  loadThumbs(c);
 }
 function renderChatTab(c){
   if(!c)return;              // never take the whole layout down with it
@@ -16055,7 +16323,7 @@ function renderChat(){
   /* THE WELCOME BECOMES THE CONVERSATION. Openers, suggestions and the
      file picker are scaffolding for the first message; once there IS a
      conversation they are only pushing the composer down the window. */
-  for(const sel of ['welcome','qrows'])
+  for(const sel of ['welcome','qrows','hgal'])
     {const e=$(sel);if(e)e.hidden=talking;}
   const shell=$('convshell');
   if(shell)shell.classList.toggle('talking',talking);
@@ -17164,7 +17432,53 @@ runs:()=>`<svg viewBox="0 0 400 206" aria-hidden="true">
     <rect class="trk" x="262" y="${y+9}" width="${[40,30,46,36,28][i]}" height="3" rx="1.5"/>
     <text class="lbl${bad?' lbla':''}" x="368" y="${y+9}" text-anchor="end">${bad?'FAIL':'OK'}</text></g>`}).join('')}
   <text class="lbl" x="246" y="166">KEYS · HIDDEN</text>
-  </svg>`};
+  </svg>`,
+gallery:()=>NEWS_ART.frame(`
+  <rect class="sd" x="20.5" y="36" width="62" height="157.5"/>
+  <rect class="ln" x="30" y="50" width="40" height="5" rx="2.5"/>
+  <rect class="ln" x="30" y="64" width="32" height="5" rx="2.5"/>
+  <rect class="hero" x="112" y="50" width="150" height="9" rx="4.5" style="fill:var(--t-3)"/>
+  <rect class="cmp" x="112" y="68" width="236" height="20" rx="10"/>
+  <text class="lbl" x="112" y="104">YOUR PROJECTS</text>
+  ${[0,1,2].map(i=>{const x=112+i*82;return `<g class="g-card" style="animation-delay:${.15+i*.22}s">
+    <rect class="cd" x="${x}" y="112" width="72" height="72" rx="8"/>
+    <clipPath id="ngc${i}"><rect x="${x+1}" y="113" width="70" height="40" rx="7"/></clipPath>
+    <g clip-path="url(#ngc${i})">
+      <rect class="shot" x="${x}" y="112" width="72" height="42" style="fill:${['#2c3a33','#3a2f2a','#2b2f3d'][i]}"/>
+      <rect class="g-pic" style="animation-delay:${.7+i*.3}s;fill:${['#7fa58f','#e6906f','#8d9fd1'][i]}" x="${x+8}" y="122" width="34" height="5" rx="2.5"/>
+      <rect class="g-pic" style="animation-delay:${.75+i*.3}s" x="${x+8}" y="131" width="22" height="3" rx="1.5" fill="#fff" opacity=".7"/>
+    </g>
+    <rect class="ln" x="${x+7}" y="160" width="${[40,32,46][i]}" height="4" rx="2"/>
+    <rect class="trk" x="${x+7}" y="171" width="58" height="3" rx="1.5"/>
+    <rect class="acc g-fill" style="animation-delay:${.9+i*.3}s" x="${x+7}" y="171" width="${[44,22,58][i]}" height="3" rx="1.5"/></g>`}).join('')}
+  <path class="cur g-cur" d="M0 0v15l4-4 3 6 2.4-1-3-6h5.6z"/>`),
+compare:()=>NEWS_ART.frame(`
+  <clipPath id="ncmpa"><rect x="20.5" y="36" width="359" height="157.5"/></clipPath>
+  <g clip-path="url(#ncmpa)">
+    <rect fill="#cfc8c0" x="20.5" y="36" width="359" height="157.5"/>
+    <rect fill="#8f877f" x="44" y="66" width="130" height="12" rx="3"/>
+    <rect fill="#8f877f" x="44" y="84" width="96" height="12" rx="3"/>
+    <rect fill="#aaa298" x="44" y="106" width="150" height="5" rx="2.5"/>
+    <rect fill="#8f877f" x="44" y="124" width="46" height="14" rx="4"/>
+    <rect fill="#b7aea5" x="236" y="58" width="118" height="110" rx="8"/>
+  </g>
+  <clipPath id="ncmpb"><rect class="k-clip" x="200" y="36" width="180" height="157.5"/></clipPath>
+  <g clip-path="url(#ncmpb)">
+    <rect fill="#1b1817" x="20.5" y="36" width="359" height="157.5"/>
+    <rect fill="#ece8e5" x="44" y="66" width="140" height="12" rx="3"/>
+    <rect fill="#ece8e5" x="44" y="84" width="84" height="12" rx="3"/>
+    <rect fill="#837c78" x="44" y="106" width="150" height="5" rx="2.5"/>
+    <rect class="acc" x="44" y="124" width="58" height="14" rx="7"/>
+    <rect x="236" y="58" width="118" height="110" rx="8" fill="url(#ncmpg)"/>
+    <linearGradient id="ncmpg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e6906f"/><stop offset="1" stop-color="#4b2a1f"/></linearGradient>
+  </g>
+  <g class="k-hand">
+    <rect x="199" y="36" width="2" height="157.5" fill="#fff"/>
+    <circle cx="200" cy="114" r="11" fill="#fff"/>
+    <path d="M196 110l-4 4 4 4M204 110l4 4-4 4" stroke="#111" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text class="lbl" x="30" y="52" style="fill:#5f5852">BEFORE</text>
+  <text class="lbl" x="370" y="52" text-anchor="end" style="fill:#b5aeaa">AFTER</text>`)};
 let NEWS={list:[],i:0,ver:'',asked:false};
 async function newsCheck(ver){
   if(NEWS.asked)return; NEWS.asked=true;
@@ -17221,6 +17535,13 @@ async function newsGo(go){
   newsClose();
   if(go==='runs'){ await openRuns(); return aeSpot('#runsbtn','Every agent call is listed here'); }
   if(go==='back'){ openSettings(); return aeSpot('#backbtn','This takes you back to where you were'); }
+  if(go==='home'){ newProject(); return aeSpot('#hgal','Your projects, with a picture of each site'); }
+  if(go==='compare'){
+    const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);
+    if(!p){ toast('Build a project first, then press Before / After.'); return aeSpot('.composer','Paste a template link to begin'); }
+    if(S.cur!==p.name)await select(p.name);
+    return openCompare();
+  }
   /* preview: the open project, else the newest one that is built */
   if(S.view==='project'&&S.cur){ return aeSpot('#prail','Your preview, progress and downloads'); }
   const ps=S.projects||[], p=ps.find(x=>x.built)||ps[0];

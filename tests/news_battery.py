@@ -6,6 +6,8 @@ a browser — never PASS.
 import os, sys, json, time, socket, shutil, subprocess, tempfile, pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 os.chdir(ROOT)
+sys.path.insert(0, str(ROOT))
+from aethron_news import NEWS as NEWS_ALL
 try:
     from playwright.sync_api import sync_playwright
 except Exception:
@@ -52,7 +54,7 @@ try:
         None
         k = pg.inner_text(".nkick")
         check("card says it updated to 1.1.13", "Updated to 1.1.13" in k)
-        check("three dots for three entries", pg.locator(".ndots i").count() == 3)
+        check("one dot per entry", pg.locator(".ndots i").count() == len(NEWS_ALL))
         check("the Updated chip does not show beside it", pg.locator("#updchip .uc.done").count() == 0)
         pg.click("text=Next"); pg.wait_for_timeout(2200); None
         check("Next shows the second entry", "A way back" in pg.inner_text("#ntitle"))
@@ -64,7 +66,7 @@ try:
         check("a ring lands on the Agent runs row", pg.locator(".aespot").count() == 1)
         None
         seen = json.loads((HOME / ".news-seen.json").read_text())
-        check("all three are remembered as seen", len(seen) == 3)
+        check("every entry is remembered as seen", len(seen) == len(NEWS_ALL))
         pg.reload(); pg.wait_for_timeout(5500)
         check("it does not come back after a reload", pg.locator("#newsov").count() == 0)
         # the other two actions
