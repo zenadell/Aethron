@@ -5719,6 +5719,9 @@ clicking back into the window, no restart.
 FOR CLOUD SESSIONS: every push to main builds and ships to the owner's
 Mac within ~20 min. Push to main only work that is checked; put
 [skip ci] in a commit message (docs-only changes) to not cut a release.
+OWNER'S STANDING INSTRUCTION (2026-10-18): "always merge, don't wait for
+me". Once a PR you opened is tested and its checks are green, merge it
+yourself, then watch the release run and fix it if it fails.
 
 ## RUN RECORDS + THE PROGREX HERO, REPRODUCED — 2026-10-18
 docs/NEXT_SESSION.md asked: when an agent (the keeper) drives Aethron and
