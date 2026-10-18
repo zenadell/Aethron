@@ -39,6 +39,7 @@ SUITES = [
                 "tests/provider_battery.py", "tests/preview_battery.py",
                 "tests/remote_battery.py", "aethron_runlog.py",
                 "tests/keeper_battery.py",
+                "aethron_news.py", "tests/news_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
@@ -158,6 +159,9 @@ SUITES = [
     # A keeper-like agent loses a hero image: Aethron refuses the dead
     # address, FAILs the preview when a picture dies later, and the run
     # record holds both as findings.
+    # What's new: once after an update, and every button goes where it says.
+    ("what's new (selftest)", [PY, "aethron_news.py", "--selftest"], False),
+    ("what's new card (real browser)", [PY, "tests/news_battery.py"], False),
     ("keeper battery (an agent's run, and what went missing)",
      [PY, "tests/keeper_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and
