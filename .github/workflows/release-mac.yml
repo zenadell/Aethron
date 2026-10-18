@@ -102,8 +102,12 @@ jobs:
           # screenshot-to-page needs text recognition INSIDE the app
           OCR=$(find dist/Aethron.app -name aethron_ocr -type f | head -1)
           test -n "$OCR" || { echo "::error::the app ships no text-recognition helper"; exit 1; }
-          lipo -archs "$OCR" | grep -q arm64 && lipo -archs "$OCR" | grep -q x86_64 \
-            || { echo "::error::the OCR helper is not universal"; exit 1; }
+          # PyInstaller thins it to the app's own architecture; it must
+          # carry every architecture the app itself runs on
+          for A in $(lipo -archs dist/Aethron.app/Contents/MacOS/Aethron); do
+            lipo -archs "$OCR" | grep -qw "$A" \
+              || { echo "::error::the OCR helper lacks $A, which the app runs on"; exit 1; }
+          done
           "$OCR" docs/screenshots/library.png | grep -q '"text"' \
             || { echo "::error::the packaged OCR helper read no text"; exit 1; }
           python3 tests/ocr_frozen.py dist/Aethron.app

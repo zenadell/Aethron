@@ -5909,7 +5909,9 @@ installed copy. build_desktop.sh now compiles the helper universal
 (arm64 + x86_64) and aethron.spec packs it; ocr_binary() finds it in the
 bundle and only compiles as a last resort into AETHRON_HOME; OCR_WHY
 carries the real reason into every SKIPPED. The release workflow refuses a
-bundle with no helper, a non-universal one, or one that reads no text, and
+bundle with no helper, one missing an architecture the app runs on
+(PyInstaller thins fat binaries to the app's arch — the first release
+failed a "universal" check for exactly that), or one that reads no text, and
 tests/ocr_frozen.py runs the app's own engine with no swiftc on PATH.
 A SKIPPED screenshot_to_page now tells the agent to build the page from
 the image itself at once, and the attachment note says the same.
