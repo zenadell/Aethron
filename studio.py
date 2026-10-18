@@ -11436,7 +11436,14 @@ header{gap:12px}
 .steps button.warn:hover{background:rgba(201,106,95,.10)}
 
 /* update chip: lives in the top bar on every screen, never over content */
-#updchip{position:relative}
+#updchip{position:relative;flex:none}
+#updchip>.uc{white-space:nowrap}
+/* THE TITLE GIVES WAY, ON ONE LINE. A flex item shrinks by wrapping its
+   text unless told otherwise, so the chip arriving folded the project name
+   onto three lines. The title truncates; everything beside it keeps its size. */
+header>#ptitle{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+header>.iconbtn,header>.steps{flex:none}
 #updchip>.uc{position:relative;min-height:32px;padding:0 12px 0 11px;border:0;
   border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;
   background:rgba(217,119,87,.12);color:var(--t-1);overflow:hidden;
@@ -12126,9 +12133,10 @@ function updateMenuItem(){
 }
 function renderHeader(){
   try{syncRail();}catch(e){}
-  $('ptitle').textContent=S.view==='settings'?'Settings':S.view==='library'?'Design library'
+  const _pt=$('ptitle'); _pt.textContent=S.view==='settings'?'Settings':S.view==='library'?'Design library'
     :S.view==='runs'?'Agent runs'
     :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
+  _pt.title=_pt.textContent;
   if(!S.cur){$('steps').innerHTML='';$('tabs').innerHTML='';return;}
   const done={fetch:S.info?.fetched,inventory:S.info?.inventoried,
               build:S.info?.built,verify:false,probe:false};
