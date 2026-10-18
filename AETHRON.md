@@ -5965,7 +5965,7 @@ Two bugs the battery caught: a reused page was rendered anyway (a 2MB
 data URI took longer than the shutter waits, so the whole run said
 SKIPPED); the per-round render folder did not exist, so Chrome could not
 write into it and every round after the first was SKIPPED. Battery
-tests/shot2code_battery.py 22/22.
+tests/shot2code_battery.py 21/21.
 NOT PROVEN HERE: a live gpt-4.1-mini run — this container has no key.
 The old carry pipeline still exists for `forge screenshot`; nothing the
 app or the agent reaches uses it.
