@@ -7,7 +7,7 @@ reproduced hero loss). Both owner questions answered: the keeper reaches
 Aethron on the owner's Mac (terminal-started server), and records upload to
 Supabase (docs/CLOUD_SETUP.md §5). To read them here, the cloud
 environment needs AETHRON_SUPABASE_URL + SUPABASE_SERVICE_KEY secrets.
-Not done: pictures REMOVED without error (count vs template).
+Pictures REMOVED without error: done 2026-10-18 — export_preview renders the same pages from the template's content and FAILs on any picture that showed there and not in the preview (PICTURE MISSING).
 
 Written 2026-10-18 for the cloud session. Read AETHRON.md first.
 

@@ -800,7 +800,17 @@ def t_export_preview(a):
     d = pdir(str(a["project"]))
     out = Path(str(a.get("out") or (HOME / "previews" / d.name))).expanduser()
     r = P.export_preview(d, out)
-    c = P.check_preview(out, r["base"], pristine=d / "pristine")
+    # what the template shows on these pages, so a picture that vanished
+    # without an error is caught too (the browser decides, not the agent)
+    try:
+        before = P.template_pictures(d, r["base"])
+    except Exception as e:
+        before, note = None, f"  NOTE pictures were not compared with the " \
+                             f"template ({str(e)[:120]}) — UNVERIFIED"
+    else:
+        note = ""
+    c = P.check_preview(out, r["base"], pristine=d / "pristine",
+                        baseline=before)
     lines = [f"exported {len(r['pages'])} page(s) to {r['out']}",
              f"serve that folder at {r['base']} — the address itself answers "
              f"with {r['home']}; other pages at {r['base']}/<page>.html. "
@@ -822,7 +832,15 @@ def t_export_preview(a):
                                f"{', the biggest on the page' if im is max(v['dead_images'], key=lambda x: x['w'] * x['h']) else ''}"
                                f"): {im['src'][:100]}"
                                for im in v.get("dead_images", []))
+                     + "".join(f"; PICTURE MISSING — the template shows "
+                               f"a {im['w']}x{im['h']} "
+                               f"{'background image' if im['kind'] == 'bg' else 'picture'}"
+                               f" {im['y']}px down the page that this "
+                               f"preview does not: {im['src'][:100]}"
+                               for im in v.get("missing_images", []))
                      + ("" if v["layer"] else "; preview layer MISSING"))
+    if note:
+        lines.append(note)
     return Result("\n".join(lines),
                   {"verdict": c["verdict"], "why": c.get("why", ""),
                    "folder": r["out"], "base": r["base"], "home": r["home"],
@@ -1630,8 +1648,10 @@ TOOLS = [
        ["project", "kind", "anchor"]), t_add_block),
     ("export_preview", "Build a preview and write its chosen pages, ready to "
      "be served at its base address, then open every page AT THAT ADDRESS "
-     "in a headless browser and report what failed. Returns the folder to "
-     "publish (default <Aethron data>/previews/<name>) and the check.",
+     "in a headless browser and report what failed — including any picture "
+     "the template shows on those pages that the preview no longer does "
+     "(PICTURE MISSING: something hid or removed it; restore it, or swap it "
+     "for another picture instead). Returns the folder to publish (default <Aethron data>/previews/<name>) and the check.",
      S({**P, "out": {"type": "string", "description": "folder to write "
                      "to; default <Aethron data>/previews/<name>"}},
        ["project"]), t_export_preview),
