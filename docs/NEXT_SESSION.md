@@ -1,5 +1,11 @@
 # Next session: see what every agent does with Aethron
 
+## Status 2026-10-18 (cloud session)
+Built and tested — see AETHRON.md "RUN RECORDS + THE PROGREX HERO":
+items 1, 2, 4 done; item 3 done for pictures that FAIL TO LOAD (the
+reproduced hero loss). Not done: pictures REMOVED without error (count
+vs template), and the two questions below for the owner.
+
 Written 2026-10-18 for the cloud session. Read AETHRON.md first.
 
 ## The problem, in the owner's words

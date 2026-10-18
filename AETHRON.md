@@ -5720,6 +5720,64 @@ FOR CLOUD SESSIONS: every push to main builds and ships to the owner's
 Mac within ~20 min. Push to main only work that is checked; put
 [skip ci] in a commit message (docs-only changes) to not cut a release.
 
+## RUN RECORDS + THE PROGREX HERO, REPRODUCED — 2026-10-18
+docs/NEXT_SESSION.md asked: when an agent (the keeper) drives Aethron and
+something goes wrong, nobody can see what happened. The real case: a
+Progrex lead preview lost its HERO IMAGE and it could not be told who did
+it.
+REPRODUCED FIRST (cloud session, real Progrex scrape, real MCP tools):
+unfilled, the preview keeps its hero; a hero swapped to an image that
+LOADS works. A hero swapped to an address that does NOT load (an expiring
+Google Places photo is the plausible lead-photo source) gives a blank hero
+with the headline white on white — and export_preview said PASS, because a
+picture on someone else's server never enters our request log and every
+word was still there. Whether that is exactly what the keeper did cannot be
+proven from here (no record existed); it is the class, and now both ends
+catch it:
+- set_content(_bulk) ASKS an image address before taking it
+  (forge_mcp.image_problem: GET with a small Range, image/* or image magic
+  bytes) and refuses 4xx/5xx or a page that is not an image, with the
+  reason. Unreachable = a NOTE, not a refusal.
+- check_preview injects IMAGES_JS: an <img> that finished with nothing to
+  show (complete && naturalWidth 0) is DEAD; a lazy one not yet asked for
+  is not. A dead picture FAILs the page, named with its rendered size and
+  "the biggest on the page". A picture the TEMPLATE already ships broken
+  (its address is in pristine) is not the preview's doing and is counted
+  apart.
+RUN RECORDS (aethron_runlog.py): every MCP tools/call, stdio and --http,
+appended to <AETHRON_HOME>/runs/<caller>/<started>-<session>.jsonl —
+tool, project, args, status (ok/partial/failed/error), ms, result text +
+structuredContent, and FINDINGS (FAIL / REJECTED with its reasons / IMAGE
+DID NOT LOAD / ⚠ lines). Caller = the MCP clientInfo name on stdio; over
+HTTP it is the TOKEN'S LABEL (AETHRON_MCP_TOKENS="keeper=<s>,other=<s>";
+AETHRON_MCP_TOKEN alone = "default"), never what the agent claims. HTTP
+initialize hands out Mcp-Session-Id; one run per session, never mixed.
+Keys whose name says key/token/secret/password/auth and values shaped like
+one (sk-, AIza, gh*_, JWTs, Bearer) are "[hidden]"; strings cut at 400.
+200 runs kept per caller; AETHRON_RUNLOG=off disables.
+Reading: MCP list_runs / get_run (timeline + structuredContent), studio
+sidebar "Agent runs" (/api/runs, /api/run), `python3 aethron_runlog.py
+[caller]`.
+TESTS: aethron_runlog --selftest 9/9; tests/keeper_battery.py 19/19 on a
+real Progrex scrape — plays the keeper over the real stdio MCP: a dead
+hero address refused, a live one taken, preview PASS, then the photo's
+server stops and the preview FAILs naming it; the record holds every call
+in order, both findings, no key; list_runs/get_run read it back; HTTP leg:
+token label not clientInfo, one file per session, no token in the record.
+Without a prepared template the template half reports SKIPPED. preview
+27/27 and remote 17/17 re-run on Progrex — after making two assertions
+template-agnostic (they hard-coded agero's blog.html and "lines on the
+home page").
+MY OWN TEST WAS WRONG ONCE: a hand-typed 1x1 PNG had a bad IDAT checksum,
+the browser refused it, and the new check FAILed a "healthy" preview —
+correctly. The test now builds its PNG with zlib.
+STILL OPEN (owner's call, per NEXT_SESSION): where the keeper's Aethron
+runs (Mac app vs hosted --http), and how a cloud session reads records
+from the Mac (likely opt-in upload to Supabase — not built). Not built
+either: catching a picture that is REMOVED rather than broken (rendered
+image count vs the template's) — Framer prunes breakpoint variants after
+hydration, so a naive count would cry wolf.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -5924,3 +5982,7 @@ Mac within ~20 min. Push to main only work that is checked; put
 - A RELEASE MUST KNOW WHERE ITS NEXT RELEASE IS. Built anywhere, it ships
   its update address; an update path is proven only when an installed
   copy offers the next version by itself.
+- EVERY AGENT CALL LEAVES A RECORD, AND NO RECORD HOLDS A SECRET. Who
+  called is the token's label, never what the agent says it is.
+- A PICTURE THAT DOES NOT LOAD IS A FAILURE, NOT A DETAIL. Ask an image
+  address before taking it; ask the page whether each picture decoded.

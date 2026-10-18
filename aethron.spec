@@ -71,7 +71,7 @@ a = Analysis(
         # Brand memory: imported inside forge_mcp's handlers, so named here
         # before it can ship as a capability that exists only in dev.
         "aethron_rag",
-        "aethron_preview",
+        "aethron_preview", "aethron_runlog",
         "statistics",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
         "fontTools.pens.transformPen", "brotli",

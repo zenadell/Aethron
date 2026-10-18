@@ -146,8 +146,10 @@ def main():
 
         ok, out = call("make_preview", {"template": "tpl", "name": "Lead Remote",
                                         "pages": ["all"]})
-        ck("the agent may take ALL pages", ok and all(p in out for p in
-                                                      ("about.html", "blog.html")), out)
+        # every page the template has (not agero's names: any template)
+        ck("the agent may take ALL pages", ok and len(have) > 3 and all(
+            ("index.html" if p == "home" else p + ".html") in out
+            for p in have), out)
         others = [p for p in have if p not in ("home", "about", "contact")]
         pick = ["home", others[0]] if others else ["home"]
         ok, out = call("preview_pages", {"project": "lead-remote", "pages": pick})
