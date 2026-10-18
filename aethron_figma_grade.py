@@ -163,13 +163,84 @@ def write_png(path: Path, w, h, rgba):
 # ─────────────────────────── render ours ─────────────────────────────
 
 def find_browser():
-    for c in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-              "/Applications/Chromium.app/Contents/MacOS/Chromium",
-              "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-              shutil.which("google-chrome"), shutil.which("chromium")):
-        if c and Path(c).exists():
-            return c
-    return None
+    """The same browser the probe uses — one finder, so AETHRON_BROWSER
+    (and the root-on-Linux sandbox wrapper) applies to every instrument.
+    This used to keep its own list, which ignored AETHRON_BROWSER: in the
+    container the eye, change, edit and adopt checks found the bare
+    /usr/bin/chromium and could not start it as root."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import forge
+    return forge._find_browser() or None
+
+
+_GAP = {}
+
+
+def viewport_gap(browser) -> int:
+    """How much shorter the page's viewport is than --window-size.
+
+    Measured, not assumed: headless Chromium reserves room for browser
+    chrome it never draws (87px on the builds this was found on), and on
+    Linux --screenshot captures the WINDOW while the page only paints the
+    viewport — so the bottom 87px of every screenshot came back blank,
+    and a heading at y=480 on a 600px page was measured as 20px of ink
+    instead of 46. Asked once per binary and cached on disk; 0 when the
+    browser will not say, which is the old behaviour."""
+    b = str(browser)
+    if b in _GAP:
+        return _GAP[b]
+    cache = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") \
+        / "aethron" / "viewport-gap.json"
+    try:
+        st = Path(b).stat()
+        key = f"{b}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        key = b
+    try:
+        known = json.loads(cache.read_text())
+    except Exception:
+        known = {}
+    if key in known:
+        _GAP[b] = int(known[key])
+        return _GAP[b]
+    gap = 0
+    d = Path(tempfile.mkdtemp(prefix="aethron-gap-"))
+    try:
+        pg = d / "gap.html"
+        pg.write_text("<html><body><script>document.body.textContent="
+                      "'IH='+innerHeight+';'</script></body></html>")
+        r = subprocess.run([b, "--headless", "--disable-gpu",
+                            f"--user-data-dir={d / 'prof'}",
+                            "--window-size=800,600", "--dump-dom",
+                            pg.as_uri()],
+                           capture_output=True, text=True, timeout=30)
+        m = re.search(r"IH=(\d+);", r.stdout or "")
+        if m and 0 <= 600 - int(m.group(1)) < 300:
+            gap = 600 - int(m.group(1))
+            known[key] = gap
+            try:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps(known))
+            except OSError:
+                pass
+    except Exception:
+        pass
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    _GAP[b] = gap
+    return gap
+
+
+def _crop_png(path: Path, w, h):
+    """Keep the top-left w x h of a PNG (no-op when it already fits)."""
+    pw, ph, px = read_png(path)
+    if pw <= w and ph <= h:
+        return
+    cw, ch = min(pw, w), min(ph, h)
+    rows = bytearray()
+    for y in range(ch):
+        rows += px[y * pw * 4:(y * pw + cw) * 4]
+    write_png(path, cw, ch, rows)
 
 
 def shoot(html: Path, w, h, out: Path, browser=None, wait_max=90, url=None):
@@ -188,7 +259,10 @@ def shoot(html: Path, w, h, out: Path, browser=None, wait_max=90, url=None):
            "--force-device-scale-factor=1",
            "--default-background-color=00000000",
            f"--user-data-dir={prof}",
-           f"--window-size={w},{h}",
+           # The window is opened taller by the measured gap, so the page
+           # lays out in a viewport of EXACTLY w x h (100vh is right too)
+           # and nothing is painted blank; the extra rows are cropped.
+           f"--window-size={w},{h + viewport_gap(b)}",
            f"--screenshot={out}",
            # Fonts must be loaded before the shutter, or we grade a
            # page mid-swap and blame the converter for it.
@@ -230,7 +304,13 @@ def shoot(html: Path, w, h, out: Path, browser=None, wait_max=90, url=None):
         except Exception:
             pass
     shutil.rmtree(prof, ignore_errors=True)
-    return out if out.exists() and out.stat().st_size > 0 else None
+    if not (out.exists() and out.stat().st_size > 0):
+        return None
+    try:
+        _crop_png(out, w, h)
+    except Exception:
+        pass             # an unreadable PNG is the caller's to judge
+    return out
 
 
 # ─────────────────────────── compare ─────────────────────────────────

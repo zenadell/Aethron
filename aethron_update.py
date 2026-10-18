@@ -224,8 +224,33 @@ def _extract(zpath: Path, into: Path):
             raise ValueError(f"could not unpack the download: "
                              f"{(r.stderr or '').strip()[:200]}")
         return
+    # Elsewhere zipfile is the extractor, and extractall alone would
+    # write every symlink out as a file holding its target — the same
+    # brick, on Windows or Linux. A member is a symlink when its unix
+    # mode bits (the top 16 of external_attr) say so; recreate it, and
+    # only when its target stays inside the bundle.
+    import stat
+    into = Path(into)
+    root = into.resolve()
     with zipfile.ZipFile(zpath) as z:
-        z.extractall(into)
+        for m in z.infolist():
+            mode = (m.external_attr >> 16) & 0xFFFF
+            if stat.S_ISLNK(mode):
+                dest = into / m.filename
+                target = z.read(m).decode("utf-8", "replace")
+                if os.path.isabs(target) or not str(
+                        (dest.parent / target).resolve()).startswith(
+                            str(root)):
+                    raise ValueError(f"unsafe link in download: "
+                                     f"{m.filename} -> {target}")
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if dest.is_symlink() or dest.exists():
+                    dest.unlink()
+                os.symlink(target, dest)
+                continue
+            z.extract(m, into)
+            if mode & 0o111 and not m.is_dir():
+                (into / m.filename).chmod(stat.S_IMODE(mode))
 
 
 def _runnable(app: Path) -> bool:
@@ -464,9 +489,16 @@ def _selftest() -> int:
         subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent",
                         str(src), str(zp2)], check=True, capture_output=True)
     else:
+        # store links AS links, the way ditto and `zip -y` do
         with zipfile.ZipFile(zp2, "w") as z:
             for p in src.rglob("*"):
-                z.write(p, p.relative_to(src.parent))
+                arc = str(p.relative_to(src.parent))
+                if p.is_symlink():
+                    zi = zipfile.ZipInfo(arc)
+                    zi.external_attr = (0o120777 << 16)
+                    z.writestr(zi, os.readlink(p))
+                else:
+                    z.write(p, arc)
     out = tmp / "unpacked"
     out.mkdir()
     _extract(zp2, out)
@@ -479,6 +511,19 @@ def _selftest() -> int:
            "app refuse to launch")
     check_("it still points where it did", link.is_symlink()
            and os.readlink(link) == "3.13")
+    if sys.platform != "darwin":
+        zp3 = tmp / "evil.zip"
+        with zipfile.ZipFile(zp3, "w") as z:
+            zi = zipfile.ZipInfo("Aethron.app/escape")
+            zi.external_attr = (0o120777 << 16)
+            z.writestr(zi, "../../../../etc")
+        try:
+            (tmp / "evil").mkdir()
+            _extract(zp3, tmp / "evil")
+            refused = False
+        except ValueError:
+            refused = True
+        check_("a link pointing outside the bundle is refused", refused)
 
     # …and a bundle macOS would refuse to spawn must never reach the
     # swap. This hand-made app cannot be signed, so it stands in for a
@@ -513,7 +558,7 @@ def _selftest() -> int:
             "/nourl.json": json.dumps({"version": "9.9.9"}).encode(),
             "/gh.json": json.dumps({
                 "tag_name": "v9.9.9",
-                "assets": [{"name": "Aethron-mac.zip",
+                "assets": [{"name": f"Aethron-{platform_key()}.zip",
                             "browser_download_url": "https://x/A.zip"}]}).encode()}
 
     class H(http.server.BaseHTTPRequestHandler):
