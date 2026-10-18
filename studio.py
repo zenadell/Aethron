@@ -11444,11 +11444,13 @@ header{gap:12px}
 .backbtn{margin-right:6px}.backbtn .ic{transform:rotate(-90deg)}
 .backbtn[hidden]{display:none!important}
 /* ── the rail: the project's cards, pinned right ─────────────────── */
+body.railed nav#tabs{display:none!important}
+.sheetwork{height:100%;overflow:auto;padding:18px 22px}
 .prail{display:none}
 @media (min-width:1100px){
   body.railed:not(.split) #steps,body.railed:not(.split) nav#tabs{display:none!important}
   body.railed:not(.split) #conv{position:relative}
-  body.railed:not(.split) #conv .conv-shell{padding-right:322px}
+  body.railed:not(.split):not(.pvwopen) #conv .conv-shell{padding-right:322px}
   body.railed:not(.split) #conv .conv-wrap>.pcard{display:none}
   body.railed:not(.split):not(.pvwopen) .prail{display:flex}
 }
@@ -11820,9 +11822,32 @@ async function createProject(){
 const STEPS=[['fetch','1 Fetch'],['inventory','2 Inventory'],
              ['build','3 Build'],['verify','4 Verify'],
              ['probe','5 Runtime check']];
+/* THE OLD SPLIT IS GONE. Strings, Images, Links and Logs used to open
+   the original two-pane layout — its own Preview/Strings/Images/Links/Logs
+   tab strip, its own Build/Undo header, its own "Edit mode" preview — so
+   one click put a second, older application beside the new one. They
+   open in the same sheet as the preview now, and the split layout is
+   never entered from a project. */
+const WORK_NAMES={strings:'Strings',images:'Images',links:'Links',logs:'Logs'};
 function openWork(t){
-  if(S.panel&&S.tab===t)return closeWork();
-  S.panel=true;S.tab=t;renderHeader();renderTab();
+  if(t==='preview')return openPreviewPane(false);
+  if(t==='plan')return openSettings();
+  if(!WORK_NAMES[t])return;
+  if(S.sheetTab===t&&$('sheetwork'))return closePvw();
+  S.panel=false;S.tab=t;
+  openSheet({name:S.cur||'',sub:WORK_NAMES[t],dark:true,
+             body:'<div class="workbody sheetwork" id="sheetwork"></div>'});
+  S.sheetTab=t;
+  renderSheetWork();
+}
+function renderSheetWork(){
+  const w=$('sheetwork');if(!w||!S.sheetTab)return;
+  const t=S.sheetTab;
+  if(t==='strings')return guard('Strings',()=>renderStrings(w),w);
+  if(t==='images')return guard('Images',()=>renderImages(w),w);
+  if(t==='links')return guard('Links',()=>renderLinks(w),w);
+  if(t==='logs'){w.innerHTML=`<div id="logbox">${esc(S.log||'no output yet')}</div>`;
+    $('logbox').scrollTop=1e9;}
 }
 /* Drag to resize, and remember it. A pane you keep re-adjusting is a
    pane that forgot. */
@@ -11844,7 +11869,7 @@ function initGrip(){
     g.addEventListener('pointermove',move);g.addEventListener('pointerup',up);
   });
 }
-function closeWork(){S.panel=false;S.tab='chat';renderHeader();renderTab()}
+function closeWork(){S.panel=false;S.tab='chat';S.sheetTab=null;closePvw();renderHeader();renderTab()}
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&S.panel&&!/^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName))
     closeWork();});
@@ -13449,6 +13474,9 @@ async function openCode(){
 function pvwKey(e){if(e.key==='Escape'){if($('selbox'))closeSel();else closePvw();}}
 function closePvw(){
   const d=$('pvw');
+  S.sheetTab=null;
+  /* a sheet springing out must not keep the ids the next one is given */
+  if(d){d.removeAttribute('id');d.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));}
   document.body.classList.remove('pvwopen');
   syncHero(); clearGlass();
   closeSel(); document.removeEventListener('keydown',pvwKey);
@@ -15990,6 +16018,7 @@ function renderTab(){
      — and renderTab bailed out one line in, leaving Settings on screen.
      The button was never broken; there was simply nothing to draw. */
   if(!S.cur)return renderWelcome(c);
+  S.panel=false;                       /* the old split is never entered */
   const t=++RT;
   // TWO PANES THAT COEXIST — the fix for the real problem.
   //
@@ -16042,6 +16071,7 @@ function renderTab(){
   // keeps working. Previously it took the whole screen with it.
   guard('conversation', ()=>initGrip());
   guard('conversation', ()=>renderChatTab(conv), conv);
+  if($('sheetwork'))renderSheetWork();
   if(!S.panel)return;
   const NAMES={plan:'Settings',strings:'Strings',images:'Images',
                links:'Links',preview:'Preview',logs:'Logs'};
