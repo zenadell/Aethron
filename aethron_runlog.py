@@ -187,8 +187,277 @@ class Session:
                     rec.update(clean(extra))
                 with open(self.path, "a", encoding="utf-8") as f:
                     f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            if upload_on():
+                UPLOAD.send(self, rec)
         except Exception as e:       # a record must never break a call
             sys.stderr.write(f"run record not written: {e}\n")
+
+
+# ─────────────────────── upload to Supabase (opt-in) ───────────────────
+# So a session that is NOT on this computer (a cloud session debugging the
+# keeper) can read what happened. OFF unless this machine says so: records
+# hold the copy agents write, and the app ships to everyone.
+#   on:  AETHRON_RUN_UPLOAD=1, or {"upload": true} in <home>/runs/settings.json
+#        (the studio's Settings toggle writes it)
+# WRITE with the project's public (anon) key into public.agent_runs, which
+# that key can INSERT into and never read (supabase_schema.sql). READ only
+# with the service key, held in the reading session's secrets, never here.
+# Every row goes to runs/.outbox.jsonl FIRST and leaves it only once the
+# server has taken it — offline, a crash, a stdio agent hanging up: nothing
+# is lost, the next call or the next run sends it.
+OUTBOX_CAP = 5_000_000
+
+
+def _settings_file() -> Path:
+    return runs_dir() / "settings.json"
+
+
+def upload_on() -> bool:
+    env = os.environ.get("AETHRON_RUN_UPLOAD", "").strip().lower()
+    if env:
+        return env in ("1", "on", "yes", "true")
+    try:
+        return bool(json.loads(_settings_file().read_text())
+                    .get("upload"))
+    except (OSError, ValueError):
+        return False
+
+
+def set_upload(on: bool) -> dict:
+    runs_dir().mkdir(parents=True, exist_ok=True)
+    cur = {}
+    try:
+        cur = json.loads(_settings_file().read_text())
+    except (OSError, ValueError):
+        pass
+    cur["upload"] = bool(on)
+    _settings_file().write_text(json.dumps(cur, indent=1))
+    return upload_status()
+
+
+def _cloud() -> tuple:
+    """(url, anon key) — the same project the app logs in with."""
+    url = os.environ.get("AETHRON_SUPABASE_URL", "")
+    key = os.environ.get("AETHRON_SUPABASE_ANON_KEY", "")
+    if not (url and key):
+        try:
+            import aethron_cloud as C
+            url, key = url or C.SUPABASE_URL, key or C.ANON_KEY
+        except Exception:
+            pass
+    if not (url and key):
+        # run from a checkout (the keeper's terminal-started --http server):
+        # the release's own shareable settings carry the public key
+        try:
+            rc = json.loads((ROOT / "release_config.json").read_text())
+            url = url or rc.get("supabase_url", "")
+            key = key or rc.get("supabase_anon_key", "")
+        except (OSError, ValueError):
+            pass
+    return url.rstrip("/"), key
+
+
+def machine_id() -> str:
+    """A random id for this computer, made once — never its hostname."""
+    f = runs_dir() / ".machine"
+    try:
+        return f.read_text().strip()[:64]
+    except OSError:
+        runs_dir().mkdir(parents=True, exist_ok=True)
+        mid = "m-" + secrets.token_hex(6)
+        f.write_text(mid)
+        return mid
+
+
+def upload_status() -> dict:
+    url, key = _cloud()
+    out = runs_dir() / ".outbox.jsonl"
+    try:
+        waiting = sum(1 for _ in out.open(encoding="utf-8"))
+    except OSError:
+        waiting = 0
+    return {"on": upload_on(), "configured": bool(url and key),
+            "machine": machine_id(), "waiting": waiting,
+            "last_error": UPLOAD.last_error, "sent": UPLOAD.sent}
+
+
+class _Uploader:
+    def __init__(self):
+        self.lock = threading.Lock()      # guards the outbox file
+        self.sending = threading.Lock()   # ONE flush at a time: two flushers
+        self.wake = threading.Event()     # read the same rows and sent each
+                                          # twice (caught by the selftest)
+        self.thread = None
+        self.last_error = ""
+        self.sent = 0
+
+    def send(self, sess: "Session", rec: dict):
+        row = {"machine": machine_id(), "caller": sess.name(),
+               "run": sess.path.stem if sess.path else sess.sid,
+               "n": rec.get("n"), "at": rec.get("t", ""),
+               "tool": rec.get("tool", "")[:80],
+               "project": rec.get("project", "")[:80],
+               "status": rec.get("status", ""), "ms": rec.get("ms", 0),
+               "record": dict(rec, session={
+                   "client": sess.client, "transport": sess.transport,
+                   "session": sess.sid})}
+        out = runs_dir() / ".outbox.jsonl"
+        with self.lock:
+            if out.exists() and out.stat().st_size > OUTBOX_CAP:
+                self.last_error = "outbox full — oldest rows kept, new dropped"
+                return
+            with open(out, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        if not self.thread or not self.thread.is_alive():
+            self.thread = threading.Thread(target=self._loop, daemon=True)
+            self.thread.start()
+            import atexit
+            atexit.register(self.flush, 5)
+        self.wake.set()
+
+    def _loop(self):
+        while True:
+            self.wake.wait(30)
+            self.wake.clear()
+            self.flush()
+
+    def flush(self, timeout=20) -> bool:
+        """Send everything waiting. True when the outbox is empty. The
+        network is never touched under the outbox lock: an agent's call
+        that adds a row must not wait on a slow upload."""
+        if not self.sending.acquire(timeout=timeout + 5):
+            return False
+        try:
+            return self._flush(timeout)
+        finally:
+            self.sending.release()
+
+    def _flush(self, timeout) -> bool:
+        import urllib.request
+        url, key = _cloud()
+        out = runs_dir() / ".outbox.jsonl"
+        if not (url and key):
+            self.last_error = "no Supabase project configured"
+            return False
+        with self.lock:
+            try:
+                lines = [x for x in out.read_text(encoding="utf-8")
+                         .splitlines() if x.strip()]
+            except OSError:
+                lines = []
+        if not lines:
+            return True
+        done = 0
+        for i in range(0, len(lines), 50):
+            batch = []
+            for x in lines[i:i + 50]:
+                try:
+                    batch.append(json.loads(x))
+                except ValueError:
+                    pass                    # a torn line: drop it
+            req = urllib.request.Request(
+                url + "/rest/v1/agent_runs", method="POST",
+                data=json.dumps(batch).encode(),
+                headers={"apikey": key, "Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json",
+                         "Prefer": "return=minimal"})
+            try:
+                with urllib.request.urlopen(req, timeout=timeout):
+                    pass
+            except Exception as e:
+                detail = ""
+                try:
+                    detail = e.read().decode()[:200]   # type: ignore
+                except Exception:
+                    pass
+                self.last_error = f"{e} {detail}".strip()[:300]
+                if "PGRST205" in detail or "agent_runs" in detail and \
+                        "find the table" in detail:
+                    self.last_error = (
+                        "the agent_runs table does not exist yet — run the "
+                        "agent_runs part of supabase_schema.sql in Supabase's "
+                        "SQL editor; records wait here until then")
+                break
+            done = i + len(lines[i:i + 50])
+            self.sent += len(batch)
+        if done:
+            with self.lock:                 # rows added meanwhile stay
+                try:
+                    now = [x for x in out.read_text(encoding="utf-8")
+                           .splitlines() if x.strip()]
+                except OSError:
+                    now = []
+                out.write_text("".join(x + "\n" for x in now[done:]),
+                               encoding="utf-8")
+        if done == len(lines):
+            self.last_error = ""
+            return True
+        return False
+
+
+UPLOAD = _Uploader()
+
+
+def cloud_rows(query: str) -> list:
+    """Read uploaded rows. Needs the SERVICE key in the environment
+    (SUPABASE_SERVICE_KEY) — the public key cannot read this table."""
+    import urllib.request
+    url = (os.environ.get("AETHRON_SUPABASE_URL") or _cloud()[0]).rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+    if not (url and key):
+        raise SystemExit("set AETHRON_SUPABASE_URL and SUPABASE_SERVICE_KEY "
+                         "(the service key lives in this environment's "
+                         "secrets, never in the repo)")
+    req = urllib.request.Request(url + "/rest/v1/agent_runs?" + query,
+                                 headers={"apikey": key,
+                                          "Authorization": f"Bearer {key}"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read())
+
+
+def cloud_callers(days: int = 14) -> list:
+    since = time.strftime("%Y-%m-%dT%H:%M:%S",
+                          time.gmtime(time.time() - days * 86400))
+    rows = cloud_rows("select=machine,caller,run,status,project,at&"
+                      f"received_at=gte.{since}&order=id.desc&limit=5000")
+    runs = {}
+    for r in rows:
+        k = (r["caller"], r["run"])
+        x = runs.setdefault(k, {"caller": r["caller"], "run": r["run"],
+                                "machine": r["machine"], "calls": 0,
+                                "problems": 0, "projects": set(),
+                                "last": r["at"]})
+        x["calls"] += 1
+        x["problems"] += r["status"] in ("error", "failed", "partial")
+        if r["project"]:
+            x["projects"].add(r["project"])
+    out = {}
+    for x in runs.values():
+        x["projects"] = sorted(x["projects"])
+        out.setdefault(x["caller"], []).append(x)
+    return [{"caller": c, "runs": sorted(v, key=lambda r: r["run"],
+                                         reverse=True)}
+            for c, v in sorted(out.items())]
+
+
+def cloud_run(caller: str, run: str = "") -> dict:
+    import urllib.parse as up
+    if not run or run.isdigit():
+        k = int(run or 0)
+        names = sorted({r["run"] for r in cloud_rows(
+            f"select=run&caller=eq.{up.quote(caller)}&order=id.desc"
+            "&limit=5000")}, reverse=True)
+        if k >= len(names):
+            raise ValueError(f"no uploaded run {k} for {caller!r}")
+        run = names[k]
+    rows = cloud_rows(f"select=record&caller=eq.{up.quote(caller)}"
+                      f"&run=eq.{up.quote(run)}&order=n.asc")
+    calls = [r["record"] for r in rows]
+    s = (calls[0].get("session") if calls else {}) or {}
+    return {"run": run, "calls": calls,
+            "session": {"caller": caller, "client": s.get("client", {}),
+                        "transport": s.get("transport", ""),
+                        "started": run[:15]}}
 
 
 # ─────────────────────────────── reading ──────────────────────────────
@@ -279,6 +548,11 @@ def timeline(r: dict) -> str:
 
 # ────────────────────────────── selftest ──────────────────────────────
 
+def socket_name() -> str:
+    import socket
+    return socket.gethostname()
+
+
 def selftest() -> int:
     import tempfile
     ok = fail = 0
@@ -329,6 +603,95 @@ def selftest() -> int:
         check("AETHRON_RUNLOG=off writes nothing",
               not (runs_dir() / "silent").exists())
         os.environ.pop("AETHRON_RUNLOG")
+
+        # ── upload, against a fake Supabase that holds rows like the real
+        # table: the public key may add, only the service key may read
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        import urllib.parse as up
+        table, state = [], {"down": False, "keys": []}
+
+        class Fake(BaseHTTPRequestHandler):
+            def log_message(s_, *a):
+                pass
+
+            def _reply(s_, code, body=b""):
+                s_.send_response(code)
+                s_.send_header("Content-Length", str(len(body)))
+                s_.end_headers()
+                s_.wfile.write(body)
+
+            def do_POST(s_):
+                state["keys"].append(s_.headers.get("apikey"))
+                n = int(s_.headers.get("Content-Length") or 0)
+                body = json.loads(s_.rfile.read(n))
+                if state["down"]:
+                    return s_._reply(503, b"down")
+                table.extend(body)
+                s_._reply(201)
+
+            def do_GET(s_):
+                if s_.headers.get("apikey") != "SERVICE":
+                    return s_._reply(200, b"[]")   # RLS: anon sees nothing
+                q = up.parse_qs(up.urlparse(s_.path).query)
+                rows = [r for r in table if all(
+                    r.get(k) == v[0][3:] for k, v in q.items()
+                    if v[0].startswith("eq."))]
+                if q.get("order", [""])[0].startswith("n."):
+                    rows.sort(key=lambda r: r["n"])
+                s_._reply(200, json.dumps(rows).encode())
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), Fake)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        os.environ["AETHRON_SUPABASE_URL"] = \
+            f"http://127.0.0.1:{srv.server_address[1]}"
+        os.environ["AETHRON_SUPABASE_ANON_KEY"] = "PUBLIC"
+        try:
+            s4 = Session("stdio", caller="up-off")
+            s4.call("list_projects", {}, "x", False, 1)
+            UPLOAD.flush()
+            check("nothing leaves the machine unless switched on",
+                  not table and not upload_on())
+            set_upload(True)
+            s5 = Session("http", caller="keeper")
+            s5.call("export_preview", {"project": "crux", "token": "SECRETX"},
+                    "browser check: FAIL\n  FAIL index.html: IMAGE DID NOT "
+                    "LOAD", False, 900, {"verdict": "FAIL"})
+            UPLOAD.flush()
+            check("switched on, the row reaches Supabase with the public key",
+                  len(table) == 1 and state["keys"][-1] == "PUBLIC"
+                  and table[0]["caller"] == "keeper"
+                  and table[0]["status"] == "failed", table)
+            check("no secret is uploaded", "SECRETX" not in json.dumps(table))
+            check("the machine is a random id, not its name",
+                  table[0]["machine"].startswith("m-")
+                  and socket_name() not in json.dumps(table))
+            state["down"] = True
+            s5.call("get_content", {"project": "crux"}, "ok", False, 3)
+            UPLOAD.flush()
+            check("offline, the row waits on disk",
+                  upload_status()["waiting"] == 1 and len(table) == 1)
+            state["down"] = False
+            UPLOAD.flush()
+            check("…and goes once the server answers",
+                  upload_status()["waiting"] == 0 and len(table) == 2)
+            try:
+                os.environ.pop("SUPABASE_SERVICE_KEY", None)
+                cloud_rows("select=*")
+                check("reading without the service key is refused", False)
+            except SystemExit:
+                check("reading without the service key is refused", True)
+            os.environ["SUPABASE_SERVICE_KEY"] = "SERVICE"
+            r = cloud_run("keeper")
+            check("a cloud session reads the run back as a timeline",
+                  [c["tool"] for c in r["calls"]] ==
+                  ["export_preview", "get_content"]
+                  and "IMAGE DID NOT LOAD" in timeline(r), timeline(r))
+            check("…and lists the caller",
+                  cloud_callers()[0]["caller"] == "keeper")
+        finally:
+            srv.shutdown()
+            for k in ("AETHRON_SUPABASE_URL", "AETHRON_SUPABASE_ANON_KEY",
+                      "SUPABASE_SERVICE_KEY"):
+                os.environ.pop(k, None)
     print(f"\n{ok}/{ok + fail} run-record checks passed")
     return 0 if not fail else 1
 
@@ -336,6 +699,28 @@ def selftest() -> int:
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+    if "--cloud" in sys.argv:            # what the Mac uploaded
+        rest = [a for a in sys.argv[1:] if a != "--cloud"]
+        if rest:
+            print(timeline(cloud_run(rest[0], rest[1] if len(rest) > 1
+                                     else "")))
+        else:
+            for c in cloud_callers():
+                print(c["caller"])
+                for r in c["runs"][:10]:
+                    print(f"  {r['run']}  {r['calls']} call(s), "
+                          f"{r['problems']} problem(s)  "
+                          f"{', '.join(r['projects'])}  [{r['machine']}]")
+        sys.exit(0)
+    if "--upload" in sys.argv:           # on | off | now
+        k = sys.argv.index("--upload")
+        what = sys.argv[k + 1] if len(sys.argv) > k + 1 else "status"
+        if what in ("on", "off"):
+            set_upload(what == "on")
+        elif what == "now":
+            UPLOAD.flush()
+        print(json.dumps(upload_status(), indent=1))
+        sys.exit(0)
     if len(sys.argv) > 1:
         print(timeline(get_run(sys.argv[1], sys.argv[2]
                                if len(sys.argv) > 2 else "")))

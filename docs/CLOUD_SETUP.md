@@ -119,6 +119,42 @@ from events where created_at > now() - interval '7 days'
 group by 1, 2 order by 3 desc;
 ```
 
+## 5. Agent run records in the cloud
+
+Every MCP call an agent (the keeper) makes is recorded on the machine
+running Aethron, under `<AETHRON_HOME>/runs/`. To read them from anywhere,
+for example from a cloud Claude session, upload them to this Supabase
+project.
+
+**Once, in Supabase:** SQL Editor → paste the `agent_runs` section at the
+end of `supabase_schema.sql` → Run. The app's public key can then ADD rows
+and never read them.
+
+**On the machine running Aethron**, switch uploading on, using any one of:
+- the studio: Settings → Agent runs → *Upload agent runs*;
+- `python3 aethron_runlog.py --upload on` (from the checkout; prints status);
+- `AETHRON_RUN_UPLOAD=1` in the environment of the `forge_mcp.py --http`
+  command.
+Records are queued in `runs/.outbox.jsonl` and sent in the background. If
+the network or the table is missing, they wait and go later. Check with
+`python3 aethron_runlog.py --upload status`.
+
+**Name the caller:** give each agent its own token so records say who
+called: `AETHRON_MCP_TOKENS="keeper=<long secret>"` instead of (or as well
+as) `AETHRON_MCP_TOKEN`.
+
+**To read** (needs the SERVICE key, kept in the reading environment's
+secrets, never in the repo):
+
+    AETHRON_SUPABASE_URL=https://<ref>.supabase.co SUPABASE_SERVICE_KEY=… \
+      python3 aethron_runlog.py --cloud            # callers and runs
+      python3 aethron_runlog.py --cloud keeper     # newest keeper run
+      python3 aethron_runlog.py --cloud keeper 1   # the one before
+
+Keys and tokens are stripped before a record is written. The words agents
+write (copy, lead details) are in it, so uploading is off unless switched
+on per machine.
+
 ## Beta → paid: locking out free users
 
 During beta, leave billing enforcement **off** — every signed-in account gets

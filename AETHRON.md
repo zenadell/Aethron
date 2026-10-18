@@ -5771,9 +5771,27 @@ home page").
 MY OWN TEST WAS WRONG ONCE: a hand-typed 1x1 PNG had a bad IDAT checksum,
 the browser refused it, and the new check FAILed a "healthy" preview —
 correctly. The test now builds its PNG with zlib.
-STILL OPEN (owner's call, per NEXT_SESSION): where the keeper's Aethron
-runs (Mac app vs hosted --http), and how a cloud session reads records
-from the Mac (likely opt-in upload to Supabase — not built). Not built
+SETTLED WITH THE OWNER, same day: the keeper (on the web) reaches Aethron
+on the owner's MAC — a terminal-started server, Mac kept open. Records are
+written there and UPLOADED to Supabase (owner said yes):
+- aethron_runlog uploads each row to public.agent_runs with the app's
+  PUBLIC key; RLS lets that key INSERT only, never read (schema in
+  supabase_schema.sql — the owner must run that section once; until then
+  last_error names exactly that). Read with the SERVICE key from the
+  reading session's secrets: `aethron_runlog.py --cloud [caller] [n]`.
+- OFF unless switched on per machine (records hold the copy agents write
+  and the app ships to everyone): studio Settings → Agent runs,
+  `aethron_runlog.py --upload on`, or AETHRON_RUN_UPLOAD=1.
+- Every row goes to runs/.outbox.jsonl FIRST and leaves only when the
+  server took it: offline, a crash or a stdio agent hanging up loses
+  nothing. The network is never touched under the outbox lock (an agent's
+  call never waits on an upload). The selftest CAUGHT a real bug: the
+  background sender and an explicit flush read the same rows and sent each
+  twice — one flush at a time now. Selftest 9 -> 18 against a fake
+  Supabase that enforces the same rules (public adds, service reads).
+- The machine is a random id (runs/.machine), never its hostname. runs/
+  and previews/ are gitignored (a checkout-run server writes there).
+Still not built: catching a picture that is REMOVED rather than broken. Not built
 either: catching a picture that is REMOVED rather than broken (rendered
 image count vs the template's) — Framer prunes breakpoint variants after
 hydration, so a naive count would cry wolf.

@@ -1642,6 +1642,9 @@ class Handler(BaseHTTPRequestHandler):
                 import aethron_runlog as RL
                 self.send_json({"callers": RL.callers(),
                                 "where": str(RL.runs_dir())})
+            elif u.path == "/api/runs/upload":
+                import aethron_runlog as RL
+                self.send_json(RL.upload_status())
             elif u.path == "/api/run":
                 import aethron_runlog as RL
                 try:
@@ -2146,6 +2149,12 @@ class Handler(BaseHTTPRequestHandler):
                 f.parent.mkdir(parents=True, exist_ok=True)
                 f.write_text(body.get("text", ""), encoding="utf-8")
                 self.send_json({"ok": True, "size": f.stat().st_size})
+            elif u.path == "/api/runs/upload":
+                import aethron_runlog as RL
+                st = RL.set_upload(bool(body.get("on")))
+                if st["on"]:
+                    RL.UPLOAD.flush(8)
+                self.send_json(RL.upload_status())
             elif u.path == "/api/library/save":
                 d = self.project_dir({"name": [body.get("project", "")]})
                 r = subprocess.run(forge_argv("card"),
@@ -13041,8 +13050,38 @@ async function renderSettings(c){
           estimate — free keys never touch it.</div>`
       :`<div class="hint">No wallet is configured for this copy.</div>`}
     </section>
+
+    <section class="card">
+      <h3>${I('compass',14)} Agent runs</h3>
+      <div id="runshare"><div class="hint">reading…</div></div>
+    </section>
   </div>`;
   bindAiSettings();
+  showRunShare();
+}
+/* Upload this machine's agent run records to Aethron's Supabase, so a
+   session that is not on this computer can read what an agent did. Off
+   unless switched on here: records hold the copy agents write. */
+async function showRunShare(){
+  const box=$('runshare');if(!box)return;
+  let u;
+  try{u=await api('/api/runs/upload')}catch(e){box.innerHTML=`<div class="hint">${esc(e.message)}</div>`;return;}
+  box.innerHTML=`
+    <div class="kv"><span>Upload to Aethron's cloud</span><b>${u.on?'on':'off'}</b></div>
+    ${u.on?`<div class="kv"><span>Waiting to send</span><b>${u.waiting}</b></div>`:''}
+    ${u.last_error?`<div class="hint" style="color:#e5604f">last attempt: ${esc(u.last_error)}</div>`:''}
+    <div class="rowbtns">
+      <button onclick="setRunShare(${!u.on})" ${u.configured?'':'disabled'}>${u.on?'Stop uploading':'Upload agent runs'}</button>
+      <button onclick="openRuns()">See runs</button></div>
+    <div class="hint">${u.configured?`Every MCP call an agent makes is recorded on this computer.
+      Switched on, each record is also sent to Aethron's Supabase (machine
+      ${esc(u.machine)}) so it can be read from anywhere — keys and tokens are
+      never in it, but the words agents write are.`
+      :'No Supabase project is configured in this copy.'}</div>`;
+}
+async function setRunShare(on){
+  try{await api('/api/runs/upload',{on});}catch(e){alert(e.message)}
+  showRunShare();
 }
 async function setWallet(){
   const v=parseFloat(($('wlimit')||{}).value);

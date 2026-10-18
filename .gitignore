@@ -3,6 +3,8 @@ projects/
 
 # design cards derive from the user's projects — user data too
 library/
+runs/
+previews/
 
 # python
 __pycache__/

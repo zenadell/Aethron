@@ -53,3 +53,34 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- ─── agent run records (aethron_runlog.py) ─────────────────────────────
+-- What agents driving Aethron over MCP did, uploaded from a machine that
+-- switched it on (Settings → Agent runs). The app's PUBLIC key may only
+-- ADD rows; nobody reads them except the service role (a debugging
+-- session holding the service key in its own secrets). Keys and tokens
+-- are removed before a record leaves the machine.
+create table if not exists public.agent_runs (
+  id          bigint generated always as identity primary key,
+  received_at timestamptz not null default now(),
+  machine     text not null check (length(machine) <= 64),
+  caller      text not null check (length(caller) <= 80),
+  run         text not null check (length(run) <= 80),
+  n           int,
+  at          text check (length(at) <= 32),
+  tool        text check (length(tool) <= 80),
+  project     text check (length(project) <= 80),
+  status      text check (length(status) <= 16),
+  ms          int,
+  record      jsonb not null check (pg_column_size(record) <= 131072)
+);
+create index if not exists agent_runs_caller_run on public.agent_runs (caller, run, n);
+create index if not exists agent_runs_received on public.agent_runs (received_at desc);
+
+alter table public.agent_runs enable row level security;
+drop policy if exists agent_runs_insert on public.agent_runs;
+create policy agent_runs_insert on public.agent_runs
+  for insert to anon, authenticated with check (true);
+-- no select/update/delete policy: with RLS on, the public key cannot read,
+-- change or remove any row; the service role bypasses RLS to read.
+revoke select, update, delete on public.agent_runs from anon, authenticated;
