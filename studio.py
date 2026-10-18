@@ -556,6 +556,67 @@ def end_code_sessions() -> int:
     return ended
 
 
+HIST_FILES = ("copy_map.json", "forge.json", "project_plan.md")
+
+
+def _hist_state(d: Path) -> dict:
+    return {f: (d / f).read_text(encoding="utf-8")
+            for f in HIST_FILES if (d / f).exists()}
+
+
+def _hist_diff(a: dict, b: dict) -> dict:
+    """What changed going from state a to state b, in words a person
+    reads: the lines whose text changed, plus whether styles, removals,
+    settings or the plan moved."""
+    def entries(st):
+        try:
+            cm = json.loads(st.get("copy_map.json") or "{}")
+        except ValueError:
+            return {}, {}
+        lines = {(sec, e.get("old")): e.get("new") or ""
+                 for sec in ("strings", "images", "links")
+                 for e in cm.get(sec, []) if isinstance(e, dict)}
+        extra = {k: json.dumps(cm.get(k), sort_keys=True)
+                 for k in ("styles", "remove", "blocks") if k in cm}
+        return lines, extra
+    la, xa = entries(a)
+    lb, xb = entries(b)
+    lines = [{"kind": sec, "old": old, "before": la.get((sec, old), ""),
+              "after": lb.get((sec, old), "")}
+             for (sec, old) in lb.keys() | la.keys()
+             if la.get((sec, old), "") != lb.get((sec, old), "")]
+    other = [k for k in ("styles", "remove", "blocks") if xa.get(k) != xb.get(k)]
+    if a.get("forge.json") != b.get("forge.json"):
+        other.append("settings")
+    if a.get("project_plan.md") != b.get("project_plan.md"):
+        other.append("plan")
+    return {"n": len(lines), "lines": lines[:4], "other": other}
+
+
+def history_list(d: Path) -> list:
+    """Every saved version, newest first. A snapshot is the state BEFORE a
+    change, so each row says what that change did (snapshot -> the state
+    after it) and restoring it goes back to before."""
+    hist = d / ".history"
+    snaps = sorted(hist.glob("*.json")) if hist.exists() else []
+    states = []
+    for f in snaps:
+        try:
+            states.append((f.stem, json.loads(f.read_text(encoding="utf-8"))))
+        except (OSError, ValueError):
+            continue
+    out = []
+    for i, (sid, st) in enumerate(states):
+        nxt = states[i + 1][1] if i + 1 < len(states) else _hist_state(d)
+        ch = _hist_diff(st, nxt)
+        try:
+            t = float(sid)
+        except ValueError:
+            t = 0
+        out.append({"id": sid, "t": t, **ch})
+    return out[::-1]
+
+
 def undo_count(d: Path) -> int:
     hist = d / ".history"
     return len(list(hist.glob("*.json"))) if hist.exists() else 0
@@ -1588,6 +1649,8 @@ class Handler(BaseHTTPRequestHandler):
                     if (d / "forge.json").exists():
                         out.append(project_info(d))
                 self.send_json(out)
+            elif u.path == "/api/history":
+                self.send_json({"versions": history_list(self.project_dir(q))})
             elif u.path in ("/api/thumb", "/api/thumb.png"):
                 # A picture of the project's site: "site" is what it builds
                 # today, "original" is the template's own content. Made in
@@ -2706,6 +2769,20 @@ class Handler(BaseHTTPRequestHandler):
                         (d / fn).write_text(content, encoding="utf-8")
                 snaps[-1].unlink()
                 self.send_json({"ok": True, "remaining": len(snaps) - 1})
+            elif u.path == "/api/history/restore":
+                # go back to a saved version; the state it replaces is
+                # itself saved first, so a restore is one Undo away
+                d = self.project_dir({"name": [body.get("project", "")]})
+                sid = str(body.get("id", ""))
+                f = d / ".history" / (sid + ".json")
+                if not re.fullmatch(r"[0-9.]+", sid) or not f.is_file():
+                    return self.fail("that version is not saved any more", 404)
+                snap = json.loads(f.read_text(encoding="utf-8"))
+                snapshot(d)
+                for fn, content in snap.items():
+                    if fn in HIST_FILES:
+                        (d / fn).write_text(content, encoding="utf-8")
+                self.send_json({"ok": True})
             elif u.path == "/api/preview":
                 self.project_dir({"name": [body.get("project", "")]})
                 self.send_json({"port": preview_start(body["project"])})
@@ -10538,6 +10615,91 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
   border:1px solid rgba(255,255,255,.07)}
 .pvw-stage.dark .pane,.pvw-stage.dark .empty{margin:0}
 .pvw-stage iframe{width:100%;height:100%;border:0;display:block}
+/* PHONE AND TABLET ARE REAL WIDTHS, not a scaled picture: the page lays
+   itself out at 390 / 820px exactly as it would on the device. */
+.pvw-stage.dev{display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(120% 90% at 50% 0%,#2a2724 0%,#141312 70%)}
+.pvw-stage.dev iframe{flex:none;max-width:calc(100% - 24px);
+  background:#fff;border-radius:14px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.09),0 24px 70px rgba(0,0,0,.55);
+  transition:width .45s cubic-bezier(.2,.9,.25,1.05),height .45s cubic-bezier(.2,.9,.25,1.05)}
+.pvw-stage.dev-tablet iframe{width:820px;height:calc(100% - 28px)}
+.pvw-stage.dev-phone iframe{width:390px;height:min(844px,calc(100% - 28px));
+  border-radius:34px;box-shadow:0 0 0 7px #0b0b0c,0 0 0 8px rgba(255,255,255,.12),
+  0 30px 80px rgba(0,0,0,.6)}
+.cmdk{position:fixed;inset:0;z-index:9000;display:flex;justify-content:center;
+  align-items:flex-start;padding-top:min(16vh,140px);background:rgba(8,7,7,0);
+  transition:background .18s ease}
+.cmdk.on{background:rgba(8,7,7,.45)}
+.cmdk-box{width:min(620px,calc(100vw - 32px));border-radius:16px;overflow:hidden;
+  background:rgba(28,26,25,.92);-webkit-backdrop-filter:blur(24px) saturate(1.4);
+  backdrop-filter:blur(24px) saturate(1.4);
+  box-shadow:0 0 0 1px rgba(255,255,255,.09),0 30px 90px rgba(0,0,0,.6);
+  transform:translateY(-8px) scale(.98);opacity:0;
+  transition:transform .32s cubic-bezier(.2,.9,.25,1.05),opacity .16s ease}
+.cmdk.on .cmdk-box{transform:none;opacity:1}
+.cmdk-in{display:flex;align-items:center;gap:10px;padding:0 16px;height:54px;
+  border-bottom:1px solid rgba(255,255,255,.07);color:var(--lo)}
+.cmdk-in input{flex:1;background:transparent;border:0;outline:0;box-shadow:none;
+  color:var(--tx);font:inherit;font-size:15.5px;padding:0;height:100%}
+.cmdk kbd{font:inherit;font-size:10.5px;color:var(--lo);padding:2px 6px;border-radius:5px;
+  background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+.cmdk-list{max-height:min(420px,56vh);overflow:auto;padding:6px}
+.cmdk-g{font-size:11px;color:var(--lo);padding:10px 10px 4px;letter-spacing:.02em}
+.cmdk-it{display:flex;align-items:center;gap:11px;height:38px;padding:0 10px;
+  border-radius:9px;cursor:pointer;color:var(--md,var(--tx));font-size:13.5px}
+.cmdk-it .ci{width:24px;height:24px;border-radius:7px;display:inline-flex;
+  align-items:center;justify-content:center;background:rgba(255,255,255,.06);color:var(--lo)}
+.cmdk-it .ct{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--tx)}
+.cmdk-it .cs,.cmdk-it .cg{font-size:11.5px;color:var(--lo)}
+.cmdk-it.on{background:rgba(255,255,255,.08)}
+.cmdk-it.on .ci{background:var(--acc);color:#fff8f2}
+.cmdk-none{padding:28px;text-align:center;color:var(--lo);font-size:13px}
+.cmdk-foot{display:flex;gap:14px;align-items:center;padding:9px 14px;font-size:11px;
+  color:var(--lo);border-top:1px solid rgba(255,255,255,.07)}
+.cmdk-foot .sp{flex:1}
+.cmdk-foot span{display:inline-flex;align-items:center;gap:4px}
+@media (prefers-reduced-motion:reduce){.cmdk-box{transition:opacity .12s ease;transform:none}}
+.hist{max-width:760px;margin:0 auto;padding:22px 22px 40px}
+.hist-head{font-size:12.5px;color:var(--lo);margin:0 0 14px 30px}
+.hist-wait{padding:40px;text-align:center;color:var(--lo);font-size:13px}
+.hist-empty{display:flex;flex-direction:column;align-items:center;gap:8px;
+  padding:70px 20px;color:var(--lo);text-align:center;font-size:13px}
+.hist-empty b{color:var(--tx);font-size:15px;font-weight:600}
+.hrow{position:relative;display:flex;gap:14px;align-items:flex-start;
+  padding:12px 12px 14px 30px;border-radius:12px;
+  animation:hrowin .5s cubic-bezier(.2,.9,.25,1.05) both;
+  animation-delay:calc(var(--i)*35ms)}
+.hrow:hover{background:rgba(255,255,255,.035)}
+.hrow::before{content:"";position:absolute;left:13px;top:0;bottom:0;width:1px;
+  background:rgba(255,255,255,.09)}
+.hrow:first-of-type::before{top:20px}
+.hrow:last-child::before{bottom:calc(100% - 20px)}
+.hdot{position:absolute;left:9px;top:17px;width:9px;height:9px;border-radius:50%;
+  background:#2b2926;box-shadow:0 0 0 2px rgba(255,255,255,.18)}
+.hrow:first-of-type .hdot{background:var(--acc);box-shadow:0 0 0 4px rgba(217,119,87,.22)}
+.hmain{flex:1;min-width:0}
+.htop{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;font-size:13px}
+.htop b{color:var(--tx);font-weight:600}
+.htop span{color:var(--lo)}
+.hl{display:flex;align-items:center;gap:7px;margin-top:7px;font-size:12.5px;
+  color:var(--lo);min-width:0}
+.hl .hb{text-decoration:line-through;text-decoration-color:rgba(255,255,255,.25);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:44%}
+.hl .ha{color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hl .ha i{color:var(--lo)}
+.hmore{margin-top:6px;font-size:12px;color:var(--lo)}
+.hrow .cpill{flex:none;opacity:.75}
+.hrow:hover .cpill{opacity:1}
+@keyframes hrowin{from{opacity:0;transform:translateY(8px)}}
+@media (prefers-reduced-motion:reduce){.hrow{animation:none}}
+.pvw-dev{display:flex;gap:2px;padding:2px;border-radius:10px;
+  background:rgba(255,255,255,.06)}
+.pvw-dev button{width:30px;height:26px;border:0;border-radius:8px;
+  background:transparent;color:var(--lo);display:inline-flex;
+  align-items:center;justify-content:center;cursor:pointer}
+.pvw-dev button:hover{color:var(--tx)}
+.pvw-dev button.on{background:rgba(255,255,255,.13);color:var(--tx)}
 /* centred with margins, not translateX(-50%): the fadeup animation sets
    transform, which dropped the centring and pushed the hint off the right
    edge of the preview. */
@@ -11621,6 +11783,12 @@ header>.iconbtn,header>.steps{flex:none}
 @keyframes nKClip{0%,100%{transform:translateX(0)}30%{transform:translateX(-120px)}65%{transform:translateX(110px)}}
 @keyframes nKHand{0%,100%{transform:translateX(0)}30%{transform:translateX(-120px)}65%{transform:translateX(110px)}}
 @keyframes nFlow{0%{opacity:0;transform:translateX(0)}15%{opacity:1}85%{opacity:1}100%{opacity:0;transform:translateX(64px)}}
+.nart .c-sel{animation:nCSel 4.8s var(--eo) infinite both}
+.nart .c-type{transform-origin:left center;animation:nCType 4.8s var(--eo) infinite both}
+@keyframes nCSel{0%,20%{transform:translateY(0)}35%,55%{transform:translateY(21px)}70%,100%{transform:translateY(42px)}}
+@keyframes nCType{0%{transform:scaleX(0)}25%,100%{transform:scaleX(1)}}
+@keyframes nHCur{0%,40%{opacity:0;transform:translate(390px,206px)}55%{opacity:1;transform:translate(338px,104px)}
+  62%{transform:translate(338px,104px) scale(.85)}68%,90%{opacity:1;transform:translate(338px,104px)}100%{opacity:0;transform:translate(338px,104px)}}
 @keyframes nRow{0%{opacity:0;transform:translateX(-10px)}8%,88%{opacity:1;transform:none}100%{opacity:0}}
 
 .aespot{position:fixed;z-index:8999;pointer-events:none;border-radius:12px;
@@ -11964,6 +12132,12 @@ const $=id=>document.getElementById(id);
 if(location.search.indexOf('glass=1')>=0)
   document.documentElement.classList.add('native-glass');
 const ICONS={
+monitor:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+tablet:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M11 18h2"/>',
+phone:'<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+command:'<path d="M9 6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3z"/>',
+arrowr:'<path d="M5 12h14M13 6l6 6-6 6"/>',
 eye:'<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
 split:'<path d="m9 7-5 5 5 5"/><path d="m15 7 5 5-5 5"/>',
 more:'<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
@@ -13667,7 +13841,8 @@ function projectRail(){
     <div class="racts">
       <button class="cpill" onclick="openPreviewPane(false)" ${ready?'':'disabled'}>${I('play',13)}Preview</button>
       <button class="cpill" onclick="openPreviewPane(true)" ${ready?'':'disabled'}>${I('pencil',13)}Point and edit</button>
-      <button class="cpill wide" onclick="openCompare()" ${ready?'':'disabled'}>${I('eye',13)}Before / After</button>
+      <button class="cpill" onclick="openCompare()" ${ready?'':'disabled'}>${I('eye',13)}Before / After</button>
+      <button class="cpill" onclick="openHistory()">${I('clock',13)}History</button>
       <button class="cpill opt wide" onclick="openInBrowser()" ${ready?'':'disabled'}>${I('compass',13)}Open in browser</button>
     </div>
    </div>
@@ -13735,6 +13910,62 @@ function loadThumbs(root){
       img.src=thumbSrc(el.dataset.thumb,'site','',r.v);
     }else el.classList.add('nopic');
   });
+}
+/* HISTORY: every saved version of the project, newest first, each saying
+   what that change did in the project's own words, with a way back. A
+   restore is itself saved first, so it is never a one-way door. */
+async function openHistory(){
+  if(!S.cur)return;
+  const proj=S.cur;
+  openSheet({name:proj, sub:'history', dark:true,
+    body:'<div class="hist" id="histlist"><div class="hist-wait">Reading the saved versions\u2026</div></div>',
+    onMount:()=>histLoad(proj)});
+}
+async function histLoad(proj){
+  const box=$('histlist'); if(!box)return;
+  let r; try{ r=await api('/api/history?project='+encodeURIComponent(proj)); }
+  catch(e){ box.innerHTML=`<div class="hist-wait">${esc(e.message)}</div>`; return; }
+  const v=(r&&r.versions)||[];
+  if(!v.length){
+    box.innerHTML=`<div class="hist-empty">${I('clock',22)}<b>No saved versions yet</b>
+      <span>Every change you or Aethron make is saved here, so you can always go back.</span></div>`;
+    return;
+  }
+  const said=x=>{ x=String(x||''); return x.length>60?x.slice(0,58)+'\u2026':x; };
+  const OTHER={styles:'styles',remove:'removed elements',blocks:'added blocks',
+    settings:'settings',plan:'the plan'};
+  box.innerHTML=`<div class="hist-head">${v.length} saved version${v.length>1?'s':''}.
+      Going back saves where you are now first, so you can always return.</div>`
+    +v.map((h,i)=>{
+      const what=[];
+      if(h.n)what.push(`${h.n} line${h.n>1?'s':''} changed`);
+      (h.other||[]).forEach(o=>what.push(OTHER[o]||o));
+      const lines=(h.lines||[]).map(l=>`<div class="hl">
+          <span class="hb">${esc(said(l.before||l.old))}</span>${I('arrowr',11)}
+          <span class="ha">${l.after?esc(said(l.after)):'<i>back to the original</i>'}</span></div>`).join('');
+      return `<div class="hrow" style="--i:${Math.min(i,10)}">
+        <span class="hdot"></span>
+        <div class="hmain">
+          <div class="htop"><b>${esc(agoText(h.t))}</b>
+            <span>${esc(what.join(' \u00b7 ')||'no visible change')}</span></div>
+          ${lines}${h.n>(h.lines||[]).length?`<div class="hmore">and ${h.n-(h.lines||[]).length} more</div>`:''}
+        </div>
+        <button class="cpill" onclick="histRestore('${esc(proj)}','${esc(h.id)}',this)"
+          title="Go back to how the project was before this change">${I('undo',12)}Go back</button>
+      </div>`;}).join('');
+}
+async function histRestore(proj,id,btn){
+  if(btn){btn.disabled=true;btn.innerHTML=I('undo',12)+'Going back\u2026';}
+  try{
+    await api('/api/history/restore',{project:proj,id});
+    const {job}=await api('/api/run',{project:proj,cmd:'build'});
+    let j; do{ await new Promise(x=>setTimeout(x,900));
+      j=await api('/api/job?id='+job); }while(!j.done);
+    if(S.cur===proj){ try{S.cm=await api('/api/copymap?project='+proj);}catch(e){S.cm=null} }
+    await refresh(true); renderHeader&&renderHeader();
+    toast(j.ok===false?'Went back, but the rebuild had a problem \u2014 see Logs':'Went back and rebuilt the site',j.ok===false?'bad':'');
+    histLoad(proj);
+  }catch(e){ toast(e.message,'bad'); if(btn){btn.disabled=false;btn.innerHTML=I('undo',12)+'Go back';} }
 }
 function agoText(t){
   if(!t)return '';
@@ -13887,7 +14118,11 @@ function openPreviewPane(edit){
     bar:`<div class="pvw-seg" id="pvwseg">
         <button class="${edit?'':'on'}" onclick="pvwMode(false)">Browse</button>
         <button class="${edit?'on':''}" onclick="pvwMode(true)">Select</button>
-      </div>`,
+      </div>
+      <div class="pvw-dev" id="pvwdev">${[['desktop','monitor','Desktop'],
+        ['tablet','tablet','Tablet (820px)'],['phone','phone','Phone (390px)']]
+        .map(([k,ic,t])=>`<button data-dev="${k}" title="${t}"
+          onclick="pvwDevice('${k}')">${I(ic,14)}</button>`).join('')}</div>`,
     actions:`<button class="cpill opt" onclick="openInBrowser()">${
         I('compass',13)}Open in browser</button>`,
     body:`<iframe id="pvwframe" src="/edit/${encodeURIComponent(S.cur)}/"></iframe>
@@ -13895,6 +14130,18 @@ function openPreviewPane(edit){
       <div class="pvw-hint" id="pvwhint"></div>`});
   const f=$('pvwframe');
   if(f)f.onload=()=>pvwMode(PVW.edit);
+  pvwDevice(pvwDevSaved());
+}
+function pvwDevSaved(){ try{ return localStorage.forge_dev||'desktop'; }catch(e){ return 'desktop'; } }
+function pvwDevice(k){
+  if(!['desktop','tablet','phone'].includes(k))k='desktop';
+  try{ localStorage.forge_dev=k; }catch(e){}
+  const st=$('pvwstage'); if(!st)return;
+  st.classList.remove('dev','dev-tablet','dev-phone');
+  if(k!=='desktop')st.classList.add('dev','dev-'+k);
+  const g=$('pvwdev');
+  if(g)[...g.children].forEach(b=>b.classList.toggle('on',b.dataset.dev===k));
+  closeSel(); const r=$('selring'); if(r)r.classList.remove('on');
 }
 /* THE CODE WORKSPACE IS A SHEET NOW, NOT A PLACE YOU GO. It used to
    replace the whole view, so opening it meant leaving the conversation
@@ -13958,7 +14205,9 @@ window.addEventListener('message',ev=>{
     const ring=$('selring'), st=$('pvw').querySelector('.pvw-stage');
     if(!m.rect){ring.classList.remove('on');return;}
     const b=st.getBoundingClientRect(), R=m.rect;
-    ring.style.left=R.l+'px'; ring.style.top=R.t+'px';
+    const fr=($('pvwframe')||st).getBoundingClientRect();
+    const ox=fr.left-b.left, oy=fr.top-b.top;   // the frame is centred on phone/tablet
+    ring.style.left=(R.l+ox)+'px'; ring.style.top=(R.t+oy)+'px';
     ring.style.width=(R.r-R.l)+'px'; ring.style.height=(R.b-R.t)+'px';
     ring.classList.add('on');
     return;
@@ -14187,9 +14436,99 @@ function findFirst(){ if(FIND_HITS.length)findGo(0); }
 addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&(e.key==='k'||e.key==='K')){
     e.preventDefault();
-    const f=$('findq'); if(f){f.focus();f.select();}
+    if($('cmdk'))cmdkClose(); else cmdkOpen();
   }
 });
+/* ⌘K: ONE BOX FOR EVERYTHING. Every project and every action Aethron has,
+   typed for instead of hunted for. What is listed is what can run right
+   now: a project's actions appear only when one is open, and ones that
+   need a built site wait until it is built. */
+let CMDK={items:[],hits:[],i:0};
+function cmdkItems(){
+  const out=[], cur=S.cur&&(S.projects||[]).find(p=>p.name===S.cur);
+  if(cur){
+    const P=n=>({g:S.cur,ic:n});
+    out.push({...P('play'),t:'Preview the site',k:'preview open view',run:()=>openPreviewPane(false)});
+    out.push({...P('phone'),t:'Preview on a phone',k:'mobile phone responsive',run:()=>{try{localStorage.forge_dev='phone'}catch(e){} openPreviewPane(false);}});
+    out.push({...P('pencil'),t:'Point and edit',k:'select click edit',run:()=>openPreviewPane(true)});
+    out.push({...P('eye'),t:'Before / After',k:'compare original template slider',run:()=>openCompare()});
+    out.push({...P('clock'),t:'History',k:'versions undo restore back',run:()=>openHistory()});
+    out.push({...P('hammer'),t:'Build the site',k:'rebuild apply',run:()=>runStep('build')});
+    out.push({...P('compass'),t:'Open in browser',k:'browser tab',run:()=>openInBrowser()});
+  }
+  out.push({g:'Go to',ic:'home',t:'Home',k:'start new project welcome',run:()=>newProject()});
+  out.push({g:'Go to',ic:'plus',t:'New project',k:'create import template url',run:()=>newProject()});
+  out.push({g:'Go to',ic:'terminal',t:'Code workspace',k:'ide code files',run:()=>openCode()});
+  out.push({g:'Go to',ic:'library',t:'Design library',k:'library designs',run:()=>openLibrary()});
+  out.push({g:'Go to',ic:'compass',t:'Agent runs',k:'runs logs agent',run:()=>openRuns()});
+  out.push({g:'Go to',ic:'gear',t:'Settings',k:'settings ai model key provider',run:()=>openSettings()});
+  out.push({g:'Go to',ic:'download',t:'Check for updates',k:'update version',run:()=>checkNow()});
+  [...(S.projects||[])].sort((a,b)=>(b.edited||0)-(a.edited||0)).forEach(p=>
+    out.push({g:'Projects',ic:'file',t:p.name,sub:p.platform||'',k:'project open '+(p.platform||''),
+      run:()=>select(p.name)}));
+  return out;
+}
+function cmdkScore(it,q){
+  if(!q)return 1;
+  const t=it.t.toLowerCase(), k=(it.k||'').toLowerCase();
+  if(t.startsWith(q))return 4;
+  if(t.split(/\s+/).some(w=>w.startsWith(q)))return 3;
+  if(t.includes(q))return 2;
+  if(k.includes(q))return 1.5;
+  let j=0; for(const c of t){ if(c===q[j])j++; if(j===q.length)return 1; }   // in order
+  return 0;
+}
+function cmdkOpen(){
+  CMDK={items:cmdkItems(),hits:[],i:0};
+  const ov=document.createElement('div'); ov.id='cmdk'; ov.className='cmdk';
+  ov.innerHTML=`<div class="cmdk-box" role="dialog" aria-label="Command bar">
+      <div class="cmdk-in">${I('search',15)}
+        <input id="cmdkq" placeholder="Type a project or an action\u2026" autocomplete="off" spellcheck="false">
+        <kbd>esc</kbd></div>
+      <div class="cmdk-list" id="cmdklist" role="listbox"></div>
+      <div class="cmdk-foot"><span><kbd>\u2191</kbd><kbd>\u2193</kbd> move</span>
+        <span><kbd>\u21b5</kbd> open</span><span class="sp"></span>
+        <span>${I('command',11)}K any time</span></div>
+    </div>`;
+  ov.onclick=e=>{ if(e.target===ov)cmdkClose(); };
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>ov.classList.add('on'));
+  const q=$('cmdkq');
+  q.oninput=()=>{CMDK.i=0;cmdkRender();};
+  q.onkeydown=e=>{
+    if(e.key==='Escape'){e.preventDefault();cmdkClose();}
+    else if(e.key==='ArrowDown'){e.preventDefault();CMDK.i=Math.min(CMDK.hits.length-1,CMDK.i+1);cmdkRender(true);}
+    else if(e.key==='ArrowUp'){e.preventDefault();CMDK.i=Math.max(0,CMDK.i-1);cmdkRender(true);}
+    else if(e.key==='Enter'){e.preventDefault();cmdkRun(CMDK.i);}
+  };
+  cmdkRender(); q.focus();
+}
+function cmdkRender(keep){
+  const q=($('cmdkq')?.value||'').trim().toLowerCase();
+  CMDK.hits=CMDK.items.map((it,n)=>({it,n,s:cmdkScore(it,q)})).filter(h=>h.s>0);
+  if(q)CMDK.hits.sort((a,b)=>b.s-a.s||a.n-b.n);
+  const L=$('cmdklist'); if(!L)return;
+  if(!CMDK.hits.length){L.innerHTML=`<div class="cmdk-none">Nothing called \u201c${esc(q)}\u201d</div>`;return;}
+  let last='';
+  L.innerHTML=CMDK.hits.map((h,i)=>{
+    const g=!q&&h.it.g!==last?`<div class="cmdk-g">${esc(h.it.g)}</div>`:''; last=h.it.g;
+    return g+`<div class="cmdk-it${i===CMDK.i?' on':''}" role="option" data-i="${i}"
+      onmousemove="if(CMDK.i!==${i}){CMDK.i=${i};cmdkRender(true)}" onclick="cmdkRun(${i})">
+      <span class="ci">${I(h.it.ic,14)}</span><span class="ct">${esc(h.it.t)}</span>
+      ${h.it.sub?`<span class="cs">${esc(h.it.sub)}</span>`:''}
+      ${q&&h.it.g?`<span class="cg">${esc(h.it.g)}</span>`:''}</div>`;}).join('');
+  if(keep){const on=L.querySelector('.cmdk-it.on'); if(on)on.scrollIntoView({block:'nearest'});}
+}
+function cmdkRun(i){
+  const h=CMDK.hits[i]; if(!h)return;
+  cmdkClose();
+  try{ h.it.run(); }catch(e){ toast(e.message,'bad'); }
+}
+function cmdkClose(){
+  const ov=$('cmdk'); if(!ov)return;
+  ov.removeAttribute('id'); ov.classList.remove('on');
+  setTimeout(()=>ov.remove(),180);
+}
 /* The sheet is a share of the window, so every resize moves the page
    inside it. Ask once the dust settles — the ring then springs to the
    new geometry on its own, which is the whole point of animating it
@@ -17478,7 +17817,41 @@ compare:()=>NEWS_ART.frame(`
     <path d="M196 110l-4 4 4 4M204 110l4 4-4 4" stroke="#111" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
   <text class="lbl" x="30" y="52" style="fill:#5f5852">BEFORE</text>
-  <text class="lbl" x="370" y="52" text-anchor="end" style="fill:#b5aeaa">AFTER</text>`)};
+  <text class="lbl" x="370" y="52" text-anchor="end" style="fill:#b5aeaa">AFTER</text>`),
+devices:()=>{
+  const site=(x,y,w,h,big)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#1b1817"/>
+    <rect fill="#ece8e5" x="${x+w*.1}" y="${y+h*.22}" width="${w*(big?.5:.72)}" height="${h*.07}" rx="2"/>
+    <rect fill="#ece8e5" x="${x+w*.1}" y="${y+h*.33}" width="${w*(big?.34:.5)}" height="${h*.07}" rx="2"/>
+    <rect fill="#837c78" x="${x+w*.1}" y="${y+h*.47}" width="${w*(big?.44:.78)}" height="${h*.035}" rx="1.5"/>
+    <rect class="acc" x="${x+w*.1}" y="${y+h*.58}" width="${w*(big?.16:.36)}" height="${h*.08}" rx="${h*.04}"/>`;
+  return `<svg viewBox="0 0 400 206" aria-hidden="true">
+  <g class="g-card" style="animation-delay:.1s"><rect class="fr" x="18" y="40" width="196" height="122" rx="9"/>
+    ${site(24,46,184,110,true)}</g>
+  <g class="g-card" style="animation-delay:.45s"><rect class="fr" x="232" y="34" width="86" height="134" rx="10"/>
+    ${site(238,40,74,122,false)}</g>
+  <g class="g-card" style="animation-delay:.8s"><rect x="334" y="44" width="50" height="114" rx="12" fill="#0b0b0c"
+      style="stroke:var(--a);stroke-width:2"/>${site(339,50,40,102,false)}</g>
+  <text class="lbl" x="116" y="184" text-anchor="middle">DESKTOP</text>
+  <text class="lbl" x="275" y="184" text-anchor="middle">TABLET</text>
+  <text class="lbl" x="359" y="184" text-anchor="middle" style="fill:var(--a)">PHONE</text></svg>`;},
+history:()=>NEWS_ART.frame(`
+  <line x1="52" y1="56" x2="52" y2="178" stroke="var(--t-3)" stroke-width="1.5"/>
+  ${[0,1,2].map(i=>{const y=58+i*42;return `<g class="c-row" style="animation-delay:${.15+i*.3}s">
+    <circle cx="52" cy="${y}" r="5" style="fill:${i?'var(--t-3)':'var(--a)'}"/>
+    <rect class="ln" x="68" y="${y-6}" width="${[54,44,60][i]}" height="5" rx="2.5" style="fill:var(--t-2)"/>
+    <rect x="68" y="${y+5}" width="${[92,70,84][i]}" height="4" rx="2" fill="#8f877f" opacity=".6"/>
+    <rect x="${68+[92,70,84][i]+8}" y="${y+5}" width="${[90,110,78][i]}" height="4" rx="2" style="fill:var(--t-1,#ece8e5)"/>
+    <rect class="cd" x="312" y="${y-9}" width="52" height="18" rx="9"/>
+    <rect x="328" y="${y-1.5}" width="28" height="3" rx="1.5" style="fill:var(--t-2)"/></g>`}).join('')}
+  <path class="cur g-cur" d="M0 0v15l4-4 3 6 2.4-1-3-6h5.6z" style="animation-name:nHCur"/>`),
+cmdk:()=>NEWS_ART.frame(`
+  <rect class="cd" x="70" y="48" width="260" height="134" rx="12"/>
+  <circle cx="90" cy="66" r="5" fill="none" style="stroke:var(--t-2)" stroke-width="1.6"/>
+  <rect class="c-type" x="104" y="63" width="70" height="6" rx="3" style="fill:var(--t-1,#ece8e5)"/>
+  <line x1="70" y1="82" x2="330" y2="82" stroke="var(--t-3)" stroke-width="1"/>
+  <rect class="c-sel" x="78" y="90" width="244" height="20" rx="6" fill="rgba(255,255,255,.09)"/>
+  ${[0,1,2,3].map(i=>{const y=100+i*21;return `<rect x="88" y="${y-6}" width="12" height="12" rx="3.5" style="fill:${i?'var(--t-3)':'var(--a)'}"/>
+    <rect class="ln" x="108" y="${y-2.5}" width="${[70,92,58,80][i]}" height="5" rx="2.5"/>`}).join('')}`)};
 let NEWS={list:[],i:0,ver:'',asked:false};
 async function newsCheck(ver){
   if(NEWS.asked)return; NEWS.asked=true;
@@ -17536,6 +17909,16 @@ async function newsGo(go){
   if(go==='runs'){ await openRuns(); return aeSpot('#runsbtn','Every agent call is listed here'); }
   if(go==='back'){ openSettings(); return aeSpot('#backbtn','This takes you back to where you were'); }
   if(go==='home'){ newProject(); return aeSpot('#hgal','Your projects, with a picture of each site'); }
+  if(go==='cmdk'){ return cmdkOpen(); }
+  if(go==='phone'||go==='history'){
+    const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);
+    if(!p){ toast('Build a project first.'); return aeSpot('.composer','Paste a template link to begin'); }
+    if(S.cur!==p.name)await select(p.name);
+    if(go==='history')return openHistory();
+    try{ localStorage.forge_dev='phone'; }catch(e){}
+    openPreviewPane(false);
+    return setTimeout(()=>aeSpot('#pvwdev','Switch between desktop, tablet and phone'),700);
+  }
   if(go==='compare'){
     const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);
     if(!p){ toast('Build a project first, then press Before / After.'); return aeSpot('.composer','Paste a template link to begin'); }

@@ -167,6 +167,7 @@ SUITES = [
     # What's new: once after an update, and every button goes where it says.
     ("what's new (selftest)", [PY, "aethron_news.py", "--selftest"], False),
     ("what's new card (real browser)", [PY, "tests/news_battery.py"], False),
+    ("history and going back", [PY, "tests/history_battery.py"], False),
     ("keeper battery (an agent's run, and what went missing)",
      [PY, "tests/keeper_battery.py"], True),
     # Adversarial: builds sites that are obviously broken to a human and

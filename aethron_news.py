@@ -53,6 +53,24 @@ NEWS = [
              "came on one side and your version on the other. Open any "
              "built project and press Before / After.",
      "art": "compare", "go": "compare", "label": "Try it"},
+    {"id": "2026-10-devices",
+     "title": "See your site on a phone",
+     "body": "The preview now has desktop, tablet and phone sizes. The phone "
+             "and tablet are real widths, so the page lays itself out "
+             "exactly as it would on the device.",
+     "art": "devices", "go": "phone", "label": "Show me"},
+    {"id": "2026-10-history",
+     "title": "Every version, one click back",
+     "body": "History lists every saved version of a project and what each "
+             "change did, like \u201cPush Your \u2192 Train Smarter\u201d. "
+             "Go back to any of them; where you are now is saved first.",
+     "art": "history", "go": "history", "label": "Open History"},
+    {"id": "2026-10-cmdk",
+     "title": "Press \u2318K for anything",
+     "body": "One box for every project and every action: type a few "
+             "letters and press Enter to preview, build, compare, go back "
+             "or open settings.",
+     "art": "cmdk", "go": "cmdk", "label": "Try \u2318K"},
 ]
 
 SEEN = ".news-seen.json"
@@ -140,8 +158,10 @@ def _selftest() -> int:
     ids = [n["id"] for n in NEWS]
     check("ids are unique", len(ids) == len(set(ids)))
     check("every entry names a known illustration and action",
-          all(n["art"] in ("rail", "back", "runs", "gallery", "compare")
-              and n["go"] in ("preview", "back", "runs", "home", "compare")
+          all(n["art"] in ("rail", "back", "runs", "gallery", "compare",
+                           "devices", "history", "cmdk")
+              and n["go"] in ("preview", "back", "runs", "home", "compare",
+                              "phone", "history", "cmdk")
               for n in NEWS))
     print("ALL PASS" if ok else "FAILED")
     return 0 if ok else 1
