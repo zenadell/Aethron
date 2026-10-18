@@ -8994,6 +8994,7 @@ INDEX_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Aethron Studio</title>
+<link rel="icon" href="__MARK__">
 <!-- The metal engine. `defer` because nothing above the fold waits on
      it: every surface it decorates is mounted from mountMetal(), which
      runs after a render and checks window.metalWrap first. A browser
@@ -10185,6 +10186,16 @@ input:focus,textarea:focus,select:focus{border-color:var(--tx);
 .pvw-stage.dark .ide{display:grid;grid-template-columns:230px 1fr;
   gap:12px;min-height:0}
 .pvw-stage.dark .ide>*{min-height:0}      /* the grid-overflow trap */
+/* THREE PANES IN A TWO-COLUMN SHEET. The sheet keeps tree | editor, so
+   the chat used to wrap into the 230px tree column: a sliver of a log
+   and a Send button as tall as the box beside it. The chat takes the
+   whole second row instead. */
+.pvw-stage.dark .ide{grid-template-rows:minmax(150px,1fr) auto}
+.pvw-stage.dark .idechat{grid-column:1/-1;border:1px solid rgba(255,255,255,.06);
+  border-radius:var(--r-md);background:rgba(255,255,255,.028)}
+.pvw-stage.dark .chatlog{min-height:90px;max-height:38vh}
+.pvw-stage.dark .chatin{align-items:flex-end}
+.pvw-stage.dark .chatin button{flex:none;height:36px;padding:0 16px}
 .pvw-stage.dark .idetree,.pvw-stage.dark .ideedit{
   border-radius:var(--r-md);overflow:auto;
   background:rgba(255,255,255,.028);
@@ -11298,6 +11309,8 @@ body.split .clog,body.split .startrow{max-width:100%}
 /* ── PANEL CHIPS: always present, one click each ─────────────────── */
 .panelpick,.panelbtn{display:none!important}   /* the two-step: gone */
 nav#tabs{display:flex;align-items:center;gap:2px;padding:0 18px;min-height:44px}
+/* an empty tab strip is a bordered band with nothing in it */
+nav#tabs:empty{display:none}
 .tabgap{flex:1}
 .pchip{padding:6px 12px;background:none;border:0;border-radius:var(--r-md);
   color:var(--t-3);font:510 12.5px/1 var(--sans,inherit);letter-spacing:-.022em;
@@ -11752,7 +11765,7 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
 <main>
   <header>
     <button class="iconbtn backbtn" id="backbtn" hidden title="Back (Esc)" onclick="goBack()"><span data-ic="up"></span></button>
-    <div id="ptitle">no project selected</div>
+    <div id="ptitle">Home</div>
     <div class="steps" id="steps"></div>
     <div id="updchip" hidden></div>
     <button class="iconbtn" id="helpbtn" title="show the walkthrough" onclick="startTour(0)"><span data-ic="help"></span></button>
@@ -11801,7 +11814,7 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
        <span class="or">or</span>
        <label class="fpick"><input id="npfile" type="file"
         accept=".html,.htm,.zip" multiple><span data-ic="file"></span>
-        choose an export, a zip, or saved pages</label>
+        Choose an export, a zip, or saved pages</label>
      </div>
      <div class="qrows">
        <button class="qrow" onclick="quick('Migrate ','Paste the live Framer or Webflow URL, and tell me the brand it should become.')">
@@ -11865,7 +11878,23 @@ const I=(n,s=14)=>{
      shipped once before. Say so in the console instead of hiding it. */
   if(!ICONS[n])console.warn('icon missing:',n);
   return `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[n]||''}</svg>`;};
-document.querySelectorAll('[data-ic]').forEach(n=>{n.outerHTML=I(n.dataset.ic,+(n.dataset.ics||14))});
+/* [data-ic] IS A PLACEHOLDER, AND IT USED TO BE FILLED ONCE. Two faults
+   came from that: every view rendered later from a template kept its
+   placeholders, so the start screen's rows drew no icons at all; and the
+   placeholder's own class was dropped, so `.qrow .qc` (hidden until hover)
+   matched nothing and the arrows showed all the time. Now one observer
+   fills every placeholder wherever it appears, and keeps its class. */
+function hydIc(n){
+  if(!n.parentNode)return;
+  const c=n.getAttribute('class');
+  n.outerHTML=I(n.dataset.ic,+(n.dataset.ics||14))
+    .replace('class="ic"',`class="ic${c?' '+c:''}"`);}
+function hydAll(r){r.querySelectorAll('[data-ic]').forEach(hydIc);}
+hydAll(document);
+new MutationObserver(ms=>{for(const m of ms)for(const a of m.addedNodes){
+  if(a.nodeType!==1)continue;
+  if(a.hasAttribute('data-ic'))hydIc(a);else if(a.querySelector('[data-ic]'))hydAll(a);
+}}).observe(document.documentElement,{childList:true,subtree:true});
 const S={projects:[],cur:null,info:null,cm:null,tab:'plan',log:'',running:null};
 const enc=new TextEncoder();
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -12134,8 +12163,8 @@ function updateMenuItem(){
 function renderHeader(){
   try{syncRail();}catch(e){}
   const _pt=$('ptitle'); _pt.textContent=S.view==='settings'?'Settings':S.view==='library'?'Design library'
-    :S.view==='runs'?'Agent runs'
-    :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'no project selected';
+    :S.view==='runs'?'Agent runs':S.view==='design'?'Design'
+    :S.cur?S.cur+(S.info?` · ${S.info.platform.toUpperCase()}`:''):'Home';
   _pt.title=_pt.textContent;
   if(!S.cur){$('steps').innerHTML='';$('tabs').innerHTML='';return;}
   const done={fetch:S.info?.fetched,inventory:S.info?.inventoried,
@@ -12563,11 +12592,11 @@ async function renderRuns(c){
      <span class="rj">${esc((r.projects||[]).join(', '))}</span></button>`;
   c.innerHTML=`<div class="libwrap runswrap">
    <h2>Agent runs</h2>
-   <div class="hint">every MCP call an agent makes is recorded here — never a key
+   <div class="hint">Every MCP call an agent makes is recorded here — never a key
     or token. Kept in <code>${esc(d.where||'')}</code>.</div>
    ${(d.callers||[]).map(cl=>`<div class="runcaller"><h3>${esc(cl.caller)}</h3>
       ${cl.runs.slice(0,30).map(runRow).join('')}</div>`).join('')
-     ||'<div class="empty">no agent has called Aethron yet</div>'}
+     ||'<div class="empty">No agent has called Aethron yet</div>'}
    <div id="runview"></div></div>`;
 }
 async function openRun(caller,run){
@@ -12709,16 +12738,16 @@ async function renderLibrary(c){
   S.libCards=cards;
   c.innerHTML=`<div class="libwrap">
    <div class="libmatch">
-    <textarea id="libplan" rows="3" placeholder="describe the new project — brand, industry, tone, must-have sections… the AI ranks your saved designs by fit">${esc(S.libPlan||'')}</textarea>
+    <textarea id="libplan" rows="3" placeholder="Describe the new project — brand, industry, tone, must-have sections… the AI ranks your saved designs by fit">${esc(S.libPlan||'')}</textarea>
     <button class="primary" onclick="matchLibrary()">${I('sparkles')}Match my plan</button>
    </div>
-   <div class="hint" style="margin-top:8px">cards hold only design
+   <div class="hint" style="margin-top:8px">Cards hold only design
     fingerprints (palette, fonts, motion, structure) — never template
     files. Start-from re-imports from the card's source URL or your own local
     project, so a shared library stays license-clean.</div>
    <div id="libmatches"></div>
    <div class="libgrid">${cards.map(cd=>libCard(cd)).join('')
-     ||'<div class="empty" style="grid-column:1/-1">library is empty — open a project and hit Save design</div>'}</div></div>`;
+     ||'<div class="empty" style="grid-column:1/-1">The library is empty. Open a project and press Save design.</div>'}</div></div>`;
 }
 async function matchLibrary(){
   const plan=$('libplan').value.trim();S.libPlan=plan;
@@ -12866,17 +12895,17 @@ async function renderCode(c){
   <div class="ide">
     <div class="idetree" id="idetree"></div>
     <div class="ideedit">
-      <div class="idehead"><span id="idefile">no file open</span>
+      <div class="idehead"><span id="idefile">No file open</span>
         <button id="idesave" onclick="saveFile()" disabled>Save</button></div>
       <textarea id="ideta" spellcheck="false" oninput="CODE.dirty=true;$('idesave').disabled=false"
-        placeholder="pick a file from the tree"></textarea>
+        placeholder="Pick a file from the tree"></textarea>
     </div>
     <div class="idechat">
       <div class="chatlog" id="chatlog"></div>
       <div class="chatin">
         <textarea id="chatta" rows="3" placeholder="${CODE.key
-          ?'ask the agent to build, fix or explain something…'
-          :'start a session first'}"
+          ?'Ask the agent to build, fix or explain something…'
+          :'Start a session first'}"
           onkeydown="if(event.key==='Enter'&&(event.metaKey||event.ctrlKey))sendCode()"></textarea>
         <button class="primary" onclick="sendCode()">${I('send')}Send</button>
       </div>
@@ -13938,7 +13967,7 @@ function renderWelcome(c){
         <span class="or">or</span>
         <label class="fpick"><input id="npfile" type="file"
          accept=".html,.htm,.zip" multiple>${I('file',13)}
-         choose an export, a zip, or saved pages</label>
+         Choose an export, a zip, or saved pages</label>
       </div>`,
     quick:[
       {icon:'zap',label:'Migrate a live site',
@@ -14007,8 +14036,7 @@ function syncComposer(){
         title="Stop">${I('stop',15)}</button>`
     :`<button class="cbtn" onclick="consoleSend()" aria-label="Send"
         title="Send"><span data-ic="up"></span></button>`;
-  document.querySelectorAll('.composer [data-ic]').forEach(n=>{
-    n.outerHTML=I(n.dataset.ic,+(n.dataset.ics||14));});
+  document.querySelectorAll('.composer').forEach(hydAll);
 }
 /* ONE PLACE DECIDES WHETHER THE ROOM IS LIT. Opacity alone would leave
    it painting sixty times a second behind something invisible, so the
@@ -16341,7 +16369,7 @@ function aiSettingsHtml(compact){
   const cur=a.provider||'deepseek',p=P[cur]||{};
   const saved=(AI.profiles||[]).find(x=>x.provider===cur);
   return `${aiProfilesHtml()}
-  <div class="hint aiformh">${(AI.profiles||[]).length?'Add a provider, or update one':'Provider'}</div>
+  <div class="hint aiformh">${(AI.profiles||[]).length?'Add a provider, or update one':'Choose a provider and paste its key'}</div>
   <div class="row">
    <div><label>Provider</label><select id="aiprov">
      ${Object.entries(P).map(([k,v])=>`<option value="${esc(k)}"
