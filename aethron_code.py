@@ -48,6 +48,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import re
 import threading
 import time
 import uuid
@@ -542,6 +543,52 @@ def transcript_path(session_id: str):
 # What Aethron measured, attached to a message so the agent starts from the
 # project as it is — never shown as the person's words.
 STATUS_OPEN, STATUS_CLOSE = "<aethron-status>", "</aethron-status>"
+# Images a person attached travel as real image blocks (so the model SEES
+# them) plus one tagged text block naming where each is saved (so a tool —
+# screenshot_to_page — can read the pixels exactly). The tag lets every
+# screen draw them as pictures instead of as a path.
+IMAGES_OPEN, IMAGES_CLOSE = "<aethron-attached>", "</aethron-attached>"
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg",
+               ".jpeg": "image/jpeg", ".gif": "image/gif",
+               ".webp": "image/webp"}
+
+
+def image_blocks(paths) -> list:
+    """Anthropic content blocks for the images at `paths`: each image
+    itself, then one tagged note with where they are saved."""
+    import base64
+    blocks, kept = [], []
+    for p in paths or []:
+        p = Path(p)
+        mt = IMAGE_TYPES.get(p.suffix.lower())
+        if not mt or not p.is_file():
+            continue
+        blocks.append({"type": "image", "source": {
+            "type": "base64", "media_type": mt,
+            "data": base64.b64encode(p.read_bytes()).decode()}})
+        kept.append(str(p))
+    if kept:
+        blocks.append({"type": "text", "text": (
+            f"{IMAGES_OPEN}\nThe person attached {len(kept)} image(s), "
+            "shown above and saved at:\n" + "\n".join(kept)
+            + "\nTo rebuild one as a page, pass its path to "
+            "mcp__aethron__screenshot_to_page (it measures the pixels "
+            f"exactly).\n{IMAGES_CLOSE}")})
+    return blocks
+
+
+def attached_paths(text: str) -> list:
+    """The saved paths named in a tagged attachment note."""
+    body = text.split(IMAGES_OPEN, 1)[-1].split(IMAGES_CLOSE, 1)[0]
+    return [ln.strip() for ln in body.splitlines()
+            if ln.strip().startswith("/") or re.match(r"^[A-Za-z]:\\", ln.strip())]
+
+
+def _you(said) -> dict:
+    ev = {"type": "you", "text": said[1]}
+    if len(said) > 2 and said[2]:
+        ev["images"] = said[2]
+    return ev
 
 
 def transcript_events(session_id: str, limit: int = 400) -> list:
@@ -555,9 +602,11 @@ def transcript_events(session_id: str, limit: int = 400) -> list:
         return []
     out = []
 
-    def said(txt):
+    def said(txt, images=None):
         txt = (txt or "").strip()
-        if txt and not txt.startswith(("[Request interrupted", "<")):
+        if images:
+            out.append({"type": "you", "text": txt, "images": images})
+        elif txt and not txt.startswith(("[Request interrupted", "<")):
             out.append({"type": "you", "text": txt})
 
     with p.open(encoding="utf-8", errors="replace") as f:
@@ -574,7 +623,7 @@ def transcript_events(session_id: str, limit: int = 400) -> list:
                 if isinstance(c, str):
                     said(c)
                     continue
-                texts = []
+                texts, images = [], []
                 for b in c or []:
                     if b.get("type") == "tool_result":
                         r = b.get("content")
@@ -585,10 +634,13 @@ def transcript_events(session_id: str, limit: int = 400) -> list:
                                     "id": b.get("tool_use_id", ""),
                                     "ok": not b.get("is_error"),
                                     "text": str(r or "")[:4000]})
+                    elif b.get("type") == "text" and \
+                            b.get("text", "").startswith(IMAGES_OPEN):
+                        images += attached_paths(b.get("text", ""))
                     elif b.get("type") == "text" and not \
                             b.get("text", "").startswith(STATUS_OPEN):
                         texts.append(b.get("text", ""))
-                said("\n".join(texts))
+                said("\n".join(texts), images)
             elif m.get("type") == "assistant" and isinstance(c, list):
                 for b in c:
                     if b.get("type") == "text" and b.get("text", "").strip():
@@ -984,21 +1036,25 @@ class CodeSession:
         return bool(self.proc) and self.proc.poll() is None
 
     # ---- talking -----------------------------------------------------
-    def send(self, text: str, context: str = ""):
+    def send(self, text: str, context: str = "", images=None):
         """Send the person's words. `context` is what Aethron measured, not
         what the person said: it travels in its own tagged block, so the
         agent reads it and no screen ever shows it as the person's words."""
         if not self.alive:
             raise RuntimeError("session is not running")
-        content = text if not context else [
-            {"type": "text", "text": f"{STATUS_OPEN}\n{context}\n{STATUS_CLOSE}"},
-            {"type": "text", "text": text}]
+        pics = image_blocks(images)
+        content = text if not (context or pics) else (
+            ([{"type": "text",
+               "text": f"{STATUS_OPEN}\n{context}\n{STATUS_CLOSE}"}]
+             if context else [])
+            + pics + [{"type": "text", "text": text}])
         msg = {"type": "user", "message": {"role": "user", "content": content}}
         self.busy = True
         # the screen draws the person's words itself as they are sent, so
         # they are kept aside rather than emitted — but a screen that comes
         # BACK to a running session needs them to redraw the conversation
-        self._said.append((len(self._events), text))
+        self._said.append((len(self._events), text,
+                           [b for b in (images or []) if Path(b).is_file()]))
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
 
@@ -1008,9 +1064,9 @@ class CodeSession:
         out, said = [], list(getattr(self, "_said", []))
         for i, ev in enumerate(self._events):
             while said and said[0][0] <= i:
-                out.append({"type": "you", "text": said.pop(0)[1]})
+                out.append(_you(said.pop(0)))
             out.append(ev)
-        out += [{"type": "you", "text": t} for _, t in said]
+        out += [_you(x) for x in said]
         return out
 
     def events(self, timeout=None, idle=None):

@@ -619,7 +619,7 @@ def to_openai(body: dict, model: str = "") -> dict:
         if isinstance(content, str):
             msgs.append({"role": role, "content": content})
             continue
-        text_parts, tool_calls, tool_results = [], [], []
+        text_parts, tool_calls, tool_results, pictures = [], [], [], []
         for b in content or []:
             if not isinstance(b, dict):
                 continue
@@ -635,9 +635,18 @@ def to_openai(body: dict, model: str = "") -> dict:
                 tool_results.append({
                     "role": "tool", "tool_call_id": b.get("tool_use_id", ""),
                     "content": _tool_result_text(b.get("content"))})
+                # A tool message carries text only, so a picture a tool
+                # returned (Read on a .png) follows it as the model's input.
+                pictures += [_image_part(x) for x in
+                             (b.get("content") if isinstance(
+                                 b.get("content"), list) else [])
+                             if isinstance(x, dict) and x.get("type") == "image"]
             elif t == "image":
-                # keep the turn coherent even where vision is unsupported
-                text_parts.append("[image omitted by the Aethron bridge]")
+                # THE PICTURE IS THE MESSAGE. This used to be replaced by
+                # "[image omitted]", so an attached screenshot never
+                # reached any model behind the bridge.
+                pictures.append(_image_part(b))
+        pictures = [x for x in pictures if x]
         # tool results are their own OpenAI messages and must come first
         msgs.extend(tool_results)
         if role == "assistant" and tool_calls:
@@ -655,8 +664,17 @@ def to_openai(body: dict, model: str = "") -> dict:
                     tc["extra_content"] = {"google":
                                            {"thought_signature": sig}}
             msgs.append(m)
+        elif pictures and role == "user":
+            msgs.append({"role": "user", "content": (
+                [{"type": "text", "text": "\n".join(text_parts)}]
+                if text_parts else []) + pictures})
+            pictures = []
         elif text_parts or not tool_results:
             msgs.append({"role": role, "content": "\n".join(text_parts)})
+        if pictures:
+            msgs.append({"role": "user", "content": [
+                {"type": "text", "text": "The image the tool returned:"}]
+                + pictures})
 
     out = {"model": model or body.get("model", ""), "messages": msgs,
            "max_tokens": min(body.get("max_tokens") or DEFAULT_MAX_TOKENS,
@@ -689,6 +707,52 @@ def to_openai(body: dict, model: str = "") -> dict:
     if out["stream"]:
         out["stream_options"] = {"include_usage": True}
     return out
+
+
+def _image_part(b: dict):
+    """An Anthropic image block as an OpenAI image_url part (data URL)."""
+    src = b.get("source") or {}
+    if src.get("type") == "base64" and src.get("data"):
+        return {"type": "image_url", "image_url": {"url": (
+            f"data:{src.get('media_type') or 'image/png'};base64,"
+            f"{src['data']}")}}
+    if src.get("type") == "url" and src.get("url"):
+        return {"type": "image_url", "image_url": {"url": src["url"]}}
+    return None
+
+
+NO_SIGHT = ("[An image was attached, but this model cannot see images. "
+            "Its saved path is in the message; mcp__aethron__"
+            "screenshot_to_page rebuilds it by measuring the pixels.]")
+
+
+def strip_images(req: dict) -> dict:
+    """The same request with every picture replaced by a note — for a
+    model that refuses image input."""
+    out = dict(req)
+    msgs = []
+    for m in req.get("messages", []):
+        c = m.get("content")
+        if isinstance(c, list):
+            txt = [x.get("text", "") for x in c if x.get("type") == "text"]
+            if any(x.get("type") == "image_url" for x in c):
+                txt.append(NO_SIGHT)
+            m = dict(m, content="\n".join(t for t in txt if t))
+        msgs.append(m)
+    out["messages"] = msgs
+    return out
+
+
+def has_images(req: dict) -> bool:
+    return any(isinstance(m.get("content"), list) and any(
+        x.get("type") == "image_url" for x in m["content"])
+        for m in req.get("messages", []))
+
+
+# How providers word "this model takes no images".
+NO_VISION_RE = re.compile(
+    r"(?i)image|vision|multimodal|multi-modal|image_url|content type|"
+    r"unknown variant|expected `?text|does not support")
 
 
 def _tool_result_text(content) -> str:
@@ -1031,6 +1095,22 @@ def _handler(cfg: BridgeConfig, log=None):
                         return up
                     except urllib.error.HTTPError as e:
                         last = e
+                        # A MODEL WITHOUT EYES. Refused for the picture, the
+                        # same request is asked again with a note in its
+                        # place, so the turn goes on and the agent can
+                        # still rebuild the image by measuring it.
+                        if e.code in (400, 404, 415, 422) and has_images(req) \
+                                and NO_VISION_RE.search(_error_body(e)):
+                            _status("asking", f"{model} cannot see images; "
+                                              f"asking without them.")
+                            blind = strip_images(req)
+                            req.clear(); req.update(blind)
+                            try:
+                                up = self._open(req)
+                                _TL.free = key in cfg.free
+                                return up
+                            except urllib.error.HTTPError as e2:
+                                last = e = e2
                         if e.code not in (429, 500, 502, 503, 529):
                             raise
                         # A QUOTA WALL IS NOT A RATE LIMIT — and neither is
