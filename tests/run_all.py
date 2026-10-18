@@ -192,6 +192,15 @@ SUITES = [
 # with a 30 minute inner timeout, so `tail -25` printed an empty string
 # and exit 0 read as success. Time out here and call it a failure.
 LIMIT = 900
+# A few suites are honestly long, not hung. The alive battery renders a
+# moving background frame by frame: about 13 minutes on its own, and over
+# 15 when it shares the machine with three other suites, so the flat
+# limit failed it with every check it had reached passing.
+LONG = {"tests/alive_battery.py": 1800}
+
+
+def _limit(cmd):
+    return max([LIMIT] + [LONG[c] for c in cmd if c in LONG])
 
 
 # How much wall time may pass beyond monotonic time before a suite is
@@ -209,13 +218,13 @@ def _run(cmd):
     t, m = time.time(), time.monotonic()
     try:
         r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
-                           timeout=LIMIT)
+                           timeout=_limit(cmd))
         out = r.stdout + r.stderr
         ok = r.returncode == 0
     except subprocess.TimeoutExpired as e:
         out = ((e.stdout or b"").decode("utf-8", "replace")
                if isinstance(e.stdout, bytes) else (e.stdout or ""))
-        out += f"\nTIMED OUT after {LIMIT}s — no verdict, not a pass"
+        out += f"\nTIMED OUT after {_limit(cmd)}s — no verdict, not a pass"
         ok = False
     wall = time.time() - t
     gap = wall - (time.monotonic() - m)
