@@ -575,11 +575,13 @@ def image_blocks(paths) -> list:
             f"{IMAGES_OPEN}\nThe person attached {len(kept)} image(s), "
             "shown above and saved at:\n" + "\n".join(kept)
             + "\nTo rebuild one as a page, pass its path to "
-            "mcp__aethron__screenshot_to_page (it measures the pixels "
-            "exactly; leave outdir out — Aethron then shows the page in "
-            "its preview, so never answer with a file path). If that "
-            "cannot run, build the page directly from the image yourself "
-            "— do not stop to ask for confirmation."
+            "mcp__aethron__screenshot_to_page (it writes real HTML and "
+            "CSS and checks the result against the picture; leave outdir "
+            "out — Aethron then shows the page in its preview, so never "
+            "answer with a file path). If that cannot run, build the page "
+            "directly from the image yourself as real HTML and CSS, never "
+            "using the picture itself in the page, and check it with "
+            "mcp__aethron__grade_page — do not stop to ask for confirmation."
             f"\n{IMAGES_CLOSE}")})
     return blocks
 

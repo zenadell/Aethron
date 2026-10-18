@@ -403,56 +403,101 @@ def t_measure_screenshot(a):
 
 
 def t_screenshot_to_page(a):
-    """A screenshot becomes a page, and no model writes a coordinate.
+    """A screenshot becomes a REAL page: HTML, CSS and SVG, checked.
 
-    THE JOB SPLIT THIS TOOL EXISTS TO ENFORCE. Given a screenshot and
-    every measurement taken from it, a cheap model rebuilt 6 of the
-    page's 21 lines correctly; this path rebuilt all 21, for nothing,
-    in two minutes. Do not attempt the rebuild yourself and do not
-    "improve" what comes back — call `edit_page` to change what the
-    page SAYS or how it LOOKS, which is the part you are good at.
+    1.1.27 handed the owner the screenshot itself pasted in as the page's
+    background, with two lines of text on top — 96% "identical" and not
+    image-to-code at all. Now Aethron's own model loop writes real
+    elements, and the checks refuse any page that shows the screenshot,
+    compare a render with it, and test phone widths. When no provider can
+    run that loop, the agent writes the page itself under the same rules
+    and checks it with grade_page.
     """
-    import json as _j
     sys.path.insert(0, str(ROOT))
-    try:
-        import aethron_vision
-    except Exception as e:                       # pragma: no cover
-        return f"FAILED the measurement pass is unavailable ({e})"
+    import aethron_shot2code as S2C
     asked = a.get("outdir")
     out = Path(asked) if asked else page_slot(Path(str(a["image"])).stem)
+    site = out / "site.html"
+    name_line = ("" if asked else
+                 f"aethron-page: {out.name}\nThe page is open in Aethron's preview, "
+                 "where the person can look at it, point at anything to change or "
+                 "remove it, and see the code. Do not give them the path as the "
+                 "answer.\n")
+    yourself = (
+        "Build the page from the image yourself NOW, as ONE self-contained "
+        f"HTML file written to exactly {site}, following these rules:\n"
+        + S2C.RULES +
+        f"\nThen call grade_page with image={a['image']} and page={site}, fix "
+        "every finding it names, and call it again until it says PASS (at most "
+        "three rounds). Do not ask the person to confirm first.\n")
     try:
-        v = aethron_vision.rebuild(str(a["image"]), str(out),
-                                   fit=a.get("fit", True), verbose=False)
+        import aethron_brain as _B
+        r = _B.resolve()
+    except Exception as e:                       # pragma: no cover
+        r = {"ready": False, "why": str(e)}
+    if not r.get("ready") or r.get("wire") == "anthropic-cli":
+        return ("SKIPPED Aethron's rebuild loop has no provider it can call "
+                f"({r.get('why') or 'this provider has no API'}).\n" + yourself
+                + name_line)
+    import contextlib
+    try:
+        # stdout is the MCP channel on stdio; nothing the build prints may land in it.
+        with contextlib.redirect_stdout(sys.stderr):
+            rep = S2C.build(str(a["image"]), str(out),
+                            rounds=int(a.get("rounds", 3)), minutes=8,
+                            budget_usd=float(a.get("budget_usd", 0.40)),
+                            log=lambda *x: print(*x, file=sys.stderr, flush=True))
     except SystemExit as e:
         return f"FAILED {e}"
     except Exception as e:
         return f"FAILED {type(e).__name__}: {e}"
-    site = out / "site.html"
-    if v.get("verdict") == "SKIPPED":
-        # DO NOT STOP AND ASK. The person attached a picture and asked
-        # for a page; when measuring cannot run, the model still has the
-        # picture in front of it, so it builds the page from it — into
-        # the one file the studio opens in its preview.
-        return ("SKIPPED " + v.get("why", "") + " — UNVERIFIED, not good.\n"
-                "Measuring could not run, but you can see the image: build "
-                "the page from it yourself NOW, as ONE self-contained HTML "
-                f"file written to exactly {site} (inline CSS and JS), "
-                "matching its layout, text, colours and effects as closely "
-                "as you can. Do not ask the person to confirm first. Aethron "
-                "opens that file in its preview by itself, so do not give "
-                "the person the path as the answer; say the page is open in "
-                "the preview, and that this build was not measured.")
-    page = Path(v["page"])
-    if page.is_file() and page != site:
-        site.write_bytes(page.read_bytes())
-    head = (f"{v['verdict']}: {v.get('lines_correct')} of "
-            f"{v.get('lines_expected')} checks correct\npage: {site}\n")
-    if not asked:
-        head += (f"aethron-page: {out.name}\nThe page is open in Aethron's "
-                 "preview, where the person can look at it, point at "
-                 "anything to change or remove it, and see the code. Do not "
-                 "give them the path as the answer.\n")
-    return head + _j.dumps(v.get("findings", []), indent=1)[:40000]
+    if rep.get("verdict") == "NOT ASKED" or not rep.get("page"):
+        return (f"NOT ASKED {rep.get('why', '')}\n" + yourself + name_line)
+    lines = [f"{rep['verdict']}: the page is real HTML and CSS and looks "
+             f"{rep.get('likeness', 0):.0%} like the screenshot "
+             f"({len(rep.get('rounds', []))} round(s), "
+             f"{rep.get('calls', 0)} model call(s), ${rep.get('usd', 0):.4f})",
+             f"page: {site}"]
+    el = rep.get("elements") or {}
+    lines.append("real elements: " + ", ".join(f"{v} {k}" for k, v in el.items() if v))
+    if rep.get("findings"):
+        lines.append("still failing:")
+        lines += [f"- {x}" for x in rep["findings"]]
+        lines.append("You can fix these by editing the file and checking it "
+                     "with grade_page.")
+    for n in rep.get("notes") or []:
+        lines.append(f"note: {n}")
+    return "\n".join(lines) + "\n" + name_line
+
+
+def t_grade_page(a):
+    """Check a page built from a screenshot — Aethron decides, not the model."""
+    sys.path.insert(0, str(ROOT))
+    import aethron_shot2code as S2C
+    page = Path(str(a["page"]))
+    if not page.suffix and (PAGES / page.name / "site.html").is_file():
+        page = PAGES / page.name / "site.html"
+    if not page.is_file():
+        return f"FAILED no page at {page}"
+    try:
+        rep = S2C.grade(str(a["image"]), page)
+    except SystemExit as e:
+        return f"FAILED {e}"
+    except Exception as e:
+        return f"FAILED {type(e).__name__}: {e}"
+    if rep.get("verdict") == "SKIPPED":
+        return f"SKIPPED {rep.get('why')}"
+    out = [f"{rep['verdict']}: looks {rep['likeness']:.0%} like the screenshot "
+           f"(colour {rep['colour']:.0%}, structure {rep['structure']:.0%}; "
+           f"needs {S2C.LIKENESS_FLOOR:.0%})"]
+    out += [f"- FAIL {x}" for x in rep["findings"]]
+    worst = [r for r in rep.get("regions", []) if r["difference"] > 12][:5]
+    if worst:
+        out.append("regions that differ most (should be -> is):")
+        out += [f"- {r['region']} (x {r['x']}-{r['x'] + r['w']}, y {r['y']}-"
+                f"{r['y'] + r['h']}): {r['should_be']} -> {r['is']}" for r in worst]
+    out += [f"note: {n}" for n in rep.get("notes") or []]
+    return "\n".join(out)
 
 
 def t_edit_page(a):
@@ -1480,26 +1525,35 @@ TOOLS = [
                     "pass it here after every attempt; that loop is what "
                     "takes a rebuild from roughly right to identical."}},
       "required": ["image"]}, t_measure_screenshot),
-    ("screenshot_to_page", "SCREENSHOT -> PAGE, no model and no key: "
-     "measures the ground, gradients, rules, filled elements and corner "
-     "radii, reads the words with the machine's own OCR, carries "
-     "whatever cannot be set as type, chooses the typeface by a pixel "
-     "referee, then CHECKS every line and reports a checklist. Use this "
-     "instead of writing the HTML yourself — measured head to head, a "
-     "model given the same measurements got 6 of 21 lines right where "
-     "this got 21. Then use edit_page for the wording and the colours. "
-     "If it answers SKIPPED, build the page from the image yourself "
-     "straight away instead of asking.",
+    ("screenshot_to_page", "SCREENSHOT -> a REAL web page: Aethron writes it "
+     "as HTML, CSS and SVG (real nav links, buttons, headings; gradients, "
+     "glows and shapes drawn in code), renders it beside the screenshot, "
+     "and corrects it over up to three rounds. A page that shows the "
+     "screenshot itself or a crop of it bigger than an icon is refused, and "
+     "phone widths are checked. Use this whenever the person attaches an "
+     "image and asks for a page. If it answers SKIPPED or NOT ASKED, build "
+     "the page yourself under the rules it gives and check it with "
+     "grade_page — do not ask first.",
      {"type": "object", "properties": {
         "image": {"type": "string", "description":
                   "path to a PNG/JPG screenshot"},
         "outdir": {"type": "string", "description":
                    "OPTIONAL where to write the page. Leave it out: by "
                    "default the page opens in Aethron's preview."},
-        "fit": {"type": "boolean", "description":
-                "OPTIONAL sweep twelve typefaces and keep the one whose "
-                "ink lands on the original's ink (default true)"}},
+        "rounds": {"type": "integer", "description":
+                   "OPTIONAL build + correction rounds (default 3)"}},
       "required": ["image"]}, t_screenshot_to_page),
+    ("grade_page", "CHECK a page built from a screenshot: refuses it if it "
+     "shows the screenshot (or a crop bigger than an icon) as a picture, "
+     "renders it at the screenshot's size and says how much it looks like "
+     "it and which regions differ (should-be and is colours), checks it "
+     "has real links/buttons, and that nothing hangs off the edge at 390 "
+     "and 768px. Fix what it names and call it again until PASS.",
+     {"type": "object", "properties": {
+        "image": {"type": "string", "description": "the screenshot"},
+        "page": {"type": "string", "description":
+                 "path to the page's HTML file, or the page's name"}},
+      "required": ["image", "page"]}, t_grade_page),
     ("edit_page", "Change what a rebuilt page SAYS and how it LOOKS. "
      "Call with no `edits` to get the element list (ids, kinds, words, "
      "colours) — then name elements by id. Allowed: text, color, "

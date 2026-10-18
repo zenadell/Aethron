@@ -25,7 +25,6 @@ os.environ["AETHRON_HOME"] = str(HOME)
 sys.path.insert(0, str(ROOT))
 os.chdir(ROOT)
 import aethron_code as C
-import aethron_vision as V
 import forge_mcp as FM
 
 ok = True
@@ -43,25 +42,29 @@ SHOT = SP / "Screenshot 2026-10-18 at 18.01.png"
 SHOT.write_bytes(b"\x89PNG not really")
 
 # ── A: the tool ──────────────────────────────────────────────────────
-_orig = V.rebuild
+import aethron_shot2code as S2C
+import aethron_brain as BR
+_orig, _res = S2C.build, BR.resolve
 
 
-def fake_rebuild(image, outdir, **k):
+def fake_build(image, outdir, **k):
     out = pathlib.Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
-    (out / "page.html").write_text(FIX)
-    return {"verdict": "PASS", "lines_correct": 9, "lines_expected": 9,
-            "page": str(out / "page.html"), "findings": []}
+    (out / "site.html").write_text(FIX)
+    return {"verdict": "PASS", "likeness": 0.71, "rounds": [{}], "calls": 1,
+            "usd": 0.0, "page": str(out / "site.html"), "findings": [],
+            "elements": {"a": 7, "button": 2}}
 
 
-V.rebuild = fake_rebuild
+S2C.build = fake_build
+BR.resolve = lambda *a, **k: {"ready": True, "wire": "openai"}
 try:
     r1 = FM.t_screenshot_to_page({"image": str(SHOT)})
     r2 = FM.t_screenshot_to_page({"image": str(SHOT)})
-    V.rebuild = lambda image, outdir, **k: {"verdict": "SKIPPED", "why": "test"}
+    BR.resolve = lambda *a, **k: {"ready": False, "why": "test"}
     r3 = FM.t_screenshot_to_page({"image": str(SHOT)})
 finally:
-    V.rebuild = _orig
+    S2C.build, BR.resolve = _orig, _res
 name = "screenshot-2026-10-18-at-18-01"
 check("a rebuild lands where the studio looks, as site.html",
       (PAGES / name / "site.html").read_text() == FIX)

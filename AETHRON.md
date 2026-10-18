@@ -5934,6 +5934,42 @@ writes a site.html there itself. tests/page_preview_battery.py 19/19.
 The Design view (renderDesign) still has no sidebar entry; pages are
 reached from the sidebar list and the conversation instead.
 
+## "ISN'T THIS JUST A SCREENSHOT OF MY IMAGE?" — YES — `aethron_shot2code.py`
+## — 2026-10-18
+temple, on 1.1.27: the rebuild was the screenshot pasted in as the page's
+background, top-left, not filling the window; only the headline was text.
+Right. aethron_vision.rebuild CARRIES pixels by design (a colour field of
+the whole image as the ground, crops of whatever OCR cannot read), so nav,
+badges, buttons, orb and columns were one photograph scoring "96%".
+screenshot_to_page now calls aethron_shot2code.build: measure (canvas,
+ground, palette, gradients, OCR lines on a Mac) -> the ACTIVE provider
+writes real HTML/CSS/SVG from the picture + numbers (gemini_text now
+sends images: image_url / Anthropic image blocks; a model that refuses
+pictures is asked again without them) -> Aethron grades -> up to 3
+rounds, the model shown the screenshot beside its own render with the
+4x3 regions that differ most (should-be -> is hex) and every failed
+check. Best page that does not reuse the screenshot is kept, never the
+last; ids are stamped so point-and-edit/Remove work.
+THE CHECKS (also MCP tool `grade_page`, which the agent uses when no
+provider can run the loop):
+  REUSE, from the source: the screenshot's bytes, its file name, a copy
+  with its aspect, or any picture over 256px in the file (2x icon) fails.
+  External pictures are allowed and noted.
+  LIKENESS: 0.55 x colour on a 48-wide grid + 0.45 x SSIM on luminance.
+  MEASURED on tests/pages/recognito.png: black page 3%, the right text
+  on black 11%, flat orange-into-black gradient 32%, a hand-written CSS
+  rebuild 51% (tests/pages/recognito-real.html), the 1.1.27 page ~95%.
+  Floor 45%. Pixel equality is the wrong question for real CSS.
+  PHONES: 390 and 768px must not scroll sideways. A real <a>/<button>.
+Two bugs the battery caught: a reused page was rendered anyway (a 2MB
+data URI took longer than the shutter waits, so the whole run said
+SKIPPED); the per-round render folder did not exist, so Chrome could not
+write into it and every round after the first was SKIPPED. Battery
+tests/shot2code_battery.py 22/22.
+NOT PROVEN HERE: a live gpt-4.1-mini run — this container has no key.
+The old carry pipeline still exists for `forge screenshot`; nothing the
+app or the agent reaches uses it.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6149,6 +6185,9 @@ reached from the sidebar list and the conversation instead.
 - A PAID KEY'S REFUSAL IS REPORTED, NEVER REMEMBERED past the request.
 - A RESULT IS SHOWN, NOT POINTED AT. Anything Aethron makes opens in the
   app; a file path is never the answer.
+- IMAGE-TO-CODE NEVER SHIPS THE IMAGE. A page built from a screenshot
+  draws it in HTML/CSS/SVG; the screenshot, or any crop of it bigger than
+  an icon, in the page is a refusal.
 - AN ATTACHMENT THE PERSON CANNOT SEE WAS NOT ATTACHED, AND ONE THE MODEL
   CANNOT SEE WAS NOT SENT. Show it; send it as image input; say so when a
   model has no eyes.
