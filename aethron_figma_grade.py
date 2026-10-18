@@ -163,13 +163,14 @@ def write_png(path: Path, w, h, rgba):
 # ─────────────────────────── render ours ─────────────────────────────
 
 def find_browser():
-    for c in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-              "/Applications/Chromium.app/Contents/MacOS/Chromium",
-              "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-              shutil.which("google-chrome"), shutil.which("chromium")):
-        if c and Path(c).exists():
-            return c
-    return None
+    """The same browser the probe uses — one finder, so AETHRON_BROWSER
+    (and the root-on-Linux sandbox wrapper) applies to every instrument.
+    This used to keep its own list, which ignored AETHRON_BROWSER: in the
+    container the eye, change, edit and adopt checks found the bare
+    /usr/bin/chromium and could not start it as root."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import forge
+    return forge._find_browser() or None
 
 
 def shoot(html: Path, w, h, out: Path, browser=None, wait_max=90, url=None):

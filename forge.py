@@ -4632,24 +4632,87 @@ CONSOLE_IGNORE = (
 
 
 def _find_browser() -> str:
-    """A Chromium-family binary, or "" — never a guess."""
+    """A Chromium-family binary, or "" — never a guess.
+
+    Every instrument in Aethron finds its browser HERE (aethron_figma_grade
+    delegates), so AETHRON_BROWSER means the same thing to the probe, the
+    eye, the change checker and the preview check. Run as root on Linux
+    (a container, a cloud runner, Render) Chromium refuses to start
+    without --no-sandbox and every render comes back EMPTY — which the
+    probe reported as a broken page, not as a browser that never ran. So
+    there the binary is handed back wrapped with the flags it needs."""
     import os
     env = os.environ.get(BROWSER_ENV, "").strip()
     if env.lower() in ("none", "off", "0"):
         return ""            # explicit opt-out (and how tests force SKIPPED)
+    found = ""
     if env:
         if Path(env).exists():
-            return env
-        print(f"NOTE {BROWSER_ENV}={env} does not exist — looking for a "
-              f"browser in the usual places")
-    for p in BROWSER_CANDIDATES:
-        if Path(p).exists():
-            return p
-    for name in BROWSER_ON_PATH:
-        found = shutil.which(name)
-        if found:
-            return found
-    return ""
+            found = env
+        else:
+            print(f"NOTE {BROWSER_ENV}={env} does not exist — looking for a "
+                  f"browser in the usual places")
+    if not found:
+        for p in BROWSER_CANDIDATES:
+            if Path(p).exists():
+                found = p
+                break
+    if not found:
+        for name in BROWSER_ON_PATH:
+            w = shutil.which(name)
+            if w:
+                found = w
+                break
+    if not found:
+        # Playwright's own Chromium (a dev box or CI that installed it)
+        pw = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+        roots = [Path(pw)] if pw and pw != "0" else []
+        roots.append(Path.home() / ".cache/ms-playwright")
+        for root in roots:
+            for c in [root / "chromium"] + sorted(
+                    root.glob("chromium-*/chrome-linux/chrome"), reverse=True):
+                if c.is_file() and os.access(c, os.X_OK):
+                    found = str(c)
+                    break
+            if found:
+                break
+    return _sandbox_safe(found) if found else ""
+
+
+def _sandbox_safe(binary: str) -> str:
+    """The same browser, startable as root.
+
+    Chromium will not run as root without --no-sandbox ("Running as root
+    without --no-sandbox is not supported"), and a container's tiny
+    /dev/shm crashes renderers without --disable-dev-shm-usage. A wrapper
+    script carries both, so every caller — each of which builds its own
+    command line — gets them without knowing. Only for root on Linux:
+    a person's own Mac or PC keeps its sandbox."""
+    import os
+    if not sys.platform.startswith("linux") or not hasattr(os, "geteuid") \
+            or os.geteuid() != 0:
+        return binary
+    try:
+        if "--no-sandbox" in Path(binary).read_text(errors="ignore")[:4096]:
+            return binary    # already a wrapper (the Docker image ships one)
+    except OSError:
+        pass
+    d = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") \
+        / "aethron"
+    name = "chromium-" + hashlib.sha1(binary.encode()).hexdigest()[:10]
+    w = d / name
+    body = ("#!/bin/sh\n"
+            f"exec '{binary}' --no-sandbox --disable-dev-shm-usage \"$@\"\n")
+    try:
+        if not w.is_file() or w.read_text() != body:
+            d.mkdir(parents=True, exist_ok=True)
+            tmp = w.with_suffix(".tmp")
+            tmp.write_text(body)
+            tmp.chmod(0o755)
+            tmp.replace(w)
+        return str(w)
+    except OSError:
+        return binary
 
 
 # Block-level tags create a visual break; inline tags do NOT. Framer

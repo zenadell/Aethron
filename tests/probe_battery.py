@@ -53,6 +53,13 @@ def main():
 
     scenario("healthy build probes CLEAN")
     rc, out = probe("--page=index.html")
+    if "VERDICT: SKIPPED" in out and "no Chromium" in out:
+        # The battery measures the probe; with no browser there is
+        # nothing to measure, and crashing on a missing key read as a
+        # broken probe.
+        print("SKIPPED — no Chromium-family browser on this machine "
+              "(set AETHRON_BROWSER)")
+        return 0
     check("exit 0", rc == 0, f"rc={rc}")
     check("verdict CLEAN at runtime", "CLEAN at runtime" in out)
     check("renders text", "PASS renders" in out)
