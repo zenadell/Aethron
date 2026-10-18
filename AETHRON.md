@@ -5916,6 +5916,24 @@ tests/ocr_frozen.py runs the app's own engine with no swiftc on PATH.
 A SKIPPED screenshot_to_page now tells the agent to build the page from
 the image itself at once, and the attachment note says the same.
 
+## A REBUILT PAGE WAS HANDED OVER AS A PATH — 2026-10-18
+Owner, on 1.1.26: the rebuild worked and the answer was
+/Users/…/Library/Application Support/Aethron/rebuilds/<hash>/page.html —
+in a folder macOS hides. screenshot_to_page now writes PAGES/<name>/
+site.html (named after the screenshot) and returns `aethron-page: <name>`;
+the conversation draws that as a card (Preview / Point and edit / Show
+code / Open in Finder), the sidebar lists pages, and the page opens in
+the template's preview sheet: /design/<name>/site.html?pick=1 carries the
+same picker. Remove hides the picked data-ae-id element through
+aethron_edit (no model); a change in words goes to the agent with the
+file named exactly, after a snapshot. Every change keeps the version it
+replaces in .history (Undo; undone copies kept). When measuring cannot
+run, the agent is told to write that exact site.html, and writes under
+HOME/pages need no permission card. The card also appears when the agent
+writes a site.html there itself. tests/page_preview_battery.py 19/19.
+The Design view (renderDesign) still has no sidebar entry; pages are
+reached from the sidebar list and the conversation instead.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6129,6 +6147,8 @@ the image itself at once, and the attachment note says the same.
 - A PROVIDER-SPECIFIC FIELD GOES ONLY TO MODELS THAT ACCEPT IT. Gate it on
   the model, not the provider: OpenAI's own models disagree.
 - A PAID KEY'S REFUSAL IS REPORTED, NEVER REMEMBERED past the request.
+- A RESULT IS SHOWN, NOT POINTED AT. Anything Aethron makes opens in the
+  app; a file path is never the answer.
 - AN ATTACHMENT THE PERSON CANNOT SEE WAS NOT ATTACHED, AND ONE THE MODEL
   CANNOT SEE WAS NOT SENT. Show it; send it as image input; say so when a
   model has no eyes.

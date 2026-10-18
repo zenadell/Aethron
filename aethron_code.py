@@ -223,7 +223,10 @@ def permission_risk(tool_name, tool_input, workspace=None) -> str:
             try:
                 target = Path(path).expanduser().resolve()
                 root = Path(workspace).resolve()
-                if target != root and root not in target.parents:
+                pages = Path(os.environ.get("AETHRON_HOME")
+                             or Path(__file__).resolve().parent).resolve() / "pages"
+                if target != root and root not in target.parents \
+                        and pages not in target.parents:
                     return "writes outside the workspace"
             except Exception:
                 return "writes to a path Aethron could not check"
@@ -573,8 +576,10 @@ def image_blocks(paths) -> list:
             "shown above and saved at:\n" + "\n".join(kept)
             + "\nTo rebuild one as a page, pass its path to "
             "mcp__aethron__screenshot_to_page (it measures the pixels "
-            "exactly). If that cannot run, build the page directly from "
-            "the image yourself — do not stop to ask for confirmation."
+            "exactly; leave outdir out — Aethron then shows the page in "
+            "its preview, so never answer with a file path). If that "
+            "cannot run, build the page directly from the image yourself "
+            "— do not stop to ask for confirmation."
             f"\n{IMAGES_CLOSE}")})
     return blocks
 

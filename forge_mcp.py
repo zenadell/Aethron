@@ -54,7 +54,40 @@ FORGE = ROOT / "forge.py"
 HOME = Path(os.environ.get("AETHRON_HOME", ROOT)).resolve()
 PROJECTS = HOME / "projects"
 LIBRARY = HOME / "library"   # design cards: fingerprints, never files
+PAGES = HOME / "pages"       # screenshots rebuilt into pages; the studio shows these
 PREVIEWS = {}
+
+
+def page_slot(stem):
+    """A fresh folder under PAGES for a page named after its screenshot.
+
+    A rebuild used to land in rebuilds/<hash>/page.html — a path in a
+    hidden Library folder that the person was handed as the answer and
+    could not find. Pages live where the studio looks, so the result
+    opens in the preview instead."""
+    base = re.sub(r"[^a-z0-9-]+", "-", str(stem).lower()).strip("-")[:40] or "page"
+    name, n = base, 2
+    while (PAGES / name).exists():
+        name, n = f"{base}-{n}", n + 1
+    (PAGES / name).mkdir(parents=True)
+    return PAGES / name
+
+
+def page_snapshot(page):
+    """Keep the version a change is about to replace, for Undo in the studio."""
+    page = Path(page).resolve()
+    try:
+        page.relative_to(PAGES.resolve())
+    except ValueError:
+        return
+    if page.name != "site.html" or not page.is_file():
+        return
+    hist = page.parent / ".history"
+    hist.mkdir(exist_ok=True)
+    import time as _t
+    (hist / f"{_t.time():.6f}.html").write_bytes(page.read_bytes())
+    for old in sorted(hist.glob("*.html"))[:-30]:
+        old.unlink()
 
 sys.path.insert(0, str(ROOT))
 from forge import (image_slot_styles, _locate_element, word_fragments,  # noqa: E402
@@ -385,26 +418,40 @@ def t_screenshot_to_page(a):
         import aethron_vision
     except Exception as e:                       # pragma: no cover
         return f"FAILED the measurement pass is unavailable ({e})"
-    out = a.get("outdir") or str(HOME / "rebuilds" / Path(str(a["image"])).stem)
+    asked = a.get("outdir")
+    out = Path(asked) if asked else page_slot(Path(str(a["image"])).stem)
     try:
-        v = aethron_vision.rebuild(str(a["image"]), out,
+        v = aethron_vision.rebuild(str(a["image"]), str(out),
                                    fit=a.get("fit", True), verbose=False)
     except SystemExit as e:
         return f"FAILED {e}"
     except Exception as e:
         return f"FAILED {type(e).__name__}: {e}"
+    site = out / "site.html"
     if v.get("verdict") == "SKIPPED":
         # DO NOT STOP AND ASK. The person attached a picture and asked
         # for a page; when measuring cannot run, the model still has the
-        # picture in front of it, so it builds the page from it.
+        # picture in front of it, so it builds the page from it — into
+        # the one file the studio opens in its preview.
         return ("SKIPPED " + v.get("why", "") + " — UNVERIFIED, not good.\n"
                 "Measuring could not run, but you can see the image: build "
-                "the page from it yourself NOW (write the files in the "
-                "workspace), matching its layout, text, colours and effects "
-                "as closely as you can. Do not ask the person to confirm "
-                "first; say afterwards that this build was not measured.")
+                "the page from it yourself NOW, as ONE self-contained HTML "
+                f"file written to exactly {site} (inline CSS and JS), "
+                "matching its layout, text, colours and effects as closely "
+                "as you can. Do not ask the person to confirm first. Aethron "
+                "opens that file in its preview by itself, so do not give "
+                "the person the path as the answer; say the page is open in "
+                "the preview, and that this build was not measured.")
+    page = Path(v["page"])
+    if page.is_file() and page != site:
+        site.write_bytes(page.read_bytes())
     head = (f"{v['verdict']}: {v.get('lines_correct')} of "
-            f"{v.get('lines_expected')} checks correct\npage: {v['page']}\n")
+            f"{v.get('lines_expected')} checks correct\npage: {site}\n")
+    if not asked:
+        head += (f"aethron-page: {out.name}\nThe page is open in Aethron's "
+                 "preview, where the person can look at it, point at "
+                 "anything to change or remove it, and see the code. Do not "
+                 "give them the path as the answer.\n")
     return head + _j.dumps(v.get("findings", []), indent=1)[:40000]
 
 
@@ -440,6 +487,8 @@ def t_edit_page(a):
                 notes.append(f"MOTION TUNED to '{word}' by measuring: {tried} => strength {an['strength']}")
     out, applied, refused = AE.apply(html, edits)
     dest = Path(a.get("out") or page)
+    if applied:
+        page_snapshot(dest)
     dest.write_text(out)
     lines = [f"{len(applied)} applied, {len(refused)} refused -> {dest}"]
     lines += [f"REFUSED  {w}" for w in refused]
@@ -504,6 +553,7 @@ def t_change_page(a):
     _sh.rmtree(work, ignore_errors=True)
     dest = Path(a.get("out") or page)
     if r["verdict"] == "APPLIED":
+        page_snapshot(dest)
         dest.write_text(r["html"])
     dest.with_name(dest.stem + ".change.json").write_text(
         _j.dumps({k: v for k, v in r.items() if k != "html"}, indent=1, default=str))
@@ -1444,7 +1494,8 @@ TOOLS = [
         "image": {"type": "string", "description":
                   "path to a PNG/JPG screenshot"},
         "outdir": {"type": "string", "description":
-                   "OPTIONAL where to write page.html and its report"},
+                   "OPTIONAL where to write the page. Leave it out: by "
+                   "default the page opens in Aethron's preview."},
         "fit": {"type": "boolean", "description":
                 "OPTIONAL sweep twelve typefaces and keep the one whose "
                 "ink lands on the original's ink (default true)"}},
