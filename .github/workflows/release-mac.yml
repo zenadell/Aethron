@@ -110,7 +110,11 @@ jobs:
       - name: Publish to the update feed
         env:
           NOTES: ${{ github.event.head_commit.message || 'Maintenance release' }}
-        run: python3 publish_release.py "$VER" dist/Aethron-mac.zip "$(printf '%s' "$NOTES" | head -1)"
+        # A merge commit's first line is "Merge pull request #N from …",
+        # which tells the person nothing; the PR title on the next line does.
+        run: |
+          LINE="$(printf '%s\n' "$NOTES" | grep -v '^Merge pull request' | grep -v '^[[:space:]]*$' | head -1)"
+          python3 publish_release.py "$VER" dist/Aethron-mac.zip "${LINE:-Maintenance release}"
 
       - name: Keep the zip on the run
         uses: actions/upload-artifact@v4

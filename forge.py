@@ -4693,7 +4693,11 @@ def _sandbox_safe(binary: str) -> str:
             or os.geteuid() != 0:
         return binary
     try:
-        if "--no-sandbox" in Path(binary).read_text(errors="ignore")[:4096]:
+        # only the head: the browser itself is hundreds of MB, and decoding
+        # all of it held the interpreter for seconds, stalling a server
+        with open(binary, "rb") as fh:
+            head = fh.read(4096).decode("utf-8", "ignore")
+        if "--no-sandbox" in head:
             return binary    # already a wrapper (the Docker image ships one)
     except OSError:
         pass

@@ -13,8 +13,8 @@ written.
     id      unique and never reused: "2026-10-preview-rail"
     title   a few words
     body    one or two sentences, what it does for them
-    art     the coded illustration to play: rail | back | runs
-    go      what "Try it" does (studio.py newsGo): preview | back | runs
+    art     the coded illustration to play: rail | back | runs | gallery | compare
+    go      what "Try it" does (studio.py newsGo): preview | back | runs | home | compare
     label   the button's words (default "Try it")
 
 Kept as code rather than a data file so it is always inside the bundle.
@@ -41,6 +41,18 @@ NEWS = [
              "asked, what came back, and anything that failed — keys are "
              "never kept. Find them under Agent runs.",
      "art": "runs", "go": "runs", "label": "Open Agent runs"},
+    {"id": "2026-10-home-projects",
+     "title": "Your projects, on Home",
+     "body": "Home now shows your projects as cards, each with a real "
+             "picture of its site, how much of the text is yours and when "
+             "you last worked on it. Click one to pick up where you left off.",
+     "art": "gallery", "go": "home", "label": "Show me"},
+    {"id": "2026-10-before-after",
+     "title": "Before and after, side by side",
+     "body": "Drag a handle across your site to see the template as it "
+             "came on one side and your version on the other. Open any "
+             "built project and press Before / After.",
+     "art": "compare", "go": "compare", "label": "Try it"},
 ]
 
 SEEN = ".news-seen.json"
@@ -128,8 +140,9 @@ def _selftest() -> int:
     ids = [n["id"] for n in NEWS]
     check("ids are unique", len(ids) == len(set(ids)))
     check("every entry names a known illustration and action",
-          all(n["art"] in ("rail", "back", "runs")
-              and n["go"] in ("preview", "back", "runs") for n in NEWS))
+          all(n["art"] in ("rail", "back", "runs", "gallery", "compare")
+              and n["go"] in ("preview", "back", "runs", "home", "compare")
+              for n in NEWS))
     print("ALL PASS" if ok else "FAILED")
     return 0 if ok else 1
 
