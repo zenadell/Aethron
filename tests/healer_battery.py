@@ -28,6 +28,20 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 SOURCE = ROOT / "projects/acme-demo"
 
+
+def _brand():
+    """The fixture's own brand token. This used to be HandGrid, written
+    in: point acme-demo at another template and every check failed on a
+    project that was never broken."""
+    try:
+        cfg = json.loads((SOURCE / "forge.json").read_text(encoding="utf-8"))
+        return (cfg.get("forbidden_words") or ["HandGrid"])[0]
+    except (OSError, ValueError):
+        return "HandGrid"
+
+
+BRAND = _brand()
+
 results = []
 
 
@@ -66,14 +80,14 @@ def main():
     cm_f = proj / "copy_map.json"
     cm = json.loads(cm_f.read_text(encoding="utf-8"))
     for e in cm["strings"]:
-        if e["old"].lower() == "handgrid":
+        if e["old"].lower() == BRAND.lower():
             e["new"] = ""
     cm_f.write_text(json.dumps(cm, indent=1, ensure_ascii=False),
                     encoding="utf-8")
     forge(proj, "build")
     rc, out = forge(proj, "verify")
     check("the broken project fails verify", rc != 0
-          and "leftover 'HandGrid'" in out)
+          and f"leftover '{BRAND}'" in out)
 
     print("\n── THE HEALER MUST NOT TRUST A CHECK THAT NEVER RAN")
     # The regression this guards: `clean = verify_ok and (probe_ok or
@@ -130,7 +144,7 @@ def main():
     check("and says so honestly (no false success)",
           res["stage"] == "deterministic" and not res["evidence"]["clean"])
     check("evidence names the leftover",
-          "HandGrid" in healer.evidence_text(res["evidence"]))
+          BRAND in healer.evidence_text(res["evidence"]))
 
     print("\n── with the agent (mock model, real CLI, real tools)")
     calls = {"n": 0}
@@ -182,9 +196,9 @@ def main():
                 {"tool": "mcp__aethron__set_content_bulk",
                  "input": {"project": "broken", "build": True,
                            "entries": [
-                               {"section": "strings", "old": "HandGrid",
+                               {"section": "strings", "old": BRAND,
                                 "new": "Acme"},
-                               {"section": "strings", "old": "handgrid",
+                               {"section": "strings", "old": BRAND.lower(),
                                 "new": "acme"}]}}]
 
     srv, url = code.mock_provider(script=model)
@@ -215,9 +229,9 @@ def main():
 
     cm = json.loads(cm_f.read_text(encoding="utf-8"))
     filled = {e["old"]: e.get("new", "") for e in cm["strings"]
-              if e["old"].lower() == "handgrid"}
+              if e["old"].lower() == BRAND.lower()}
     check("the fix landed in copy_map, not in the output",
-          filled.get("HandGrid") == "Acme")
+          filled.get(BRAND) == "Acme")
     rc, out = forge(proj, "verify")
     check("verify is clean on a fresh run", rc == 0)
     check("a snapshot exists so one undo reverts the agent",
