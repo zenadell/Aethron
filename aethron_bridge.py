@@ -723,7 +723,7 @@ def _image_part(b: dict):
 
 NO_SIGHT = ("[An image was attached, but this model cannot see images. "
             "Its saved path is in the message; mcp__aethron__"
-            "screenshot_to_page rebuilds it by measuring the pixels.]")
+            "screenshot_to_page rebuilds it as a real page.]")
 
 
 def strip_images(req: dict) -> dict:

@@ -508,7 +508,26 @@ def _price(r):
     return pin / 1e6, pout / 1e6
 
 
-def _request(r, key, text, max_tokens, temperature):
+def _content(r, text, images):
+    """The user turn: text alone, or the pictures FIRST and then the text,
+    in the wire's own shape. `images` is a list of (mime, bytes)."""
+    if not images:
+        return text
+    import base64 as _b
+    parts = []
+    for mime, data in images:
+        b64 = _b.b64encode(data).decode()
+        if r["wire"] == "anthropic":
+            parts.append({"type": "image", "source": {
+                "type": "base64", "media_type": mime, "data": b64}})
+        else:
+            parts.append({"type": "image_url", "image_url": {
+                "url": f"data:{mime};base64,{b64}", "detail": "high"}})
+    parts.append({"type": "text", "text": text})
+    return parts
+
+
+def _request(r, key, text, max_tokens, temperature, images=None):
     """One request in the provider's own wire format."""
     import json as _j
     import urllib.request as _u
@@ -520,7 +539,8 @@ def _request(r, key, text, max_tokens, temperature):
     if r["wire"] == "anthropic":
         body = {"model": r["model"], "max_tokens": max_tokens,
                 "temperature": temperature,
-                "messages": [{"role": "user", "content": text}]}
+                "messages": [{"role": "user",
+                              "content": _content(r, text, images)}]}
         return _u.Request(r["base"] + "/v1/messages",
                           data=_j.dumps(body).encode(),
                           headers={"Content-Type": "application/json",
@@ -528,7 +548,8 @@ def _request(r, key, text, max_tokens, temperature):
                                    "anthropic-version": "2023-06-01"})
     body = {"model": r["model"], "max_tokens": max_tokens,
             "temperature": temperature,
-            "messages": [{"role": "user", "content": text}]}
+            "messages": [{"role": "user",
+                          "content": _content(r, text, images)}]}
     # Only where it is accepted: an unknown field is a 400 on some. OpenAI
     # takes it ONLY on reasoning models — sent to gpt-4o-mini it is a 400
     # ("Unrecognized request argument"), which is how every change and edit
@@ -695,7 +716,7 @@ def _gemini_429(body):
 
 
 def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
-                key=None, temperature=0.2, timeout=180):
+                key=None, temperature=0.2, timeout=180, images=None):
     """One call that returns TEXT, through the KEY RING — free keys first, the paid key last.
 
     MEASURED 2026-09-15: this path took the ring's first key and read Google's free-tier quota
@@ -735,7 +756,8 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
         ledger["stopped"] = ("no key can serve this today: every free allowance is spent and there is no "
                              "usable paid key")
         raise BudgetExhausted(ledger["stopped"])
-    est_in = len(prompt) // 3 + 50
+    # A picture is priced as a large one (~1,600 tokens) so the cap holds.
+    est_in = len(prompt) // 3 + 50 + 1600 * len(images or ())
     tried = []
     for k, tier in ring:
         fp = _B._fp(k)
@@ -753,7 +775,7 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
                              f"and the wallet has ${left:.4f} left (raise it with the wallet "
                              f"button in the Design view)")
                 continue
-        req = _request(r, "" if k == "local" else k, prompt, max_tokens, temperature)
+        req = _request(r, "" if k == "local" else k, prompt, max_tokens, temperature, images)
         d, waited = None, 0
         for attempt in range(5):
             try:
@@ -778,6 +800,18 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
                     break
                 if e.code in (500, 502, 503, 504) and attempt < 3:
                     _t.sleep(6 * (attempt + 1))
+                    continue
+                # A MODEL WITH NO EYES refuses the picture, not the job: say
+                # so in the prompt and ask once more with the words alone.
+                if images and e.code == 400 and re.search(
+                        r"image|vision|content.?type|multimodal", msg, re.I):
+                    images = None
+                    prompt += ("\n\n(The picture could not be sent: this model "
+                               "does not take image input. Work from the "
+                               "measurements above.)")
+                    req = _request(r, "" if k == "local" else k, prompt,
+                                   max_tokens, temperature)
+                    ledger["no_images"] = True
                     continue
                 tried.append(f"{tier} key {fp}: provider said {e.code}: {msg[:200]}")
                 break

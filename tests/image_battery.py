@@ -82,17 +82,17 @@ check("the saved path is read back out of the note", said == [str(PIC)])
 
 # when measuring cannot run, the agent is told to build, not to ask
 import forge_mcp as FM
-import aethron_vision as V
-_orig = V.ocr
-V.ocr = lambda *a, **k: (V.OCR_WHY.__setitem__(0, "test: no helper"), None)[1]
+import aethron_brain as _BR
+_orig = _BR.resolve
+_BR.resolve = lambda *a, **k: {"ready": False, "why": "test: no key"}
 try:
     msg = FM.t_screenshot_to_page({"image": str(PIC), "outdir": str(SP / "rb")})
 finally:
-    V.ocr = _orig
-check("a skipped measurement names why and says to build from the image now",
-      msg.startswith("SKIPPED") and "test: no helper" in msg
-      and "build the page from it yourself NOW" in msg
-      and "Do not ask" in msg)
+    _BR.resolve = _orig
+check("a rebuild that cannot run names why and says to build from the image now",
+      msg.startswith("SKIPPED") and "test: no key" in msg
+      and "Build the page from the image yourself NOW" in msg
+      and "grade_page" in msg and "Do not ask" in msg)
 check("the attachment note says the same",
       "do not stop to ask" in blocks[-1]["text"])
 
