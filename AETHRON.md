@@ -5855,6 +5855,24 @@ PASSes before the hide. preview battery 27 -> 29, keeper 19/19, runlog
 18/18. NOT caught: a picture made transparent (opacity 0), and an icon
 under 100x100.
 
+## "GPT-4o MINI SUDDENLY STOPPED" — four faults, none at OpenAI — 2026-10-18
+gpt-4o-mini is live at OpenAI (no shutdown announced); the owner had
+credit. The causes were ours, each now refused by tests/openai_battery.py
+(13 checks; the committed code fails the first one):
+1. Since 2026-10-06 the change/edit/spec writer sent `reasoning_effort`
+   to every OpenAI model; gpt-4o-mini answers 400 "Unrecognized request
+   argument". It now goes only to reasoning models (gpt-5*, o*), which in
+   turn get max_completion_tokens and no temperature — the default model
+   gpt-5 had been refused for those too, in the writer AND the bridge.
+2. gpt-4o-mini was not in PRICES, so it counted at the dearest rate
+   (~20x) and the $5 run cap / $1 wallet tripped on cents. OpenAI models
+   added; `price_of()` also prices dated snapshots and provider prefixes.
+3. One billing refusal benched the PAID key until midnight Pacific, so a
+   topped-up key kept failing all day. Only free keys are benched now.
+4. Refusals reached the person as "HTTP Error 400: Bad Request". They now
+   carry the provider's sentence plus what to check — for OpenAI's
+   insufficient_quota: balance, EXPIRED prepaid credit, project budget.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6065,3 +6083,6 @@ under 100x100.
   address before taking it; ask the page whether each picture decoded.
 - A PICTURE THE TEMPLATE SHOWED AND THE PREVIEW DOES NOT IS MISSING,
   error or no error. Compare with the template, rendered the same way.
+- A PROVIDER-SPECIFIC FIELD GOES ONLY TO MODELS THAT ACCEPT IT. Gate it on
+  the model, not the provider: OpenAI's own models disagree.
+- A PAID KEY'S REFUSAL IS REPORTED, NEVER REMEMBERED past the request.

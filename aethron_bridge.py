@@ -184,9 +184,40 @@ PRICES = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini-3.1-pro-preview": (2.00, 12.0),
+    # OpenAI, list prices per 1M tokens (checked 2026-10-18). Before these
+    # were here, gpt-4o-mini counted at the DEAREST rate above — ~20x its
+    # real $0.15/$0.60 — so the $5 run cap and the $1 wallet tripped after
+    # a few cents of real spend and the model "suddenly stopped working".
+    "gpt-4o-mini": (0.15, 0.60), "gpt-4o": (2.50, 10.0),
+    "gpt-4.1": (2.00, 8.00), "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1-nano": (0.10, 0.40), "gpt-5-nano": (0.05, 0.40),
+    "o4-mini": (1.10, 4.40), "o3": (2.00, 8.00), "o3-mini": (1.10, 4.40),
 }
 
 UNKNOWN_PRICE = max(PRICES.values(), key=lambda p: p[0] + p[1])
+
+_SNAPSHOT = re.compile(r"-\d{4}-\d{2}-\d{2}$")
+
+
+def price_of(model: str) -> tuple:
+    """(in, out) $/1M for a model id. A provider prefix ("openai/gpt-4o")
+    and a dated snapshot ("gpt-4o-mini-2024-07-18") price as the model they
+    name; anything still unknown is priced at the dearest known rate, so a
+    cap is never switched off by a name nobody listed."""
+    m = (model or "").split("/")[-1].strip()
+    return PRICES.get(m) or PRICES.get(_SNAPSHOT.sub("", m)) or UNKNOWN_PRICE
+
+
+_OPENAI_REASONING = re.compile(r"^(gpt-5|o\d)", re.I)
+
+
+def openai_reasoning(model: str) -> bool:
+    """True for OpenAI's reasoning models (gpt-5*, o1/o3/o4*). They refuse
+    `max_tokens` (it must be `max_completion_tokens`) and any temperature but
+    the default, while gpt-4o/4.1 refuse `reasoning_effort`. Only a BARE id
+    counts: "openai/gpt-5" goes through OpenRouter, which takes max_tokens."""
+    m = (model or "").strip()
+    return "/" not in m and bool(_OPENAI_REASONING.match(m))
 
 # MONEY IS THE LIMIT THAT MEANS SOMETHING.
 #
@@ -346,7 +377,7 @@ def _account(model: str, inp: int, out: int):
     # is exactly what switching the owner to gemini-3.8-flash would have
     # done. Counting an unknown model at the dearest known rate means the
     # cap trips early rather than never.
-    price = PRICES.get((model or "").split("/")[-1]) or UNKNOWN_PRICE
+    price = price_of(model)
     cost = (inp * price[0] + out * price[1]) / 1_000_000
     # A FREE KEY CHARGES NOTHING. Its list price is kept apart so a report
     # can say what the work would have cost, and so the money cap is never
@@ -623,6 +654,9 @@ def to_openai(body: dict, model: str = "") -> dict:
            "stream": bool(body.get("stream"))}
     if body.get("temperature") is not None:
         out["temperature"] = body["temperature"]
+    if openai_reasoning(out["model"]):
+        out["max_completion_tokens"] = out.pop("max_tokens")
+        out.pop("temperature", None)
     if body.get("stop_sequences"):
         out["stop"] = body["stop_sequences"]
     tools = []
@@ -1302,11 +1336,35 @@ def _upstream_error(e) -> str:
         msg = (detail.get("error") or {}).get("message") or json.dumps(detail)
     except Exception:
         msg = body or (e.reason if hasattr(e, "reason") else str(e))
+    hint = _hint(e.code, body)
     if _is_quota_wall(e):
         return (f"upstream {e.code}: the API key's quota is SPENT, not "
-                f"rate-limited — waiting will not help today. Use another "
-                f"provider/key or top up the plan. ({str(msg)[:220]})")
-    return f"upstream {e.code}: {str(msg)[:400]}"
+                f"rate-limited — waiting will not help. {hint or 'Use another provider/key or top up the plan.'}"
+                f" ({str(msg)[:220]})")
+    return f"upstream {e.code}: {str(msg)[:400]}" + (f" — {hint}" if hint else "")
+
+
+def _hint(code, body: str) -> str:
+    """What the PERSON should check, for the errors whose provider message
+    does not say it. OpenAI answers `insufficient_quota` both when the
+    balance is empty AND when a project's monthly budget is reached with
+    credit still on the account — the second is the one people miss."""
+    b = body or ""
+    if "insufficient_quota" in b:
+        return ("OpenAI refuses this key for billing: check the balance at "
+                "platform.openai.com/settings/organization/billing, that credit "
+                "has not EXPIRED (prepaid credit expires after a year), and the "
+                "key's project budget under Projects → Limits.")
+    if code == 401:
+        return ("the key was refused — it is wrong, revoked or deleted; "
+                "paste a fresh one in Settings → Model and key.")
+    if code == 404 and "model" in b.lower():
+        return "this key cannot use that model; pick another in Settings → Model and key."
+    if code == 400 and ("Unsupported parameter" in b or "Unrecognized request argument" in b
+                        or "not supported with this model" in b):
+        return ("Aethron sent a setting this model does not accept — "
+                "please report it with the model name.")
+    return ""
 
 
 def start(cfg: BridgeConfig, port=0, log=None):

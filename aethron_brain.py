@@ -622,16 +622,24 @@ def text_call(prompt: str, cfg: dict = None, timeout=300,
                 mark_cold(key)
                 frees.remove(key)
 
-    if paid and _fp(paid) not in spent_for(model):
+    # THE PAID KEY IS ALWAYS ASKED. Benching it "for today" made one
+    # billing refusal (a project budget, a top-up still landing) stick
+    # until midnight Pacific, so a key with credit answered "no API key
+    # could serve this request" all day. A paid key costs one failed
+    # request to re-ask; its refusal is reported, never remembered.
+    if paid:
         if free_ring(cfg):
             print("  no free key answered in time — using the PAID key",
                   flush=True)
         out, verdict = attempt(paid, timeout)
         if verdict == "ok":
             return out
-        if verdict == "spent":
-            mark_exhausted(paid, model)
         last = out
+    if isinstance(last, urllib.error.HTTPError):
+        # SAY WHAT THE PROVIDER SAID. A bare "HTTP Error 400: Bad Request"
+        # hides the one sentence that tells the person what to fix.
+        raise ValueError(f"{resolve(cfg)['label']}: "
+                         f"{_br._upstream_error(last)}") from last
     if isinstance(last, BaseException):
         raise last
     raise ValueError("no API key could serve this request")
@@ -684,9 +692,12 @@ def _bridge_pool(cfg: dict, r: dict) -> dict:
     pin = str((cfg or {}).get("_pin_key") or (cfg or {}).get("api_key")
               or "").strip()
     keys = [pin] if pin else (ring(cfg) or [r["key"]])
-    return {"api_key": keys, "free": free_ring(cfg),
-            "is_spent": lambda k: _fp(k) in spent_for(r["model"]),
-            "on_spent": lambda k: mark_exhausted(k, r["model"])}
+    free = free_ring(cfg)
+    # Only FREE keys are benched across sessions (see text_call): a paid
+    # key's billing refusal must not outlive the person fixing it.
+    return {"api_key": keys, "free": free,
+            "is_spent": lambda k: k in free and _fp(k) in spent_for(r["model"]),
+            "on_spent": lambda k: k in free and mark_exhausted(k, r["model"])}
 
 
 def bridge_config(cfg: dict = None):
