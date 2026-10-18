@@ -32,6 +32,7 @@ import json
 import mimetypes
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -267,8 +268,19 @@ def publish(version, zip_path: Path, notes="", platform="mac") -> dict:
                       json.dumps(feed, indent=1).encode(), "application/json")
 
     # Prove it the way the app will: anonymous GET, no key anywhere.
-    with urllib.request.urlopen(feed_url, timeout=30) as r:
-        back = json.loads(r.read().decode())
+    # The feed is served with max-age=60 through a CDN, so a read straight
+    # after the upload can get the PREVIOUS feed from cache — release 11
+    # failed here while 1.1.11 was in fact live. A query nobody has asked
+    # for before is a cache miss and reaches the stored object; retry for
+    # a while in case the store itself is a moment behind.
+    back = {}
+    for attempt in range(8):
+        probe = f"{feed_url}?v={version}&t={int(time.time() * 1000)}"
+        with urllib.request.urlopen(probe, timeout=30) as r:
+            back = json.loads(r.read().decode())
+        if back.get("version") == version:
+            break
+        time.sleep(10)
     if back.get("version") != version:
         raise SystemExit(f"feed read back wrong: {back}")
     head = urllib.request.Request(url, method="HEAD")
