@@ -68,9 +68,28 @@ def design_pages():
     if not PAGES.exists():
         return out
     for p in sorted(PAGES.glob("*/site.html"), key=lambda f: -f.stat().st_mtime):
+        hist = p.parent / ".history"
         out.append({"name": p.parent.name, "when": int(p.stat().st_mtime),
-                    "bytes": p.stat().st_size})
+                    "bytes": p.stat().st_size, "path": str(p),
+                    "undo": len(list(hist.glob("*.html"))) if hist.is_dir() else 0})
     return out
+
+
+def design_page(name):
+    """PAGES/<name>/site.html, or None — never a path a crafted name can steer."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,80}", str(name or "")):
+        return None
+    p = PAGES / name / "site.html"
+    return p if p.is_file() else None
+
+
+def design_snapshot(page):
+    """The version a change is about to replace, kept for Undo (last 30)."""
+    hist = page.parent / ".history"
+    hist.mkdir(exist_ok=True)
+    (hist / f"{time.time():.6f}.html").write_bytes(page.read_bytes())
+    for old in sorted(hist.glob("*.html"))[:-30]:
+        old.unlink()
 WORKSPACES = HOME / "workspaces"   # code workspaces (not migrations)
 
 # The coding layer is optional at import time: a broken/absent
@@ -1158,6 +1177,8 @@ function elInfo(el){
     return c!=='__forge-hl'&&!/^w--/.test(c)});
   var sig={tag:el.tagName.toLowerCase(),id:el.id||null,classes:cls,
     frname:el.getAttribute('data-framer-name')||null,
+    aeid:(el.closest&&el.closest('[data-ae-id]')||{getAttribute:function(){return null}})
+      .getAttribute('data-ae-id'),
     label:(el.textContent||el.getAttribute('alt')||'').trim().slice(0,60),
     path:cssPath(el),
     index:0};
@@ -1366,6 +1387,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"email": s["email"]} if s else {}, 200)
             if u.path == "/api/design/list":
                 return self.send_json({"pages": design_pages()})
+            if u.path == "/api/design/code":
+                page = design_page(q.get("name", [""])[0])
+                if not page:
+                    return self.fail("no such page", 404)
+                return self.send_json({"path": str(page),
+                                       "code": page.read_text(errors="replace")})
             if u.path == "/api/wallet":
                 import aethron_brain as _brain
                 return self.send_json(_brain.wallet())
@@ -1377,6 +1404,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not str(p).startswith(str(PAGES.resolve())) or not p.is_file():
                     return self.fail("no such page", 404)
                 body = p.read_bytes()
+                if "pick" in q and p.suffix.lower() in (".html", ".htm"):
+                    # POINT AND EDIT, the same picker a template's preview carries
+                    body = body.replace(b"</body>", OVERLAY_JS.encode() + b"</body>") \
+                        if b"</body>" in body else body + OVERLAY_JS.encode()
                 kind = {".html": "text/html; charset=utf-8", ".png": "image/png",
                         ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
                         ".webp": "image/webp", ".svg": "image/svg+xml",
@@ -2623,6 +2654,49 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail("a ceiling between $0 and $1000, please")
                 _brain.wallet_set(limit, keep_spent=bool(body.get("keep_spent")))
                 return self.send_json(_brain.wallet())
+            elif u.path in ("/api/design/reveal", "/api/design/snapshot",
+                            "/api/design/undo", "/api/design/remove",
+                            "/api/design/delete"):
+                page = design_page(body.get("name"))
+                if not page:
+                    return self.fail("no such page", 404)
+                act = u.path.rsplit("/", 1)[1]
+                if act == "reveal":
+                    reveal(page)
+                    return self.send_json({"ok": True, "path": str(page)})
+                if act == "snapshot":
+                    design_snapshot(page)
+                    return self.send_json({"ok": True})
+                if act == "undo":
+                    hist = sorted((page.parent / ".history").glob("*.html"))
+                    if not hist:
+                        return self.fail("nothing to undo")
+                    # UNDO NEVER DESTROYS: what it replaces is kept aside
+                    gone = page.parent / ".history" / "undone"
+                    gone.mkdir(parents=True, exist_ok=True)
+                    (gone / f"{time.time():.6f}.html").write_bytes(page.read_bytes())
+                    page.write_bytes(hist[-1].read_bytes())
+                    hist[-1].unlink()
+                    return self.send_json({"ok": True, "left": len(hist) - 1})
+                if act == "remove":
+                    # POINT AND DELETE. The element is hidden through the same
+                    # guarded editor the agent uses, so it is reversible and
+                    # nothing else on the page moves.
+                    eid = str(body.get("id") or "")
+                    import aethron_edit as AE
+                    html = page.read_text(encoding="utf-8")
+                    out, applied, refused = AE.apply(html, [{"id": eid, "set": {"hidden": True}}])
+                    if not applied:
+                        return self.fail("could not remove that: "
+                                         + ("; ".join(map(str, refused)) or "unknown element"))
+                    design_snapshot(page)
+                    page.write_text(out, encoding="utf-8")
+                    return self.send_json({"ok": True})
+                if act == "delete":
+                    gone = HOME / ".trash" / "pages"
+                    gone.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(page.parent), str(gone / f"{page.parent.name}-{int(time.time())}"))
+                    return self.send_json({"ok": True})
             elif u.path == "/api/design/new":
                 # A SCREENSHOT BECOMES A PAGE. Every number in it is measured off
                 # the image — a model reading a size off a picture is right about
@@ -9238,6 +9312,7 @@ font-size:9.5px;padding:1.5px 7px;border-radius:99px;
 border:1px solid var(--line2)}
 .plat.framer{color:#a8b8e8;border-color:rgba(148,163,220,.3)}
 .plat.webflow{color:#8fc8e8;border-color:rgba(120,180,220,.3)}
+.plat.page{color:#e8b49a;border-color:rgba(217,119,87,.35)}
 .pbar{height:3px;border-radius:99px;background:rgba(148,163,184,.12);
 margin-top:7px;overflow:hidden}
 .pbar i{display:block;height:100%;background:var(--accg);
@@ -10785,7 +10860,13 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
 .selbox textarea:focus{outline:none;border-color:rgba(217,119,87,.5);
   box-shadow:0 0 0 3px rgba(217,119,87,.12)}
 .selbox .row{display:flex;align-items:center;gap:8px;margin-top:9px}
-.selbox .row .sp{margin-left:auto}
+.selbox .row .sp{margin-left:auto;flex:1 1 0;min-width:0;width:auto}
+.selbox .row{flex-wrap:nowrap}
+.selbox .row button{flex:none;width:auto;min-width:0}
+.selbox .ghost.danger{color:#f08a7a;display:inline-flex;align-items:center;gap:5px;padding:0 10px}
+.pvw-stage.dark .codeview{position:absolute;inset:0;margin:0;overflow:auto;
+padding:18px 22px;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;
+color:#d9d4cc;white-space:pre-wrap;word-break:break-word;-webkit-user-select:text;user-select:text}
 .selbox .send{height:28px;padding:0 13px;border-radius:9px;border:0;
   background:var(--acc);color:#fff;font-size:12px;font-weight:500;
   box-shadow:none}
@@ -12265,6 +12346,7 @@ async function b64of(file){ // chunked: spread on big arrays blows the stack
 async function refresh(keepTab){
   const before=S.listed?S.projects:null;
   S.projects=await api('/api/projects');
+  try{S.pages=(await api('/api/design/list')).pages||[];}catch(e){S.pages=S.pages||[];}
   S.listed=true;
   /* WHAT "SOMETHING NEW ENTERED AETHRON" ACTUALLY MEANS. Not the first
      listing — on a cold start every project would wear the badge and it
@@ -12297,7 +12379,15 @@ function renderSidebar(){
       <div class="pbar"><i style="width:${pct}%"></i></div></div>
      ${S.fresh&&S.fresh.has(p.name)?liveNewHtml('Live mode',.82):''}
      <span class="del" onclick="event.stopPropagation();delProject('${p.name}')">✕</span>
-     </div>`}).join('')||'<div class="sideempty"><span class="mk">'+I('package',15)+'</span>'
+     </div>`}).join('')+(S.pages||[]).map(p=>
+     `<div class="pitem${p.name===S.page?' sel':''}" onclick="openPage('${p.name}')"
+       title="a page rebuilt from a screenshot">
+     <div class="pmain">
+      <div class="pname">${esc(p.name)}</div>
+      <div class="pmeta"><span class="plat page">page</span>
+       <span>from a screenshot</span></div></div>
+     <span class="del" onclick="event.stopPropagation();delPage('${p.name}')">✕</span>
+     </div>`).join('')||'<div class="sideempty"><span class="mk">'+I('package',15)+'</span>'
       +'<b>No projects yet</b>Paste a template URL, or say what you want '
       +'built. Whatever you start appears here.</div>';
   mountMetal(); playArrivals();
@@ -14172,7 +14262,8 @@ function syncRail(){
    that walks the full elementsFromPoint stack, so a thing sitting behind
    a transparent overlay is still reachable, which is most of a Framer
    page. */
-let PVW={edit:false,pick:null};
+let PVW={edit:false,pick:null,page:null};
+const PAGE_SEEN=new Set();
 /* ── ONE SHEET, MANY CONTENTS ───────────────────────────────────────
    The preview taught the shape: the conversation keeps the left third
    and stays live, the work opens beside it, Escape and Close get you
@@ -14252,7 +14343,7 @@ async function openCode(){
 function pvwKey(e){if(e.key==='Escape'){if($('selbox'))closeSel();else closePvw();}}
 function closePvw(){
   const d=$('pvw');
-  S.sheetTab=null;
+  S.sheetTab=null; PVW.page=null;
   /* a sheet springing out must not keep the ids the next one is given */
   if(d){d.removeAttribute('id');d.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));}
   document.body.classList.remove('pvwopen');
@@ -14313,7 +14404,7 @@ window.addEventListener('message',ev=>{
   b.className='selbox glass'; b.id='selbox';
   b.innerHTML=`<div class="what">${I('pencil',12)}<b>${esc(L.what)}</b></div>
     <textarea id="selta" placeholder="Say what should change here\u2026"></textarea>
-    <div class="row"><span class="sp"></span>
+    <div class="row">${PVW.page?`<button class="ghost danger" onclick="pageRemove()">${I('trash',13)}Remove</button>`:''}<span class="sp"></span>
       <button class="ghost" onclick="closeSel()">Cancel</button>
       <button class="send" onclick="selSend()">Ask Aethron</button></div>`;
   document.body.appendChild(b);
@@ -14640,11 +14731,118 @@ function selSend(){
   const ta=$('selta'); const words=(ta&&ta.value||'').trim();
   if(!words||!PVW.pick)return;
   const L=pickLabel(PVW.pick);
+  if(PVW.page)return pageAsk(`change ${L.ref}: ${words}`);
   const ask=`On ${S.cur}, change ${L.ref}: ${words}`;
   closeSel(); closePvw();
   const box=$('npurl');
   if(box){box.value=ask; growTa(box);}
   consoleSend();
+}
+/* ── A PAGE REBUILT FROM A SCREENSHOT, SHOWN LIKE A TEMPLATE ─────────
+   It used to come back as a path into a hidden Library folder that the
+   person could not find. It opens in the same sheet as a template's
+   preview instead: browse it, point at anything to change or remove it,
+   undo, see the code, or show the file in Finder. */
+function pageInfo(name){return (S.pages||[]).find(p=>p.name===name)||{name,undo:0};}
+function openPage(name,edit){
+  if(!name)return;
+  const p=pageInfo(name);
+  S.page=name; renderSidebar();
+  const d=openSheet({
+    name, sub:'from a screenshot',
+    bar:`<div class="pvw-seg" id="pvwseg">
+        <button class="${edit?'':'on'}" onclick="pvwMode(false)">Browse</button>
+        <button class="${edit?'on':''}" onclick="pvwMode(true)">Select</button>
+      </div>
+      <div class="pvw-dev" id="pvwdev">${[['desktop','monitor','Desktop'],
+        ['tablet','tablet','Tablet (820px)'],['phone','phone','Phone (390px)']]
+        .map(([k,ic,t])=>`<button data-dev="${k}" title="${t}"
+          onclick="pvwDevice('${k}')">${I(ic,14)}</button>`).join('')}</div>`,
+    actions:`<button class="cpill opt" id="pgundo" onclick="pageUndo()" ${p.undo?'':'disabled'}>${
+        I('undo',13)}Undo${p.undo?' ('+p.undo+')':''}</button>
+      <button class="cpill opt" onclick="pageCode('${name}')" title="Show code">${I('terminal',13)}Code</button>
+      <button class="cpill opt" onclick="pageReveal('${name}')" title="Open in Finder">${I('file',13)}Finder</button>`,
+    body:`<iframe id="pvwframe" src="/design/${encodeURIComponent(name)}/site.html?pick=1&t=${Date.now()}"></iframe>
+      <div class="selring" id="selring"></div>
+      <div class="pvw-hint" id="pvwhint"></div>`});
+  PVW.page=name; PVW.edit=!!edit;
+  const f=$('pvwframe');
+  if(f)f.onload=()=>pvwMode(PVW.edit);
+  pvwDevice(pvwDevSaved());
+  return d;
+}
+async function pageReload(){
+  await refresh(true).catch(()=>{});
+  const name=PVW.page; if(!name)return;
+  const f=$('pvwframe');
+  if(f)f.src='/design/'+encodeURIComponent(name)+'/site.html?pick=1&t='+Date.now();
+  const b=$('pgundo'), n=pageInfo(name).undo||0;
+  if(b){b.disabled=!n; b.innerHTML=I('undo',13)+'Undo'+(n?' ('+n+')':'');}
+}
+async function pageUndo(){
+  if(!PVW.page)return;
+  try{await api('/api/design/undo',{name:PVW.page}); toast('Undone');}
+  catch(e){return toast(e.message,'bad');}
+  pageReload();
+}
+async function pageRemove(){
+  const m=PVW.pick, name=PVW.page; if(!m||!name)return;
+  const id=m.el&&m.el.aeid;
+  if(!id)return pageAsk('remove '+pickLabel(m).ref);
+  closeSel();
+  try{await api('/api/design/remove',{name,id}); toast('Removed — Undo brings it back');}
+  catch(e){return toast(e.message,'bad');}
+  pageReload();
+}
+/* A change in words goes to the agent with the file named exactly, and
+   the version it replaces is kept first, whichever way the agent edits. */
+async function pageAsk(what){
+  const name=PVW.page; if(!name)return;
+  const p=pageInfo(name);
+  try{await api('/api/design/snapshot',{name});}catch(e){}
+  closeSel(); closePvw();
+  const box=$('npurl');
+  if(box){box.value=`On the page "${name}" (the file ${p.path||name+'/site.html'}), ${what}`; growTa(box);}
+  consoleSend();
+}
+async function pageReveal(name){
+  try{await api('/api/design/reveal',{name}); toast('Shown in Finder');}
+  catch(e){toast(e.message,'bad');}
+}
+async function pageCode(name){
+  let r;
+  try{r=await api('/api/design/code?name='+encodeURIComponent(name));}
+  catch(e){return toast(e.message,'bad');}
+  PVW.code=r.code;
+  openSheet({name, sub:'site.html', dark:true,
+    actions:`<button class="cpill opt" onclick="copyText(PVW.code);toast('Copied the code')">${I('file',13)}Copy</button>
+      <button class="cpill opt" onclick="pageReveal('${name}')">${I('file',13)}Open in Finder</button>
+      <button class="cpill opt" onclick="openPage('${name}')">${I('play',13)}Preview</button>`,
+    body:`<pre class="codeview">${esc(r.code)}</pre>`});
+}
+async function delPage(name){
+  if(!confirm(`Delete the page "${name}"? It moves to Aethron's trash.`))return;
+  try{await api('/api/design/delete',{name});}catch(e){return toast(e.message,'bad');}
+  if(S.page===name){S.page=null; closePvw();}
+  refresh(true);
+}
+function pageCardHtml(b){
+  const n=esc(b.name), u='/design/'+encodeURIComponent(b.name)+'/site.html';
+  return `<div class="pcard glass pagecard">
+    <div class="pshot" onclick="openPage('${n}')" title="open the preview">
+      <iframe src="${u}" tabindex="-1" scrolling="no" aria-hidden="true"></iframe>
+      <span class="pveil"></span>
+    </div>
+    <div class="pside">
+      <div class="pname">${n}</div>
+      <div class="pmeta"><span class="tag">PAGE</span><span>rebuilt from your screenshot</span></div>
+      <div class="pacts">
+        <button class="cpill" onclick="openPage('${n}')">${I('play',13)}Preview</button>
+        <button class="cpill" onclick="openPage('${n}',true)">${I('pencil',13)}Point and edit</button>
+        <button class="cpill opt" onclick="pageCode('${n}')">${I('terminal',13)}Show code</button>
+        <button class="cpill opt" onclick="pageReveal('${n}')">${I('file',13)}Open in Finder</button>
+      </div>
+    </div></div>`;
 }
 async function openInBrowser(){
   if(!S.cur)return;
@@ -14779,6 +14977,17 @@ function quick(t,need){
   try{ta.setSelectionRange(ta.value.length,ta.value.length);}catch(e){}
   const bar=$('askbar');
   if(bar){bar.innerHTML=need?esc(need):'';bar.hidden=!need;}
+}
+function copyText(t){
+  try{ if(navigator.clipboard&&navigator.clipboard.writeText)
+    return navigator.clipboard.writeText(t).catch(()=>copyOld(t)); }catch(e){}
+  copyOld(t);
+}
+function copyOld(t){
+  const a=document.createElement('textarea'); a.value=t;
+  a.style.cssText='position:fixed;opacity:0;top:0;left:0';
+  document.body.appendChild(a); a.select();
+  try{document.execCommand('copy');}catch(e){} a.remove();
 }
 function growTa(el){el.style.height='auto';
   el.style.height=Math.min(el.scrollHeight,180)+'px'}
@@ -16566,6 +16775,19 @@ function convBlocks(evs){
       if(s&&s.state==='live'){s.state=(e.ok===false
         ?(/^\s*Refused by Aethron/.test(e.text||'')?'blocked':'bad'):'ok');
         s.detail=e.text||'';}
+      /* A PAGE WAS MADE: show it, do not leave a path in the text. From
+         screenshot_to_page's own marker, or the agent writing the page
+         file itself when measuring could not run. */
+      if(e.ok!==false){
+        const made=(/(?:^|\n)aethron-page: ([a-z0-9-]+)/.exec(e.text||'')||[])[1]
+          ||(s&&/^(Write|Edit)$/.test(s.name||'')&&s.input
+             &&(/\/pages\/([a-z0-9-]+)\/site\.html$/.exec(String(s.input.file_path||''))||[])[1]);
+        if(made&&!out.some(x=>x.kind==='page'&&x.name===made)){
+          out.push({kind:'page',name:made}); run=null;
+          if(!(S.pages||[]).some(p=>p.name===made)&&!PAGE_SEEN.has(made)){
+            PAGE_SEEN.add(made); refresh(true).catch(()=>{});}
+        }
+      }
       continue;
     }
     run=null;
@@ -16775,6 +16997,7 @@ function renderChat(){
     : b.kind==='run' ? runHtml(b)
     : b.kind==='permission' ? permissionHtml(b)
     : b.kind==='truth' ? truthHtml(b)
+    : b.kind==='page' ? pageCardHtml(b)
     : b.kind==='earlier' ? `<div class="turn sys earlier"><span>Your last conversation${
         b.when?' · '+esc(new Date(b.when*1000).toLocaleString([],
           {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})):''
