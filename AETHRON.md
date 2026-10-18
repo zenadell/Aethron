@@ -5799,6 +5799,39 @@ either: catching a picture that is REMOVED rather than broken (rendered
 image count vs the template's) — Framer prunes breakpoint variants after
 hydration, so a naive count would cry wolf.
 
+## WHAT'S NEW CARD — once after an update — `aethron_news.py` — 2026-10-18
+Owner, after ChatGPT's "what's new" pop-ups: when an update brings
+something to try, the reopened app should show a card with an animated
+illustration, a short description and a button that takes you to the
+feature. Built:
+- aethron_news.NEWS: entries {id, title, body, art, go, label}, kept as
+  CODE so they are always in the bundle. Keyed by id, not version (a
+  release is numbered by its build run, unknown when the entry is
+  written). Shown once per machine (AETHRON_HOME/.news-seen.json, which
+  survives updates); closing the card marks every page of it seen.
+- GET /api/news, POST /api/news/seen. The card appears after the
+  just-updated check, says "Updated to <version> · What's new", and
+  replaces the small "Updated" chip. Dots, Next, ←/→, Esc.
+- Three illustrations drawn in SVG + CSS (rail | back | runs), each
+  resting on its final pose, so with reduced motion they are stills.
+- "Try it" goes to the feature and rings the thing to press (aeSpot):
+  opens the newest built project with a ring on the rail; opens Settings
+  and rings the back arrow; opens Agent runs and rings its row.
+- ADDING NEWS: one entry in NEWS, only when a release gives the person
+  something new to DO. New art/actions need a NEWS_ART drawing and a
+  newsGo branch in studio.py; the selftest refuses unknown names.
+TWO "FIRST LAUNCH" BUGS FOUND ON THE WAY, one of them old: the app
+creates empty projects/ and library/ the moment it starts, so "has this
+machine been used?" checked by existence was ALWAYS yes. A brand-new
+install showed "Updated", and would have been handed every old news
+card on its second launch. aethron_news.used() now asks for something
+IN those folders (or saved settings); a fresh install is marked seen on
+its first check, before its own version stamp makes it look used.
+Tests: aethron_news --selftest 7/7; tests/news_battery.py 16/16 (real
+studio, real browser, a project built from tests/pages/site.html: card
+after an update, each Try-it lands with a ring, seen is remembered,
+Esc, reduced motion still drawn, no console errors). Both in run_all.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

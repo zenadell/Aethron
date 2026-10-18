@@ -1458,6 +1458,14 @@ class Handler(BaseHTTPRequestHandler):
                 # stamp is a HOME whose app was just replaced by one that
                 # keeps stamps. A genuinely fresh install has no history
                 # to mistake, and stamps itself silently on first run.
+                # (startup creates empty projects/ and library/, so an
+                # empty folder is not a sign of use — see aethron_news.used)
+                def _used_before():
+                    try:
+                        import aethron_news
+                        return aethron_news.used(HOME)
+                    except Exception:
+                        return False
                 mark = HOME / ".last-update.json"
                 stampf = HOME / ".last-run.json"
                 ver = getattr(updater, "VERSION", "") if updater else ""
@@ -1478,11 +1486,20 @@ class Handler(BaseHTTPRequestHandler):
                         mark.unlink()
                     elif had_stamp and prev and prev != ver:
                         out = {"updated": True, "version": ver, "from": prev}
-                    elif not had_stamp and any(
-                            (HOME / n).exists() for n in
-                            ("projects", "library", "aethron_config.json")):
+                    elif not had_stamp and _used_before():
                         # used before, never stamped => just replaced
                         out = {"updated": True, "version": ver, "from": ""}
+                    elif not had_stamp:
+                        # A FRESH INSTALL has no news to catch up on: what
+                        # is "new" is new to people who had the old app.
+                        # Settled here, before the stamp below makes this
+                        # machine look used.
+                        try:
+                            import aethron_news
+                            aethron_news.mark_seen(
+                                HOME, [n["id"] for n in aethron_news.NEWS])
+                        except Exception:
+                            pass
                 except Exception:
                     pass
                 try:
@@ -1492,6 +1509,13 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
                 self.send_json(out)
+            elif u.path == "/api/news":
+                # WHAT'S NEW, once per machine (aethron_news.py).
+                try:
+                    import aethron_news
+                    self.send_json({"news": aethron_news.unseen(HOME)})
+                except Exception as e:
+                    self.send_json({"news": [], "why": str(e)})
             elif u.path == "/api/update/check":
                 # Never blocks the UI on a network call it cannot
                 # control: a failed check reports why and the app
@@ -1899,6 +1923,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(out)))
                 self.end_headers()
                 return self.wfile.write(out)
+            if u.path == "/api/news/seen":
+                try:
+                    import aethron_news
+                    aethron_news.mark_seen(HOME, list(body.get("ids") or [])[:50])
+                except Exception:
+                    pass
+                return self.send_json({"ok": True})
             if u.path == "/api/update/apply":
                 if not updater:
                     return self.fail("updater unavailable")
@@ -11443,6 +11474,104 @@ header{gap:12px}
 /* overflow menu */
 .backbtn{margin-right:6px}.backbtn .ic{transform:rotate(-90deg)}
 .backbtn[hidden]{display:none!important}
+/* ── WHAT'S NEW: the card after an update (aethron_news.py) ───────── */
+.newsov{position:fixed;inset:0;z-index:9000;display:grid;place-items:center;
+  background:rgba(5,4,4,.58);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);
+  opacity:0;pointer-events:none;transition:opacity .24s var(--eo)}
+.newsov.on{opacity:1;pointer-events:auto}
+.newscard{position:relative;width:min(452px,calc(100vw - 32px));background:var(--g-1);
+  border:1px solid var(--edge-2);border-radius:var(--r-xl);overflow:hidden;
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.4);
+  transform:translateY(14px) scale(.975);transition:transform .42s var(--eo)}
+.newsov.on .newscard{transform:none}
+.nart{height:206px;border-bottom:1px solid var(--edge-1);overflow:hidden;
+  background:radial-gradient(70% 90% at 50% 0%,rgba(217,119,87,.16),transparent 70%),var(--g-0)}
+.nart svg{display:block;width:100%;height:100%}
+.nbody{padding:18px 22px 18px}
+.nkick{display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:11.5px;
+  font-weight:600;letter-spacing:.03em;color:var(--a-hi)}
+.nkick .ic{color:var(--ok)}
+.nbody h3{margin:0 0 6px;font-size:18px;line-height:1.25;font-weight:620;color:var(--t-1)}
+.nbody p{margin:0;min-height:6.2em;font-size:13.5px;line-height:1.55;color:var(--t-2)}
+.nswap{animation:nIn .36s var(--eo) both}
+@keyframes nIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.nfoot{display:flex;align-items:center;gap:8px;margin-top:18px}
+.ndots{display:flex;gap:5px;margin-right:auto}
+.ndots i{width:6px;height:6px;border-radius:3px;background:var(--edge-3);cursor:pointer;
+  transition:width .25s var(--eo),background .25s}
+.ndots i.on{width:18px;background:var(--a)}
+.nx{position:absolute;top:10px;right:10px;width:28px;height:28px;border-radius:14px;
+  border:1px solid var(--edge-2);background:rgba(16,14,13,.7);color:var(--t-2);
+  display:grid;place-items:center;cursor:pointer;z-index:2}
+.nx:hover{color:var(--t-1);background:var(--g-3)}
+
+/* the illustrations: drawn in code, final pose is the resting pose, so
+   with motion turned off each one is a still picture of the feature */
+.nart .fr{fill:var(--g-2);stroke:var(--edge-3);stroke-width:1}
+.nart .tb{fill:var(--g-3)}
+.nart .dot{fill:var(--g-5)}
+.nart .sd{fill:var(--g-1)}
+.nart .ln{fill:var(--g-5)}
+.nart .bub{fill:var(--g-4)}
+.nart .me{fill:rgba(217,119,87,.30)}
+.nart .cmp{fill:var(--g-1);stroke:var(--edge-2)}
+.nart .cd{fill:var(--g-3);stroke:var(--edge-3)}
+.nart .shot{fill:#f1ebe6}
+.nart .hero{fill:#2a2624}
+.nart .hln{fill:#b9afa8}
+.nart .acc{fill:var(--a)}
+.nart .trk{fill:var(--g-5)}
+.nart .ok{fill:var(--ok)}
+.nart .bad{fill:var(--bad)}
+.nart .pill{fill:var(--g-5)}
+.nart .cur{fill:#fff;stroke:#111;stroke-width:1}
+.nart .wire{stroke:var(--edge-3);stroke-width:1.5;stroke-dasharray:3 4;fill:none}
+.nart .lbl{fill:var(--t-3);font:600 8.5px/1 -apple-system,system-ui,sans-serif;letter-spacing:.04em}
+.nart .lbla{fill:var(--a-hi)}
+.nart g,.nart rect,.nart path,.nart circle{transform-box:fill-box}
+
+.nart .a-bub{animation:nBub 6.4s var(--eo) infinite both}
+.nart .a-rail{animation:nRail 6.4s var(--eo) infinite both}
+.nart .a-fill{transform-origin:left center;animation:nFill 6.4s var(--eo) infinite both}
+.nart .a-cur{animation:nCurR 6.4s var(--eo) infinite both}
+.nart .a-press{transform-origin:center;animation:nPress 6.4s var(--eo) infinite both}
+@keyframes nBub{0%{opacity:0;transform:translateY(7px)}9%,90%{opacity:1;transform:none}100%{opacity:0}}
+@keyframes nRail{0%,14%{opacity:0;transform:translateX(120px)}30%,90%{opacity:1;transform:none}100%{opacity:0}}
+@keyframes nFill{0%,34%{transform:scaleX(.05)}62%,100%{transform:scaleX(1)}}
+@keyframes nCurR{0%,40%{opacity:0;transform:translate(200px,206px)}48%{opacity:1}
+  64%{transform:translate(288px,144px)}68%{transform:translate(288px,144px) scale(.82)}
+  72%,88%{opacity:1;transform:translate(288px,144px)}100%{opacity:0;transform:translate(288px,144px)}}
+@keyframes nPress{0%,66%{transform:none;filter:none}68%{transform:scale(.9);filter:brightness(1.4)}74%,100%{transform:none;filter:none}}
+
+.nart .b-scr{animation:nScr 6.4s var(--eo) infinite both}
+.nart .b-btn{transform-origin:center;animation:nBk 6.4s var(--eo) infinite both}
+.nart .b-cur{animation:nCurB 6.4s var(--eo) infinite both}
+@keyframes nScr{0%,12%{transform:translateX(360px)}26%,62%{transform:none}78%,100%{transform:translateX(360px)}}
+@keyframes nBk{0%,22%{opacity:0;transform:scale(.6)}30%{opacity:1;transform:scale(1.15)}36%{transform:none}
+  56%{transform:none}60%{transform:scale(.85)}64%{transform:none}78%{opacity:1}86%,100%{opacity:0;transform:scale(.6)}}
+@keyframes nCurB{0%,34%{opacity:0;transform:translate(160px,150px)}42%{opacity:1}
+  56%{transform:translate(38px,26px)}60%{transform:translate(38px,26px) scale(.82)}
+  64%,78%{opacity:1;transform:translate(38px,26px)}90%,100%{opacity:0;transform:translate(38px,26px)}}
+
+.nart .c-flow{animation:nFlow 1.6s linear infinite both}
+.nart .c-row{animation:nRow 6.4s var(--eo) infinite both}
+@keyframes nFlow{0%{opacity:0;transform:translateX(0)}15%{opacity:1}85%{opacity:1}100%{opacity:0;transform:translateX(64px)}}
+@keyframes nRow{0%{opacity:0;transform:translateX(-10px)}8%,88%{opacity:1;transform:none}100%{opacity:0}}
+
+.aespot{position:fixed;z-index:8999;pointer-events:none;border-radius:12px;
+  box-shadow:0 0 0 2px var(--a);animation:aeSpot 1.3s var(--eo) infinite;
+  transition:opacity .3s}
+.aespot b{position:absolute;left:0;top:calc(100% + 10px);white-space:nowrap;
+  padding:6px 10px;border-radius:8px;background:var(--a);color:#fff8f3;
+  font:600 12px/1.2 -apple-system,system-ui,sans-serif;box-shadow:var(--lift-1)}
+.aespot.up b{top:auto;bottom:calc(100% + 10px)}
+@keyframes aeSpot{0%{box-shadow:0 0 0 2px var(--a),0 0 0 0 rgba(217,119,87,.5)}
+  100%{box-shadow:0 0 0 2px var(--a),0 0 0 16px rgba(217,119,87,0)}}
+@media (prefers-reduced-motion:reduce){
+  .nart *{animation:none!important}
+  .nart .a-cur,.nart .b-cur,.nart .c-flow{display:none}
+  .newscard,.nswap,.aespot{animation:none!important;transition:none!important}
+}
 /* ── the rail: the project's cards, pinned right ─────────────────── */
 body.railed nav#tabs{display:none!important}
 .sheetwork{height:100%;overflow:auto;padding:18px 22px}
@@ -11942,6 +12071,7 @@ async function checkUpdate(){
       UC={mode:'done',line:done.version||''}; ucRender();
       setTimeout(()=>{ if(UC&&UC.mode==='done'){UC=null;ucRender();} },7000);
     }
+    newsCheck(done&&done.updated?done.version:'');
   }catch(e){}
   try{ UPD=await api('/api/update/check'); }catch(e){ return }
   if(UPD&&UPD.available&&!(UC&&(UC.mode==='busy'||UC.mode==='fail'))){
@@ -16914,6 +17044,169 @@ function endTour(){
   localStorage.forge_tour='done';
 }
 
+/* ── WHAT'S NEW ────────────────────────────────────────────────────
+   After an update, once per machine, a card for each entry in
+   aethron_news.py: a coded illustration, a few words, and a button that
+   takes the person to the feature itself. Only releases that add
+   something to DO get an entry; fixes get the quiet "Updated" chip. */
+const NEWS_ART={
+frame:(inner)=>`<svg viewBox="0 0 400 206" aria-hidden="true">
+  <rect class="fr" x="20" y="14" width="360" height="180" rx="12"/>
+  <path class="tb" d="M32 14h336a12 12 0 0 1 12 12v10H20V26a12 12 0 0 1 12-12z"/>
+  <circle class="dot" cx="34" cy="25" r="3.2"/><circle class="dot" cx="45" cy="25" r="3.2"/><circle class="dot" cx="56" cy="25" r="3.2"/>
+  ${inner}</svg>`,
+rail:()=>NEWS_ART.frame(`
+  <rect class="sd" x="20.5" y="36" width="62" height="157.5"/>
+  <rect class="ln" x="30" y="50" width="40" height="5" rx="2.5"/>
+  <rect class="ln" x="30" y="64" width="32" height="5" rx="2.5"/>
+  <rect class="ln" x="30" y="78" width="36" height="5" rx="2.5"/>
+  <rect class="bub a-bub" style="animation-delay:.1s" x="96" y="54" width="118" height="16" rx="8"/>
+  <rect class="bub me a-bub" style="animation-delay:.5s" x="150" y="80" width="94" height="16" rx="8"/>
+  <rect class="bub a-bub" style="animation-delay:.9s" x="96" y="106" width="134" height="16" rx="8"/>
+  <rect class="cmp" x="96" y="164" width="150" height="20" rx="10"/>
+  <circle class="acc" cx="236" cy="174" r="6"/>
+  <g class="a-rail">
+    <rect class="cd" x="258" y="46" width="112" height="138" rx="10"/>
+    <rect class="shot" x="266" y="54" width="96" height="54" rx="5"/>
+    <rect class="hero" x="272" y="62" width="54" height="7" rx="3.5"/>
+    <rect class="hln" x="272" y="74" width="38" height="4" rx="2"/>
+    <rect class="acc" x="272" y="86" width="26" height="10" rx="5"/>
+    <rect class="trk" x="266" y="118" width="96" height="5" rx="2.5"/>
+    <rect class="acc a-fill" x="266" y="118" width="96" height="5" rx="2.5"/>
+    <rect class="pill acc a-press" x="266" y="132" width="46" height="13" rx="6.5"/>
+    <rect class="pill" x="316" y="132" width="46" height="13" rx="6.5"/>
+    <rect class="ln" x="266" y="156" width="70" height="4" rx="2"/>
+    <rect class="ln" x="266" y="166" width="54" height="4" rx="2"/>
+  </g>
+  <path class="cur a-cur" d="M0 0v15l4-4 3 6 2.4-1-3-6h5.6z"/>`),
+back:()=>NEWS_ART.frame(`
+  <g class="b-btn"><rect class="acc" x="62" y="19" width="20" height="12" rx="4"/>
+    <path d="M75 25h-7m3-3-3 3 3 3" stroke="#fff8f3" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <rect class="sd" x="20.5" y="36" width="62" height="157.5"/>
+  <rect class="ln" x="30" y="50" width="40" height="5" rx="2.5"/>
+  <rect class="ln" x="30" y="64" width="32" height="5" rx="2.5"/>
+  <rect class="bub" x="96" y="54" width="118" height="16" rx="8"/>
+  <rect class="bub me" x="170" y="80" width="94" height="16" rx="8"/>
+  <rect class="bub" x="96" y="106" width="150" height="16" rx="8"/>
+  <rect class="cmp" x="96" y="164" width="240" height="20" rx="10"/>
+  <clipPath id="nclipb"><rect x="20.5" y="36" width="359" height="157.5"/></clipPath>
+  <g clip-path="url(#nclipb)"><g class="b-scr">
+    <rect fill="var(--g-2)" x="20.5" y="36" width="359" height="157.5"/>
+    <text class="lbl" x="40" y="58">SETTINGS</text>
+    <rect class="cd" x="40" y="68" width="150" height="54" rx="8"/>
+    <rect class="ln" x="52" y="82" width="70" height="5" rx="2.5"/><rect class="ln" x="52" y="96" width="100" height="4" rx="2"/>
+    <rect class="acc" x="160" y="80" width="20" height="11" rx="5.5"/><circle fill="#fff8f3" cx="174.5" cy="85.5" r="4"/>
+    <rect class="cd" x="204" y="68" width="150" height="54" rx="8"/>
+    <rect class="ln" x="216" y="82" width="60" height="5" rx="2.5"/><rect class="ln" x="216" y="96" width="90" height="4" rx="2"/>
+    <rect class="cd" x="40" y="132" width="314" height="44" rx="8"/>
+    <rect class="ln" x="52" y="146" width="120" height="5" rx="2.5"/><rect class="ln" x="52" y="160" width="180" height="4" rx="2"/>
+  </g></g>
+  <path class="cur b-cur" d="M0 0v15l4-4 3 6 2.4-1-3-6h5.6z"/>`),
+runs:()=>`<svg viewBox="0 0 400 206" aria-hidden="true">
+  <circle class="cd" cx="62" cy="103" r="28"/>
+  <path class="acc" d="M62 88l3.6 9.4L75 101l-9.4 3.6L62 114l-3.6-9.4L49 101l9.4-3.6z"/>
+  <text class="lbl" x="62" y="148" text-anchor="middle">AGENT</text>
+  <path class="wire" d="M94 103h70"/>
+  <circle class="acc c-flow" cx="98" cy="103" r="3"/>
+  <circle class="acc c-flow" style="animation-delay:.53s" cx="98" cy="103" r="3"/>
+  <circle class="acc c-flow" style="animation-delay:1.06s" cx="98" cy="103" r="3"/>
+  <rect class="cd" x="166" y="81" width="44" height="44" rx="11"/>
+  <path d="M188 92l9 22h-4.5l-1.7-4.5h-5.6l-1.7 4.5H179zm0 7.5-1.8 6h3.6z" fill="var(--a)"/>
+  <text class="lbl" x="188" y="148" text-anchor="middle">AETHRON</text>
+  <path class="wire" d="M212 103h20"/>
+  <rect class="fr" x="232" y="30" width="148" height="146" rx="11"/>
+  <text class="lbl" x="246" y="50">AGENT RUNS</text>
+  ${[0,1,2,3,4].map(i=>{const y=58+i*19,bad=i===3;return `<g class="c-row" style="animation-delay:${.4+i*.45}s">
+    <circle class="${bad?'bad':'ok'}" cx="250" cy="${y+6}" r="4"/>
+    <rect class="ln" x="262" y="${y+1}" width="${[64,82,56,74,60][i]}" height="5" rx="2.5"/>
+    <rect class="trk" x="262" y="${y+9}" width="${[40,30,46,36,28][i]}" height="3" rx="1.5"/>
+    <text class="lbl${bad?' lbla':''}" x="368" y="${y+9}" text-anchor="end">${bad?'FAIL':'OK'}</text></g>`}).join('')}
+  <text class="lbl" x="246" y="166">KEYS · HIDDEN</text>
+  </svg>`};
+let NEWS={list:[],i:0,ver:'',asked:false};
+async function newsCheck(ver){
+  if(NEWS.asked)return; NEWS.asked=true;
+  try{ if(!localStorage.forge_tour)return; }catch(e){}   // first run: the tour, not news
+  let r; try{ r=await api('/api/news'); }catch(e){ return; }
+  if(!r||!r.news||!r.news.length)return;
+  NEWS={list:r.news,i:0,ver:ver||'',asked:true};
+  if(UC&&UC.mode==='done'){UC=null;ucRender();}   // the card says it instead
+  newsRender();
+}
+function newsRender(){
+  let ov=$('newsov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='newsov';ov.className='newsov';
+    ov.onclick=e=>{if(e.target===ov)newsClose();};
+    document.body.appendChild(ov);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>ov.classList.add('on')));
+    document.addEventListener('keydown',newsKey);
+  }
+  const n=NEWS.list[NEWS.i], many=NEWS.list.length>1, last=NEWS.i===NEWS.list.length-1;
+  const art=(NEWS_ART[n.art]||NEWS_ART.rail)();
+  ov.innerHTML=`<div class="newscard" role="dialog" aria-modal="true" aria-labelledby="ntitle">
+    <button class="nx" onclick="newsClose()" title="Close (Esc)">${I('x',14)}</button>
+    <div class="nart nswap">${art}</div>
+    <div class="nbody nswap">
+      <div class="nkick">${NEWS.ver?`${I('check',12)}Updated to ${esc(NEWS.ver)} &middot; `:''}What's new</div>
+      <h3 id="ntitle">${esc(n.title)}</h3>
+      <p>${esc(n.body)}</p>
+      <div class="nfoot">
+        <div class="ndots">${many?NEWS.list.map((_,k)=>`<i class="${k===NEWS.i?'on':''}" onclick="NEWS.i=${k};newsRender()"></i>`).join(''):''}</div>
+        <button class="btn" onclick="${many&&!last?'NEWS.i++;newsRender()':'newsClose()'}">${many&&!last?'Next':'Not now'}</button>
+        <button class="btn primary" id="ngo" onclick="newsGo('${esc(n.go)}')">${esc(n.label||'Try it')}</button>
+      </div>
+    </div></div>`;
+  const g=$('ngo'); if(g)g.focus();
+}
+function newsKey(e){
+  if(!$('newsov'))return;
+  if(e.key==='Escape'){e.stopPropagation();newsClose();}
+  else if(e.key==='ArrowRight'&&NEWS.i<NEWS.list.length-1){NEWS.i++;newsRender();}
+  else if(e.key==='ArrowLeft'&&NEWS.i>0){NEWS.i--;newsRender();}
+}
+function newsClose(){
+  const ov=$('newsov'); if(!ov)return;
+  /* shown is seen: a card dismissed on its first page must not come
+     back next launch with the other pages still waiting */
+  api('/api/news/seen',{ids:NEWS.list.map(n=>n.id)}).catch(()=>{});
+  document.removeEventListener('keydown',newsKey,true);
+  document.removeEventListener('keydown',newsKey);
+  ov.id=''; ov.classList.remove('on'); setTimeout(()=>ov.remove(),260);
+}
+/* "Try it" goes to the feature and puts a ring on the thing to press. */
+async function newsGo(go){
+  newsClose();
+  if(go==='runs'){ await openRuns(); return aeSpot('#runsbtn','Every agent call is listed here'); }
+  if(go==='back'){ openSettings(); return aeSpot('#backbtn','This takes you back to where you were'); }
+  /* preview: the open project, else the newest one that is built */
+  if(S.view==='project'&&S.cur){ return aeSpot('#prail','Your preview, progress and downloads'); }
+  const ps=S.projects||[], p=ps.find(x=>x.built)||ps[0];
+  if(!p){ toast('Start a project first — its preview will sit on the right.'); return aeSpot('.composer','Paste a template link to begin'); }
+  await select(p.name);
+  aeSpot('#prail','Your preview, progress and downloads');
+}
+function aeSpot(sel,label){
+  document.querySelectorAll('.aespot').forEach(x=>x.remove());
+  let tries=0;
+  const place=()=>{
+    const el=document.querySelector(sel);
+    const r=el&&el.getBoundingClientRect();
+    if(!r||r.width<4||r.height<4){ if(++tries<30)return setTimeout(place,100); return; }
+    const s=document.createElement('div'); s.className='aespot';
+    const pad=6;
+    s.style.left=(r.left-pad)+'px'; s.style.top=(r.top-pad)+'px';
+    s.style.width=(r.width+2*pad)+'px'; s.style.height=Math.min(r.height+2*pad,innerHeight-r.top+pad-8)+'px';
+    if(label){ const b=document.createElement('b'); b.textContent=label; s.appendChild(b);
+      if(r.top+r.height+60>innerHeight)s.classList.add('up');
+      if(r.left+260>innerWidth){b.style.left='auto';b.style.right='0';} }
+    document.body.appendChild(s);
+    const gone=()=>{s.style.opacity='0';setTimeout(()=>s.remove(),320);
+      document.removeEventListener('mousedown',gone,true);};
+    setTimeout(gone,5200); document.addEventListener('mousedown',gone,true);
+  };
+  place();
+}
 refresh();
 // CHECK FOR UPDATES WHEN THE APP OPENS, AND EVERY 30 MINUTES. The only
 // call used to sit inside delProject(), so the app checked solely after
