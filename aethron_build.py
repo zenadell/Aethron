@@ -504,7 +504,7 @@ def _price(r):
     if r.get("local"):
         return 0.0, 0.0
     import aethron_bridge as _br
-    pin, pout = _br.PRICES.get(r.get("model") or "", _br.UNKNOWN_PRICE)
+    pin, pout = _br.price_of(r.get("model") or "")
     return pin / 1e6, pout / 1e6
 
 
@@ -529,9 +529,18 @@ def _request(r, key, text, max_tokens, temperature):
     body = {"model": r["model"], "max_tokens": max_tokens,
             "temperature": temperature,
             "messages": [{"role": "user", "content": text}]}
-    # only providers known to accept it: an unknown field is a 400 on some
-    if r.get("provider") in ("gemini", "openai"):
+    # Only where it is accepted: an unknown field is a 400 on some. OpenAI
+    # takes it ONLY on reasoning models — sent to gpt-4o-mini it is a 400
+    # ("Unrecognized request argument"), which is how every change and edit
+    # failed on it from 2026-10-06 — and those models also refuse
+    # max_tokens and any temperature but the default.
+    import aethron_bridge as _br
+    if r.get("provider") == "gemini":
         body["reasoning_effort"] = "low"
+    elif r.get("provider") == "openai" and _br.openai_reasoning(r["model"]):
+        body["reasoning_effort"] = "low"
+        body["max_completion_tokens"] = body.pop("max_tokens")
+        body.pop("temperature", None)
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
@@ -741,8 +750,8 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
             left = _B.wallet()["left_usd"]
             if worst > left:
                 tried.append(f"{tier} key {fp}: not tried — its next call could cost up to ${worst:.4f} "
-                             f"and the wallet has ${left:.4f} left (raise it with "
-                             f"aethron_brain.wallet_set)")
+                             f"and the wallet has ${left:.4f} left (raise it with the wallet "
+                             f"button in the Design view)")
                 continue
         req = _request(r, "" if k == "local" else k, prompt, max_tokens, temperature)
         d, waited = None, 0
