@@ -9,6 +9,7 @@ paths are proved against in-process mock providers, and the runtime
 paths against a real headless browser if one is installed (and honestly
 SKIPPED if not).
 """
+import os
 import re
 import subprocess
 import sys
@@ -221,88 +222,145 @@ def _run(cmd):
     return ok, out, wall, (gap if gap > SLEEP_TOL else 0.0)
 
 
+def _shares_projects(cmd) -> bool:
+    """Does this suite read or change the real projects/ folder?
+
+    Those suites build, break and restore the same fixture projects
+    (the probe battery corrupts a chunk and puts it back), so two of
+    them at once would grade each other's damage. They run one at a
+    time in their own lane; everything else runs alongside them."""
+    for part in cmd[1:]:
+        f = ROOT / part
+        if f.suffix == ".py" and f.is_file():
+            t = f.read_text(errors="ignore")
+            if "projects/" in t or "PROJECTS" in t or '"projects"' in t:
+                return True
+    return False
+
+
+def _jobs() -> int:
+    for a in sys.argv:
+        if a.startswith("--jobs="):
+            return max(1, int(a.split("=", 1)[1]))
+    return max(1, min(4, os.cpu_count() or 1))
+
+
+def _grade(name, cmd):
+    """Run one suite (re-running once across a sleep) and grade it.
+    Returns (row, failed, unproven, line to print)."""
+    ok, out, dt, slept = _run(cmd)
+    if slept:
+        # A RESULT THAT CROSSED A SLEEP IS NOT A RESULT. Measured
+        # 2026-09-14: the lid closed at 13:42:58, two seconds before
+        # the probe battery started; the Mac slept until 14:12:18.
+        # The battery "took" 1,834s under a 900s timeout and never
+        # timed out, because the timeout runs on a monotonic clock
+        # that does not tick during sleep while this table uses wall
+        # time. Its first render was in flight when the machine went
+        # down, so it FAILED; alone, awake, it was 33/33. Re-run once.
+        print(f"  {name}: the machine slept ~{slept:.0f}s mid-suite "
+              f"— re-running once", flush=True)
+        ok, out, dt2, slept = _run(cmd)
+        dt += dt2
+        if slept:
+            return ((name, "SKIP  interrupted by system sleep twice — "
+                     "not graded", dt), 0, 1,
+                    f"      SKIP ({dt:.0f}s) {name} — slept twice")
+    tail = out.strip().splitlines()
+    # A SUITE THAT DID NOT RUN IS NOT A SUITE THAT PASSED.
+    #
+    # The rule is written in this repo's invariants and the HARNESS
+    # was breaking it: the motion battery reported
+    # "VERDICT: SKIPPED — the built port is STALE" and exited 0,
+    # because refusing to grade stale output is correct behaviour,
+    # not an error. This table then printed PASS and the last line
+    # said ALL GREEN, so twelve checks that never executed read as
+    # twelve checks that succeeded. Exit code is not a verdict; the
+    # verdict is a verdict.
+    skipped = any(l.strip().startswith(("VERDICT: SKIPPED", "SKIPPED"))
+                  for l in tail)
+    summary = next((l for l in reversed(tail) if "green" in l
+                    or "ok" in l.lower() or "FAIL" in l), "")
+    if skipped:
+        why = next((l.strip() for l in tail
+                    if "SKIPPED" in l), "reason not given")
+        note = why.split("SKIPPED", 1)[-1].lstrip(" —-:")
+        return ((name, ("SKIP  " + note)[:78], dt), 0, 1,
+                f"      SKIP ({dt:.0f}s) {name} — {note[:60]}")
+    # KEEP THE WHOLE STORY OF A FAILURE. Only the last twelve lines
+    # used to reach this table, so when the probe battery failed its
+    # FIRST check in a full run — and passed alone — the probe's own
+    # output for that check was already gone, and the cause could
+    # only be argued about, not read. The diagnosis was collected and
+    # then thrown away, which is the fourth time that pattern has
+    # appeared in this project's history.
+    saved = ""
+    if not ok:
+        logdir = ROOT / "tests" / ".last-failures"
+        logdir.mkdir(exist_ok=True)
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40]
+        (logdir / f"{slug}.log").write_text(out)
+        saved = f"\n  full output: tests/.last-failures/{slug}.log"
+    row = (name, ("PASS  " + summary.strip())[:78] if ok
+           else ("FAIL  " + "\n".join(tail[-12:]))[:1200] + saved, dt)
+    return (row, int(not ok), 0,
+            f"      {'PASS' if ok else 'FAIL'} ({dt:.0f}s) {name}: "
+            f"{summary.strip()[:58]}")
+
+
 def main():
+    import concurrent.futures as cf
+    import threading
     quick = "--quick" in sys.argv
-    rows, failed, unproven = [], 0, 0
+    jobs = _jobs()
     # SAY WHAT IS HAPPENING WHILE IT HAPPENS. The table was printed only at the very end, so
     # a forty-minute run produced not one line until it finished — indistinguishable from a
     # hang, which is the worst thing a test harness can look like, and the same
     # reporting-blindness this project has now recorded five times. One line per suite, and
     # one before it starts, so a stall names the suite it stalled in.
-    total = sum(1 for _, _, s in SUITES if not (quick and s))
-    done = 0
-    for name, cmd, slow in SUITES:
-        if quick and slow:
-            rows.append((name, "skipped", 0))
-            continue
-        done += 1
-        print(f"[{done}/{total}] {name} …", flush=True)
-        ok, out, dt, slept = _run(cmd)
-        if slept:
-            # A RESULT THAT CROSSED A SLEEP IS NOT A RESULT. Measured
-            # 2026-09-14: the lid closed at 13:42:58, two seconds before
-            # the probe battery started; the Mac slept until 14:12:18.
-            # The battery "took" 1,834s under a 900s timeout and never
-            # timed out, because the timeout runs on a monotonic clock
-            # that does not tick during sleep while this table uses wall
-            # time. Its first render was in flight when the machine went
-            # down, so it FAILED; alone, awake, it was 33/33. Re-run once.
-            print(f"  {name}: the machine slept ~{slept:.0f}s mid-suite "
-                  f"— re-running once", flush=True)
-            ok, out, dt2, slept = _run(cmd)
-            dt += dt2
-            if slept:
-                rows.append((name, (f"SKIP  interrupted by system sleep "
-                                    f"twice — not graded")[:78], dt))
-                unproven += 1
-                continue
-        tail = out.strip().splitlines()
-        # A SUITE THAT DID NOT RUN IS NOT A SUITE THAT PASSED.
-        #
-        # The rule is written in this repo's invariants and the HARNESS
-        # was breaking it: the motion battery reported
-        # "VERDICT: SKIPPED — the built port is STALE" and exited 0,
-        # because refusing to grade stale output is correct behaviour,
-        # not an error. This table then printed PASS and the last line
-        # said ALL GREEN, so twelve checks that never executed read as
-        # twelve checks that succeeded. Exit code is not a verdict; the
-        # verdict is a verdict.
-        skipped = any(l.strip().startswith(("VERDICT: SKIPPED", "SKIPPED"))
-                      for l in tail)
-        summary = next((l for l in reversed(tail) if "green" in l
-                        or "ok" in l.lower() or "FAIL" in l), "")
-        if skipped:
-            why = next((l.strip() for l in tail
-                        if "SKIPPED" in l), "reason not given")
-            note = why.split("SKIPPED", 1)[-1].lstrip(" —-:")
-            rows.append((name, ("SKIP  " + note)[:78], dt))
-            unproven += 1
-            print(f"      SKIP ({dt:.0f}s) — {note[:60]}", flush=True)
-            continue
-        failed += not ok
-        # KEEP THE WHOLE STORY OF A FAILURE. Only the last twelve lines
-        # used to reach this table, so when the probe battery failed its
-        # FIRST check in a full run — and passed alone — the probe's own
-        # output for that check was already gone, and the cause could
-        # only be argued about, not read. The diagnosis was collected and
-        # then thrown away, which is the fourth time that pattern has
-        # appeared in this project's history.
-        saved = ""
-        if not ok:
-            logdir = ROOT / "tests" / ".last-failures"
-            logdir.mkdir(exist_ok=True)
-            slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:40]
-            (logdir / f"{slug}.log").write_text(out)
-            saved = f"\n  full output: tests/.last-failures/{slug}.log"
-        rows.append((name, ("PASS  " + summary.strip())[:78] if ok
-                     else ("FAIL  " + "\n".join(tail[-12:]))[:1200] + saved,
-                     dt))
-        print(f"      {'PASS' if ok else 'FAIL'} ({dt:.0f}s) "
-              f"{summary.strip()[:58]}", flush=True)
+    #
+    # SUITES RUN SIDE BY SIDE (--jobs=N, default up to 4). One after
+    # another the full suite took over two hours, most of it browser
+    # batteries waiting on renders while the other cores sat idle.
+    # Suites that touch projects/ keep to one lane between them.
+    todo = [(i, n, c) for i, (n, c, slow) in enumerate(SUITES)
+            if not (quick and slow)]
+    total, done = len(todo), [0]
+    rows = {i: (n, "skipped", 0) for i, (n, c, slow) in enumerate(SUITES)
+            if quick and slow}
+    lock = threading.Lock()
+    tally = [0, 0]
+    t0 = time.time()
+
+    def one(i, name, cmd):
+        with lock:
+            print(f"[start] {name} …", flush=True)
+        row, f, u, line = _grade(name, cmd)
+        with lock:
+            done[0] += 1
+            rows[i] = row
+            tally[0] += f
+            tally[1] += u
+            print(f"[{done[0]}/{total}]{line[5:]}", flush=True)
+
+    print(f"running {total} suites, {jobs} at a time", flush=True)
+    # The projects/ lane is ONE task that runs its suites in order, so it
+    # never parks pool workers waiting on each other; it is submitted
+    # first because it is the longest chain.
+    serial = [t for t in todo if _shares_projects(t[2])]
+    free = [t for t in todo if t not in serial]
+    with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
+        futs = [ex.submit(lambda: [one(*t) for t in serial])]
+        futs += [ex.submit(one, *t) for t in free]
+        for f in futs:
+            f.result()
+    failed, unproven = tally
+    rows = [rows[i] for i in sorted(rows)]
     print("\n" + "=" * 70)
     for name, res, dt in rows:
         print(f"{name:52} {dt:5.1f}s  {res}")
     print("=" * 70)
+    print(f"wall time {time.time() - t0:.0f}s with {jobs} at a time")
     if failed:
         print(f"{failed} suite(s) failed")
     elif unproven:

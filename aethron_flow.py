@@ -1061,6 +1061,17 @@ def prove(page, original, canvas, narrow=400):
     widths = " · ".join(
         f"{w['width']}px {'?' if w['spills'] is None else w['spills']}"
         for w in gh["widths"])
+    if chk.get("verdict") == "SKIPPED":
+        # The line check reads both pages with OCR, which only exists on
+        # macOS. Without it nothing was read, so nothing can have failed:
+        # "0/1 lines land" was a FAIL for a check that never ran. Report
+        # the half that did run, and say the other half is unproven.
+        bad = spills != 0 or not gh["ok"]
+        why = (f"whether lines land was not checked: {chk.get('why')}; "
+               f"spills by width: {widths}"
+               + (" — " + "; ".join(gh["why"]) if gh["why"] else ""))
+        return {"verdict": "FAIL" if bad else "SKIPPED", "why": why,
+                "lines": None, "identical": ident, "spills": spills}
     why = (f"{ok}/{tot} lines land at {canvas['w']}px "
            f"({ident * 100:.2f}% identical); spills by width: {widths}"
            + (f"; background is {gh['plate'] * 100:.0f}% the page itself"
