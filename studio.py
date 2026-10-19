@@ -281,7 +281,7 @@ def forge_argv(*args):
     return [sys.executable, str(FORGE), *map(str, args)]
 
 sys.path.insert(0, str(ROOT))
-from forge import _flex_pat, hide_selector_audit, word_fragments  # shared matchers  # noqa: E402
+from forge import _flex_pat, hide_selector_audit, word_fragments, _recover_aside  # shared matchers  # noqa: E402
 import secrets  # noqa: E402
 import aethron_cloud as cloud  # noqa: E402
 try:
@@ -645,6 +645,10 @@ def project_info(d: Path) -> dict:
     cfg = json.loads((d / "forge.json").read_text())
     chunks = d / "pristine" / "chunks"
     filled = total = 0
+    try:
+        _recover_aside(d)   # fills an interrupted learn left set aside
+    except OSError:
+        pass
     cm_f = d / "copy_map.json"
     if cm_f.exists():
         cm = json.loads(cm_f.read_text(encoding="utf-8"))

@@ -169,7 +169,29 @@ def main():
         code_srv2 = ThreadingHTTPServer(
             ("127.0.0.1", int(CODE.rsplit(":", 1)[1])), handler("code"))
         threading.Thread(target=code_srv2.serve_forever, daemon=True).start()
-        code, out = forge(proj, "build")
+        # watch the copy map WHILE it heals: the person's fills must stay
+        # in copy_map.json the whole time (found live 2026-10-19: the app
+        # showed 0/0 filled while the learn ran, every fill parked aside)
+        import os
+        import time
+        before = (proj / "copy_map.json").read_bytes()
+        p = subprocess.Popen([sys.executable, str(FORGE), "build"], cwd=proj,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, env=dict(os.environ))
+        seen_bad = []
+        while p.poll() is None:
+            try:
+                b = (proj / "copy_map.json").read_bytes()
+                if b != before:
+                    seen_bad.append(b[:80])
+            except OSError as e:
+                seen_bad.append(str(e))
+            if (proj / "copy_map.learn-aside.json").exists():
+                seen_bad.append("set aside")
+            time.sleep(0.05)
+        out = p.stdout.read()
+        ck("the copy map is never moved or emptied while it heals",
+           not seen_bad, str(seen_bad[:3]))
         cfg = json.loads((proj / "forge.json").read_text())
         ck("an old project heals on its next build",
            reveal_url in cfg.get("runtime_urls", [])
@@ -181,6 +203,16 @@ def main():
         code, out = forge(proj, "probe", "--all")
         ck("…and the page is painted again",
            "NOT ON SCREEN" not in out and "VERDICT: CLEAN" in out, out[-700:])
+        # a project an OLDER learn was cut off in: the fills sit aside and
+        # an empty stand-in is in their place
+        real = (proj / "copy_map.json").read_text()
+        (proj / "copy_map.learn-aside.json").write_text(real)
+        (proj / "copy_map.json").write_text(
+            '{"strings": [], "images": [], "links": []}')
+        code, out = forge(proj, "build")
+        ck("fills an interrupted learn left aside come back on the next build",
+           (proj / "copy_map.json").read_text() == real
+           and not (proj / "copy_map.learn-aside.json").exists(), out[-400:])
         code_srv2.shutdown()
         code_srv2.server_close()
     finally:
