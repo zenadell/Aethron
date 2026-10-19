@@ -6057,6 +6057,39 @@ into a provider that hangs:
    that "continue" picks up from there.
 tests/stall_battery.py 16/16 (in run_all); the committed code fails it.
 
+## "ONLY THE NAV AND THE FOOTER SHOW" — A BRAND FILL RENAMED THE SCRIPT
+## THAT REVEALS THE PAGE — 2026-10-19
+temple opened trymeridian (Webflow, taken from its URL) in the browser:
+nav, footer, nothing between. Reproduced on a fresh scrape with only the
+brand filled. The page ships `main{opacity:0}` and reveals it from a
+script whose address it BUILDS in code (`${PRODUCTION_URL}/main.js` on
+meridian-custom-code-trymeridian.vercel.app). No markup scan sees that
+URL, so it was never localized and loaded from the author's live server;
+the brand fill (correctly, everywhere) renamed the host, the script
+failed, main stayed transparent. The probe DID catch it (5,764 chars
+present, 102 painted) but did not say why.
+FIXED:
+- learn injects REMOTE_REPORT_JS and reads performance entries: every
+  .js/.css a page loaded from another host whose address is nowhere in
+  the source text is downloaded and kept (cfg.runtime_urls). Services
+  (analytics, forms, payments, video: SERVICE_HOSTS) stay remote.
+- build injects RUNTIME_MAP_JS first in <head>: script/link src+href,
+  setAttribute, fetch and XHR map the original address AND its
+  fill-renamed spelling (_apply(url, pairs)) to /assets/r/<copy>.
+- learn always learns from the UNTOUCHED site (the copy map is set
+  aside for the passes, then restored and rebuilt): a page already
+  broken by its fills asks for the wrong things.
+- a project learned before this fix (no runtime_urls) learns once on
+  its next build, on its own (28s on trymeridian, fills kept).
+  AETHRON_NO_RELEARN=1 skips it.
+- chunks in a SUBFOLDER next to a localized script (Finsweet's
+  ./dist/chunk-*.js) were looked for one folder up and reported "missing
+  on the original too" — 12 on trymeridian. Now kept at their subpath.
+- the probe's blank-page FAIL names the script that did not load (from a
+  capture-phase error listener in VISIBLE_JS: headless Chrome does not
+  log a failed load to its console).
+tests/reveal_battery.py 11/11 (in run_all); the committed code fails 7.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6286,3 +6319,6 @@ tests/stall_battery.py 16/16 (in run_all); the committed code fails it.
 - A PAGE BUILT FROM A SCREENSHOT IS HELD TO WHAT A DEVELOPER SHIPS:
   phones, a working menu, landmarks, named controls, readable contrast,
   a real head. Looking alike is necessary, not enough.
+- A FILL MUST NOT BREAK WHAT LOADS THE PAGE. Anything a page fetches at
+  runtime from an address it builds in code is owned, and reached under
+  both its original and its fill-renamed spelling.

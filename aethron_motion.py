@@ -78,6 +78,17 @@ WATCHED = ("transform", "opacity", "filter", "backdropFilter", "color",
 # gets ignored, which costs more than the check was ever worth.
 VISIBLE_JS = r"""
 (function () {
+ // A script that did not load is the usual reason a page that starts
+ // hidden stays hidden, and headless Chrome does not log a failed load
+ // to its console. Listen for it from inside the page instead.
+ var deadScripts = [];
+ try {
+   window.addEventListener('error', function (e) {
+     var t = e && e.target;
+     if (t && t.tagName === 'SCRIPT' && t.src && deadScripts.length < 10)
+       deadScripts.push(t.src);
+   }, true);
+ } catch (e) {}
  function measure() {
   function box(el) {
     try { var r = el.getBoundingClientRect();
@@ -164,7 +175,8 @@ VISIBLE_JS = r"""
   } catch (e) {}
   var out = {text_seen: seen, text_painted: painted, text_parked: parked,
              appear: hasAppear,
-             images: imgs, images_loaded: ok, images_broken: broke};
+             images: imgs, images_loaded: ok, images_broken: broke,
+             scripts_failed: deadScripts};
   try {
     var n = document.createElement('script');
     n.type = 'application/json';
