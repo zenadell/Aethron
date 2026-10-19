@@ -6090,6 +6090,19 @@ FIXED:
   log a failed load to its console).
 tests/reveal_battery.py 11/11 (in run_all); the committed code fails 7.
 
+## THE HEAL HID THE FILLS WHILE IT RAN — 2026-10-19
+Same day, temple's first build on 1.1.31: the page showed in full and the
+project read 0/0 filled, "No text read yet" (42/1295 before). The learn
+SET THE PERSON'S copy_map.json ASIDE on disk and put an empty stand-in in
+its place for its passes, so for as long as it ran (or forever, if it was
+cut off) the app counted the stand-in, the preview showed the unfilled
+site, and an edit saved meanwhile went into the stand-in and was lost when
+the real map came back. Nothing moves now: while learning the build reads
+an empty map IN MEMORY (_copy_map). A map an older learn left aside is put
+back by read_cfg and by the studio's project card (_recover_aside), only
+when what is in place is empty. reveal battery 11 -> 13, watching
+copy_map.json every 50ms through a heal; the old code fails both.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6319,6 +6332,9 @@ tests/reveal_battery.py 11/11 (in run_all); the committed code fails 7.
 - A PAGE BUILT FROM A SCREENSHOT IS HELD TO WHAT A DEVELOPER SHIPS:
   phones, a working menu, landmarks, named controls, readable contrast,
   a real head. Looking alike is necessary, not enough.
+- A PERSON'S WORK IS NEVER MOVED TO MAKE ROOM FOR A CHECK. Read an empty
+  copy in memory instead; a file swapped on disk is lost the moment the
+  process is cut off.
 - A FILL MUST NOT BREAK WHAT LOADS THE PAGE. Anything a page fetches at
   runtime from an address it builds in code is owned, and reached under
   both its original and its fill-renamed spelling.

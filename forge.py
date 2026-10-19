@@ -134,10 +134,44 @@ def log(msg):
     print(f"  {msg}")
 
 
+_EMPTY_MAP = {"strings": [], "images": [], "links": []}
+
+
+def _copy_map(root: Path) -> dict:
+    """The project's copy map, as the build reads it. While learning, the
+    build must see the UNTOUCHED site, so it reads an empty map instead —
+    without ever moving the person's real copy_map.json. (It used to be set
+    aside on disk for the passes: a learn that was interrupted, or simply
+    still running, left the project showing 0/0 filled with every fill
+    parked in copy_map.learn-aside.json.)"""
+    if _LEARNING:
+        return json.loads(json.dumps(_EMPTY_MAP))
+    return json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+
+
+def _recover_aside(root: Path):
+    """Put back a copy map the old learn left set aside, if a learn was cut
+    off before it could restore it. The aside copy is the person's real
+    work; an empty stand-in in its place is not."""
+    aside, cm = root / "copy_map.learn-aside.json", root / "copy_map.json"
+    if not aside.exists():
+        return
+    try:
+        cur = json.loads(cm.read_text(encoding="utf-8")) if cm.exists() else {}
+    except (OSError, ValueError):
+        cur = {}
+    if any(cur.get(k) for k in ("strings", "images", "links")):
+        return   # the real map is in place; the aside copy is stale
+    aside.replace(cm)
+    print("restored the copy map an interrupted run had set aside "
+          "(your fills are back)")
+
+
 def read_cfg(root: Path) -> dict:
     f = root / "forge.json"
     if not f.exists():
         die("not a forge project (no forge.json here) — run init first")
+    _recover_aside(root)
     return json.loads(f.read_text())
 
 
@@ -1013,7 +1047,7 @@ def word_fragments(root: Path, cm=None) -> dict:
     """
     if cm is None:
         try:
-            cm = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+            cm = _copy_map(root)
         except (OSError, ValueError):
             return {}
     olds = {e["old"] for e in cm.get("strings", [])}
@@ -1430,7 +1464,7 @@ def _cms_localize_pairs(cfg, cms_blobs, existing):
 
 
 def _pairs_from_map(root: Path, cms_blobs):
-    cm = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+    cm = _copy_map(root)
     try:
         brand = {w.lower() for w in json.loads(
             (root / "forge.json").read_text(encoding="utf-8")
@@ -2523,8 +2557,8 @@ def cmd_build(_args):
             "(all sizes/formats/encodings)")
 
     stats = {p["old"]: 0 for p in pairs}   # per-entry replacement counts
-    cm_all = json.loads((root / "copy_map.json").read_text(
-        encoding="utf-8")) if (root / "copy_map.json").exists() else {}
+    cm_all = _copy_map(root) if (_LEARNING or
+                                 (root / "copy_map.json").exists()) else {}
     removals = cm_all.get("remove", [])
     if removals:
         log(f"removals: {len(removals)} element(s)")
@@ -3045,7 +3079,7 @@ def cmd_build(_args):
                 break
         return hit
 
-    cm_all = json.loads((root / "copy_map.json").read_text(encoding="utf-8"))
+    cm_all = _copy_map(root)
     # brand tokens are SPECULATIVE mop-up nets (inventory mints every
     # case variant); one that never occurred is expected, not broken
     token_olds = {e["old"] for sec in ("strings", "images", "links")
@@ -3802,35 +3836,26 @@ def cmd_learn(args):
     data = set(cfg.get("recorded_data", []))
     private, unavailable, queried = set(), set(), set()
     # fetch runs BEFORE inventory, so there may be no copy map yet — and
-    # the build every pass relies on reads one. An empty stand-in lets it
-    # build the untouched site; it is removed at the end so inventory
-    # still writes the real one. (Measured: without it, learn died on its
-    # first rebuild and the migration went on with nothing learned.)
+    # the build every pass relies on reads one. While _LEARNING, the build
+    # reads an empty map in memory (_copy_map), so it works without one.
     #
     # LEARN FROM THE ORIGINAL, NEVER FROM THE FILLED COPY. A filled copy
     # can already be broken by its fills (a brand fill renaming the host a
     # script is loaded from), and a broken page asks for the wrong things:
-    # learning from it can never discover what the real site needs. So an
-    # existing copy map is set aside for the passes, then put back and the
-    # site rebuilt with it.
-    stand_in = root / "copy_map.json"
-    aside = root / "copy_map.learn-aside.json"
-    had_map = stand_in.exists()
-    if had_map:
-        stand_in.replace(aside)
-    stand_in.write_text(json.dumps({"strings": [], "images": [],
-                                    "links": []}), encoding="utf-8")
+    # learning from it can never discover what the real site needs. The
+    # person's copy_map.json is NEVER moved for this: it used to be set
+    # aside on disk, and a learn still running (or cut off) showed the
+    # project as 0/0 filled — and an edit saved meanwhile went into the
+    # stand-in and was lost when the real map was put back.
+    had_map = (root / "copy_map.json").exists()
     _LEARNING = True
     try:
         _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
                       private, unavailable, queried)
     finally:
         _LEARNING = False
-        if had_map:
-            aside.replace(stand_in)
-        elif stand_in.exists():
-            stand_in.unlink()
     if had_map:
+        # the passes left an UNFILLED site behind; build the real one
         with contextlib.redirect_stdout(io.StringIO()):
             cmd_build([])
 
