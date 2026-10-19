@@ -6103,6 +6103,34 @@ back by read_cfg and by the studio's project card (_recover_aside), only
 when what is in place is empty. reveal battery 11 -> 13, watching
 copy_map.json every 50ms through a heal; the old code fails both.
 
+## "WHY DOES IT CLEAR THE CHAT EACH TIME IT UPDATES?" — 2026-10-19
+temple, after an update: the conversation is gone and Aethron has lost
+track of what it was doing. The engine's transcripts were on disk the whole
+time; two holes in how the screen and the record used them:
+1. HOME WAS NEVER PUT BACK. switchConversation('') deliberately left Home
+   blank ("the front door stays a front door"), and the first message after
+   a restart then sent fresh:true, which DROPPED the record. Every migration
+   started at Home was forgotten on every restart. Home now reopens like a
+   project. And `fresh` is sent only when the server actually answered that
+   the conversation is empty (CODE.known): a failed history read is never
+   permission to start over.
+2. A PROJECT BUILT FROM HOME HAD NO CONVERSATION. The Home agent creates and
+   fills the project, but the conversation stayed Home's, so opening the
+   project after a restart showed nothing and "continue" there started
+   blank. A Home session now carries an on_event hook (_project_linker):
+   when an Aethron tool naming a project succeeds, that project is linked to
+   the conversation (conv_link; never replaces one it already has). The
+   engine resumes a conversation from a different folder (measured with the
+   real CLI: the resumed agent is given the earlier words).
+Also: a project linked to a conversation still running at Home re-attaches
+to that run (live_session_for) instead of starting a second process on it,
+and a screen re-attaching to a RESUMED run shows the conversation before it
+too (it used to show only the new process's events).
+tests/conversation_battery.py (15 checks, in run_all): real studio, real
+engine, fake model; restart twice; Home and project draw the conversation
+and the agent is given the earlier word; a project nobody touched stays
+empty and a fresh agent sees nothing (the control). Old code fails 6.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6338,3 +6366,6 @@ copy_map.json every 50ms through a heal; the old code fails both.
 - A FILL MUST NOT BREAK WHAT LOADS THE PAGE. Anything a page fetches at
   runtime from an address it builds in code is owned, and reached under
   both its original and its fill-renamed spelling.
+- A RESTART IS NOT A NEW CONVERSATION, ANYWHERE. Home and every project
+  reopen what was said; only an answer that the conversation is empty, or
+  the person asking, starts fresh. Work begun at Home belongs to its project.

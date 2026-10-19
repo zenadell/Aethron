@@ -169,6 +169,75 @@ def conv_set(key: str, sid: str = "") -> None:
             pass
 
 
+def conv_link(key: str, sid: str) -> bool:
+    """A conversation that started somewhere else — at Home, before the
+    project existed — becomes this project's too, so opening the project
+    shows it and "continue" there carries on with everything the agent
+    knew. Never replaces a conversation the project already has."""
+    if not sid:
+        return False
+    with _CONV_LOCK:
+        try:
+            d = json.loads(CONV_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            d = {}
+        if (d.get(key) or {}).get("id"):
+            return False
+        d[key] = {"id": sid, "updated": int(time.time()), "from": "home"}
+        try:
+            CONV_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = CONV_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(d, indent=1), encoding="utf-8")
+            tmp.replace(CONV_FILE)
+        except OSError:
+            return False
+    return True
+
+
+def _project_linker(sid_of):
+    """An on_event hook for a Home session: every project its agent
+    creates or works on (an Aethron tool that succeeded naming it) is
+    linked to the conversation doing the work."""
+    calls = {}
+
+    def on_event(ev):
+        t = ev.get("type")
+        if t == "tool" and str(ev.get("name", "")).startswith("mcp__aethron__"):
+            inp = ev.get("input") or {}
+            nm = inp.get("project") or (
+                inp.get("name") if str(ev["name"]).endswith(
+                    ("create_project", "create_from_library")) else "")
+            if isinstance(nm, str) and nm.strip():
+                calls[ev.get("id", "")] = nm.strip()
+        elif t == "tool_result" and ev.get("ok", True):
+            nm = calls.pop(ev.get("id", ""), "")
+            if not nm:
+                return
+            d = (PROJECTS / nm).resolve()
+            if d.is_relative_to(PROJECTS) and (d / "forge.json").exists():
+                conv_link(str(d), sid_of())
+    return on_event
+
+
+def live_session_for(conv_id: str):
+    """The running session that is in this conversation, wherever it was
+    started — so a project linked to a Home conversation re-attaches to
+    the run still going instead of starting a second one beside it."""
+    if not conv_id:
+        return None, None
+    for k, s in list(CODE_SESSIONS.items()):
+        if s.alive and s.id == conv_id:
+            return k, s
+    return None, None
+
+
+def earlier(s) -> list:
+    """The conversation before a running session resumed it, marked as
+    earlier, for a screen re-attaching to that run."""
+    prior = getattr(s, "prior", None) or []
+    return ([{"type": "earlier", "when": 0}] + prior) if prior else []
+
+
 def code_session_by_id(session_id):
     """Find a live agent by its unguessable CLI session id.
 
@@ -1816,12 +1885,19 @@ class Handler(BaseHTTPRequestHandler):
                 key = str(d)
                 s = CODE_SESSIONS.get(key)
                 if s and s.alive:
-                    evs, n = s.replay(), len(s.drain(0)[0])
+                    evs, n = earlier(s) + s.replay(), len(s.drain(0)[0])
                     return self.send_json({"live": True, "key": key,
                                            "events": evs, "n": n,
                                            "permission_policy":
                                                s.permission_policy})
                 rec = conv_get(key)
+                k2, s2 = live_session_for(rec.get("id", ""))
+                if s2:
+                    evs, n = earlier(s2) + s2.replay(), len(s2.drain(0)[0])
+                    return self.send_json({"live": True, "key": k2,
+                                           "events": evs, "n": n,
+                                           "permission_policy":
+                                               s2.permission_policy})
                 evs = codelayer.transcript_events(rec["id"]) \
                     if rec.get("id") else []
                 self.send_json({"live": False, "id": rec.get("id", ""),
@@ -2268,9 +2344,25 @@ class Handler(BaseHTTPRequestHandler):
                     conv_set(key, "")
                 elif conv_get(key).get("id"):
                     cfg["resume_id"] = conv_get(key)["id"]
+                    # one conversation, one process: a run of it still
+                    # going elsewhere (Home, before the project existed)
+                    # hands over rather than two agents writing one story
+                    k2, s2 = live_session_for(cfg["resume_id"])
+                    if s2:
+                        CODE_SESSIONS.pop(k2, None)
+                        s2.close()
+                # what was said before this process, so a screen that
+                # re-attaches to the run shows the whole conversation
+                prior = codelayer.transcript_events(cfg["resume_id"]) \
+                    if cfg.get("resume_id") else []
+                holder = {}
+                hook = _project_linker(lambda: getattr(holder.get("s"), "id", "")) \
+                    if body.get("console") else None
                 try:
                     s = codelayer.CodeSession(
-                        d, cfg=cfg, home=HOME).start()
+                        d, cfg=cfg, home=HOME, on_event=hook).start()
+                    holder["s"] = s
+                    s.prior = prior if s.resumed else []
                 except Exception as e:
                     return self.fail(str(e))
                 CODE_SESSIONS[key] = s
@@ -15408,7 +15500,7 @@ function switchConversation(owner){
   if(CODE.owner===owner)return CODE.loading||Promise.resolve();
   if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}   // its run carries on
   CODE.owner=owner;CODE.key='';CODE.events=[];CODE.since=0;
-  CODE.slowNote='';CODE.nudges=0;
+  CODE.slowNote='';CODE.nudges=0;CODE.known=false;
   const tok=CODE.loadTok=(CODE.loadTok||0)+1;
   CODE.loading=(async()=>{
     try{
@@ -15419,11 +15511,16 @@ function switchConversation(owner){
         CODE.key=r.key;CODE.events=r.events||[];CODE.since=r.n||0;
         CODE.lastEv=Date.now();
         if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
-      }else if(owner&&(r.events||[]).length){
-        /* the front door stays a front door; a PROJECT reopens where
-           you left it */
+      }else if((r.events||[]).length){
+        /* Home reopens where you left it too. It used to stay a blank
+           front door, and the first message after a restart then STARTED
+           FRESH — so a migration begun at Home was forgotten on every
+           update. */
         CODE.events=[{type:'earlier',when:r.updated||0},...r.events];
       }
+      /* only an answer from the server may make this screen "empty":
+         a failed read must never be taken as permission to start over */
+      CODE.known=true;
     }catch(e){}
     if(tok===CODE.loadTok){renderChat();syncComposer();}
   })();
@@ -15433,7 +15530,7 @@ async function newConversation(){
   const owner=CODE.owner||'';
   if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
   try{await api('/api/code/forget',owner?{project:owner}:{console:true});}catch(e){}
-  CODE.key='';CODE.events=[];CODE.since=0;CODE.slowNote='';CODE.nudges=0;
+  CODE.key='';CODE.events=[];CODE.since=0;CODE.slowNote='';CODE.nudges=0;CODE.known=true;
   renderTab();
 }
 async function consoleSend(){
@@ -15454,7 +15551,7 @@ async function consoleSend(){
       /* a new session, NOT a new conversation: whatever is on screen is
          what the agent continues; an empty screen starts fresh */
       CODE.since=0;
-      const fresh=!CODE.events.length;
+      const fresh=!!CODE.known&&!CODE.events.length;
       const r=await api('/api/code/start',
         S.cur?{project:S.cur,fresh,cfg:{permission_policy:CODE.permissionPolicy}}
              :{console:true,fresh,cfg:{permission_policy:CODE.permissionPolicy}});
