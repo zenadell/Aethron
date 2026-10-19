@@ -65,25 +65,53 @@ GOOD_ENOUGH = 0.70
 PHONE, TABLET = 390, 768
 
 RULES = """\
-RULES — the page is checked against every one, and a page that breaks one is refused:
-1. Write ONE self-contained HTML file: inline <style>, optional inline <script>.
-   You may link Google Fonts. Nothing else external.
-2. Build it from REAL elements: <header>, <nav> with <a> links, <button>s,
-   <h1>/<h2>/<p>, <section>s, <form>/<input> where the design has them.
-   Copy every word of text exactly as it appears in the screenshot.
-3. Draw everything visual with CSS or inline <svg>: backgrounds, gradients
-   (linear-, radial-, conic-), glows (box-shadow, filter: blur), glass
-   (backdrop-filter), pills, borders, lines, grids, orbs, rings and icons.
-4. NEVER use the screenshot as an image. No <img>, CSS url() or data: URI may
-   show the screenshot or any part of it larger than a 128px icon. You do not
-   have the screenshot as a file anyway — draw it.
-5. Make it RESPONSIVE: a centred container with a max-width, flex/grid
-   layout, sizes in %, rem, clamp() or vw. At 390px wide nothing may hang
-   off the right edge (no horizontal scroll); nav links may collapse.
-6. At the screenshot's width the page must look like the screenshot: same
-   layout, same colours, same type sizes, same effects. Use the measured
-   numbers below instead of guessing.
-7. Reply with the complete HTML in one ```html block and nothing else.
+You are a senior front-end developer. Build the website in the screenshot the way
+you would ship it to a client — a real, working, responsive site, not a picture
+of one. The page is checked against every rule below; a page that breaks one is
+refused and sent back.
+
+LOOK — the same design as the screenshot
+1. ONE self-contained HTML file: inline <style>, inline <script> if needed.
+   Google Fonts may be linked. Nothing else external.
+2. At the screenshot's width the page must look like the screenshot: same
+   layout, colours, type sizes, spacing and effects. Use the measured numbers
+   below instead of guessing. Copy every word exactly.
+3. Draw everything with CSS or inline <svg>: backgrounds, gradients, glows
+   (box-shadow, filter: blur), glass (backdrop-filter), pills, borders, grids,
+   orbs, rings, icons. NEVER use the screenshot as an image: no <img>, url() or
+   data: URI may show it or any part of it bigger than a 128px icon.
+
+BUILT — what a human developer adds without being asked
+4. Semantic structure: <header> with <nav> (links are <a href>), exactly one
+   <main>, <section>s each led by a heading, exactly one <h1>, <footer> when the
+   design has one, headings in order. Buttons are <button>, links are <a>.
+5. Responsive by design, not by accident: a centred container (max-width),
+   flex/grid layouts, fluid type with clamp(), and @media breakpoints at about
+   900px and 600px where columns stack to one, spacing tightens and nothing
+   scrolls sideways at 390px.
+6. A real phone menu: when the nav has 4 or more links, below ~768px hide them
+   behind a <button aria-expanded="false" aria-controls="…" aria-label="Open menu">
+   that opens a panel showing every link (a few lines of JS toggling a class and
+   aria-expanded; Escape and choosing a link close it).
+7. Design tokens: colours, radii, spacing (a 4/8px scale) and fonts as custom
+   properties in :root, used throughout. Body line-height ~1.5; long text no
+   wider than ~70ch.
+8. Interaction: every link and button has :hover, :active and :focus-visible
+   states (a visible outline — never outline:none alone), cursor:pointer, and
+   transitions of 150-250ms. Wrap motion in @media (prefers-reduced-motion).
+9. Accessible: every field has a <label> (visually hidden is fine), icon-only
+   buttons have aria-label, decorative SVG has aria-hidden="true", body text
+   reaches 4.5:1 contrast (3:1 for large text) — if the screenshot's muted text
+   is fainter, lift it just enough, keeping its hue.
+10. Head: <html lang>, charset, viewport, a <title> and meta description written
+    from the page's own words, Open Graph title/description, theme-color.
+11. Links go somewhere: nav links point at the page's sections (#features),
+    email at mailto:, the rest at sensible paths. Forms use the right input
+    types (email, tel), autocomplete and required.
+12. Nothing a person would spot as generated: no lorem ipsum, no placeholder
+    copy, no sections that are not in the screenshot, clean indented code with
+    short comments only where they help.
+13. Reply with the complete HTML in one ```html block and nothing else.
 """
 
 
@@ -474,6 +502,484 @@ def phones(page: Path):
     return ran, bad
 
 
+
+# ─────────────────── built like a website, not a picture ───────────────
+# temple, 2026-10-19: "it shouldn't treat this as just another image to
+# code that transfers a picture into code. Treat it as a website,
+# automatically adding responsiveness and all the things websites need.
+# It shouldn't mimic AI. It should mimic a human."
+#
+# So a page is held to what a senior front-end developer ships without
+# being asked: a phone layout with a real menu, breakpoints, landmarks,
+# one h1, every control named, readable contrast, hover and keyboard
+# focus states, reduced motion, design tokens, and the head a search
+# engine and a share card read. What can be added without changing how
+# the page LOOKS is added by Aethron itself (finish_site); what needs
+# design judgement is a finding the model must fix.
+
+CRAFT_JS = r"""
+<script id="__ae_eye">
+(function () {
+  function shown(el) {
+    var r = el.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) return false;
+    for (var u = el; u && u.nodeType === 1; u = u.parentElement) {
+      var c = getComputedStyle(u);
+      if (c.display === 'none' || c.visibility === 'hidden'
+          || parseFloat(c.opacity) < 0.05) return false;
+    }
+    return r.right > 0 && r.left < innerWidth;
+  }
+  function own(el) {
+    var s = '';
+    for (var i = 0; i < el.childNodes.length; i++)
+      if (el.childNodes[i].nodeType === 3) s += el.childNodes[i].nodeValue;
+    return s.replace(/\s+/g, ' ').trim();
+  }
+  function rgba(s) {
+    var m = (s || '').match(/rgba?\(([^)]+)\)/);
+    if (!m) return null;
+    var p = m[1].split(/[ ,\/]+/).filter(Boolean).map(parseFloat);
+    return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1];
+  }
+  function over(top, under) {
+    var a = top[3];
+    return [top[0] * a + under[0] * (1 - a), top[1] * a + under[1] * (1 - a),
+            top[2] * a + under[2] * (1 - a), 1];
+  }
+  function lum(c) {
+    var v = c.slice(0, 3).map(function (x) {
+      x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  }
+  function ground(el) {
+    // the colour behind this text, blended up through translucent layers;
+    // null when a gradient or picture is behind it (then it is not judged)
+    var layers = [];
+    for (var u = el; u && u.nodeType === 1; u = u.parentElement) {
+      var c = getComputedStyle(u);
+      if (c.backgroundImage && c.backgroundImage !== 'none') return null;
+      var b = rgba(c.backgroundColor);
+      if (b && b[3] > 0) { layers.push(b); if (b[3] >= 0.99) break; }
+    }
+    var g = [255, 255, 255, 1];
+    for (var i = layers.length - 1; i >= 0; i--) g = over(layers[i], g);
+    return g;
+  }
+  function name(el) {
+    var t = (el.getAttribute('aria-label') || el.getAttribute('title') || '').trim();
+    if (t) return t;
+    var by = el.getAttribute('aria-labelledby');
+    if (by && document.getElementById(by)) return document.getElementById(by).textContent.trim();
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) {
+      if (el.labels && el.labels.length) return el.labels[0].textContent.trim();
+      if (el.type === 'submit' || el.type === 'button') return (el.value || '').trim();
+      return '';
+    }
+    var s = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    if (s) return s;
+    var img = el.querySelector('img[alt]:not([alt=""]), svg title');
+    return img ? (img.getAttribute('alt') || img.textContent || '').trim() : '';
+  }
+  function navLinks() {
+    var nav = document.querySelector('header nav') || document.querySelector('nav');
+    if (!nav) return null;
+    var all = [].slice.call(nav.querySelectorAll('a'));
+    var vis = all.filter(shown);
+    var tops = [];
+    vis.forEach(function (a) {
+      var t = Math.round(a.getBoundingClientRect().top);
+      if (!tops.some(function (y) { return Math.abs(y - t) < 10; })) tops.push(t);
+    });
+    return {total: all.length, shown: vis.length, rows: tops.length,
+            texts: vis.map(function (a) { return a.textContent.replace(/\s+/g, ' ').trim(); }),
+            over: vis.filter(function (a) { return a.getBoundingClientRect().right > innerWidth + 1; }).length};
+  }
+  function toggle() {
+    var c = [].slice.call(document.querySelectorAll('button, [role=button]'));
+    for (var i = 0; i < c.length; i++) {
+      var b = c[i];
+      if (!shown(b)) continue;
+      var lab = (b.getAttribute('aria-label') || '') + ' ' + b.textContent + ' ' + (b.className || '');
+      if (b.hasAttribute('aria-expanded') || b.hasAttribute('aria-controls') || /menu|navigation|nav-toggle|burger/i.test(lab))
+        return b;
+    }
+    return null;
+  }
+  function visibleLinkTexts() {
+    return [].slice.call(document.querySelectorAll('a')).filter(shown)
+      .map(function (a) { return a.textContent.replace(/\s+/g, ' ').trim(); });
+  }
+  function measure() {
+    var d = document.documentElement, out = {vw: innerWidth, scroll: Math.round(d.scrollWidth),
+      height: Math.round(d.scrollHeight)};
+    out.nav = navLinks();
+    var unnamed = [];
+    [].slice.call(document.querySelectorAll('a[href], button, input:not([type=hidden]), textarea, select'))
+      .forEach(function (el) {
+        if (!shown(el)) return;
+        if (!name(el)) unnamed.push(el.tagName.toLowerCase() + (el.id ? '#' + el.id : '')
+          + (el.className && typeof el.className === 'string' ? '.' + el.className.split(/\s+/)[0] : ''));
+      });
+    out.unnamed = unnamed.slice(0, 8);
+    out.unnamed_n = unnamed.length;
+    var low = [], sizes = {};
+    [].slice.call(document.body.querySelectorAll('*')).forEach(function (el) {
+      var t = own(el);
+      if (!t || t.length < 2 || !shown(el)) return;
+      var cs = getComputedStyle(el), fg = rgba(cs.color), g = ground(el);
+      var fs = parseFloat(cs.fontSize);
+      sizes[Math.round(fs)] = (sizes[Math.round(fs)] || 0) + t.length;
+      if (!fg || !g) return;
+      var f = over(fg, g), a = lum(f), b = lum(g);
+      var ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      var big = fs >= 24 || (fs >= 18.6 && parseInt(cs.fontWeight, 10) >= 700);
+      if (ratio < (big ? 3 : 4.5))
+        low.push({text: t.slice(0, 50), ratio: Math.round(ratio * 100) / 100, size: Math.round(fs), big: big});
+    });
+    low.sort(function (a, b) { return a.ratio - b.ratio; });
+    out.low = low.slice(0, 8);
+    out.sizes = Object.keys(sizes).length;
+    out.main = document.querySelectorAll('main, [role=main]').length;
+    out.h1 = [].slice.call(document.querySelectorAll('h1')).filter(shown).length;
+    out.links = visibleLinkTexts();
+    return out;
+  }
+  function done(m) { document.documentElement.setAttribute('data-ae-eye', JSON.stringify(m)); }
+  function run() {
+    var m;
+    try { m = measure(); } catch (e) { done({error: String(e)}); return; }
+    var t = toggle();
+    if (!t) { done(m); return; }
+    m.toggle = {label: name(t), expanded: t.getAttribute('aria-expanded'),
+                controls: t.getAttribute('aria-controls')};
+    if (innerWidth >= 700) { done(m); return; }
+    try { t.click(); } catch (e) {}
+    setTimeout(function () {
+      m.toggle.expanded_after = t.getAttribute('aria-expanded');
+      m.toggle.links_after = visibleLinkTexts();
+      done(m);
+    }, 500);
+  }
+  var started = false;
+  function once() { if (started) return; started = true; setTimeout(run, 350); }
+  if (document.readyState === 'complete') once(); else addEventListener('load', once);
+  setTimeout(once, 900);
+})();
+</script>
+"""
+
+HEAD_TAGS = (
+    ("doctype", r"<!doctype\s+html", "<!doctype html>"),
+    ("lang", r"<html[^>]*\slang\s*=\s*['\"]?[a-z]", "<html lang>"),
+    ("charset", r"<meta[^>]+charset", "<meta charset>"),
+    ("viewport", r"<meta[^>]+name\s*=\s*['\"]viewport['\"][^>]*width\s*=\s*device-width"
+                 r"|<meta[^>]+width\s*=\s*device-width[^>]*name\s*=\s*['\"]viewport", "viewport meta"),
+    ("title", r"<title>\s*[^<\s][^<]*</title>", "<title>"),
+    ("description", r"<meta[^>]+name\s*=\s*['\"]description['\"]", "meta description"),
+    ("og", r"<meta[^>]+property\s*=\s*['\"]og:title['\"]", "Open Graph tags"),
+)
+
+
+def _css(html):
+    return "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", html, re.S | re.I)) + "\n" + \
+        " ".join(re.findall(r"""\sstyle\s*=\s*["']([^"']*)["']""", html, re.I))
+
+
+def static_craft(html):
+    """What a reader of the SOURCE can tell: (findings, notes, checks).
+
+    checks is [(label, ok)] — the list a person sees under the page."""
+    find, notes, checks = [], [], []
+    low = html.lower()
+    css = _css(html)
+    missing = [lab for _, rx, lab in HEAD_TAGS if not re.search(rx, html, re.I)]
+    checks.append(("head: title, description, viewport, language, share card", not missing))
+    if missing:
+        find.append("the <head> is missing " + ", ".join(missing) + " — every real site has them")
+    media = re.findall(r"@media[^{]*\((?:max|min)-width\s*:\s*([\d.]+)(px|em|rem)", css, re.I)
+    checks.append((f"responsive breakpoints ({len(media)} @media rule(s))", bool(media)))
+    if not media:
+        find.append("the page has no breakpoints (@media (max-width: …)) — a phone gets the "
+                    "desktop layout squeezed; add at least ~900px and ~600px breakpoints")
+    hover = re.search(r":hover", css)
+    focus = re.search(r":focus-visible|:focus\b", css)
+    checks.append(("hover and keyboard-focus states", bool(hover and focus)))
+    if not hover:
+        find.append("links and buttons have no :hover state")
+    if not focus:
+        find.append("links and buttons have no :focus-visible style — keyboard users cannot "
+                    "see where they are")
+    if re.search(r"outline\s*:\s*(none|0)\b", css) and not focus:
+        find.append("focus outlines are removed (outline: none) with nothing in their place")
+    moving = re.search(r"@keyframes|animation\s*:|transition\s*:", css, re.I)
+    rm = re.search(r"prefers-reduced-motion", css, re.I)
+    if moving:
+        checks.append(("respects reduced motion", bool(rm)))
+        if not rm:
+            find.append("the page animates but ignores prefers-reduced-motion")
+    tokens = len(set(re.findall(r"--[\w-]+\s*:", "".join(re.findall(r":root\s*{([^}]*)}", css)))))
+    checks.append((f"design tokens in :root ({tokens} custom properties)", tokens >= 3))
+    if tokens < 3:
+        find.append("no design tokens — put the palette, radii and spacing in :root custom "
+                    "properties (--bg, --text, --accent, --radius, --space-*) and use them")
+    imgs = re.findall(r"<img\b[^>]*>", html, re.I)
+    noalt = [i for i in imgs if not re.search(r"\salt\s*=", i, re.I)]
+    if noalt:
+        find.append(f"{len(noalt)} <img> without alt text")
+    svgs = re.findall(r"<svg\b[^>]*>", html, re.I)
+    loose = [s for s in svgs if not re.search(r"aria-hidden|role\s*=|aria-label", s, re.I)]
+    if len(loose) > 0:
+        notes.append(f"{len(loose)} inline <svg> without aria-hidden or a label")
+    hrefs = re.findall(r"<a\b[^>]*>", html, re.I)
+    dead = [a for a in hrefs if not re.search(r"\shref\s*=\s*['\"][^'\"]", a, re.I)]
+    if dead:
+        find.append(f"{len(dead)} <a> without a destination — every link needs an href "
+                    "(#section anchors, mailto:, or a page)")
+    hashes = [a for a in hrefs if re.search(r"\shref\s*=\s*['\"]#['\"]", a, re.I)]
+    if hrefs and len(hashes) > len(hrefs) / 2:
+        notes.append(f"{len(hashes)} of {len(hrefs)} links go nowhere (href=\"#\") — point them "
+                     "at the page's sections")
+    if re.search(r"lorem ipsum|your (text|title|heading) here", low):
+        find.append("placeholder copy (lorem ipsum / 'your text here') is on the page")
+    return find, notes, checks
+
+
+def craft_read(page: Path):
+    """The page read at phone, tablet and desktop width: {width: reading}."""
+    try:
+        import aethron_eye as EYE
+    except Exception:
+        return {}
+    got = {}
+    for w in (PHONE, TABLET, 1280):
+        r = EYE.read_page(page, w, 900, probe=CRAFT_JS)
+        if r and "error" not in r:
+            got[w] = r
+    return got
+
+
+def live_craft(reads):
+    """What only a browser can tell: (findings, notes, checks)."""
+    find, notes, checks = [], [], []
+    if not reads:
+        return find, ["the page could not be opened in a browser to check how it works"], checks
+    for w in (PHONE, TABLET):
+        r = reads.get(w)
+        if r and r.get("scroll", 0) > r.get("vw", w) + 2:
+            find.append(f"at {w}px wide the page is {r['scroll']}px wide — it hangs off "
+                        "the edge and scrolls sideways")
+    checks.append(("fits phones and tablets (390 and 768px, no sideways scroll)",
+                   not any(r.get("scroll", 0) > r.get("vw", w) + 2
+                           for w, r in reads.items() if w in (PHONE, TABLET))))
+    desk, phone = reads.get(1280), reads.get(PHONE)
+    if desk and phone and desk.get("nav") and desk["nav"].get("shown", 0) >= 4:
+        want = [t for t in desk["nav"]["texts"] if t]
+        pn = phone.get("nav") or {}
+        t = phone.get("toggle") or {}
+        after = set(t.get("links_after") or [])
+        crowded = pn.get("shown", 0) >= 4 and (pn.get("rows", 1) > 1 or pn.get("over", 0))
+        hidden = pn.get("shown", 0) < len(want)
+        menu_ok = bool(t) and t.get("expanded_after") == "true" and all(x in after for x in want)
+        ok = not crowded and (not hidden or menu_ok)
+        checks.append(("phone menu: the nav collapses behind a working menu button", ok))
+        if crowded:
+            find.append(f"on a phone the {pn.get('shown')} nav links are squeezed into "
+                        f"{pn.get('rows')} row(s) — collapse them behind a menu button")
+        elif hidden and not t:
+            find.append("on a phone the nav links disappear and nothing opens them — add a menu "
+                        "button (<button aria-expanded aria-controls aria-label=\"Open menu\">) "
+                        "that shows them")
+        elif hidden and not menu_ok:
+            why = ("it does not set aria-expanded=\"true\"" if t.get("expanded_after") != "true"
+                   else "the links it should show stay hidden: "
+                   + ", ".join(x for x in want if x not in after)[:120])
+            find.append(f"the phone menu button does not work — {why}")
+    ref = desk or phone or {}
+    if ref:
+        checks.append(("one <main> and one <h1>", ref.get("main") == 1 and ref.get("h1") == 1))
+        if ref.get("main") != 1:
+            find.append(f"the page has {ref.get('main', 0)} <main> landmark(s) — wrap the content "
+                        "in exactly one <main>")
+        if ref.get("h1") != 1:
+            find.append(f"the page shows {ref.get('h1', 0)} <h1> — a page has exactly one")
+        # every width counts: a phone-only menu button is hidden on a desktop
+        names = []
+        for rd in reads.values():
+            for x in (rd or {}).get("unnamed") or []:
+                if x not in names:
+                    names.append(x)
+        un = max([(rd or {}).get("unnamed_n", 0) for rd in reads.values()] + [len(names)])
+        checks.append(("every link, button and field has a name", not un))
+        if un:
+            find.append(f"{un} control(s) have no accessible name (icon-only buttons need "
+                        f"aria-label, fields need a <label>): " + ", ".join(names[:4]))
+        low = ref.get("low") or []
+        bad = [x for x in low if x["ratio"] < 3]
+        checks.append(("text contrast readable (WCAG)", not bad))
+        if bad:
+            find.append("text too faint to read: " + "; ".join(
+                f"\"{x['text']}\" {x['ratio']}:1 at {x['size']}px" for x in bad[:4])
+                + " — lift it to at least 4.5:1 (3:1 for large text), keeping the hue")
+        weak = [x for x in low if x["ratio"] >= 3]
+        if weak:
+            notes.append(f"{len(weak)} text block(s) under WCAG AA 4.5:1 (e.g. \"{weak[0]['text']}\" "
+                         f"{weak[0]['ratio']}:1)")
+        if ref.get("sizes", 0) > 9:
+            notes.append(f"{ref['sizes']} different font sizes — a type scale usually has 5-7")
+    return find, notes, checks
+
+
+def _slug(t):
+    return re.sub(r"[^a-z0-9]+", "-", _html.unescape(t).lower()).strip("-")[:40]
+
+
+def _text(fragment):
+    return re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", fragment))).strip()
+
+
+def finish_site(html, accent=None):
+    """What a careful developer adds without changing how the page LOOKS.
+
+    Head metadata, the language, alt text on pictures without any, names
+    for fields that only have a placeholder, keyboard focus and hover
+    states where there are none, a skip link, reduced motion, and nav
+    links that point at the page's own sections. Idempotent: a page that
+    already has a thing keeps its own."""
+    h = html
+    if not re.search(r"<!doctype", h, re.I):
+        h = "<!doctype html>\n" + h
+    if re.search(r"<html\b(?![^>]*\slang\s*=)", h, re.I):
+        h = re.sub(r"<html\b", '<html lang="en"', h, count=1, flags=re.I)
+    if not re.search(r"<head\b", h, re.I):
+        h = re.sub(r"(<html\b[^>]*>)", r"\1<head></head>", h, count=1, flags=re.I)
+    body = h[h.lower().find("<body"):] if "<body" in h.lower() else h
+    m = re.search(r"<h1\b[^>]*>(.*?)</h1>", body, re.S | re.I)
+    title = _text(m.group(1)) if m else ""
+    p = next((t for t in (_text(x) for x in re.findall(r"<p\b[^>]*>(.*?)</p>", body, re.S | re.I))
+              if len(t) > 40), "")
+    desc = (p[:152].rsplit(" ", 1)[0] + "…") if len(p) > 155 else p
+    add = []
+    if not re.search(r"<meta[^>]+charset", h, re.I):
+        add.append('<meta charset="utf-8">')
+    if not re.search(r"<meta[^>]+name\s*=\s*['\"]viewport", h, re.I):
+        add.append('<meta name="viewport" content="width=device-width, initial-scale=1">')
+    if not re.search(r"<title>\s*[^<\s]", h, re.I):
+        h = re.sub(r"<title>\s*</title>", "", h, flags=re.I)
+        if title:
+            add.append(f"<title>{_html.escape(title)}</title>")
+    if desc and not re.search(r"<meta[^>]+name\s*=\s*['\"]description", h, re.I):
+        add.append(f'<meta name="description" content="{_html.escape(desc)}">')
+    t_now = re.search(r"<title>(.*?)</title>", h, re.S | re.I)
+    t_txt = _text(t_now.group(1)) if t_now else title
+    if t_txt and not re.search(r"property\s*=\s*['\"]og:title", h, re.I):
+        add.append(f'<meta property="og:title" content="{_html.escape(t_txt)}">')
+        add.append('<meta property="og:type" content="website">')
+        if desc:
+            add.append(f'<meta property="og:description" content="{_html.escape(desc)}">')
+        add.append('<meta name="twitter:card" content="summary_large_image">')
+    if accent and not re.search(r"name\s*=\s*['\"]theme-color", h, re.I):
+        add.append(f'<meta name="theme-color" content="{accent}">')
+    if t_txt and not re.search(r"rel\s*=\s*['\"](?:shortcut )?icon", h, re.I):
+        ch = _html.escape(t_txt.strip()[:1].upper() or "•")
+        col = (accent or "#111").replace("#", "%23")
+        add.append('<link rel="icon" href="data:image/svg+xml,'
+                   "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E"
+                   f"%3Crect width='64' height='64' rx='14' fill='{col}'/%3E"
+                   "%3Ctext x='32' y='44' font-size='36' text-anchor='middle' "
+                   f"font-family='system-ui,sans-serif' font-weight='700' fill='white'%3E{ch}"
+                   '%3C/text%3E%3C/svg%3E">')
+    first = [x for x in add if x.startswith(("<meta charset", '<meta name="viewport'))]
+    rest = [x for x in add if x not in first]
+    if first:   # the charset belongs at the very top of <head>
+        h = re.sub(r"(<head\b[^>]*>)", lambda m_: m_.group(1) + "\n" + "\n".join(first), h,
+                   count=1, flags=re.I)
+    if rest:
+        h = re.sub(r"</head>", lambda _m: "\n".join(rest) + "\n</head>", h, count=1, flags=re.I)
+    # pictures without alt are decorative until someone says otherwise
+    h = re.sub(r"<img\b(?![^>]*\salt\s*=)", '<img alt=""', h, flags=re.I)
+    # a field with only a placeholder gets that placeholder as its name
+    def name_field(m_):
+        tag = m_.group(0)
+        if re.search(r"aria-label|aria-labelledby|type\s*=\s*['\"](hidden|submit|button)", tag, re.I):
+            return tag
+        fid = re.search(r"\sid\s*=\s*['\"]([^'\"]+)", tag)
+        if fid and re.search(rf"<label[^>]+for\s*=\s*['\"]{re.escape(fid.group(1))}['\"]", h, re.I):
+            return tag
+        ph = re.search(r"placeholder\s*=\s*['\"]([^'\"]+)", tag)
+        return tag[:-1].rstrip("/") + f' aria-label="{ph.group(1)}">' if ph else tag
+    h = re.sub(r"<(?:input|textarea)\b[^>]*>", name_field, h, flags=re.I)
+    # nav links that go nowhere point at the section they name
+    secs = {}
+    for m_ in re.finditer(r"<section\b([^>]*)>(.*?)</section>", h, re.S | re.I):
+        hd = re.search(r"<h[2-3]\b[^>]*>(.*?)</h[2-3]>", m_.group(2), re.S | re.I)
+        sid = re.search(r"\sid\s*=\s*['\"]([^'\"]+)", m_.group(1))
+        if hd:
+            secs[_slug(_text(hd.group(1)))] = sid.group(1) if sid else None
+    if secs:
+        def give_id(m_):
+            attrs, inner = m_.group(1), m_.group(2)
+            if re.search(r"\sid\s*=", attrs):
+                return m_.group(0)
+            hd = re.search(r"<h[2-3]\b[^>]*>(.*?)</h[2-3]>", inner, re.S | re.I)
+            if not hd:
+                return m_.group(0)
+            s = _slug(_text(hd.group(1)))
+            if not s or secs.get(s):
+                return m_.group(0)
+            secs[s] = s
+            return f'<section id="{s}"{attrs}>{inner}</section>'
+        h = re.sub(r"<section\b([^>]*)>(.*?)</section>", give_id, h, flags=re.S | re.I)
+
+        def point(m_):
+            tag, inner = m_.group(1), m_.group(2)
+            if re.search(r"\shref\s*=\s*['\"](?!#['\"])[^'\"]", tag, re.I):
+                return m_.group(0)
+            s = _slug(_text(inner))
+            hit = next((v for k, v in secs.items() if v and s and (k == s or k.startswith(s)
+                                                                    or s.startswith(k))), None)
+            if not hit:
+                return m_.group(0)
+            tag2 = re.sub(r"\shref\s*=\s*['\"][^'\"]*['\"]", "", tag)
+            return f'<a href="#{hit}"{tag2[2:]}{inner}</a>'
+        h = re.sub(r"(<a\b[^>]*>)(.*?)</a>", point, h, flags=re.S | re.I)
+    css = _css(h)
+    extra = []
+    if not re.search(r":focus-visible", css):
+        extra.append(":where(a,button,input,textarea,select,summary,[tabindex]):focus-visible"
+                     "{outline:2px solid currentColor;outline-offset:3px;border-radius:4px}")
+    if not re.search(r":hover", css):
+        extra.append(":where(a,button){transition:opacity .18s ease,filter .18s ease}"
+                     ":where(a,button):hover{filter:brightness(1.12)}")
+    if re.search(r"<section\b[^>]*\sid=", h, re.I) and "scroll-margin-top" not in css:
+        extra.append("section[id]{scroll-margin-top:80px}"
+                     "html{scroll-behavior:smooth}")
+    has_main = re.search(r"<main\b", h, re.I)
+    if has_main and "ae-skip" not in h:
+        if not re.search(r"<main\b[^>]*\sid\s*=", h, re.I):
+            h = re.sub(r"<main\b", '<main id="main"', h, count=1, flags=re.I)
+        mid = re.search(r"<main\b[^>]*\sid\s*=\s*['\"]([^'\"]+)", h, re.I).group(1)
+        h = re.sub(r"(<body\b[^>]*>)", rf'\1<a class="ae-skip" href="#{mid}">Skip to content</a>',
+                   h, count=1, flags=re.I)
+        extra.append(".ae-skip{position:absolute;left:12px;top:-60px;z-index:9999;padding:10px 14px;"
+                     "border-radius:8px;background:#111;color:#fff;font:600 14px/1 system-ui,"
+                     "sans-serif;text-decoration:none}.ae-skip:focus{top:12px}")
+    css2 = css + "".join(extra)
+    if re.search(r"@keyframes|animation\s*:|transition\s*:|scroll-behavior", css2, re.I) \
+            and not re.search(r"prefers-reduced-motion", css2, re.I):
+        extra.append("@media (prefers-reduced-motion:reduce){*,*::before,*::after{"
+                     "animation-duration:.01ms!important;animation-iteration-count:1!important;"
+                     "transition-duration:.01ms!important;scroll-behavior:auto!important}}")
+    if extra:
+        block = "<style data-ae-finish>\n" + "\n".join(extra) + "\n</style>"
+        if re.search(r"</head>", h, re.I):
+            h = re.sub(r"</head>", lambda _m: block + "\n</head>", h, count=1, flags=re.I)
+        else:
+            h = block + h
+    return h
+
+
 def grade(image, page, ref: Img = None, work=None):
     """Check a page against its screenshot. Never decides on the model's word."""
     page = Path(page)
@@ -502,6 +1008,10 @@ def grade(image, page, ref: Img = None, work=None):
     if not (tags["a"] or tags["button"]):
         rep["findings"].append("there is no real link or button on the page — "
                                "nav items and buttons must be <a> and <button>")
+    sf, sn, sc = static_craft(html)
+    rep["findings"] += sf
+    rep["notes"] += sn
+    rep["craft"] = [{"check": c, "ok": bool(o)} for c, o in sc]
     if rep["reused"]:
         # Refused from its source; there is nothing to learn from rendering
         # a picture of the screenshot, and a page carrying a multi-megabyte
@@ -520,12 +1030,13 @@ def grade(image, page, ref: Img = None, work=None):
         rep["findings"].append(
             f"the page does not look enough like the screenshot "
             f"({rep['likeness']:.0%}, needs {LIKENESS_FLOOR:.0%})")
-    ran, bad = phones(page)
-    rep["phones_checked"] = bool(ran)
-    for w, sw in bad:
-        rep["findings"].append(f"at {w}px wide the page is {sw}px wide — it hangs off "
-                               "the edge and scrolls sideways")
-    if not ran:
+    reads = craft_read(page)
+    rep["phones_checked"] = bool(reads.get(PHONE) and reads.get(TABLET))
+    lf, ln, lc = live_craft(reads)
+    rep["findings"] += lf
+    rep["notes"] += ln
+    rep["craft"] += [{"check": c, "ok": bool(o)} for c, o in lc]
+    if not rep["phones_checked"]:
         rep["notes"].append("phone widths could not be checked")
     rep["verdict"] = "PASS" if not rep["findings"] else "FAIL"
     return rep
@@ -646,7 +1157,10 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
                 continue
             log(f"round {rnd}: the reply held no page — keeping the last one")
             continue
-        html = cand
+        # What a careful developer adds without changing the look (head,
+        # focus states, alt, skip link, reduced motion, section anchors)
+        # is Aethron's job, not a round of the model's.
+        html = finish_site(cand, accent=f.get("background"))
         page = work / f"round{rnd}.html"
         page.write_text(html)
         rep = grade(src, page, ref=ref if scale == 1 else None, work=work / f"r{rnd}")
@@ -662,8 +1176,7 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
         prev = rep
         # THE BEST THAT DOES NOT REUSE THE SCREENSHOT, never the last one tried.
         if not rep["reused"] and (best is None or best[0]["reused"]
-                                  or (rep["verdict"] == "PASS", rep["likeness"])
-                                  > (best[0]["verdict"] == "PASS", best[0]["likeness"])):
+                                  or _rank(rep) > _rank(best[0])):
             best = (rep, html)
         elif best is None:
             best = (rep, html)
@@ -676,12 +1189,20 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
     if report["verdict"] != "SKIPPED":
         report["verdict"] = rep["verdict"]
     for k in ("likeness", "colour", "structure", "findings", "notes", "elements",
-              "phones_checked", "reused"):
+              "phones_checked", "reused", "craft"):
         if k in rep:
             report[k] = rep[k]
     report["seconds"] = round(time.time() - t0)
     return _finish(report, out, html, ledger=getattr(writer, "ledger", None),
                    render_png=rep.get("render_png"))
+
+
+def _rank(rep):
+    """Passing first; then a page that looks like the screenshot; then the
+    one with fewer things still wrong; then the closer likeness."""
+    lk = rep.get("likeness", 0)
+    return (rep.get("verdict") == "PASS", lk >= LIKENESS_FLOOR,
+            -len(rep.get("findings") or []), lk)
 
 
 def _finish(report, out, html, ledger=None, render_png=None):
@@ -759,6 +1280,32 @@ def _selftest():
     b = Img(4, 4, bytearray([0, 0, 0] * 16))
     check("a black page is not alike an orange one", likeness(a, b)["colour"] < 0.1)
     check("css size halves a 2x screenshot", css_size(2880, 1800)[:2] == (1440, 900))
+    bare = ("<!doctype html><html><head><style>.a{color:#fff}</style></head><body>"
+            "<nav><a href='#'>Pricing plans</a></nav><main><h1>Ship faster</h1>"
+            "<p>A calm place to build the products your customers come back to every day.</p>"
+            "<section><h2>Pricing plans</h2></section><input placeholder='Your email'>"
+            "<img src='https://x.example/a.png'></main></body></html>")
+    f0, _, c0 = static_craft(bare)
+    check("a bare page is told what a shipped site has (head, breakpoints, hover, focus)",
+          any("<head>" in x for x in f0) and any("@media" in x for x in f0)
+          and not all(ok_ for _, ok_ in c0))
+    fin = finish_site(bare, accent="#101010")
+    check("finish_site adds the head a person would write, from the page's own words",
+          "<title>Ship faster</title>" in fin and 'name="description"' in fin
+          and "A calm place" in fin and 'property="og:title"' in fin
+          and 'lang="en"' in fin and 'name="viewport"' in fin)
+    check("and keyboard focus, a hover state, a skip link and reduced motion",
+          ":focus-visible" in fin and ":hover" in fin and "Skip to content" in fin
+          and "prefers-reduced-motion" in fin)
+    check("and names what had no name: alt text, a field's label from its placeholder",
+          'alt=""' in fin and 'aria-label="Your email"' in fin)
+    check("and points a nav link at the section it names",
+          'href="#pricing-plans"' in fin and 'id="pricing-plans"' in fin)
+    check("finish_site run twice changes nothing more",
+          finish_site(fin, accent="#101010") == fin)
+    f1, _, _ = static_craft(fin)
+    check("what finish_site adds is no longer asked for",
+          not any(k in " ".join(f1) for k in ("<head>", ":hover", ":focus-visible")))
     print("VERDICT:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

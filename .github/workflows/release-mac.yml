@@ -111,6 +111,11 @@ jobs:
           "$OCR" docs/screenshots/library.png | grep -q '"text"' \
             || { echo "::error::the packaged OCR helper read no text"; exit 1; }
           python3 tests/ocr_frozen.py dist/Aethron.app
+          # paste and drop read the Mac's own pasteboards when the web view
+          # hands over nothing (a private board: nobody's clipboard is touched)
+          python3 aethron_native.py --selftest | tee /tmp/native.log
+          grep -q "VERDICT: PASS" /tmp/native.log \
+            || { echo "::error::reading images off the Mac's pasteboard does not work"; exit 1; }
           # a real migration through the packaged app's own tools
           python3 tests/frozen_migration.py dist/Aethron.app
           # needs a prepared template on disk; reports SKIPPED here

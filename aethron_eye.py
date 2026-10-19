@@ -278,7 +278,7 @@ def _frame(page, width, height):
     return srv, f"http://127.0.0.1:{srv.server_address[1]}/__ae_frame__"
 
 
-def read_page(target, width, height=1400, timeout=90):
+def read_page(target, width, height=1400, timeout=90, probe=None):
     """What the browser actually drew, as numbers. None if it could not.
 
     Works on a local file or a live URL, because a coding agent's output
@@ -290,7 +290,11 @@ def read_page(target, width, height=1400, timeout=90):
 
     Returns None rather than an empty reading, because a check that
     cannot run reports SKIPPED, never PASS, and never a clean sheet.
+
+    `probe` replaces the default probe script: any <script> that writes
+    its JSON reading to <html data-ae-eye>, read at the true width.
     """
+    probe = probe or PROBE_JS
     b = GR.find_browser()
     if not b:
         return None
@@ -305,7 +309,7 @@ def read_page(target, width, height=1400, timeout=90):
             # A page we do not own cannot be edited, so the probe is
             # handed to Chrome instead of to the document.
             src = tmp / "probe.js"
-            src.write_text(PROBE_JS.split(">", 1)[1].rsplit("<", 1)[0])
+            src.write_text(probe.split(">", 1)[1].rsplit("<", 1)[0])
             extra = []
         else:
             p = Path(target)
@@ -319,8 +323,8 @@ def read_page(target, width, height=1400, timeout=90):
                 return None
             html = p.read_text(errors="replace")
             shot = p.with_suffix(".eye.html")
-            shot.write_text(html.replace("</body>", PROBE_JS + "</body>")
-                            if "</body>" in html else html + PROBE_JS)
+            shot.write_text(html.replace("</body>", probe + "</body>")
+                            if "</body>" in html else html + probe)
             url = shot.resolve().as_uri()
             extra = []
             leaked = shot

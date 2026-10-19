@@ -72,6 +72,7 @@ a = Analysis(
         "aethron_edit", "aethron_screen", "aethron_flow", "aethron_web",
         "aethron_eye", "aethron_design", "aethron_build", "aethron_generate",
         "aethron_shot2code",
+        "aethron_native",
         # Brand memory: imported inside forge_mcp's handlers, so named here
         # before it can ship as a capability that exists only in dev.
         "aethron_rag",
