@@ -67,6 +67,7 @@ jobs:
           python3 aethron_update.py --selftest
           python3 tests/engine_battery.py
           python3 tests/provider_battery.py
+          python3 aethron_bridge.py --selftest
 
       # The app reads where to find updates (supabase_url) and its login
       # setup from aethron_config.json inside the bundle. That file is

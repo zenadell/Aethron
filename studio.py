@@ -13887,7 +13887,7 @@ document.addEventListener('drop',ev=>{
   }).catch(()=>{});
 },true);
 async function sendCode(){
-  CODE.nudges=0;
+  CODE.nudges=0;CODE.recoveries=0;
   const ta=$('chatta'),text=ta.value.trim();
   if(!text&&!CODE.pending.some(p=>p.name))return;
   if(CODE.pending.some(p=>p.busy))return;     // still attaching
@@ -13948,18 +13948,52 @@ function slowNoteFor(tool){
   }
   return 'Still waiting for the provider. Aethron is keeping this run open so its real response can arrive.';
 }
+/* ONE STALL IS NOT THE END OF THE RUN. A provider that goes quiet is
+   first asked again by the engine itself (the bridge reports "retrying"
+   and this screen waits for it). If the whole connection is still silent
+   after that, Aethron reconnects: a fresh session on the SAME
+   conversation, told to carry on from where it was — the agent remembers
+   exactly what the screen shows, so nothing done is redone or lost. Only
+   when that has also failed RECOVER_MAX times in one request is the run
+   stopped, and then the person is told what was tried. */
+const RECOVER_MAX=2;
+async function reconnectRun(){
+  const body=S.view==='code'&&CODE.ws
+    ?wsBody({fresh:false,cfg:{permission_policy:CODE.permissionPolicy}})
+    :S.cur?{project:S.cur,fresh:false,cfg:{permission_policy:CODE.permissionPolicy}}
+          :{console:true,fresh:false,cfg:{permission_policy:CODE.permissionPolicy}};
+  const r=await api('/api/code/start',body);
+  CODE.key=r.key;CODE.since=0;
+  CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
+  const text='The connection to the model dropped while you were working. '
+    +'Carry on from exactly where you stopped: do not repeat steps that already '
+    +'finished, and check the project with the tools before assuming anything changed.';
+  CODE.lastEv=Date.now();
+  await api('/api/code/send',{key:CODE.key,text});
+  if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
+}
 async function stopForSilence(tool,last){
   const key=CODE.key;
   if(!key)return;
   /* Do not leave a real child process working after the UI says it ended. */
   CODE.key='';
   try{await api('/api/code/stop',{key});}catch(e){}
+  clearSlowNote();
+  if(!tool&&(CODE.recoveries||0)<RECOVER_MAX){
+    CODE.recoveries=(CODE.recoveries||0)+1;
+    CODE.events.push({type:'recover',n:CODE.recoveries});
+    renderChat();
+    try{await reconnectRun();return;}
+    catch(e){/* could not even reconnect: fall through and say so */}
+  }
+  const tried=CODE.recoveries?' Aethron reconnected '+CODE.recoveries
+    +' time'+(CODE.recoveries===1?'':'s')+' and it went quiet again.':'';
   CODE.events.push({type:'error',text:tool
     ?'This step did not report back after 10 minutes, so Aethron stopped the run. Work completed before the pause is still there.'
-    :'The provider did not respond after 2½ minutes, so Aethron stopped the run.'
+    :'The provider stopped answering, so Aethron stopped the run.'+tried
       +(last?' Last thing it said: '+last:'')
-      +' Work completed before the pause is still there.'});
-  clearSlowNote();endTurn();
+      +' Work completed before the pause is still there; send “continue” to pick up from there.'});
+  endTurn();
 }
 /* THE BRIDGE KNOWS WHY IT IS QUIET. A rate-limit wait, a busy provider
    and a model still thinking all look the same from here — nothing
@@ -14121,10 +14155,16 @@ async function pollCode(){
     /* A permission card is intentional waiting, not a stalled model. */
     const quiet=Date.now()-CODE.lastEv;
     const br=r.bridge, tool=inFlightTool();
-    const viaBridge=!tool&&br&&br.inflight>0;
+    /* BETWEEN TWO TRIES NOTHING IS IN FLIGHT. When an answer does not
+       come the engine asks again, and for that moment the bridge holds no
+       request — so this used to fall back to "time since the agent last
+       said anything", which by the second retry is already past the
+       limit. A run in the middle of recovering was stopped for silence.
+       The bridge says "retrying" for exactly that gap. */
+    const viaBridge=!tool&&br&&(br.inflight>0||br.state==='retrying');
     /* waiting on a key or a busy provider is worth saying at once, not
        after 90 seconds of an unexplained spinner */
-    const waiting=viaBridge&&['pacing','busy','waiting','spent'].includes(br.state);
+    const waiting=viaBridge&&['pacing','busy','waiting','spent','retrying'].includes(br.state);
     if(CODE.poll&&r.running&&!hasWaitingPermission()
        &&(quiet>SLOW_NOTICE_MS||(waiting&&quiet>15000))){
       const limit=tool?TOOL_STALL_MS:PROVIDER_STALL_MS;
@@ -15393,7 +15433,7 @@ async function newConversation(){
   renderTab();
 }
 async function consoleSend(){
-  CODE.nudges=0;
+  CODE.nudges=0;CODE.recoveries=0;
   const ta=$('npurl'), text=(ta&&ta.value||'').trim();
   if(!text&&!CODE.pending.some(p=>p.name))return;
   if(CODE.pending.some(p=>p.busy))return;     // still attaching
@@ -17145,6 +17185,8 @@ function convBlocks(evs){
     }
     run=null;
     if(e.type==='earlier'){out.push({kind:'earlier',when:e.when||0});continue;}
+    if(e.type==='recover'){out.push({kind:'sys',text:'The model went quiet, so Aethron reconnected and is carrying on from where it was'
+      +(e.n>1?' (try '+e.n+' of '+RECOVER_MAX+')':'')+'.'});continue;}
     if(e.type==='truth'){out.push({kind:'truth',project:e.project,t:e.t,gaps:e.gaps||[]});continue;}
     if(e.type==='you'&&e.auto){out.push({kind:'sys',text:'Aethron sent the agent back: the project on disk is not finished.'});continue;}
     if(e.type==='you')out.push({kind:'you',text:e.text,images:youImages(e)});

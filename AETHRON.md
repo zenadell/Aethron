@@ -6028,6 +6028,35 @@ passes every check. RULES became a senior developer's brief.
 NOT PROVEN HERE: a live model run (this container has no key), and the
 pasteboard code on a real Mac before the release workflow runs it.
 
+## "THE PROVIDER DID NOT RESPOND" — THE SCREEN STOPPED A RUN THAT WAS
+## RETRYING — 2026-10-19
+temple, gpt-4.1-mini on trymeridian: 92 steps, then "The provider did not
+respond after 2½ minutes, so Aethron stopped the run" — not the first
+time. The last step (probe, "loading it in a browser") had FINISHED: the
+message only appears when no tool is in flight, so the next model call was
+what went quiet. Reproduced with the real engine through the real bridge
+into a provider that hangs:
+1. THE SCREEN KILLED THE RECOVERY. When an answer does not come the bridge
+   times out (90s) and the engine asks again by itself — measured: up to
+   10 more tries, back-off growing to ~40s. Between two tries the bridge
+   holds NO request, so the screen fell back to "time since the agent last
+   spoke", which by the second try is ~180s, past the 150s limit. The run
+   was stopped in the middle of retrying. The bridge now counts
+   consecutive failures and says "retrying (N tries so far)" in that gap;
+   the screen treats it as alive and shows that line.
+2. AN ANSWER THAT STALLED HALF-WAY WAS FINISHED. The bridge appended
+   "[bridge: upstream stream failed]" and closed the message properly, so
+   the engine took half an answer as the model's last word and the turn
+   ended. A stream cut before message_stop is what the engine retries
+   (measured: it asks again at once), so the bridge now just closes it;
+   half-built tool calls are dropped, never run.
+3. WHEN THE WHOLE CONNECTION IS SILENT, RECONNECT. If neither agent nor
+   bridge moves for the limit, the screen starts a new session on the SAME
+   conversation and tells the agent to carry on from where it stopped —
+   twice per request — and only then stops, saying it reconnected and
+   that "continue" picks up from there.
+tests/stall_battery.py 16/16 (in run_all); the committed code fails it.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6249,6 +6278,9 @@ pasteboard code on a real Mac before the release workflow runs it.
 - AN ATTACHMENT THE PERSON CANNOT SEE WAS NOT ATTACHED, AND ONE THE MODEL
   CANNOT SEE WAS NOT SENT. Show it; send it as image input; say so when a
   model has no eyes.
+- A RETRY IS NOT SILENCE. Nothing in flight between two tries is the
+  engine recovering; never stop a run in that gap, and never hand a
+  half-finished answer over as finished.
 - A DROP OR PASTE THE WEB VIEW HANDS OVER EMPTY ASKS THE MAC'S OWN
   PASTEBOARD before saying there was nothing.
 - A PAGE BUILT FROM A SCREENSHOT IS HELD TO WHAT A DEVELOPER SHIPS:

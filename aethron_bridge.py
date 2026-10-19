@@ -249,6 +249,8 @@ LIMITS = {"requests": int(os.environ.get("AETHRON_MAX_REQUESTS", "600")),
 #     4 keys x 90s = 360s  <  420s idle guard
 # Raise this only together with the idle limit in aethron_code, never alone.
 UPSTREAM_TIMEOUT = float(os.environ.get("AETHRON_UPSTREAM_TIMEOUT", "90"))
+# answers the engine asks for again by itself — a failure, not a refusal
+RETRIED_CODES = (408, 500, 502, 503, 504, 529)
 
 # How long to keep waiting out a rate limit, and how long to pause between
 # passes over the key pool. A free-tier per-minute window needs more than
@@ -276,7 +278,16 @@ USED = {"requests": 0, "input": 0, "output": 0, "usd": 0.0, "list_usd": 0.0,
 # — before, the screen gave up at 2½ minutes while the bridge was still
 # inside its own 3-minute retry budget, and called a busy provider a dead
 # one.
-STATUS = {"inflight": 0, "state": "idle", "detail": "", "since": 0.0}
+STATUS = {"inflight": 0, "state": "idle", "detail": "", "since": 0.0,
+          "fails": 0}
+# A STALL IS RETRIED, NOT A VERDICT. When an answer does not come, the
+# engine asks again on its own (it retries a failed or cut-off request with
+# back-off). Between two tries the bridge has nothing in flight, and the
+# screen used to read that gap as "nobody is doing anything" — measured
+# from the last thing the agent said, which by then was 3 minutes ago — and
+# stopped a run that was in the middle of recovering. Consecutive failures
+# are counted here, and while there are any the bridge says "retrying"
+# instead of "idle", so the gap reads as what it is.
 _ST_LOCK = threading.Lock()
 _TL = threading.local()        # per request: was it served by a free key?
 
@@ -289,7 +300,23 @@ def _inflight(delta: int) -> None:
     with _ST_LOCK:
         STATUS["inflight"] = max(0, STATUS["inflight"] + delta)
         if not STATUS["inflight"]:
-            _status("idle")
+            n = STATUS["fails"]
+            if n:
+                _status("retrying", f"The provider did not answer "
+                        f"({n} tr{'y' if n == 1 else 'ies'} so far). "
+                        f"Aethron is asking again.")
+            else:
+                _status("idle")
+
+
+def _failed() -> None:
+    with _ST_LOCK:
+        STATUS["fails"] += 1
+
+
+def _answered() -> None:
+    with _ST_LOCK:
+        STATUS["fails"] = 0
 
 
 def status() -> dict:
@@ -1166,14 +1193,18 @@ def _handler(cfg: BridgeConfig, log=None):
                     data = json.loads(r.read())
             except urllib.error.HTTPError as e:
                 _retry_not_repeat()
+                if e.code in RETRIED_CODES:
+                    _failed()
                 return self._error(e.code, _upstream_error(e))
             except NoKeysLeft as e:
                 _retry_not_repeat()
                 return self._error(429, f"upstream 429: {e}")
             except Exception as e:
                 _retry_not_repeat()
+                _failed()
                 return self._error(502, f"bridge could not reach "
                                         f"{cfg.base_url}: {e}")
+            _answered()
             self._say(200, from_openai_message(data, cfg.model))
 
         def _stream(self, req, original):
@@ -1181,12 +1212,15 @@ def _handler(cfg: BridgeConfig, log=None):
                 up = self._open_rotating(req)
             except urllib.error.HTTPError as e:
                 _retry_not_repeat()
+                if e.code in RETRIED_CODES:
+                    _failed()
                 return self._error(e.code, _upstream_error(e))
             except NoKeysLeft as e:
                 _retry_not_repeat()
                 return self._error(429, f"upstream 429: {e}")
             except Exception as e:
                 _retry_not_repeat()
+                _failed()
                 return self._error(502, f"bridge could not reach "
                                         f"{cfg.base_url}: {e}")
             self.send_response(200)
@@ -1313,43 +1347,62 @@ def _handler(cfg: BridgeConfig, log=None):
                             stop = STOP_MAP.get(ch["finish_reason"],
                                                 "end_turn")
             except Exception as e:                       # upstream died
-                out.text(f"\n[bridge: upstream stream failed: {e}]")
-            finally:
-                delivered, bad_tools = 0, []
-                for slot in tool_order:
-                    call = pending_tools[slot]
-                    args, error = _normalize_tool_input(
-                        "".join(call["arguments"]))
-                    if not call["name"]:
-                        error = error or "the provider omitted a tool name"
-                    if error:
-                        bad_tools.append(error)
-                        continue
-                    out.tool(delivered, call["id"], call["name"], args)
-                    delivered += 1
-                if bad_tools and not delivered:
-                    # A malformed call must be terminal. Giving it to the
-                    # CLI produces an error result that small models often
-                    # retry forever, which looks like an access prompt while
-                    # nothing has actually run.
-                    out.text("Aethron stopped before running a malformed "
-                             "model request. Nothing was changed; please "
-                             "send the request again.")
-                    stop = "end_turn"
-                for cid, sg in (sigs or {}).items():
-                    _remember_sig(cid, sg)
-                blob = "".join(reasoning)
-                if blob:
-                    for cid in call_ids:
-                        _remember(cid, blob)
-                    if not call_ids:
-                        _remember("txt:" + str(hash("".join(text_seen)
-                                                   .strip()))[:24], blob)
+                # A STREAM THAT STALLS MID-ANSWER IS CUT, NOT FINISHED.
+                # Finishing it handed the engine half an answer plus
+                # "[bridge: upstream stream failed]" as if the model had
+                # meant it: the turn ended there and the whole run with
+                # it. A response that simply stops before message_stop is
+                # what the engine retries — measured: it asks again at
+                # once and carries on with the full answer. So the
+                # connection is closed with nothing more written; the
+                # half-built tool calls are dropped, never run.
+                _retry_not_repeat()
+                _failed()
+                _status("busy", f"The answer stopped arriving "
+                                f"({type(e).__name__}); asking again.")
+                gone.append(True)
                 try:
-                    out.finish(stop, usage)
+                    up.close()
                 except Exception:
                     pass
-                up.close()
+                self.close_connection = True
+                return
+            delivered, bad_tools = 0, []
+            for slot in tool_order:
+                call = pending_tools[slot]
+                args, error = _normalize_tool_input(
+                    "".join(call["arguments"]))
+                if not call["name"]:
+                    error = error or "the provider omitted a tool name"
+                if error:
+                    bad_tools.append(error)
+                    continue
+                out.tool(delivered, call["id"], call["name"], args)
+                delivered += 1
+            if bad_tools and not delivered:
+                # A malformed call must be terminal. Giving it to the
+                # CLI produces an error result that small models often
+                # retry forever, which looks like an access prompt while
+                # nothing has actually run.
+                out.text("Aethron stopped before running a malformed "
+                         "model request. Nothing was changed; please "
+                         "send the request again.")
+                stop = "end_turn"
+            for cid, sg in (sigs or {}).items():
+                _remember_sig(cid, sg)
+            blob = "".join(reasoning)
+            if blob:
+                for cid in call_ids:
+                    _remember(cid, blob)
+                if not call_ids:
+                    _remember("txt:" + str(hash("".join(text_seen)
+                                               .strip()))[:24], blob)
+            try:
+                out.finish(stop, usage)
+            except Exception:
+                pass
+            _answered()
+            up.close()
 
     return H
 
