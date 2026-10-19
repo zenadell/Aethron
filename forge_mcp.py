@@ -402,6 +402,15 @@ def t_measure_screenshot(a):
     return _j.dumps(rep, indent=1)[:60000]
 
 
+def _craft_lines(rep):
+    """The website checklist, as the person would tick it."""
+    c = rep.get("craft") or []
+    if not c:
+        return []
+    return (["built like a website (%d of %d):" % (sum(1 for x in c if x["ok"]), len(c))]
+            + [("  ✓ " if x["ok"] else "  ✗ ") + x["check"] for x in c])
+
+
 def t_screenshot_to_page(a):
     """A screenshot becomes a REAL page: HTML, CSS and SVG, checked.
 
@@ -460,6 +469,7 @@ def t_screenshot_to_page(a):
              f"page: {site}"]
     el = rep.get("elements") or {}
     lines.append("real elements: " + ", ".join(f"{v} {k}" for k, v in el.items() if v))
+    lines += _craft_lines(rep)
     if rep.get("findings"):
         lines.append("still failing:")
         lines += [f"- {x}" for x in rep["findings"]]
@@ -479,6 +489,19 @@ def t_grade_page(a):
         page = PAGES / page.name / "site.html"
     if not page.is_file():
         return f"FAILED no page at {page}"
+    finished = ""
+    try:
+        # what any developer adds without being asked (head, focus and hover
+        # states, skip link, alt text, field names) is added here, for pages
+        # the agent wrote itself too; the look does not move
+        src = page.read_text(encoding="utf-8", errors="replace")
+        fin = S2C.finish_site(src)
+        if fin != src:
+            page.write_text(fin, encoding="utf-8")
+            finished = ("note: Aethron added the head tags, focus and hover states, "
+                        "skip link and missing names itself")
+    except Exception:
+        pass
     try:
         rep = S2C.grade(str(a["image"]), page)
     except SystemExit as e:
@@ -491,6 +514,9 @@ def t_grade_page(a):
            f"(colour {rep['colour']:.0%}, structure {rep['structure']:.0%}; "
            f"needs {S2C.LIKENESS_FLOOR:.0%})"]
     out += [f"- FAIL {x}" for x in rep["findings"]]
+    out += _craft_lines(rep)
+    if finished:
+        out.append(finished)
     worst = [r for r in rep.get("regions", []) if r["difference"] > 12][:5]
     if worst:
         out.append("regions that differ most (should be -> is):")

@@ -1230,6 +1230,29 @@ document.addEventListener('click',function(e){
 
 # ───────────────────────── HTTP handler ──────────────────────────────
 
+
+def store_upload(blob: bytes, ext: str) -> dict:
+    """Keep an image under HOME/uploads, named by its content.
+
+    The NAME is ours, never the client's: the sha1 of the bytes, so a
+    crafted filename cannot escape the directory and the same image
+    pasted twice is stored once."""
+    import hashlib
+    name = hashlib.sha1(blob).hexdigest()[:16] + "." + ext
+    d = HOME / "uploads"
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / name
+    if not p.exists():
+        p.write_bytes(blob)
+    return {"path": str(p), "name": name, "bytes": len(blob)}
+
+
+# The Mac's own pasteboards. desktop.py sets this to aethron_native when the
+# app has a real window; in a browser it stays None and the page relies on
+# what the web platform gives it.
+NATIVE = None
+NATIVE_DROP_SEEN = {"count": None}
+
 class Handler(BaseHTTPRequestHandler):
     def _authed(self):
         # HTTP Basic auth, only when STUDIO_PASSWORD is set (hosted
@@ -2010,15 +2033,15 @@ class Handler(BaseHTTPRequestHandler):
                 if not ext:
                     return self.fail("that file is not a PNG, JPG, GIF or "
                                      "WEBP")
-                import hashlib
-                name = hashlib.sha1(blob).hexdigest()[:16] + "." + ext
-                d = HOME / "uploads"
-                d.mkdir(parents=True, exist_ok=True)
-                p = d / name
-                if not p.exists():
-                    p.write_bytes(blob)
-                return self.send_json({"path": str(p), "name": name,
-                                       "bytes": len(blob)})
+                return self.send_json(store_upload(blob, ext))
+            if u.path in ("/api/native/paste", "/api/native/drop"):
+                # WHAT THE MAC IS HOLDING, when the page came back empty.
+                # In the app's web view Cmd+V with nothing focused never
+                # reaches the page, and a screenshot dragged from its
+                # floating thumbnail (a file promise) or a photo from
+                # Photos drops with no files in it. The pasteboards hold
+                # them anyway; desktop.py hands us the reader.
+                return self.api_native(u.path.rsplit("/", 1)[1], body)
             if u.path == "/api/clienterror":
                 # THE WINDOW HAS NO CONSOLE. A packaged desktop app
                 # gives the user no devtools and gives us no stderr, so
@@ -3199,6 +3222,44 @@ class Handler(BaseHTTPRequestHandler):
             self.fail(e, 400)      # e.g. AI settings not configured yet
         except Exception as e:
             self.fail(e, 500)
+
+    def api_native(self, which, body):
+        """Images the Mac is holding: the clipboard (paste) or the last drag."""
+        nat = NATIVE
+        if nat is None:
+            return self.send_json({"native": False, "images": [], "others": [],
+                                   "why": "not running in the Mac app"})
+        board = "general" if which == "paste" else "drag"
+        if board == "drag":
+            # The drag pasteboard keeps the LAST drag forever. A drop the
+            # page already handled is marked seen, so a later empty drop
+            # can never hand back an image from an earlier one.
+            cnt = nat.change_count("drag")
+            if body.get("discard"):
+                NATIVE_DROP_SEEN["count"] = cnt
+                return self.send_json({"native": True, "images": [], "others": []})
+            if cnt is not None and cnt == NATIVE_DROP_SEEN["count"]:
+                return self.send_json({"native": True, "images": [], "others": [],
+                                       "why": "nothing new was dropped"})
+        r = nat.read(board)
+        if r.get("native") is False:
+            return self.send_json({"native": False, "images": [], "others": [],
+                                   "why": r.get("why", "")})
+        if board == "drag":
+            NATIVE_DROP_SEEN["count"] = r.get("count")
+        got = []
+        for im in (r.get("images") or [])[:8]:
+            blob = im["data"]
+            ext = next((v for k, v in {b"\x89PNG": "png", b"\xff\xd8\xff": "jpg",
+                                       b"GIF8": "gif", b"RIFF": "webp"}.items()
+                        if blob.startswith(k)), "")
+            if not ext:
+                continue
+            up = store_upload(blob, ext)
+            got.append({"name": up["name"], "label": im.get("name") or "image",
+                        "bytes": up["bytes"]})
+        return self.send_json({"native": True, "images": got,
+                               "others": r.get("others") or []})
 
     def api_auth(self, path, body):
         email = (body.get("email") or "").strip()
@@ -11031,6 +11092,79 @@ color:#d9d4cc;white-space:pre-wrap;word-break:break-word;-webkit-user-select:tex
 .cthumb button{position:absolute;top:3px;right:3px;width:18px;height:18px;border-radius:9px;
   border:0;background:rgba(0,0,0,.65);color:#fff;font-size:12px;line-height:18px;
   padding:0;cursor:pointer}
+/* ── an image on its way in ── */
+.cthumb.busy img{filter:saturate(.7) brightness(.8)}
+.cthumb-load{position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(110deg,transparent 30%,rgba(255,236,225,.28) 50%,transparent 70%);
+  background-size:220% 100%;animation:aeshimmer 1.1s linear infinite}
+@keyframes aeshimmer{from{background-position:120% 0}to{background-position:-120% 0}}
+.cthumb.landing{animation:aethumbin .42s cubic-bezier(.2,.9,.25,1.3) both}
+.cthumb.waiting{opacity:0;animation:none}
+.cthumb.landed{animation:aethumbpop .46s cubic-bezier(.2,.9,.25,1.4)}
+@keyframes aethumbin{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+@keyframes aethumbpop{0%{transform:scale(.86)}55%{transform:scale(1.07)}100%{transform:none}}
+.composer.ae-took{animation:aetook .7s ease-out}
+@keyframes aetook{0%{box-shadow:0 0 0 0 rgba(217,119,87,.55)}100%{box-shadow:0 0 0 14px rgba(217,119,87,0)}}
+.ae-flyer{position:fixed;z-index:9600;object-fit:cover;border-radius:16px;pointer-events:none;
+  box-shadow:0 18px 50px rgba(0,0,0,.45),0 0 0 1px rgba(255,255,255,.18);will-change:transform}
+
+/* ── a file over the window: the whole window becomes the drop zone ── */
+.ae-drop{position:fixed;inset:0;z-index:9500;display:flex;align-items:center;justify-content:center;
+  opacity:0;visibility:hidden;pointer-events:none;transition:opacity .2s ease,visibility 0s linear .2s;
+  --px:0;--py:0}
+.ae-drop.on{opacity:1;visibility:visible;pointer-events:auto;transition:opacity .18s ease}
+.ae-drop::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(ellipse at calc(50% + var(--px)*18%) calc(50% + var(--py)*18%),
+    rgba(217,119,87,.20),rgba(16,12,10,.78) 62%);
+  -webkit-backdrop-filter:blur(16px) saturate(1.25);backdrop-filter:blur(16px) saturate(1.25)}
+.ae-drop-beam{position:absolute;inset:14px;border-radius:26px;pointer-events:none;
+  border:1.5px dashed rgba(240,170,140,.42);transform:scale(.985);
+  transition:transform .5s cubic-bezier(.2,.9,.25,1.2),border-color .25s}
+.ae-drop.on .ae-drop-beam{transform:none;animation:aebreathe 2.4s ease-in-out infinite}
+@keyframes aebreathe{50%{border-color:rgba(255,196,170,.8);box-shadow:inset 0 0 60px rgba(217,119,87,.16)}}
+.ae-drop-card{position:relative;text-align:center;color:#f6efe9;
+  transform:translate(calc(var(--px)*10px),calc(var(--py)*10px)) scale(.92);opacity:0;
+  transition:transform .5s cubic-bezier(.2,.9,.25,1.25),opacity .25s}
+.ae-drop.on .ae-drop-card{transform:translate(calc(var(--px)*10px),calc(var(--py)*10px));opacity:1}
+.ae-drop-stack{position:relative;width:200px;height:132px;margin:0 auto 22px}
+.ae-drop-stack i{position:absolute;left:50%;top:14px;width:84px;height:104px;margin-left:-42px;
+  border-radius:14px;background:linear-gradient(160deg,#2a211c,#1a1411);
+  border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.45);
+  transition:transform .55s cubic-bezier(.2,.9,.25,1.35),background .25s;overflow:hidden}
+.ae-drop-stack i::before{content:"";position:absolute;left:0;right:0;bottom:0;height:58px;
+  background:linear-gradient(180deg,#e9a17f,#b85f43);
+  clip-path:polygon(0 100%,0 62%,22% 34%,42% 66%,64% 22%,100% 70%,100% 100%)}
+.ae-drop-stack i::after{content:"";position:absolute;right:18px;top:16px;width:14px;height:14px;
+  border-radius:50%;background:#ffd8b8;box-shadow:0 0 14px rgba(255,216,184,.7)}
+.ae-drop-stack .t1{transform:rotate(-4deg)}
+.ae-drop-stack .t2{transform:rotate(4deg)}
+.ae-drop-stack .t3{z-index:2;background:linear-gradient(160deg,#3a2a22,#211814)}
+.ae-drop.on .ae-drop-stack .t1{transform:translate(-58px,10px) rotate(-16deg)}
+.ae-drop.on .ae-drop-stack .t2{transform:translate(58px,10px) rotate(16deg)}
+.ae-drop.on .ae-drop-stack .t3{animation:aebob 1.8s ease-in-out infinite}
+.ae-drop.on .ae-drop-stack .t1::after,.ae-drop.on .ae-drop-stack .t2::after{animation:aebob 2.2s ease-in-out infinite .3s}
+@keyframes aebob{50%{transform:translateY(-7px)}}
+.ae-drop-stack .t3 b{position:absolute;left:50%;bottom:-12px;width:30px;height:30px;margin-left:-15px;
+  border-radius:50%;background:var(--acc);box-shadow:0 6px 18px rgba(217,119,87,.6);z-index:3}
+.ae-drop-stack .t3 b::before{content:"";position:absolute;left:50%;top:7px;width:2px;height:12px;
+  margin-left:-1px;background:#fff;border-radius:1px}
+.ae-drop-stack .t3 b::after{content:"";position:absolute;left:50%;top:13px;width:8px;height:8px;
+  margin-left:-5px;border-right:2px solid #fff;border-bottom:2px solid #fff;transform:rotate(45deg)}
+.ae-drop.on .ae-drop-stack .t3 b{animation:aenudge 1.1s ease-in-out infinite}
+@keyframes aenudge{50%{transform:translateY(3px)}}
+.ae-drop-stack .t3 b{bottom:8px}
+.ae-drop-h{font-size:22px;font-weight:600;letter-spacing:-.01em}
+.ae-drop-s{margin-top:6px;font-size:13.5px;color:rgba(246,239,233,.66);max-width:420px}
+.ae-drop.bad .ae-drop-beam{border-color:rgba(232,120,120,.55);animation:none}
+.ae-drop.bad .ae-drop-stack i{filter:grayscale(1) brightness(.75)}
+.ae-drop.bad .ae-drop-stack{animation:aeshake .42s ease}
+.ae-drop.bad .ae-drop-stack .t3 b{display:none}
+@keyframes aeshake{20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+@media (prefers-reduced-motion:reduce){
+  .ae-drop,.ae-drop-card,.ae-drop-stack i,.ae-drop-beam{transition:opacity .15s!important}
+  .ae-drop *,.ae-drop .ae-drop-beam,.cthumb,.composer.ae-took,.cthumb-load{animation:none!important}
+  .ae-drop-card,.ae-drop.on .ae-drop-card{transform:none}
+}
 .turn.you .bubble{background:var(--panel2);border:1px solid var(--line);
   border-radius:15px 15px 5px 15px;padding:10px 14px;max-width:84%;
   font-size:14px;line-height:1.55;color:var(--tx);white-space:pre-wrap;
@@ -12891,12 +13025,8 @@ async function openDesign(){
   const b=$('designbtn');if(b)b.classList.add('sel');
   if(!DESIGN.wired){          // ON THE DOCUMENT, not the element: this view is
     DESIGN.wired=true;        // re-rendered constantly and a per-node handler dies.
-    document.addEventListener('paste',ev=>{
-      if(S.view!=='design')return;
-      const it=[...(ev.clipboardData||{items:[]}).items||[]]
-        .find(i=>i.type&&i.type.startsWith('image/'));
-      if(it)designNew(it.getAsFile());
-    });
+    /* paste and drop for this view live with the composer's: one handler
+       decides where an image goes, so it can never land twice. */
   }
   renderSidebar();renderHeader();renderTab();
 }
@@ -13458,50 +13588,127 @@ function renderPending(ta){
   ta=ta||activeImgTa();
   const row=chipRow(ta); if(!row)return;
   row.hidden=!CODE.pending.length;
-  row.innerHTML=CODE.pending.map((p,i)=>p.busy
-    ?`<div class="cthumb busy" title="attaching…"><span>attaching…</span></div>`
-    :p.err?`<div class="cthumb err" title="${esc(p.err)}"><span>${esc(p.err)}</span>
-       <button onclick="unattach(${i})" aria-label="Remove">×</button></div>`
-    :`<div class="cthumb" title="${esc(p.label)}"><img src="${p.url}" alt="${esc(p.label)}">
-       <button onclick="unattach(${i})" aria-label="Remove image">×</button></div>`).join('');
+  row.innerHTML=CODE.pending.map((p,i)=>{
+    const land=p.fresh?' landing':'';
+    if(p.err)return `<div class="cthumb err" title="${esc(p.err)}"><span>${esc(p.err)}</span>
+       <button onclick="unattach(${i})" aria-label="Remove">×</button></div>`;
+    // the local preview is already decoded: keep it, so the thumbnail does not
+    // blink when the upload finishes and the server's copy arrives
+    const src=p.preview||p.url;
+    return `<div class="cthumb${p.busy?' busy':''}${land}" data-slot="${i}" title="${esc(p.label)}">`
+      +(src?`<img src="${src}" alt="${esc(p.label)}">`:`<span>attaching…</span>`)
+      +(p.busy?`<i class="cthumb-load" aria-hidden="true"></i>`
+              :`<button onclick="unattach(${i})" aria-label="Remove image">×</button>`)
+      +`</div>`;
+  }).join('');
+  CODE.pending.forEach(p=>{p.fresh=false;});
 }
-function unattach(i){ CODE.pending.splice(i,1); renderPending(); }
+function unattach(i){ const p=CODE.pending.splice(i,1)[0];
+  if(p&&p.preview)try{URL.revokeObjectURL(p.preview);}catch(e){}
+  renderPending(); }
 function takePending(){
   const ok=CODE.pending.filter(p=>p.name&&!p.busy&&!p.err);
   CODE.pending=[]; renderPending();
   return ok;
 }
-async function attachImage(file,ta){
+const STILL=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* An image that was dropped FLIES into the box it went to: the person sees
+   where it went, which is the whole point of the animation. */
+function flyIn(src,from,slot){
+  if(!from||!slot||STILL()||!src)return;
+  const to=slot.getBoundingClientRect(); if(!to.width)return;
+  const f=document.createElement('img');
+  f.className='ae-flyer'; f.src=src; f.alt='';
+  const s=132;
+  Object.assign(f.style,{left:(from.x-s/2)+'px',top:(from.y-s/2)+'px',width:s+'px',height:s+'px'});
+  document.body.appendChild(f);
+  slot.classList.add('waiting');
+  const dx=to.left+to.width/2-from.x, dy=to.top+to.height/2-from.y, k=to.width/s;
+  const a=f.animate([
+    {transform:'translate(0,0) scale(.6) rotate(-8deg)',opacity:0},
+    {transform:'translate(0,-14px) scale(1.04) rotate(3deg)',opacity:1,offset:.22},
+    {transform:`translate(${dx}px,${dy}px) scale(${k}) rotate(0deg)`,opacity:1}],
+    {duration:640,easing:'cubic-bezier(.3,.7,.15,1)',fill:'forwards'});
+  a.onfinish=()=>{f.remove();slot.classList.remove('waiting');
+    slot.classList.add('landed');setTimeout(()=>slot.classList.remove('landed'),500);
+    const c=slot.closest('.composer'); if(c){c.classList.remove('ae-took');void c.offsetWidth;c.classList.add('ae-took');}};
+}
+async function attachImage(file,ta,from){
   if(!file)return;
-  const slot={busy:true,label:file.name||'pasted image'};
+  let preview='';try{preview=URL.createObjectURL(file);}catch(e){}
+  const slot={busy:true,label:file.name&&!/^image\.\w+$/.test(file.name)?file.name:'pasted image',
+              preview,fresh:true};
   CODE.pending.push(slot); renderPending(ta);
+  const row=chipRow(ta||activeImgTa());
+  const el=row&&row.querySelector(`[data-slot="${CODE.pending.indexOf(slot)}"]`);
+  flyIn(preview,from,el);
   try{
-    const b64=await new Promise((res,rej)=>{
-      const r=new FileReader();
-      r.onload=()=>res(String(r.result)); r.onerror=()=>rej(new Error('unreadable'));
-      r.readAsDataURL(file);
-    });
-    const r=await api('/api/image',{data:b64});
+    const r=await api('/api/image',{data:await uploadable(file)});
     Object.assign(slot,{busy:false,name:r.name,url:'/uploads/'+r.name});
+    // a HEIC or TIFF preview may not draw here; the stored copy is a PNG
+    if(!/^image\/(png|jpe?g|gif|webp)$/.test(file.type||'')&&slot.preview){
+      try{URL.revokeObjectURL(slot.preview);}catch(e){} slot.preview='';}
   }catch(e){ Object.assign(slot,{busy:false,err:'could not attach: '+e.message}); }
   renderPending(ta); if(ta)ta.focus();
 }
+/* An image the browser can show but the store does not keep (HEIC, TIFF,
+   BMP, AVIF…) is redrawn as PNG first, so every picture a Mac can open
+   can be attached. */
+async function uploadable(file){
+  if(/^image\/(png|jpe?g|gif|webp)$/.test(file.type||''))return await b64of(file);
+  try{
+    const bm=await createImageBitmap(file);
+    const c=document.createElement('canvas');c.width=bm.width;c.height=bm.height;
+    c.getContext('2d').drawImage(bm,0,0);
+    return c.toDataURL('image/png');
+  }catch(e){ return await b64of(file); }
+}
+/* An attachment the native side already stored (from the Mac's clipboard
+   or drag), shown like any other. */
+function attachStored(list,ta,from){
+  for(const im of list){
+    const slot={busy:false,name:im.name,url:'/uploads/'+im.name,label:im.label||'image',fresh:true};
+    CODE.pending.push(slot); renderPending(ta);
+    const row=chipRow(ta||activeImgTa());
+    flyIn(slot.url,from,row&&row.querySelector(`[data-slot="${CODE.pending.indexOf(slot)}"]`));
+  }
+  if(ta)ta.focus();
+}
+const isImg=f=>/^image\//.test(f.type||'')||/\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp|avif)$/i.test(f.name||'');
+const isSite=f=>/\.(html?|zip)$/i.test(f.name||'');
+async function startProjectFrom(rest){
+  /* an export or saved pages: start a project from them, as the box says */
+  const name=(rest[0].name||'site').replace(/\.(html?|zip)$/i,'')
+    .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'site';
+  try{
+    toast('Starting a project from '+rest[0].name+'…');
+    const files=[];
+    for(const f of rest)files.push({filename:f.name,data_b64:await b64of(f)});
+    const r=await api('/api/projects',{name,files});
+    await select(r.name);
+  }catch(e){ toast('could not start a project from that file: '+e.message,'bad'); }
+}
+/* ONE place decides what a file is for: an image goes to the box (or, in
+   the Design view, becomes a page), an export starts a project, and
+   anything else is named and refused, never silently dropped. */
+function takeFiles(fl,ta,from){
+  const pics=fl.filter(isImg), sites=fl.filter(f=>!isImg(f)&&isSite(f)),
+        other=fl.filter(f=>!isImg(f)&&!isSite(f));
+  if(pics.length){
+    if(S.view==='design'&&typeof designNew==='function'){ designNew(pics[0]); }
+    else if(ta){ pics.slice(0,8).forEach((f,i)=>attachImage(f,ta,
+        from&&{x:from.x+i*18,y:from.y+i*10})); }
+    else toast('Open a conversation to add images to it');
+  }
+  if(sites.length&&!pics.length)startProjectFrom(sites);
+  if(other.length)toast((other.length===1?other[0].name+' is not':other.length+' files are not')
+    +' something Aethron can open here. Drop an image (PNG, JPG, GIF, WEBP or HEIC), '
+    +'or a site export (.html or .zip).','bad');
+  return pics.length+sites.length;
+}
 async function composerFiles(inp){
   const fl=[...(inp.files||[])]; inp.value='';
-  const ta=activeImgTa(inp)||$('npurl');
-  const pics=fl.filter(f=>/^image\//.test(f.type)), rest=fl.filter(f=>!/^image\//.test(f.type));
-  pics.forEach(f=>attachImage(f,ta));
-  if(rest.length){
-    /* an export or saved pages: start a project from them, as the box says */
-    const name=(rest[0].name||'site').replace(/\.(html?|zip)$/i,'')
-      .toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'site';
-    try{
-      const files=[];
-      for(const f of rest)files.push({filename:f.name,data_b64:await b64of(f)});
-      const r=await api('/api/projects',{name,files});
-      await select(r.name);
-    }catch(e){ alert('could not start a project from that file: '+e.message); }
-  }
+  takeFiles(fl,activeImgTa(inp)||$('npurl'),null);
 }
 function youImages(e){
   return (e.images||[]).map(u=>String(u).indexOf('/uploads/')===0?u
@@ -13514,25 +13721,171 @@ function activeImgTa(t){
   for(const id of IMG_TAS){ const e=$(id); if(e&&e.offsetParent!==null)return e; }
   return null;
 }
-document.addEventListener('paste',ev=>{
-  const ta=activeImgTa(ev.target); if(!ta)return;
-  const items=(ev.clipboardData&&ev.clipboardData.items)||[];
-  for(let i=0;i<items.length;i++){
-    if(items[i].kind==='file'&&/^image\//.test(items[i].type)){
-      ev.preventDefault(); attachImage(items[i].getAsFile(),ta); return;
+/* ── PASTE ──────────────────────────────────────────────────────────────
+   Two routes, and the second exists because of the app: the web platform
+   hands over pasted images as files, but inside Aethron.app Cmd+V with no
+   text box focused never reaches the page, and a copied Finder file or a
+   HEIC arrives as a name, not a picture. Then the Mac's own clipboard is
+   read natively (/api/native/paste). A keydown waits a beat for a real
+   paste event first, so one paste never attaches twice. */
+const PASTE={at:0,kbd:0};
+const editable=t=>t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+async function nativePaste(ta,quiet){
+  try{
+    const r=await api('/api/native/paste',{});
+    if(r.images&&r.images.length){
+      if(S.view==='design'&&typeof designNew==='function'){
+        const res=await fetch('/uploads/'+r.images[0].name); const b=await res.blob();
+        designNew(new File([b],r.images[0].label||'pasted.png',{type:b.type||'image/png'}));
+      } else attachStored(r.images,ta,null);
+      return true;
     }
+    if(!quiet&&r.native&&r.others&&r.others.length)
+      toast(r.others[0]+' is not an image','bad');
+  }catch(e){}
+  return false;
+}
+document.addEventListener('paste',ev=>{
+  PASTE.at=Date.now();
+  // Another field (a key in Settings, a search box) pastes as usual.
+  const own=ev.target&&(IMG_TAS.indexOf(ev.target.id)>=0||(ev.target.closest&&ev.target.closest('.composer')));
+  if(editable(ev.target)&&!own&&S.view!=='design')return;
+  const ta=activeImgTa(ev.target);
+  if(!ta&&S.view!=='design')return;
+  const cd=ev.clipboardData; if(!cd)return;
+  const files=[];
+  const items=cd.items||[];
+  for(let i=0;i<items.length;i++){
+    if(items[i].kind==='file'){const f=items[i].getAsFile(); if(f)files.push(f);}
   }
+  if(!files.length&&cd.files)for(const f of cd.files)files.push(f);
+  const pics=files.filter(isImg);
+  if(pics.length){ ev.preventDefault(); takeFiles(pics,ta,null); return; }
+  const types=[...(cd.types||[])];
+  const words=(cd.getData&&cd.getData('text/plain'))||'';
+  // Nothing usable through the web: a copied file, or a picture the view
+  // could not hand over. Ask the Mac, and keep a copied file's NAME out
+  // of the box.
+  if(types.indexOf('Files')>=0||!words.trim()){
+    if(types.indexOf('Files')>=0)ev.preventDefault();
+    nativePaste(ta,!types.includes('Files'));
+  }
+},true);
+document.addEventListener('keydown',ev=>{
+  if(!(ev.metaKey||ev.ctrlKey)||ev.altKey||(ev.key||'').toLowerCase()!=='v')return;
+  if(editable(ev.target))return;          // a text box gets a real paste event
+  const ta=activeImgTa(null); if(!ta&&S.view!=='design')return;
+  PASTE.kbd=Date.now();
+  setTimeout(()=>{ if(PASTE.at>=PASTE.kbd)return; nativePaste(ta,false).then(ok=>{
+      if(!ok&&!(navigator.clipboard&&navigator.clipboard.read))return;
+      if(ok)return;
+      navigator.clipboard.read().then(async list=>{
+        for(const it of list){const t=it.types.find(x=>/^image\//.test(x));
+          if(t){const b=await it.getType(t);takeFiles([new File([b],'pasted image.'+t.split('/')[1],{type:t})],ta,null);return;}}
+      }).catch(()=>{});
+  });},140);
 });
+/* ── DROP ───────────────────────────────────────────────────────────────
+   Anywhere on the window, not only on the box: the whole window lights up
+   while a file is over it, and the image flies to the box it lands in.
+   Every file drag is caught, so the window can never navigate away to the
+   dropped file. When the web view drops with no files in it (a screenshot
+   dragged from its floating thumbnail, a photo from Photos) the Mac's own
+   drag pasteboard is read instead (/api/native/drop). */
+const DROP={inside:false,idle:0,el:null};
+function fileDrag(dt){
+  if(!dt||DROP.inside)return false;
+  const t=[...(dt.types||[])];
+  return t.indexOf('Files')>=0||t.some(x=>/^image\/|promise|public\.(png|jpeg|tiff|file-url)/i.test(x));
+}
+function dropKind(dt){
+  // Chrome names each file's type during the drag; WebKit does not, and
+  // then the overlay simply says it takes images and exports.
+  const it=[...(dt.items||[])].filter(i=>i.kind==='file');
+  if(!it.length||it.every(i=>!i.type))return 'any';
+  if(it.some(i=>/^image\//.test(i.type)))return 'image';
+  if(it.some(i=>/zip|html/.test(i.type)))return 'site';
+  return 'bad';
+}
+function dropOverlay(){
+  if(DROP.el)return DROP.el;
+  const d=document.createElement('div');
+  d.className='ae-drop'; d.setAttribute('aria-hidden','true');
+  d.innerHTML=`<div class="ae-drop-beam"></div><div class="ae-drop-card">
+    <div class="ae-drop-stack"><i class="t1"></i><i class="t2"></i><i class="t3"><b></b></i></div>
+    <div class="ae-drop-h"></div><div class="ae-drop-s"></div></div>`;
+  document.body.appendChild(d); DROP.el=d; return d;
+}
+function dropShow(kind,ev){
+  const d=dropOverlay(), ta=activeImgTa(null);
+  const design=S.view==='design';
+  const where=design?'to turn it into a page':ta?'to add it to the conversation':'';
+  const txt={image:['Drop your image here',where?'It goes '+where.replace(/^to add it to/,'straight into').replace(/^to turn it into/,'in and becomes'):'Open a conversation first, then drop it here'],
+    any:['Drop it here',design?'An image becomes a page':'Images go to Aethron · .html or .zip exports start a project'],
+    site:['Drop to start a project','From this site export'],
+    bad:['Aethron can’t open that here','Drop an image (PNG, JPG, GIF, WEBP, HEIC) or a site export (.html, .zip)']}[kind]||['Drop it here',''];
+  d.querySelector('.ae-drop-h').textContent=txt[0];
+  d.querySelector('.ae-drop-s').textContent=txt[1];
+  d.classList.toggle('bad',kind==='bad'||(kind==='image'&&!ta&&!design));
+  if(!d.classList.contains('on')){d.classList.remove('off');void d.offsetWidth;d.classList.add('on');}
+  if(ev){const w=innerWidth,h=innerHeight;
+    d.style.setProperty('--px',((ev.clientX/w-.5)*2).toFixed(3));
+    d.style.setProperty('--py',((ev.clientY/h-.5)*2).toFixed(3));}
+  clearTimeout(DROP.idle);
+  // WebKit does not always say when a drag leaves the window; a drag that
+  // stops sending dragover is over.
+  DROP.idle=setTimeout(dropHide,900);
+}
+function dropHide(){ clearTimeout(DROP.idle);
+  if(DROP.el&&DROP.el.classList.contains('on')){DROP.el.classList.remove('on');DROP.el.classList.add('off');} }
+document.addEventListener('dragstart',()=>{DROP.inside=true;});
+document.addEventListener('dragend',()=>{DROP.inside=false;dropHide();});
+document.addEventListener('dragenter',ev=>{
+  if(!fileDrag(ev.dataTransfer))return;
+  ev.preventDefault(); dropShow(dropKind(ev.dataTransfer),ev);
+},true);
 document.addEventListener('dragover',ev=>{
-  if(ev.dataTransfer&&Array.prototype.indexOf.call(
-      ev.dataTransfer.types||[],'Files')>=0&&activeImgTa(ev.target))
-    ev.preventDefault();
-});
+  if(!fileDrag(ev.dataTransfer))return;
+  ev.preventDefault();
+  const k=dropKind(ev.dataTransfer);
+  ev.dataTransfer.dropEffect=k==='bad'?'none':'copy';
+  dropShow(k,ev);
+},true);
+document.addEventListener('dragleave',ev=>{
+  if(!fileDrag(ev.dataTransfer))return;
+  // Leaving one element for another (or for the overlay itself) is not
+  // leaving the window: counting enters and leaves makes the overlay
+  // flicker the moment it appears under the pointer. Only a leave at the
+  // window's edge ends it; a drag that goes quiet ends it too (dropShow).
+  if(ev.clientX<=0||ev.clientY<=0||ev.clientX>=innerWidth-1||ev.clientY>=innerHeight-1)dropHide();
+},true);
 document.addEventListener('drop',ev=>{
-  const ta=activeImgTa(ev.target); if(!ta)return;
-  const f=(ev.dataTransfer&&ev.dataTransfer.files||[])[0];
-  if(f&&/^image\//.test(f.type)){ ev.preventDefault(); attachImage(f,ta); }
-});
+  if(DROP.inside){DROP.inside=false;return;}
+  const dt=ev.dataTransfer;
+  if(!fileDrag(dt)&&!(dt&&dt.files&&dt.files.length))return;
+  ev.preventDefault(); dropHide();
+  const from={x:ev.clientX,y:ev.clientY};
+  const ta=activeImgTa(ev.target)||activeImgTa(null);
+  const fl=[...((dt&&dt.files)||[])];
+  if(fl.length){
+    takeFiles(fl,ta,from);
+    api('/api/native/drop',{discard:true}).catch(()=>{});
+    return;
+  }
+  api('/api/native/drop',{}).then(async r=>{
+    if(r.images&&r.images.length){
+      if(S.view==='design'&&typeof designNew==='function'){
+        const res=await fetch('/uploads/'+r.images[0].name); const b=await res.blob();
+        designNew(new File([b],r.images[0].label||'dropped.png',{type:b.type||'image/png'}));
+      } else if(ta) attachStored(r.images,ta,from);
+      else toast('Open a conversation to add images to it');
+    } else if(r.others&&r.others.length){
+      toast(r.others[0]+' is not something Aethron can open here. Drop an image or a site export.','bad');
+    } else if(r.native===false){
+      toast('Nothing in that drop could be read as a file. Try dragging the image from Finder.','bad');
+    }
+  }).catch(()=>{});
+},true);
 async function sendCode(){
   CODE.nudges=0;
   const ta=$('chatta'),text=ta.value.trim();

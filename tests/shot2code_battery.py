@@ -40,6 +40,9 @@ def check(n, c):
 
 REF = ROOT / "tests" / "pages" / "recognito.png"
 REAL = (ROOT / "tests" / "pages" / "recognito-real.html").read_text()
+# the same page built the way a developer ships it: tokens, <main>, a working
+# phone menu, hover and focus states, a description and share card
+CRAFTED = (ROOT / "tests" / "pages" / "recognito-crafted.html").read_text()
 CARRY = ("<!doctype html><html><body style='margin:0'><img style='display:block' "
          "src='data:image/png;base64," + base64.b64encode(REF.read_bytes()).decode()
          + "'><h1 style='position:absolute;top:230px;width:100%;text-align:center;"
@@ -128,21 +131,47 @@ else:
     g = S.grade(REF, page("carry.html", CARRY))
     check("grade_page FAILS the 1.1.27-style page, naming the reuse",
           g["verdict"] == "FAIL" and g["reused"])
-    g2 = S.grade(REF, page("real.html", REAL))
-    check(f"grade_page PASSES the hand-written CSS page ({g2.get('likeness', 0):.0%} alike)",
-          g2["verdict"] == "PASS" and g2["likeness"] >= S.LIKENESS_FLOOR)
+    g2 = S.grade(REF, page("crafted.html", CRAFTED))
+    check(f"grade_page PASSES the page built like a website ({g2.get('likeness', 0):.0%} alike)",
+          g2["verdict"] == "PASS" and g2["likeness"] >= S.LIKENESS_FLOOR
+          or print(g2.get("findings")))
+    check("and every website check on it is ticked",
+          g2.get("craft") and all(c["ok"] for c in g2["craft"]) and len(g2["craft"]) >= 8)
     check("and it found the real nav links and buttons",
           g2["elements"]["a"] >= 6 and g2["elements"]["button"] >= 2)
+    gr = S.grade(REF, page("real.html", REAL))
+    check("a page that only LOOKS right is refused: no <main>, nav gone on phones",
+          gr["verdict"] == "FAIL" and gr["likeness"] >= S.LIKENESS_FLOOR
+          and any("<main>" in f for f in gr["findings"])
+          and any("nav links disappear" in f for f in gr["findings"]))
+    gf = S.grade(REF, page("real-fin.html", S.finish_site(REAL, accent="#040201")))
+    check("Aethron adds the head, focus and hover states itself, and the look does not move",
+          not any(k in " ".join(gf["findings"]) for k in ("<head>", ":hover", ":focus-visible"))
+          and abs(gf["likeness"] - gr["likeness"]) < 0.002)
+    dead_menu = CRAFTED.split("<script>")[0] + "</main>\n</body>"
+    gm = S.grade(REF, page("deadmenu.html", dead_menu))
+    check("a phone menu button that opens nothing is caught",
+          any("phone menu button does not work" in f for f in gm["findings"])
+          or print(gm["findings"]))
+    faint = CRAFTED.replace(".sub{color:var(--muted);", ".sub{color:#2a2523;")
+    gc = S.grade(REF, page("faint.html", faint))
+    check("text too faint to read is caught, with its contrast",
+          any("too faint" in f and ":1" in f for f in gc["findings"]))
+    noname = CRAFTED.replace('aria-label="Open menu">', '>')
+    noname = noname.replace("&#9776;", "<svg aria-hidden='true' width='16' height='16'></svg>")
+    gn = S.grade(REF, page("noname.html", noname))
+    check("an icon-only button with no name is caught (screen readers say 'button')",
+          any("no accessible name" in f for f in gn["findings"]) or print(gn["findings"]))
     g3 = S.grade(REF, page("black.html", BLACK))
     check("a black page FAILS for not looking like the screenshot",
           g3["verdict"] == "FAIL" and g3["likeness"] < S.LIKENESS_FLOOR)
-    wide = REAL.replace("</body>", "<div style='width:1460px;height:4px'></div></body>")
+    wide = CRAFTED.replace("</body>", "<div style='width:1460px;height:4px'></div></body>")
     g4 = S.grade(REF, page("wide.html", wide))
     check("a page that hangs off a phone is caught",
           g4["phones_checked"] and any("390px" in f for f in g4["findings"]))
 
     calls = []
-    script = ["```html\n" + CARRY + "\n```", "```html\n" + REAL + "\n```",
+    script = ["```html\n" + CARRY + "\n```", "```html\n" + CRAFTED + "\n```",
               "```html\n" + BLACK + "\n```"]
 
     def writer(prompt, images):
@@ -166,6 +195,9 @@ else:
           and "Apply for Beta" in site.read_text())
     check("the page handed over shows no picture of the screenshot",
           S.reuse(site.read_text(), site.parent, REF) == [])
+    handed = site.read_text()
+    check("the page handed over carries a description, share card and skip link",
+          'name="description"' in handed and "og:title" in handed and "Skip to content" in handed)
     check("every element carries an id, for point-and-edit",
           site.read_text().count('data-ae-id="e') >= 20)
     check("the report says how alike, and how many rounds",

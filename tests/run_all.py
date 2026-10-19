@@ -44,6 +44,7 @@ SUITES = [
                 "aethron_news.py", "tests/news_battery.py", "tests/image_battery.py",
                 "tests/page_preview_battery.py",
                 "aethron_shot2code.py", "tests/shot2code_battery.py",
+                "aethron_native.py", "tests/drop_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
@@ -174,6 +175,8 @@ SUITES = [
      [PY, "tests/page_preview_battery.py"], False),
     ("a screenshot becomes real code, never a picture of itself",
      [PY, "tests/shot2code_battery.py"], False),
+    ("images dropped or pasted anywhere reach the chat (routes + browser)",
+     [PY, "tests/drop_battery.py"], False),
     ("history and going back", [PY, "tests/history_battery.py"], False),
     ("keeper battery (an agent's run, and what went missing)",
      [PY, "tests/keeper_battery.py"], True),

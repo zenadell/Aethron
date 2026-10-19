@@ -199,6 +199,16 @@ def main():
             pass
 
     studio.FOCUS_APP = raise_window
+    # Paste and drop read the Mac's own pasteboards when the web view comes
+    # back empty-handed (Cmd+V with nothing focused, a screenshot dragged
+    # from its floating thumbnail, a photo dragged out of Photos).
+    try:
+        import aethron_native
+        if aethron_native.available():
+            studio.NATIVE = aethron_native
+            _log("native paste/drop: ready")
+    except Exception as e:
+        _log(f"native paste/drop: off ({type(e).__name__}: {e})")
 
     def install_liquid_glass():
         """Put the REAL system material in the window, behind the page.

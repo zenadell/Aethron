@@ -5970,6 +5970,64 @@ NOT PROVEN HERE: a live gpt-4.1-mini run — this container has no key.
 The old carry pipeline still exists for `forge screenshot`; nothing the
 app or the agent reaches uses it.
 
+## DROP AND PASTE ANYWHERE, AND IMAGE-TO-CODE BUILT LIKE A WEBSITE
+## — 2026-10-19
+temple: images could only be attached through the file picker, and
+image-to-code should give a real website (responsive, a working phone
+menu, everything a developer adds), not just a page that looks alike.
+DROP AND PASTE. The handlers worked only over the chat box, and the app
+never read the Mac's own pasteboard. Cmd+V with nothing focused never
+reaches a WKWebView page, and a screenshot thumbnail or Photos drag
+arrives as a file promise with NO files. Now:
+- Listeners are on document. A file dragged anywhere opens a full-window
+  overlay (blurred tint, breathing dashed edge, a card of fanned picture
+  tiles that follows the pointer). The dropped image FLIES into its
+  thumbnail slot. A file Aethron cannot open shakes and says so. An
+  .html/.zip starts a project, and in the Design view an image starts a
+  rebuild.
+- When the web view hands over nothing, `aethron_native.py` reads the
+  general or drag pasteboard on the main thread: file URLs, png/jpeg/
+  tiff/heic data, anything NSImage reads, converted to PNG. Routes:
+  /api/native/paste and /api/native/drop. Each drop is read once, keyed
+  by changeCount, so an empty drop can never bring back an older image.
+- The overlay hides on 900ms with no dragover or a dragleave at the
+  window edge. Counting dragenter/leave depth flickers.
+- The thumbnail keeps its local preview after upload, because swapping
+  to the server copy made it blink. A HEIC/TIFF preview is dropped for
+  the stored PNG.
+tests/drop_battery.py 26/26 (routes with a fake pasteboard; Playwright
+for the overlay, flight, refusal, paste, the native fallbacks,
+reduced motion). The pasteboard code itself runs only on a Mac:
+`aethron_native.py --selftest` (private pasteboard) now runs in the
+release workflow, and on Linux it reports SKIPPED.
+WEBSITE QUALITY. `grade_page` and the build loop now ALSO hold the page
+to what a developer ships. Probes run at 390/768/1280 (CRAFT_JS through
+aethron_eye.read_page's new `probe=`):
+- no sideways scroll;
+- a nav with 4+ links must stay reachable on a phone: the menu button
+  is clicked, and aria-expanded must turn true and the links must show;
+- one <main>, one <h1>;
+- every control named, at EVERY width (a phone-only menu button is
+  hidden at desktop, and the first version only checked desktop);
+- contrast measured against the real ground (ratio under 3 fails);
+- from the source: head tags, @media, :hover/:focus-visible, :root
+  tokens, alt text, real hrefs, no lorem.
+`finish_site()` adds what any developer adds without being asked: head
+(title from the h1, description from the first real paragraph, og/
+twitter, theme-color, favicon), focus and hover states, a skip link,
+reduced motion, alt="", aria-label from placeholders, and section ids
+the nav's # links point at. It is idempotent, and on the measured page
+likeness did not move (within 0.002). It runs on every round, and on
+pages the agent writes itself, before grade_page checks them. What it
+cannot add (a phone menu, landmarks, real structure) stays a finding
+the model must fix. The tool's answer lists the checklist with ✓/✗.
+A page that only LOOKS right (tests/pages/recognito-real.html, 51%
+alike) is now refused for no <main> and a nav that vanishes on phones.
+The same design written properly (tests/pages/recognito-crafted.html)
+passes every check. RULES became a senior developer's brief.
+NOT PROVEN HERE: a live model run (this container has no key), and the
+pasteboard code on a real Mac before the release workflow runs it.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6191,3 +6249,8 @@ app or the agent reaches uses it.
 - AN ATTACHMENT THE PERSON CANNOT SEE WAS NOT ATTACHED, AND ONE THE MODEL
   CANNOT SEE WAS NOT SENT. Show it; send it as image input; say so when a
   model has no eyes.
+- A DROP OR PASTE THE WEB VIEW HANDS OVER EMPTY ASKS THE MAC'S OWN
+  PASTEBOARD before saying there was nothing.
+- A PAGE BUILT FROM A SCREENSHOT IS HELD TO WHAT A DEVELOPER SHIPS:
+  phones, a working menu, landmarks, named controls, readable contrast,
+  a real head. Looking alike is necessary, not enough.

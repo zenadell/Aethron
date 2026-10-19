@@ -246,6 +246,12 @@ else:
                 pg.wait_for_timeout(800)
                 pg.set_input_files(".composer .cattach-in", str(PIC))
                 pg.wait_for_selector(".composer .cthumb img", timeout=10000)
+                try:
+                    pg.wait_for_function("()=>{const i=document.querySelector("
+                                         "'.composer .cthumb img');return i&&i.complete"
+                                         "&&i.naturalWidth>0}", timeout=5000)
+                except Exception:
+                    pass
                 nat = pg.eval_on_selector(".composer .cthumb img",
                                           "i=>i.complete&&i.naturalWidth")
                 check("an attached image shows as a thumbnail in the composer",
