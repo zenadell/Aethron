@@ -2380,9 +2380,31 @@ Upload as-is. Optional: route unknown extension-less paths to
 """, encoding="utf-8")
 
 
+_LEARNING = False
+
+
+def _needs_relearn(cfg) -> bool:
+    """A non-Framer site taken from a URL that was learned before Aethron
+    knew to own the scripts a page builds the address of at runtime.
+    Such a project can ship a blank page the moment its brand is filled
+    (see _learn_runtime_remote), so it learns once more, on its own."""
+    return (not _LEARNING and cfg.get("platform") != "framer"
+            and bool(cfg.get("source_url")) and "runtime_urls" not in cfg
+            and os.environ.get("AETHRON_NO_RELEARN") != "1")
+
+
 def cmd_build(_args):
     root = Path.cwd()
     cfg = read_cfg(root)
+    if _needs_relearn(cfg) and (root / "pristine").is_dir() \
+            and _find_browser():
+        print("checking once what the live site loads at runtime "
+              "(scripts it builds the address of)…")
+        try:
+            cmd_learn([])
+        except SystemExit:
+            pass
+        cfg = read_cfg(root)
     tampered = _pristine_tampered(root)
     if tampered:
         print(f"WARNING: pristine/ was MODIFIED ({len(tampered)} file(s): "
@@ -2655,6 +2677,7 @@ def cmd_build(_args):
         t, held = _regen_word_runs(t, pairs, stats=stats)
         t = _apply(t, pairs, escaped=True, stats=stats)
         t = _localize_refs(t, cfg.get("localized", {}))
+        t = _inject_runtime_map(t, cfg, pairs)
         t, n_regen = _regen_split_runs(t, pairs, stats=stats)
         if held:
             t = re.sub(r"\x00W(\d+)\x00", lambda m: held[int(m.group(1))], t)
@@ -2889,6 +2912,7 @@ def cmd_build(_args):
             src = rdir / fn
             if not src.exists():
                 continue
+            (adir / fn).parent.mkdir(parents=True, exist_ok=True)
             if fn.endswith(".css"):
                 css = _localize_refs(src.read_text(encoding="utf-8",
                                      errors="ignore"), lmap)
@@ -3610,6 +3634,130 @@ def _learn_get(url: str, timeout=40):
         return 0, b"", ""
 
 
+# What a page loaded from OTHER hosts at runtime, reported from inside the
+# page (performance entries see cross-origin loads that our own request
+# log never does), left in a DOM node for --dump-dom to hand back.
+REMOTE_REPORT_JS = r"""(function(){function rep(){try{var o=location.origin,
+out=[];(performance.getEntriesByType('resource')||[]).forEach(function(e){
+if(/^https?:/.test(e.name)&&e.name.indexOf(o)!==0)out.push(e.name)});
+var s=document.getElementById('__ae_remote');if(!s){s=document.createElement(
+'script');s.type='application/json';s.id='__ae_remote';(document.body||
+document.documentElement).appendChild(s)}s.textContent=JSON.stringify(out)
+}catch(e){}}window.addEventListener('load',function(){setTimeout(rep,2500)});
+setTimeout(rep,6000)})();"""
+
+# Services a page talks to rather than files it is made of: localizing
+# their loaders breaks them (they keep calling home), so they stay remote.
+SERVICE_HOSTS = TRACKER_HOSTS + (
+    "google.com", "gstatic.com", "googleapis.com", "youtube.com",
+    "vimeo.com", "stripe.com", "hsforms", "hubspot", "hs-scripts.com",
+    "hs-analytics", "calendly.com", "typeform.com", "recaptcha",
+    "cloudflareinsights.com", "posthog.com", "mixpanel.com",
+    "plausible.io", "linkedin.com", "twitter.com", "x.com",
+    "tiktok.com", "pinterest.com", "fbcdn.net", "facebook.com")
+
+
+def _remote_report(dom: str) -> set:
+    m = re.search(r'<script[^>]*id="__ae_remote"[^>]*>(.*?)</script>',
+                  dom, re.S)
+    try:
+        return set(json.loads(m.group(1))) if m else set()
+    except Exception:
+        return set()
+
+
+def _learn_runtime_remote(root, cfg, remote, lmap, learned) -> int:
+    """Own the scripts a page BUILDS THE ADDRESS OF at runtime.
+
+    trymeridian's pages start with `main{opacity:0}` and reveal it from a
+    script the page assembles in code —
+        `${PRODUCTION_URL}/main.js`  on  meridian-custom-code-…vercel.app
+    — so no scan of the markup sees a URL to localize. The page still
+    worked, because it loaded the template author's live server. Then the
+    brand fill did what it should, Meridian -> the owner's name
+    everywhere, which also renamed that host. The script 404'd, main
+    stayed transparent, and the owner saw a nav, a footer and nothing in
+    between.
+
+    So: every .js/.css a page fetched from another host whose address is
+    nowhere in the source text is downloaded and kept, and the build
+    maps it — under its original AND its rebranded spelling — to the
+    local copy (_inject_runtime_map). Services (analytics, forms,
+    payments, video) are left alone: they are not files of the site."""
+    pr = root / "pristine"
+    corpus = None
+    have = set(cfg.get("runtime_urls", []))
+    new = 0
+    for u in sorted(remote):
+        u = u.split("#")[0]
+        pu = urllib.parse.urlparse(u)
+        if u in lmap or u in have or "?" in u:
+            continue
+        if not pu.path.lower().endswith((".js", ".mjs", ".css")):
+            continue
+        if any(h in pu.netloc.lower() for h in SERVICE_HOSTS):
+            continue
+        if corpus is None:
+            parts = []
+            for f in pr.rglob("*"):
+                if f.is_file() and f.suffix.lower() in (
+                        ".html", ".htm", ".js", ".mjs", ".css") \
+                        and "remote-assets" not in f.parts:
+                    parts.append(html_mod.unescape(
+                        f.read_text(encoding="utf-8", errors="ignore")))
+            corpus = "\n".join(parts)
+        if u in corpus:
+            continue                     # written out: localize's job
+        st, body, _ = _learn_get(u)
+        if st != 200 or not body:
+            continue
+        name = _local_name(u)
+        (pr / "remote-assets").mkdir(parents=True, exist_ok=True)
+        (pr / "remote-assets" / name).write_bytes(body)
+        lmap[u] = name
+        have.add(u)
+        learned.append(("runtime script", name))
+        new += 1
+    cfg["runtime_urls"] = sorted(have)
+    return new
+
+
+def _runtime_map(cfg, pairs) -> dict:
+    """{address the page may build: where it really is now}."""
+    lmap = cfg.get("localized", {})
+    out = {}
+    for u in cfg.get("runtime_urls", []):
+        target = "/assets/r/" + lmap[u] if u in lmap else u
+        for k in {u, _apply(u, pairs) if pairs else u}:
+            if k != target:
+                out[k] = target
+    return out
+
+
+RUNTIME_MAP_JS = r"""(function(M){function m(u){if(typeof u!=='string')
+return u;if(M[u])return M[u];var b=u.split('?')[0];return M[b]||u}
+function hook(C,p){var d=C&&Object.getOwnPropertyDescriptor(C.prototype,p);
+if(d&&d.set)Object.defineProperty(C.prototype,p,{configurable:true,
+get:d.get,set:function(v){d.set.call(this,m(v))}})}
+hook(window.HTMLScriptElement,'src');hook(window.HTMLLinkElement,'href');
+var sa=Element.prototype.setAttribute;Element.prototype.setAttribute=
+function(n,v){if(n==='src'||n==='href')v=m(v);return sa.call(this,n,v)};
+var f=window.fetch;if(f)window.fetch=function(i,o){return f.call(this,
+typeof i==='string'?m(i):i,o)};var x=XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open=function(a,u){arguments[1]=m(u);
+return x.apply(this,arguments)}})(%s);"""
+
+
+def _inject_runtime_map(t: str, cfg: dict, pairs) -> str:
+    rmap = _runtime_map(cfg, pairs)
+    if not rmap:
+        return t
+    tag = ('<script data-aethron-runtime-map>' + RUNTIME_MAP_JS
+           % json.dumps(rmap).replace("</", "<\\/") + "</script>")
+    m = re.search(r"<head\b[^>]*>", t, re.I)
+    return (t[:m.end()] + tag + t[m.end():]) if m else tag + t
+
+
 def cmd_learn(args):
     """Ask the BROWSER what the site needs — any platform.
 
@@ -3634,6 +3782,7 @@ def cmd_learn(args):
     import contextlib
     import io
     import threading
+    global _LEARNING
     root = Path.cwd()
     cfg = read_cfg(root)
     src = cfg.get("source_url") or ""
@@ -3657,17 +3806,33 @@ def cmd_learn(args):
     # build the untouched site; it is removed at the end so inventory
     # still writes the real one. (Measured: without it, learn died on its
     # first rebuild and the migration went on with nothing learned.)
+    #
+    # LEARN FROM THE ORIGINAL, NEVER FROM THE FILLED COPY. A filled copy
+    # can already be broken by its fills (a brand fill renaming the host a
+    # script is loaded from), and a broken page asks for the wrong things:
+    # learning from it can never discover what the real site needs. So an
+    # existing copy map is set aside for the passes, then put back and the
+    # site rebuilt with it.
     stand_in = root / "copy_map.json"
-    made_stand_in = not stand_in.exists()
-    if made_stand_in:
-        stand_in.write_text(json.dumps({"strings": [], "images": [],
-                                        "links": []}), encoding="utf-8")
+    aside = root / "copy_map.learn-aside.json"
+    had_map = stand_in.exists()
+    if had_map:
+        stand_in.replace(aside)
+    stand_in.write_text(json.dumps({"strings": [], "images": [],
+                                    "links": []}), encoding="utf-8")
+    _LEARNING = True
     try:
         _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
                       private, unavailable, queried)
     finally:
-        if made_stand_in and stand_in.exists():
+        _LEARNING = False
+        if had_map:
+            aside.replace(stand_in)
+        elif stand_in.exists():
             stand_in.unlink()
+    if had_map:
+        with contextlib.redirect_stdout(io.StringIO()):
+            cmd_build([])
 
 
 def _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
@@ -3708,15 +3873,18 @@ def _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
                 with lock:
                     misses.add(path)
 
-        H = _site_handler(site, cfg.get("platform", "static"),
-                          on_request=record, quiet=True)
+        import aethron_motion as _motion
+        H = _motion._injecting_handler(site, cfg.get("platform", "static"),
+                                       REMOTE_REPORT_JS, on_request=record)
         srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{srv.server_address[1]}"
+        remote = set()
         for pg in probe_pages:
-            _render_page(browser, f"{base}/{pg}", budget_ms=8000)
+            got = _render_page(browser, f"{base}/{pg}", budget_ms=8000)
+            remote |= _remote_report(got.get("dom") or "")
         srv.shutdown()
-        new = 0
+        new = _learn_runtime_remote(root, cfg, remote, lmap, learned)
         for path in sorted(misses):
             path_only, _, query = path.partition("?")
             if PRIVATE_PATH_RE.search(path_only):
@@ -3727,8 +3895,16 @@ def _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
                 continue
             if path_only.startswith("/assets/r/"):
                 # a lazy file asked for NEXT TO a localized script
-                name = path_only.rsplit("/", 1)[1]
-                if not re.fullmatch(r"[\w.@-]+", name) \
+                # A SCRIPT'S CHUNKS CAN LIVE IN A SUBFOLDER. Finsweet's
+                # attributes.js imports ./dist/chunk-*.js, so the browser
+                # asks for /assets/r/dist/chunk-*.js and the file lives at
+                # <package>/dist/chunk-*.js. Keeping only the last segment
+                # looked for <package>/chunk-*.js, found nothing, and
+                # reported 12 files "missing on the original site too"
+                # that the original serves fine.
+                name = path_only[len("/assets/r/"):]
+                if not re.fullmatch(r"[\w.@-]+(?:/[\w.@-]+)*", name) \
+                        or ".." in name.split("/") \
                         or name in set(lmap.values()):
                     continue
                 got = False
@@ -3737,8 +3913,9 @@ def _learn_passes(root, cfg, origin, rounds, browser, lmap, data,
                     if st == 200 and body:
                         (root / "pristine" / "remote-assets").mkdir(
                             parents=True, exist_ok=True)
-                        (root / "pristine" / "remote-assets" / name) \
-                            .write_bytes(body)
+                        dest = root / "pristine" / "remote-assets" / name
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(body)
                         lmap[f"{d}/{name}"] = name
                         learned.append(("chunk", name))
                         new += 1
@@ -5391,6 +5568,30 @@ def cmd_probe(args):
                               f"painted — a reader sees a blank page "
                               f"(transparent, display:none, or positioned "
                               f"out of the document)")
+                        # NAME THE LIKELY CAUSE. Pages that start hidden
+                        # (`main{opacity:0}`) are revealed by a script; when
+                        # that script does not load, everything between the
+                        # nav and the footer stays transparent. Measured on
+                        # trymeridian: the console says which script.
+                        dead = []
+                        for _m, _src in got["console"]:
+                            _u = re.search(r"Access to script at '([^']+)'",
+                                           _m or "")
+                            if _u:
+                                dead.append(_u.group(1))
+                            elif "failed to load resource" in (_m or "").lower() \
+                                    and (_src or "").split("?")[0].endswith(
+                                        (".js", ".mjs")):
+                                dead.append(_src)
+                        dead = list(dict.fromkeys(
+                            dead + list(vis.get("scripts_failed") or [])))
+                        if dead:
+                            print(f"       a script the page needs did not "
+                                  f"load: {', '.join(dead[:3])} — if a fill "
+                                  f"renamed its address, rebuild: Aethron "
+                                  f"keeps a copy of scripts the page builds "
+                                  f"the address of")
+                            r["dead_scripts"] = dead[:10]
                         fails += 1
                 # an image the ORIGINAL site is missing too cannot decode in
                 # a copy either — carried, not caused

@@ -151,6 +151,12 @@ SUITES = [
     # the data, refused the secret, named what needs a server.
     ("site battery (any website, taken from its URL)",
      [PY, "tests/site_battery.py"], True),
+    # A page that starts hidden and is revealed by a script whose address
+    # the page builds in code; the brand fill renames that address. The
+    # script must be owned, the filled page painted, an old project healed
+    # on its next build, and the probe must name the script when it fails.
+    ("reveal battery (a brand fill must not blank the page)",
+     [PY, "tests/reveal_battery.py"], True),
     # A personalised preview for one lead: only the chosen pages, extras
     # placed, checked in a browser AT /preview/<slug> — where every
     # root-absolute address would otherwise 404.
