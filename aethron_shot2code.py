@@ -40,6 +40,7 @@ import hashlib
 import html as _html
 import json
 import math
+import os
 import re
 import sys
 import tempfile
@@ -1139,6 +1140,9 @@ def _read_design(src, ref, W, H, scale, work, f, log):
     try:
         import aethron_fit as FIT
         lines = FIT.ocr_lines(src, scale) or []
+        if os.environ.get("AE_FIT_DEBUG"):
+            for ln in lines:
+                log("   ocr", {k: ln.get(k) for k in ("text", "x", "y", "w", "h")})
     except Exception as e:
         log(f"text was not located ({e})")
     try:
@@ -1156,6 +1160,11 @@ def _read_design(src, ref, W, H, scale, work, f, log):
             import aethron_fit as FIT
             log("reading the screenshot's type (face, weight, size, tracking)")
             fonts = FIT.identify(ref, lines, work / "lab", log=log)
+            if os.environ.get("AE_FIT_DEBUG"):
+                for t in fonts:
+                    log("   type", {k: t.get(k) for k in ("text", "family", "weight",
+                                                       "style", "size", "tracking",
+                                                       "score", "role")})
             seen, roles = set(), []
             for t in fonts:
                 if t["role"] in seen:

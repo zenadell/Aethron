@@ -1,0 +1,29 @@
+name: Screenshot to code on a Mac
+# Runs the screenshot-to-code battery with the Mac's own text reader on a
+# branch, without building or publishing a release, so a fix can be checked
+# on macOS before it reaches main.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths:
+      - "aethron_fit.py"
+      - "aethron_pictures.py"
+      - "aethron_shot2code.py"
+      - "aethron_vision.py"
+      - "aethron_ocr.swift"
+      - "tests/pictures_fit_battery.py"
+      - ".github/workflows/mac-shot2code.yml"
+jobs:
+  check:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Pictures stay pictures, placement fitted
+        env:
+          AE_FIT_DEBUG: "1"
+        run: python3 tests/pictures_fit_battery.py
