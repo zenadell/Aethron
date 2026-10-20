@@ -6165,14 +6165,28 @@ gain may cost up to 0.05 of look; the end result never looks worse than the
 draft by more than 0.005). Text inside a drawn box (pill, button, card) moves
 WITH its box, or the form pill came apart. Sizes the lab measured are not
 overridden by the sizes pass (OCR merging two lines shrank a paragraph to 7px).
+THE MAC FAILED IT FIRST, and the release stayed red until it passed. Vision
+OCR on the RENDERS dropped nav items, merged neighbours and padded boxes, so
+every pass measured worse and none was kept. The built page's lines now come
+from the browser itself (FIT_JS `lines`: text-node ranges grouped into lines,
+uppercase applied as rendered); OCR reads only the screenshot. Two ink fixes
+under that: `bands()` clips each line's rows to halfway to its neighbours (ink
+reaching the next line read as line-heights of 1.45-1.7), and light type on a
+pill over a picture is read against the window's most common colour with
+edge-touching ink flooded out ("Free forever" measured at 0.39 of its size).
+A SIZE OR A LINE BREAK MOVES EVERYTHING AFTER IT. Fixed to the screenshot's 2
+lines, the paragraph was right and every element below it 14px off, so the
+pass scored the same and was dropped. Such a pass is now tried once more with
+every line moved to where the screenshot has it on the page it produced.
 MEASURED on the owner's example, with a STAND-IN for their page (rebuilt from
-their screenshot of it; their HTML stayed on their Mac): likeness 59% -> 65%,
-text placement 67% -> 93%, 0 -> 11 of 13 lines exact, 3 drawn shapes out.
+their screenshot of it; their HTML stayed on their Mac): likeness 59% -> 66.5%,
+text placement 76% -> 98.5%, 1 -> 13 of 13 lines exact, 3 drawn shapes out.
 The picture there is the wash (no description, no network) — the honest
-state, not a portrait. tests/pictures_fit_battery.py (16 checks) runs it.
-STILL OPEN: the paragraph wraps in 4 lines where the screenshot has 2 (the
-line-break pass is not kept), a pill's dark fill distorts the ink box of the
-text on it, and phones still depend on the writer.
+state, not a portrait. tests/pictures_fit_battery.py (16 checks) runs it, and
+.github/workflows/mac-shot2code.yml runs it on a Mac from claude/** branches.
+STILL OPEN: the paragraph's weight reads bolder than the screenshot's (the lab
+picks Inter 600), the handwritten "Free forever" is set in the writer's face,
+and phones still depend on the writer.
 
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every

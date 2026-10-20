@@ -119,12 +119,34 @@ def _luma(p):
     return 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2]
 
 
-def ink(img, x, y, w, h, pad=3, step=1):
+def bands(boxes):
+    """For boxes stacked on a page, the rows each may read ink from: never
+    past the middle of where it overlaps the line above or below. A tight
+    line-height makes a line's box reach into its neighbour's glyphs, and
+    the neighbour's ascenders then measure as this line's own height."""
+    out = []
+    for i, a in enumerate(boxes):
+        lo, hi = a["y"] - 3, a["y"] + a["h"] + 3
+        for j, b in enumerate(boxes):
+            if i == j or b["x"] >= a["x"] + a["w"] or a["x"] >= b["x"] + b["w"]:
+                continue
+            if b["y"] > a["y"] and b["y"] < hi:            # b is below a
+                hi = min(hi, (b["y"] + a["y"] + a["h"]) / 2 + 0.5)
+            elif b["y"] < a["y"] and b["y"] + b["h"] > lo:  # b is above a
+                lo = max(lo, (a["y"] + b["y"] + b["h"]) / 2 - 0.5)
+        out.append((lo, hi))
+    return out
+
+
+def ink(img, x, y, w, h, pad=3, step=1, rows=None, mode=False):
     """The ink of one line of text inside a box: its tight box, a mask,
     and its colour. The ground is the box's own border; ink is whatever
-    stands well away from it, on the side the text is."""
+    stands well away from it, on the side the text is. `rows` limits the
+    rows read (see bands)."""
     x0, y0 = max(0, int(x) - pad), max(0, int(y) - pad)
     x1, y1 = min(img.w, int(x + w) + pad), min(img.h, int(y + h) + pad)
+    if rows:
+        y0, y1 = max(y0, int(rows[0])), min(y1, int(round(rows[1])))
     if x1 - x0 < 3 or y1 - y0 < 3:
         return None
     W = img.w
@@ -137,6 +159,13 @@ def ink(img, x, y, w, h, pad=3, step=1):
     border.sort()
     ground = border[len(border) // 2]
     lums = [[_luma(px(xx, yy)) for xx in range(x0, x1, step)] for yy in range(y0, y1, step)]
+    if mode:
+        # the ground is what most of the box is: text is sparse
+        hist = {}
+        for r in lums:
+            for v in r:
+                hist[int(v) // 8] = hist.get(int(v) // 8, 0) + 1
+        ground = max(hist, key=hist.get) * 8 + 4
     flat = sorted(v for r in lums for v in r)
     lo, hi = flat[len(flat) // 50], flat[-1 - len(flat) // 50]
     dark = (ground - lo) >= (hi - ground)          # dark ink on a light ground?
@@ -151,6 +180,33 @@ def ink(img, x, y, w, h, pad=3, step=1):
     if not ys or not xs:
         return None
     by0, by1, bx0, bx1 = ys[0], ys[-1] + 1, xs[0], xs[-1] + 1
+    if mode:
+        # whatever "ink" touches the window's edge is the picture around the
+        # pill showing at its rounded corners, not a glyph: glyphs sit inside
+        H_, W_ = len(mask), len(mask[0])
+        seen = [[False] * W_ for _ in range(H_)]
+        stack = [(i, j) for i in range(H_) for j in (0, W_ - 1) if mask[i][j]] + \
+                [(i, j) for j in range(W_) for i in (0, H_ - 1) if mask[i][j]]
+        while stack:
+            i, j = stack.pop()
+            if seen[i][j] or not mask[i][j]:
+                continue
+            seen[i][j] = True
+            mask[i][j] = False
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ii, jj = i + di, j + dj
+                if 0 <= ii < H_ and 0 <= jj < W_ and mask[ii][jj] and not seen[ii][jj]:
+                    stack.append((ii, jj))
+        ys = [i for i, r in enumerate(mask) if any(r)]
+        xs = [j for j, v in enumerate(any(c) for c in zip(*mask)) if v]
+        if not ys or not xs:
+            return None
+        by0, by1, bx0, bx1 = ys[0], ys[-1] + 1, xs[0], xs[-1] + 1
+    if not mode and by1 - by0 >= 0.95 * len(mask) and bx1 - bx0 >= 0.95 * len(mask[0]):
+        # "ink" filling the whole window is a ground the border misread —
+        # light type on a pill set over a picture: the border is the
+        # picture, the pill reads as ink. Read the ground from the box.
+        return ink(img, x, y, w, h, pad, step, rows, mode=True)
     # An underline is not a glyph: a nearly full row at the bottom, below
     # an empty one, makes a 6px caps link measure as tall as a paragraph.
     full = lambda i: sum(mask[i][bx0:bx1]) >= 0.85 * (bx1 - bx0)
@@ -483,8 +539,71 @@ FIT_JS = r"""
       var b2 = e2.getBoundingClientRect();
       boxes.push({id: e2.getAttribute('data-ae-id'), w: b2.width, h: b2.height});
     }
+    // The page's lines of text as the BROWSER laid them out: every word's
+    // box, grouped into visual lines, and fragments on one line joined
+    // when the gap between them is a word space or so — the way OCR reads
+    // a line. Reading the built page back with OCR instead made placement
+    // depend on the OCR: the Mac's reader joins and drops small caps
+    // differently from one render to the next.
+    var frags = [];
+    for (var i3 = 0; i3 < all.length; i3++) {
+      var e3 = all[i3];
+      if (!shown(e3) || e3.tagName === 'INPUT' || e3.tagName === 'TEXTAREA') continue;
+      var c3 = getComputedStyle(e3), fs3 = parseFloat(c3.fontSize) || 12;
+      var up = c3.textTransform === 'uppercase';
+      for (var j3 = 0; j3 < e3.childNodes.length; j3++) {
+        var n3 = e3.childNodes[j3];
+        if (n3.nodeType !== 3 || !n3.nodeValue.trim()) continue;
+        var v = n3.nodeValue, re = /\S+/g, m, cur = null;
+        while ((m = re.exec(v))) {
+          var r3 = document.createRange();
+          r3.setStart(n3, m.index); r3.setEnd(n3, m.index + m[0].length);
+          var b3 = r3.getBoundingClientRect();
+          if (b3.width < 0.5 || b3.height < 0.5) continue;
+          var w = up ? m[0].toUpperCase() : m[0];
+          if (cur && Math.abs(b3.top - cur.y) < 0.5 * b3.height && b3.left >= cur.x + cur.w - 2) {
+            cur.text += ' ' + w; cur.w = b3.right - cur.x;
+            cur.h = Math.max(cur.h, b3.bottom - cur.y);
+          } else {
+            cur = {id: e3.getAttribute('data-ae-id'), text: w, x: b3.left, y: b3.top,
+                   w: b3.width, h: b3.height, fs: fs3};
+            frags.push(cur);
+          }
+        }
+      }
+    }
+    var inputs = out.filter(function (o) { return o.tag === 'input' || o.tag === 'textarea'; });
+    inputs.forEach(function (o) {
+      // a field's text sits inside its padding, at its own font size
+      var el = document.querySelector('[data-ae-id="' + o.id + '"]'), cs = getComputedStyle(el);
+      var b = el.getBoundingClientRect(), pl = parseFloat(cs.paddingLeft) || 0;
+      var fs = parseFloat(cs.fontSize) || 12, lh = fs * 1.25;
+      frags.push({id: o.id, text: o.text, x: b.left + pl, y: b.top + (b.height - lh) / 2,
+                  w: Math.min(b.width - pl, o.text.length * fs * 0.55), h: lh, fs: fs});
+    });
+    frags.sort(function (a, b) { return a.y - b.y || a.x - b.x; });
+    var lines = [];
+    frags.forEach(function (f) {
+      for (var q = 0; q < lines.length; q++) {
+        var L = lines[q], top = Math.max(L.y, f.y), bot = Math.min(L.y + L.h, f.y + f.h);
+        var gap = f.x - (L.x + L.w);
+        if (bot - top > 0.6 * Math.min(L.h, f.h) && gap >= -2 && gap <= 0.9 * Math.max(L.fs, f.fs)) {
+          L.text += ' ' + f.text; L.w = f.x + f.w - L.x;
+          var ny = Math.min(L.y, f.y); L.h = Math.max(L.y + L.h, f.y + f.h) - ny; L.y = ny;
+          L.parts.push([f.id, f.text.length]);
+          return;
+        }
+      }
+      lines.push({text: f.text, x: f.x, y: f.y, w: f.w, h: f.h, fs: f.fs, parts: [[f.id, f.text.length]]});
+    });
+    lines.forEach(function (L) {
+      var best = {}, top = null;
+      L.parts.forEach(function (p) { best[p[0]] = (best[p[0]] || 0) + p[1]; });
+      for (var k in best) if (top === null || best[k] > best[top]) top = k;
+      L.id = top; delete L.parts;
+    });
     document.documentElement.setAttribute('data-ae-eye',
-      JSON.stringify({vw: innerWidth, items: out, boxes: boxes}));
+      JSON.stringify({vw: innerWidth, items: out, boxes: boxes, lines: lines}));
   }
   var started = false;
   function once() {
@@ -544,6 +663,18 @@ def measure_page(page, W, H, work, ocr=ocr_lines):
     img = S.Img.read(png)
     dom = EYE.read_page(page, W, H, probe=FIT_JS) or {}
     items = dom.get("items") or []
+    laid = dom.get("lines") or []
+    if laid:
+        # The browser knows where every line is; only the ink is read.
+        out = []
+        for ln, rows in zip(laid, bands(laid)):
+            k = ink(img, ln["x"], ln["y"], ln["w"], ln["h"], pad=2, rows=rows)
+            box = {"x": k["x"], "y": k["y"], "w": k["w"], "h": k["h"]} if k else \
+                {k2: round(ln[k2]) for k2 in ("x", "y", "w", "h")}
+            out.append({"text": ln["text"], **box, "owner": ln.get("id"),
+                        "colour": k["colour"] if k else None})
+        return {"img": img, "png": str(png), "lines": out, "items": items,
+                "boxes": dom.get("boxes") or []}
     lines = ocr(png) or []
     out = []
     for ln in lines:
@@ -688,6 +819,7 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
               "passes": []}
     best, rules, fams = base, {}, set()
     kept = [(base, {}, set())]
+    last = [None]           # the page the latest attempt rendered
 
     def better(c):
         if c is None:
@@ -705,9 +837,11 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
 
     def attempt(name, new_rules, new_fams):
         nonlocal best, rules, fams
+        last[0] = None
         if new_rules == rules:
             return False
         c = evaluate(apply_rules(html, new_rules, W, new_fams))
+        last[0] = c
         ok = better(c)
         report["passes"].append({"pass": name, "kept": ok,
                                  "placement": c["pl"]["score"] if c else None,
@@ -723,15 +857,67 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
             kept.append((best, rules, set(fams)))
         return ok
 
-    def owners():
-        """element id -> [(ref line, built line)] on the current best page."""
+    def owners(st=None):
+        """element id -> [(ref line, built line)] on page `st` (the best)."""
         o = {}
-        for a, b in pair(ref_lines, best["m"]["lines"]):
+        for a, b in pair(ref_lines, (st or best)["m"]["lines"]):
             if b.get("owner"):
                 o.setdefault(b["owner"], []).append((a, b))
         return o
 
     items = lambda: {it["id"]: it for it in best["m"]["items"]}
+
+    def pos_rules(st, base_rules):
+        """Translations that carry each line on page `st` to where the
+        screenshot has it, on top of `base_rules`."""
+        r = dict(base_rules)
+        its = {it["id"]: it for it in st["m"]["items"]}
+        # Text inside a drawn box (a pill, a button, a card) moves WITH the
+        # box: nudging the words alone would carry them out of it.
+        small = {b["id"] for b in st["m"].get("boxes", [])
+                 if b["w"] * b["h"] < 0.3 * W * H}
+        moves, anc_of = {}, {}
+        for eid, ps in owners(st).items():
+            if eid not in its:
+                continue
+            chain = its[eid]["anc"]
+            unit, rest = eid, chain
+            for i, a in enumerate(chain):
+                if a in small:
+                    unit, rest = a, chain[i + 1:]
+                    break
+            if eid in small:
+                unit, rest = eid, chain
+            anc_of[unit] = rest
+            moves.setdefault(unit, []).extend(ps)
+        need = {}
+        for unit, ps in moves.items():
+            dxs = sorted(_dx(b, a) for a, b in ps)
+            dys = sorted(a["y"] - b["y"] for a, b in ps)
+            need[unit] = (dxs[len(dxs) // 2], dys[len(dys) // 2])
+        shift = {}
+        for eid in sorted(need, key=lambda e: len(anc_of[e])):
+            px_, py_ = need[eid]
+            for a in anc_of[eid]:
+                if a in shift:
+                    px_ -= shift[a][0]
+                    py_ -= shift[a][1]
+            prev = base_rules.get(eid, {}).get("translate", "0px 0px").split()
+            px_ += float(prev[0][:-2])
+            py_ += float(prev[1][:-2]) if len(prev) > 1 else 0.0
+            if (abs(px_) > 1.5 or abs(py_) > 1.5) and abs(px_) <= 160 and abs(py_) <= 160:
+                shift[eid] = (px_, py_)
+                r = _merge(r, eid, {"translate": f"{px_:.1f}px {py_:.1f}px"})
+        return r
+
+    def followed(name, new_rules, new_fams):
+        """A size or a line break moves everything after it: a pass that
+        lands its own lines can score worse until the rest follows. So when
+        it is not kept alone, it is tried once more with every line moved
+        to where the screenshot has it on the page it produced."""
+        if attempt(name, new_rules, new_fams) or last[0] is None:
+            return
+        attempt(name + ", with what follows moved", pos_rules(last[0], new_rules), new_fams)
 
     lab_sized = set()       # sizes the lab measured as font-sizes; ratios never override them
 
@@ -790,7 +976,7 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
                 if lh.endswith("px"):
                     props["line-height"] = f"{float(lh[:-2]) * q:.1f}px"
                 r = _merge(r, eid, props)
-        attempt(f"sizes (round {rnd + 1})", r, fams)
+        followed(f"sizes (round {rnd + 1})", r, fams)
 
         r = dict(rules)
         its = items()
@@ -819,7 +1005,7 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
                 if it.get("align") == "center":
                     r[eid]["margin-left"] = "auto"
                     r[eid]["margin-right"] = "auto"
-        attempt(f"tracking and line breaks (round {rnd + 1})", r, fams)
+        followed(f"tracking and line breaks (round {rnd + 1})", r, fams)
 
         r = dict(rules)
         its = items()
@@ -840,44 +1026,7 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
                 r = _merge(r, eid, {"color": "#%02X%02X%02X" % tuple(int(round(v)) for v in fix)})
         attempt(f"colours (round {rnd + 1})", r, fams)
 
-        r = dict(rules)
-        its = items()
-        # Text inside a drawn box (a pill, a button, a card) moves WITH the
-        # box: nudging the words alone would carry them out of it.
-        small = {b["id"] for b in best["m"].get("boxes", [])
-                 if b["w"] * b["h"] < 0.3 * W * H}
-        moves, anc_of = {}, {}
-        for eid, ps in owners().items():
-            if eid not in its:
-                continue
-            chain = its[eid]["anc"]
-            unit, rest = eid, chain
-            for i, a in enumerate(chain):
-                if a in small:
-                    unit, rest = a, chain[i + 1:]
-                    break
-            if eid in small:
-                unit, rest = eid, chain
-            anc_of[unit] = rest
-            moves.setdefault(unit, []).extend(ps)
-        need = {}
-        for unit, ps in moves.items():
-            dxs = sorted(_dx(b, a) for a, b in ps)
-            dys = sorted(a["y"] - b["y"] for a, b in ps)
-            need[unit] = (dxs[len(dxs) // 2], dys[len(dys) // 2])
-        shift = {}
-        for eid in sorted(need, key=lambda e: len(anc_of[e])):
-            px_, py_ = need[eid]
-            for a in anc_of[eid]:
-                if a in shift:
-                    px_ -= shift[a][0]
-                    py_ -= shift[a][1]
-            prev = rules.get(eid, {}).get("translate", "0px 0px").split()
-            px_ += float(prev[0][:-2])
-            py_ += float(prev[1][:-2]) if len(prev) > 1 else 0.0
-            if (abs(px_) > 1.5 or abs(py_) > 1.5) and abs(px_) <= 160 and abs(py_) <= 160:
-                shift[eid] = (px_, py_)
-                r = _merge(r, eid, {"translate": f"{px_:.1f}px {py_:.1f}px"})
+        r = pos_rules(best, rules)
         attempt(f"positions (round {rnd + 1})", r, fams)
 
     # Never hand back a page that looks worse than the one given.
@@ -897,10 +1046,14 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
 def ref_lines_for(ref, lines):
     """The screenshot's lines with their ink measured (box and colour)."""
     out = []
-    for ln in lines:
-        if float(ln.get("confidence", 1)) < 0.5 or len((ln.get("text") or "").strip()) < 2:
-            continue
-        k = ink(ref, ln["x"], ln["y"], ln["w"], ln["h"])
+    lines = [ln for ln in lines if float(ln.get("confidence", 1)) >= 0.5
+             and len((ln.get("text") or "").strip()) >= 2]
+    for ln, rows in zip(lines, bands(lines)):
+        k = ink(ref, ln["x"], ln["y"], ln["w"], ln["h"], rows=rows)
+        if k and k["h"] > 1.25 * ln["h"] + 2:
+            # ink taller than the line the reader saw is the ground's own
+            # texture (a picture, a gradient), not the type: read inside it
+            k = ink(ref, ln["x"], ln["y"], ln["w"], ln["h"], pad=0) or k
         if not k:
             continue
         out.append({"text": ln["text"].strip(), "x": k["x"], "y": k["y"], "w": k["w"],
