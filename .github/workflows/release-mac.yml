@@ -117,6 +117,11 @@ jobs:
           python3 aethron_native.py --selftest | tee /tmp/native.log
           grep -q "VERDICT: PASS" /tmp/native.log \
             || { echo "::error::reading images off the Mac's pasteboard does not work"; exit 1; }
+          # screenshot to code with the Mac's own OCR: pictures stay
+          # pictures, type and placement fitted from the pixels
+          python3 tests/pictures_fit_battery.py | tee /tmp/pictures.log
+          grep -Eq "VERDICT: (PASS|SKIPPED)" /tmp/pictures.log \
+            || { echo "::error::screenshot to code no longer fits type or keeps pictures"; exit 1; }
           # a real migration through the packaged app's own tools
           python3 tests/frozen_migration.py dist/Aethron.app
           # needs a prepared template on disk; reports SKIPPED here

@@ -2302,7 +2302,7 @@ def ocr(image, timeout=120):
     """
     exe = ocr_binary()
     if not exe:
-        return None
+        return _ocr_onnx(image)
     try:
         r = subprocess.run([str(exe), str(image)], capture_output=True,
                            text=True, timeout=timeout)
@@ -2322,6 +2322,31 @@ def ocr(image, timeout=120):
             out.append(json.loads(line))
         except Exception:
             continue
+    return out
+
+
+def _ocr_onnx(image):
+    """Text recognition where macOS Vision does not exist (Linux servers,
+    the test machine), through rapidocr when it is installed — optional,
+    never bundled. Same output as the Mac helper: one box per line, in
+    image pixels. None (with the Mac reason kept) when it is absent."""
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except Exception:
+        return None
+    try:
+        eng = _ocr_onnx.__dict__.setdefault("eng", RapidOCR())
+        res, _ = eng(str(image))
+    except Exception as e:
+        OCR_WHY[0] = f"text recognition failed ({e})"
+        return None
+    out = []
+    for box, text, conf in res or []:
+        xs = [p[0] for p in box]; ys = [p[1] for p in box]
+        out.append({"text": text, "x": int(min(xs)), "y": int(min(ys)),
+                    "w": int(max(xs) - min(xs)), "h": int(max(ys) - min(ys)),
+                    "confidence": round(float(conf), 3)})
+    OCR_WHY[0] = ""
     return out
 
 

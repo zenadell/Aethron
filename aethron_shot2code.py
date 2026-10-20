@@ -76,10 +76,15 @@ LOOK — the same design as the screenshot
 2. At the screenshot's width the page must look like the screenshot: same
    layout, colours, type sizes, spacing and effects. Use the measured numbers
    below instead of guessing. Copy every word exactly.
-3. Draw everything with CSS or inline <svg>: backgrounds, gradients, glows
+3. Draw the INTERFACE with CSS or inline <svg>: backgrounds, gradients, glows
    (box-shadow, filter: blur), glass (backdrop-filter), pills, borders, grids,
    orbs, rings, icons. NEVER use the screenshot as an image: no <img>, url() or
    data: URI may show it or any part of it bigger than a 128px icon.
+   PICTURES are different: a photograph, painting, illustration or video still
+   is NOT drawn in code. Where the PICTURES list below names a region, place
+   the picture file it names (slot-N.jpg) and describe it precisely in its alt;
+   Aethron makes or finds the real picture. Shapes, gradients or blurred
+   circles imitating a picture are taken out.
 
 BUILT — what a human developer adds without being asked
 4. Semantic structure: <header> with <nav> (links are <a href>), exactly one
@@ -320,7 +325,15 @@ def reuse(html: str, page_dir, image) -> list:
         if sz:
             sw, sh = sz
 
+    try:
+        import aethron_pictures as PIC
+        allowed = PIC.accepted(page_dir) if page_dir else {}
+    except Exception:
+        allowed = {}
+
     def judge(data, label):
+        if hashlib.sha1(data).hexdigest() in allowed:
+            return        # a picture Aethron made or found for one of the page's slots
         if sha and hashlib.sha1(data).hexdigest() == sha:
             found.append(f"{label} IS the screenshot — the page may not show it")
             return
@@ -980,8 +993,11 @@ def finish_site(html, accent=None):
     return h
 
 
-def grade(image, page, ref: Img = None, work=None):
-    """Check a page against its screenshot. Never decides on the model's word."""
+def grade(image, page, ref: Img = None, work=None, slots=None):
+    """Check a page against its screenshot. Never decides on the model's word.
+
+    slots: the screenshot's picture regions (aethron_pictures.detect); each
+    must be shown as a picture, not drawn in code."""
     page = Path(page)
     html = page.read_text(errors="replace")
     if ref is None:
@@ -1038,6 +1054,15 @@ def grade(image, page, ref: Img = None, work=None):
     rep["craft"] += [{"check": c, "ok": bool(o)} for c, o in lc]
     if not rep["phones_checked"]:
         rep["notes"].append("phone widths could not be checked")
+    if slots:
+        import aethron_pictures as PIC
+        pf, ran = PIC.honoured(page, slots, W, H)
+        if ran:
+            rep["findings"] += pf
+            rep["craft"].append({"check": f"{len(slots)} picture(s) placed as pictures",
+                                 "ok": not pf})
+        else:
+            rep["notes"].append("where the pictures sit could not be checked")
     rep["verdict"] = "PASS" if not rep["findings"] else "FAIL"
     return rep
 
@@ -1055,10 +1080,20 @@ def _as_png(image):
 
 # ─────────────────────────── the loop ────────────────────────────────
 
+def _measured(f):
+    """The measured facts for a prompt: the picture brief as plain lines,
+    everything else as JSON."""
+    g = {k: v for k, v in f.items() if not k.startswith("_")}
+    out = ("MEASURED FROM THE SCREENSHOT (trust these over your eye):\n"
+           + json.dumps(g, indent=1))
+    if f.get("_pictures"):
+        out = f["_pictures"] + "\n\n" + out
+    return out
+
+
 def _first_prompt(f):
     return ("Rebuild the website in this screenshot as a real, working web page.\n\n"
-            + RULES + "\nMEASURED FROM THE SCREENSHOT (trust these over your eye):\n"
-            + json.dumps(f, indent=1))
+            + RULES + "\n" + _measured(f))
 
 
 def _repair_prompt(f, rep, html, rnd):
@@ -1077,7 +1112,7 @@ def _repair_prompt(f, rep, html, rnd):
     lines.append("Compare the two pictures closely: layout, spacing, sizes, colours, glows "
                  "and every effect. Fix what differs and keep what already matches.")
     lines.append(RULES)
-    lines.append("MEASURED FROM THE SCREENSHOT:\n" + json.dumps(f, indent=1))
+    lines.append(_measured(f))
     lines.append("YOUR CURRENT PAGE:\n```html\n" + html[:60000] + "\n```")
     lines.append("Reply with the complete corrected HTML in one ```html block.")
     return "\n".join(lines)
@@ -1093,6 +1128,97 @@ def model_writer(budget_usd=0.40, ledger=None, max_tokens=14000):
                              temperature=0.2, timeout=300, images=images)
     write.ledger = ledger
     return write
+
+
+def _read_design(src, ref, W, H, scale, work, f, log):
+    """What a model would otherwise guess, read off the screenshot: its
+    lines of text, the regions that are PICTURES (photographs, paintings,
+    illustrations — not drawn in code), and its type (face, weight, size,
+    tracking, colour per role). Each is help, never a gate."""
+    lines, slots, fonts = [], [], []
+    try:
+        import aethron_fit as FIT
+        lines = FIT.ocr_lines(src, scale) or []
+    except Exception as e:
+        log(f"text was not located ({e})")
+    try:
+        import aethron_pictures as PIC
+        slots = PIC.detect(ref, lines)
+        if slots:
+            f["_pictures"] = PIC.brief(slots, W, H)
+            PIC.stage(slots, work)
+            log(f"{len(slots)} picture region(s) found — they will be pictures, "
+                "not drawings")
+    except Exception as e:
+        log(f"pictures were not looked for ({e})")
+    if lines:
+        try:
+            import aethron_fit as FIT
+            log("reading the screenshot's type (face, weight, size, tracking)")
+            fonts = FIT.identify(ref, lines, work / "lab", log=log)
+            seen, roles = set(), []
+            for t in fonts:
+                if t["role"] in seen:
+                    continue
+                seen.add(t["role"])
+                roles.append({"sample": t["text"][:60], "font": t["family"],
+                              "weight": t["weight"], "style": t["style"],
+                              "size_px": t["size"], "letter_spacing_em": t["tracking"],
+                              "colour": t["colour"]})
+            if roles:
+                f["type"] = roles
+        except Exception as e:
+            log(f"type was not identified ({e})")
+    return lines, slots, fonts
+
+
+def _polish(src, ref, scale, W, H, rep, html, lines, slots, fonts, out, work, report, log):
+    """What Aethron does to the best page itself, with no model: put every
+    picture in its slot (taking out code that drew it), fill the slots with
+    real pictures, and fit type and placement to the screenshot. The result
+    is graded again; it is kept unless it is worse."""
+    import aethron_pictures as PIC
+    import aethron_fit as FIT
+    page_img = Img.read(rep["render_png"]) if rep.get("render_png") else None
+    notes = []
+    try:
+        html2, n = PIC.enforce(html, slots, W, H, work / "slots", ref=ref, page_img=page_img,
+                               log=log)
+        notes += n
+        html2, pics = PIC.fill(html2, slots, out, log=log)
+        if pics:
+            report["pictures"] = pics
+        fitdir = work / "fit"
+        fitdir.mkdir(parents=True, exist_ok=True)
+        for r in pics or []:
+            (fitdir / r["file"]).write_bytes((out / r["file"]).read_bytes())
+        if lines:
+            html2, frep = FIT.fit(html2, ref, FIT.ref_lines_for(ref, lines), W, H, fitdir,
+                                  fonts=fonts, log=log,
+                                  likeness_fn=lambda img: likeness(ref, img)["likeness"])
+            if frep.get("before"):
+                report["placement"] = {"before": frep["before"], "after": frep["after"],
+                                       "lines": frep.get("lines", [])}
+    except Exception as e:
+        log(f"the finishing pass stopped ({e}) — the page is handed over as written")
+        report["polish"] = notes + [f"stopped: {e}"]
+        return rep, html
+    site = out / "site.html"
+    site.write_text(stamp_ids(html2))
+    rep2 = grade(src, site, ref=ref if scale == 1 else None, work=work / "final", slots=slots)
+    report["polish"] = notes
+    if rep2.get("verdict") == "SKIPPED":
+        return rep, html
+    worse = (rep2["likeness"] < rep.get("likeness", 0) - 0.02
+             and len(rep2["findings"]) >= len(rep.get("findings") or []))
+    if worse:
+        log(f"the finished page looked worse ({rep2['likeness']:.0%} against "
+            f"{rep['likeness']:.0%}) — keeping the page as written")
+        report["polish"].append("the finishing pass was not kept: it looked worse")
+        return rep, html
+    log(f"finished page: looks {rep2['likeness']:.0%} like the screenshot "
+        f"(was {rep['likeness']:.0%}), {len(rep2['findings'])} check(s) failed")
+    return rep2, html2
 
 
 def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=0.40):
@@ -1120,6 +1246,7 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
     ref_png = ref.png(work / "reference.png")
     log(f"measuring the screenshot ({W}x{H} CSS px)")
     f = facts(src, W, H, scale)
+    lines, slots, fonts = _read_design(src, ref, W, H, scale, work, f, log)
     if writer is None:
         writer = model_writer(budget_usd)
     report = {"image": str(image), "canvas": [W, H], "rounds": [], "verdict": "FAIL"}
@@ -1163,7 +1290,8 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
         html = finish_site(cand, accent=f.get("background"))
         page = work / f"round{rnd}.html"
         page.write_text(html)
-        rep = grade(src, page, ref=ref if scale == 1 else None, work=work / f"r{rnd}")
+        rep = grade(src, page, ref=ref if scale == 1 else None, work=work / f"r{rnd}",
+                    slots=slots)
         if rep.get("verdict") == "SKIPPED":
             report.update(verdict="SKIPPED", why=rep.get("why"))
             best = (rep, html)
@@ -1187,6 +1315,8 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
         return _finish(report, out, None, ledger=getattr(writer, "ledger", None))
     rep, html = best
     if report["verdict"] != "SKIPPED":
+        rep, html = _polish(src, ref, scale, W, H, rep, html, lines, slots, fonts,
+                            out, work, report, log)
         report["verdict"] = rep["verdict"]
     for k in ("likeness", "colour", "structure", "findings", "notes", "elements",
               "phones_checked", "reused", "craft"):

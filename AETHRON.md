@@ -6131,6 +6131,49 @@ engine, fake model; restart twice; Home and project draw the conversation
 and the agent is given the earlier word; a project nobody touched stays
 empty and a fresh agent sees nothing (the control). Old code fails 6.
 
+## PICTURES STAY PICTURES; TYPE AND PLACEMENT ARE MEASURED — 2026-10-20
+`aethron_fit.py`, `aethron_pictures.py`. The owner's run on a newsletter
+screenshot (tests/pages/dispatch.png): real code at last, 59% alike, but the
+watercolour portrait drawn as CSS circles and blurred waves, the type in the
+wrong faces, and everything placed by eye. Weaker models do worse, and the
+point is that the system carries them, so none of this asks the model.
+PICTURES. `detect()` finds regions whose colours sit off every line of type
+(photos, paintings, illustrations); the writer is told "slot-N.jpg goes here,
+describe it in alt, do not draw it", and a stand-in in the region's own tones
+is staged so its renders show the picture. After the writer: `enforce()`
+takes out text-free drawing elements covering 3%+ of a slot and 70%+ inside
+it, sets the picture as the host's background or an absolutely placed <img>,
+and leaves alone a slot already drawn 75%+ alike in code. `fill()` makes the
+picture (a saved image provider, within a budget), else finds one, else a
+bilinear wash of the region's 3x3 colours — each recorded with its sha1 in
+pictures.json, which `reuse()` accepts. Two refusals learned live: a slot the
+page does not describe is never searched for (colours alone found a medical
+book page), and a found picture over MAX_FIND_DIST=70 from the region's
+colours is not used.
+TYPE. A font lab: OCR lines grouped into roles (ink height, colour, caps),
+each set in candidate faces on one page, the rendered ink compared with the
+screenshot's (soft IoU on a grid, aspect and stroke-density terms). Stage 1
+picks the class, stage 2 every family of it, AT EACH TEXT'S OWN SIZE — at a
+shared 24px it preferred weight 600 and Lora for 56px Playfair, because
+antialiasing differs with size. Underlines are stripped from ink first
+("GET STARTED" read as handwriting). Selftest: Playfair 400 at 56.1px (truth
+56), placement 30% -> 99.7%.
+PLACEMENT. `fit()` pairs OCR lines of the screenshot and the render by their
+words, then passes faces, sizes, tracking, line breaks, colours, positions —
+each kept only if placement rises without the look falling (a big placement
+gain may cost up to 0.05 of look; the end result never looks worse than the
+draft by more than 0.005). Text inside a drawn box (pill, button, card) moves
+WITH its box, or the form pill came apart. Sizes the lab measured are not
+overridden by the sizes pass (OCR merging two lines shrank a paragraph to 7px).
+MEASURED on the owner's example, with a STAND-IN for their page (rebuilt from
+their screenshot of it; their HTML stayed on their Mac): likeness 59% -> 65%,
+text placement 67% -> 93%, 0 -> 11 of 13 lines exact, 3 drawn shapes out.
+The picture there is the wash (no description, no network) — the honest
+state, not a portrait. tests/pictures_fit_battery.py (16 checks) runs it.
+STILL OPEN: the paragraph wraps in 4 lines where the screenshot has 2 (the
+line-break pass is not kept), a pill's dark fill distorts the ink box of the
+text on it, and phones still depend on the writer.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6369,3 +6412,9 @@ empty and a fresh agent sees nothing (the control). Old code fails 6.
 - A RESTART IS NOT A NEW CONVERSATION, ANYWHERE. Home and every project
   reopen what was said; only an answer that the conversation is empty, or
   the person asking, starts fresh. Work begun at Home belongs to its project.
+- A PICTURE IS NEVER DRAWN IN CODE. A photo, painting or illustration in the
+  screenshot becomes an image slot; a picture found for it must match the
+  region's colours, and one nobody described is never searched for.
+- TYPE AND PLACEMENT ARE MEASURED, NOT ASKED. Face, size, spacing and
+  position come from the screenshot's pixels; a fitting pass is kept only
+  when it measures better.

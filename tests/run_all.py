@@ -45,6 +45,7 @@ SUITES = [
                 "tests/stall_battery.py", "tests/conversation_battery.py",
                 "tests/page_preview_battery.py",
                 "aethron_shot2code.py", "tests/shot2code_battery.py",
+                "aethron_fit.py", "aethron_pictures.py", "tests/pictures_fit_battery.py",
                 "aethron_native.py", "tests/drop_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
@@ -185,6 +186,10 @@ SUITES = [
      [PY, "tests/page_preview_battery.py"], False),
     ("a screenshot becomes real code, never a picture of itself",
      [PY, "tests/shot2code_battery.py"], False),
+    ("type fitted from the pixels (selftest)", [PY, "aethron_fit.py", "--selftest"], False),
+    ("pictures are pictures (selftest)", [PY, "aethron_pictures.py", "--selftest"], False),
+    ("pictures stay pictures, placement fitted (the owner's example)",
+     [PY, "tests/pictures_fit_battery.py"], False),
     ("images dropped or pasted anywhere reach the chat (routes + browser)",
      [PY, "tests/drop_battery.py"], False),
     ("history and going back", [PY, "tests/history_battery.py"], False),
