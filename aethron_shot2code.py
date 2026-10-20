@@ -62,6 +62,8 @@ ICON = 128
 # photographic screenshot pixel for pixel, so the bar sits between "the
 # right colours somewhere" and "the right design".
 LIKENESS_FLOOR = 0.45
+WIDE = 1.5            # the wider window a page is also held to
+WIDE_DROP = 0.08      # how much less alike it may look there
 GOOD_ENOUGH = 0.70
 PHONE, TABLET = 390, 768
 
@@ -170,6 +172,15 @@ class Img:
                         n += 1
                 out.append((r / n, g / n, b / n))
         return gw, gh, out
+
+    def shrink(self, w, h):
+        """Area-averaged down to exactly w x h — a wide render seen at the
+        screenshot's size."""
+        _, _, cells = self.grid(w, h)
+        rgb = bytearray(w * h * 3)
+        for i, (r, g, b) in enumerate(cells):
+            rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2] = int(r), int(g), int(b)
+        return Img(w, h, rgb)
 
     def png(self, path, max_w=1280):
         """Write a (downscaled) PNG — what a model is shown."""
@@ -853,6 +864,77 @@ def _text(fragment):
     return re.sub(r"\s+", " ", _html.unescape(re.sub(r"<[^>]+>", " ", fragment))).strip()
 
 
+FLUID_VAR = "--ae-u"
+_FLUID_PX = re.compile(r"(?<![\w.#-])(-?(?:\d+\.?\d*|\.\d+))px\b")
+_FLUID_KEEP = re.compile(
+    r"@(?:media|container|supports)[^{]*\{"     # breakpoints stay in real pixels
+    r"|url\([^)]*\)|\"[^\"]*\"|'[^']*'"          # addresses and names are not lengths
+    r"|--ae-u\s*:[^;}]*")                       # the unit itself
+
+
+def _fluid_css(css):
+    keep = []
+
+    def hold(m):
+        keep.append(m.group(0))
+        return f"\x00{len(keep) - 1}\x00"
+
+    def scale(m):
+        n = float(m.group(1))
+        if n == 0:
+            return m.group(0)
+        return f"calc({m.group(1)} * var({FLUID_VAR}))"
+
+    css = _FLUID_KEEP.sub(hold, css)
+    css = _FLUID_PX.sub(scale, css)
+    return re.sub(r"\x00(\d+)\x00", lambda m: keep[int(m.group(1))], css)
+
+
+def fluid(html, W):
+    """The page grows with the window above the screenshot's width.
+
+    A screenshot is one window. A picture set to cover the page grows with
+    the window, so type and spacing fixed in pixels shrink against it: at a
+    window half again as wide the headline is two thirds of its size next
+    to the portrait and the form floats above the hair it sat on (the
+    owner's example measured 67% alike at its own width, 20% at 1795px).
+    Every pixel length becomes `calc(N * var(--ae-u))`, where --ae-u is
+    exactly 1px up to the design width and grows with the window beyond it
+    — so at the screenshot's width, and on tablets and phones, nothing
+    moves, and above it the whole composition scales as one. rem follows
+    through the root size, never below the reader's own default. Running it
+    twice changes nothing more.
+    """
+    W = int(W or 0)
+    if W < 320:
+        return html
+    root = (f":root{{{FLUID_VAR}:max(1px, calc(100vw / {W}))}}"
+            f"html{{font-size:max(100%, calc(16 * var({FLUID_VAR})))}}")
+
+    def style_block(m):
+        return m.group(1) + _fluid_css(m.group(2)) + m.group(3)
+
+    def style_attr(m):
+        return m.group(1) + _fluid_css(m.group(2)) + m.group(3)
+
+    html = re.sub(r"(?is)(<style\b[^>]*>)(.*?)(</style>)", style_block, html)
+    html = re.sub(r'(?is)(\sstyle=")([^"]*)(")', style_attr, html)
+    html = re.sub(r"(?is)(\sstyle=')([^']*)(')", style_attr, html)
+    if f"{FLUID_VAR}:" in html:
+        return html
+    sets_root = re.search(r"(?is)<style[^>]*>.*?(?:^|[}\s,])(?:html|:root)\s*\{[^}]*font-size",
+                          html)
+    if sets_root:
+        root = root.split("html{")[0]
+    block = f'<style data-ae-fluid>{root}</style>\n'
+    m = re.search(r"(?i)<style\b", html)
+    if m:
+        return html[:m.start()] + block + html[m.start():]
+    if re.search(r"(?i)</head>", html):
+        return re.sub(r"(?i)</head>", block + "</head>", html, count=1)
+    return block + html
+
+
 def finish_site(html, accent=None):
     """What a careful developer adds without changing how the page LOOKS.
 
@@ -1047,6 +1129,23 @@ def grade(image, page, ref: Img = None, work=None, slots=None):
         rep["findings"].append(
             f"the page does not look enough like the screenshot "
             f"({rep['likeness']:.0%}, needs {LIKENESS_FLOOR:.0%})")
+    # A WIDER WINDOW. The screenshot is one window; the same composition
+    # must hold in a bigger one, or the type shrinks against the picture
+    # and the form drifts off the feature it sat on. Seen at the
+    # screenshot's size, a render half again as wide should look as alike.
+    ww, wh = round(W * WIDE), round(H * WIDE)
+    big = render(page, ww, wh, work / "render-wide.png")
+    if big is not None:
+        rep["wide"] = {"width": ww,
+                       "likeness": likeness(ref, big.shrink(ref.w, ref.h))["likeness"]}
+        if rep["wide"]["likeness"] < rep["likeness"] - WIDE_DROP:
+            rep["findings"].append(
+                f"in a {ww}px window the page looks {rep['wide']['likeness']:.0%} like the "
+                f"screenshot against {rep['likeness']:.0%} at {W}px — sizes and spacing "
+                f"must grow with the window with the picture: set lengths in px "
+                f"(Aethron scales them above {W}px), never cap them at the screenshot's size")
+    else:
+        rep["notes"].append("a wider window could not be checked")
     reads = craft_read(page)
     rep["phones_checked"] = bool(reads.get(PHONE) and reads.get(TABLET))
     lf, ln, lc = live_craft(reads)
@@ -1212,6 +1311,7 @@ def _polish(src, ref, scale, W, H, rep, html, lines, slots, fonts, out, work, re
         log(f"the finishing pass stopped ({e}) — the page is handed over as written")
         report["polish"] = notes + [f"stopped: {e}"]
         return rep, html
+    html2 = fluid(html2, W)
     site = out / "site.html"
     site.write_text(stamp_ids(html2))
     rep2 = grade(src, site, ref=ref if scale == 1 else None, work=work / "final", slots=slots)
@@ -1296,7 +1396,7 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
         # What a careful developer adds without changing the look (head,
         # focus states, alt, skip link, reduced motion, section anchors)
         # is Aethron's job, not a round of the model's.
-        html = finish_site(cand, accent=f.get("background"))
+        html = fluid(finish_site(cand, accent=f.get("background")), W)
         page = work / f"round{rnd}.html"
         page.write_text(html)
         rep = grade(src, page, ref=ref if scale == 1 else None, work=work / f"r{rnd}",
@@ -1328,7 +1428,7 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
                             out, work, report, log)
         report["verdict"] = rep["verdict"]
     for k in ("likeness", "colour", "structure", "findings", "notes", "elements",
-              "phones_checked", "reused", "craft"):
+              "phones_checked", "reused", "craft", "wide"):
         if k in rep:
             report[k] = rep[k]
     report["seconds"] = round(time.time() - t0)
@@ -1445,6 +1545,19 @@ def _selftest():
     f1, _, _ = static_craft(fin)
     check("what finish_site adds is no longer asked for",
           not any(k in " ".join(f1) for k in ("<head>", ":hover", ":focus-visible")))
+    page = ("<html><head><style>h1{font-size:56px;margin:0 0 24px}"
+            "@media (max-width: 640px){h1{font-size:32px}}"
+            ".p{background:url(a-12px.png);font-family:'X 9px'}</style></head>"
+            "<body><h1 style=\"padding:8px\">x</h1></body></html>")
+    fl = fluid(page, 1200)
+    check("fluid turns every length into the page's unit",
+          "calc(56 * var(--ae-u))" in fl and "calc(24 * var(--ae-u))" in fl
+          and "calc(8 * var(--ae-u))" in fl and "margin:0 " in fl)
+    check("and leaves breakpoints, addresses and names in real pixels",
+          "@media (max-width: 640px)" in fl and "a-12px.png" in fl and "'X 9px'" in fl)
+    check("the unit is 1px up to the design width and grows beyond it",
+          "--ae-u:max(1px, calc(100vw / 1200))" in fl)
+    check("fluid run twice changes nothing more", fluid(fl, 1200) == fl)
     print("VERDICT:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 

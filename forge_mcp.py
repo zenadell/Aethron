@@ -509,10 +509,19 @@ def t_grade_page(a):
         # the agent wrote itself too; the look does not move
         src = page.read_text(encoding="utf-8", errors="replace")
         fin = S2C.finish_site(src)
+        try:
+            # the composition scales as one above the screenshot's width
+            head = Path(str(a["image"])).read_bytes()[:24]
+            iw, ih = (int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")) \
+                if head[:8] == b"\x89PNG\r\n\x1a\n" else (0, 0)
+        except Exception:
+            iw = ih = 0
+        if iw:
+            fin = S2C.fluid(fin, S2C.css_size(iw, ih)[0])
         if fin != src:
             page.write_text(fin, encoding="utf-8")
             finished = ("note: Aethron added the head tags, focus and hover states, "
-                        "skip link and missing names itself")
+                        "skip link and missing names itself, and made it scale with the window")
     except Exception:
         pass
     try:

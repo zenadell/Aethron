@@ -318,6 +318,22 @@ def _shoot(html, W, H, work, name):
 
 
 TRACKS = (0.0, 0.08, 0.16)          # em; tried only on all-caps lines
+SPLIT = 0.15                        # how clearly a block must read as another kind
+ITALIC = 0.20                       # how clearly italic must beat upright to be read
+
+
+def _upright(scores, variants):
+    """The best variant — but italic only when it beats the best upright
+    reading clearly. A short word's slant is a few pixels and blur reads
+    as lean; upright is what most type is."""
+    best = max(scores.items(), key=lambda kv: kv[1])[0]
+    if variants[best][2] != "italic":
+        return best
+    up = [kv for kv in scores.items() if variants[kv[0]][2] == "normal"]
+    if not up:
+        return best
+    ub = max(up, key=lambda kv: kv[1])
+    return best if scores[best] > (1 + ITALIC) * ub[1] else ub[0]
 
 
 def _caps(t):
@@ -359,57 +375,157 @@ def identify(ref, lines, work, log=say, max_roles=10, floor=0.15):
         read.append((t, k, ln))
     if not read:
         return []
+    # BLOCKS first: lines stacked at a line's pitch, of one height and
+    # colour, are one paragraph and always one face — whatever each line
+    # alone would say.
+    n = len(read)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            (ti, ki, li), (tj, kj, lj) = read[i], read[j]
+            h = max(li["h"], lj["h"])
+            top, bot = (li, lj) if li["y"] <= lj["y"] else (lj, li)
+            gap = bot["y"] - (top["y"] + top["h"])
+            ov = min(li["x"] + li["w"], lj["x"] + lj["w"]) - max(li["x"], lj["x"])
+            if (abs(ki["h"] - kj["h"]) <= 0.15 * max(ki["h"], kj["h"])
+                    and math.dist(ki["colour"], kj["colour"]) < 60
+                    and _caps(ti) == _caps(tj) and -0.5 * h <= gap <= 0.8 * h
+                    and ov >= 0.5 * min(li["w"], lj["w"])):
+                parent[find(i)] = find(j)
+    blocks = {}
+    for i in range(n):
+        blocks.setdefault(find(i), []).append(read[i])
+    blocks = sorted(blocks.values(), key=lambda b: -max(m[1]["h"] for m in b))
     # ROLES, not lines: five nav links, or two lines of one paragraph, are
-    # one face at one size. Lines join a role when their ink is the same
+    # one face at one size. Blocks join a role when their ink is the same
     # height and colour and they share their case (an underlined caps link
-    # measures as tall as a paragraph line).
+    # measures as tall as a paragraph line) — and, once the lab has set
+    # them, only while they agree about the KIND of face (below).
     roles = []
-    for t, k, ln in read:
+    for b in blocks:
+        t, k, _ = b[0]
         for r in roles:
-            h0, c0 = r["members"][0][1]["h"], r["members"][0][1]["colour"]
+            h0, c0 = r["blocks"][0][0][1]["h"], r["blocks"][0][0][1]["colour"]
             if (abs(k["h"] - h0) <= 0.15 * h0 and math.dist(k["colour"], c0) < 60
                     and _caps(t) == r["caps"]):
-                r["members"].append((t, k, ln))
+                r["blocks"].append(b)
                 break
         else:
-            roles.append({"caps": _caps(t), "members": [(t, k, ln)]})
+            roles.append({"caps": _caps(t), "blocks": [b]})
     roles = roles[:max_roles]
-    # The lab sets up to three lines of each role; their scores add up.
-    todo, owner = [], []
+    # The lab sets every block's longest line, and the role's longest lines
+    # up to three; their scores add up per block and per role.
+    todo, owner, blk = [], [], []
     for ri, r in enumerate(roles):
-        ms = sorted(r["members"], key=lambda m: -min(len(m[0]), 90))[:3]
-        for t, k, _ in ms:
+        picked = []
+        for bi, b in enumerate(r["blocks"][:8]):
+            m = max(b, key=lambda m: min(len(m[0]), 90))
+            picked.append((bi, m))
+        rest = sorted(((bi, m) for bi, b in enumerate(r["blocks"][:8]) for m in b
+                       if all(m is not p[1] for p in picked)),
+                      key=lambda x: -min(len(x[1][0]), 90))
+        picked += rest[:max(0, 3 - len(picked))]
+        for bi, (t, k, _) in picked:
             todo.append((t[:90], k, None))
             owner.append(ri)
+            blk.append((ri, bi))
     texts = [t for t, _, _ in todo]
     t0 = time.time()
 
     def run(variants, allowed, name, sizes=None):
-        only = [{vi for vi, v in enumerate(variants) if allowed(roles[owner[ti]], v)}
+        only = [{vi for vi, v in enumerate(variants) if allowed(owner[ti], v)}
                 for ti in range(len(todo))]
         html, cells, W, H = lab_page(texts, variants, only=only, sizes=sizes)
         img = _shoot(html, W, H, work, name)
         if img is None:
             return None
         sc = _score_cells(img, cells, todo, variants)
+        return sc
+
+    def per_role(sc):
         per = [dict() for _ in roles]
         for ti in range(len(todo)):
             for vi, v in sc[ti].items():
                 per[owner[ti]][vi] = per[owner[ti]].get(vi, 0.0) + v
         for ri in range(len(roles)):
-            n = sum(1 for o in owner if o == ri) or 1
-            per[ri] = {vi: v / n for vi, v in per[ri].items()}
-        return per, sc
+            k = sum(1 for o in owner if o == ri) or 1
+            per[ri] = {vi: v / k for vi, v in per[ri].items()}
+        return per
 
     # Stage 1: one or two families per class, every style — which KIND.
     reps = ("Lora", "Cormorant Garamond", "Inter", "Poppins", "JetBrains Mono",
             "Caveat", "Homemade Apple")
     v1 = _variants(families=reps, tracks=TRACKS)
-    got = run(v1, lambda r, v: r["caps"] or v[3] == 0.0, "lab1")
-    if got is None:
+    sc1 = run(v1, lambda ri, v: roles[ri]["caps"] or v[3] == 0.0, "lab1")
+    if sc1 is None:
         log("the font lab could not render — type was not identified")
         return []
-    s1, sc1 = got
+
+    def kind(vi):
+        f, _, st, _ = v1[vi]
+        return (FONTS[f][0], st)
+
+    def kinds(scores):
+        """{(class, style): best score} — the strongest reading of each kind."""
+        out = {}
+        for vi, v in scores.items():
+            out[kind(vi)] = max(out.get(kind(vi), 0.0), v)
+        return out
+
+    if os.environ.get("AE_LAB_DEBUG"):
+        for ti in range(len(todo)):
+            ks = sorted(kinds(sc1[ti]).items(), key=lambda kv: -kv[1])[:4]
+            log("   lab1", texts[ti][:30], [(f"{c}/{st}", round(v, 3)) for (c, st), v in ks])
+    # A block that reads as another KIND of face than its role, by a clear
+    # margin, is its own role: a handwritten note the height of a
+    # paragraph is not set in the paragraph's face.
+    split = []
+    s1 = per_role(sc1)
+    for ri, r in enumerate(roles):
+        if len(r["blocks"]) < 2 or not s1[ri]:
+            continue
+        rk = kinds(s1[ri])
+        role_kind = max(rk.items(), key=lambda kv: kv[1])[0]
+        mine = {}
+        for ti in range(len(todo)):
+            if blk[ti][0] != ri:
+                continue
+            bk = mine.setdefault(blk[ti][1], {})
+            for kd, v in kinds(sc1[ti]).items():
+                bk[kd] = bk.get(kd, []) + [v]
+        moved = {}
+        for bi, bk in mine.items():
+            avg = {kd: sum(v) / len(v) for kd, v in bk.items()}
+            own = max(avg.items(), key=lambda kv: kv[1])[0]
+            if (own != role_kind and
+                    avg[own] > (1 + SPLIT) * max(avg.get(role_kind, 0.0), 1e-6)):
+                moved.setdefault(own, []).append(bi)
+        for kd, bis in moved.items():
+            split.append((ri, kd, bis))
+    for ri, kd, bis in split:
+        roles.append({"caps": roles[ri]["caps"], "blocks": [roles[ri]["blocks"][bi] for bi in bis],
+                      "kind": kd})
+        nri = len(roles) - 1
+        for ti in range(len(todo)):
+            if blk[ti][0] == ri and blk[ti][1] in bis:
+                owner[ti] = nri
+    if split:
+        for ri in {x[0] for x in split}:
+            moved = {bi for r0, _, bis in split if r0 == ri for bi in bis}
+            roles[ri]["blocks"] = [b for bi, b in enumerate(roles[ri]["blocks"])
+                                   if bi not in moved]
+        log(f"type: {sum(len(x[2]) for x in split)} block(s) read as another kind of "
+            f"face than their role and were set apart")
+    for r in roles:
+        r["members"] = [m for b in r["blocks"] for m in b]
+    s1 = per_role(sc1)
     # Each text's size, from its role's stage-1 winner: stage 2 sets it at
     # that size, where its strokes antialias the way the screenshot's did.
     est = []
@@ -425,16 +541,16 @@ def identify(ref, lines, work, log=say, max_roles=10, floor=0.15):
         if not s1[ri]:
             win.append(None)
             continue
-        f1, _, st1, ls1 = v1[max(s1[ri].items(), key=lambda kv: kv[1])[0]]
+        f1, _, st1, ls1 = v1[_upright(s1[ri], v1)]
         win.append((FONTS[f1][0], st1, ls1))
-    allowed = lambda r, v: (win[roles.index(r)] is not None
-                            and FONTS[v[0]][0] == win[roles.index(r)][0]
-                            and v[2] == win[roles.index(r)][1]
-                            and (v[3] == win[roles.index(r)][2]))
-    got = run(v2, allowed, "lab2", sizes=est)
-    if got is None:
+    allowed = lambda ri, v: (win[ri] is not None
+                             and FONTS[v[0]][0] == win[ri][0]
+                             and v[2] == win[ri][1]
+                             and (v[3] == win[ri][2]))
+    sc2 = run(v2, allowed, "lab2", sizes=est)
+    if sc2 is None:
         return []
-    s2, sc2 = got
+    s2 = per_role(sc2)
     out = []
     for ri, r in enumerate(roles):
         if not s2[ri]:
@@ -536,8 +652,16 @@ FIT_JS = r"""
         || parseFloat(c2.borderTopWidth) + parseFloat(c2.borderBottomWidth)
            + parseFloat(c2.borderLeftWidth) + parseFloat(c2.borderRightWidth) > 0;
       if (!paints) continue;
-      var b2 = e2.getBoundingClientRect();
-      boxes.push({id: e2.getAttribute('data-ae-id'), w: b2.width, h: b2.height});
+      var b2 = e2.getBoundingClientRect(), kids = [];
+      for (var q2 = 0; q2 < e2.children.length; q2++) {
+        var k2 = e2.children[q2];
+        if ((k2.tagName === 'INPUT' || k2.tagName === 'TEXTAREA') && k2.hasAttribute('data-ae-id'))
+          kids.push(k2.getAttribute('data-ae-id'));
+      }
+      boxes.push({id: e2.getAttribute('data-ae-id'), x: b2.left, y: b2.top, w: b2.width,
+                  h: b2.height, flex: c2.display.indexOf('flex') >= 0, fields: kids,
+                  pad: [c2.paddingTop, c2.paddingRight, c2.paddingBottom, c2.paddingLeft]
+                         .map(parseFloat)});
     }
     // The page's lines of text as the BROWSER laid them out: every word's
     // box, grouped into visual lines, and fragments on one line joined
@@ -694,6 +818,52 @@ def measure_page(page, W, H, work, ocr=ocr_lines):
             "boxes": dom.get("boxes") or []}
 
 
+def ref_box(ref, seed, window, step=18, reach=70):
+    """The drawn box in the screenshot that holds `seed`: the pixels joined
+    to it through small colour steps (a pill's own shading, the
+    antialiasing round its letters) and never far from its colour. The
+    letters inside are another colour, so the run flows round them; the
+    box's edge is a step, so it stops there. -> (x, y, w, h), or None when
+    it leaks out of `window` (the box is the colour of what is around it)
+    or the seed is outside the picture."""
+    x0, y0, x1, y1 = (max(0, int(window[0])), max(0, int(window[1])),
+                      min(ref.w, int(window[2])), min(ref.h, int(window[3])))
+    sx, sy = int(seed[0]), int(seed[1])
+    if not (x0 <= sx < x1 and y0 <= sy < y1):
+        return None
+    px = lambda x, y: ref.rgb[(y * ref.w + x) * 3:(y * ref.w + x) * 3 + 3]
+    c0 = tuple(px(sx, sy))
+    seen = {(sx, sy)}
+    todo = [(sx, sy)]
+    bx0 = bx1 = sx
+    by0 = by1 = sy
+    while todo:
+        x, y = todo.pop()
+        c = px(x, y)
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if (nx, ny) in seen:
+                continue
+            if not (x0 <= nx < x1 and y0 <= ny < y1):
+                return None
+            d = px(nx, ny)
+            if (max(abs(d[k] - c[k]) for k in range(3)) <= step
+                    and max(abs(d[k] - c0[k]) for k in range(3)) <= reach):
+                seen.add((nx, ny))
+                todo.append((nx, ny))
+                bx0, bx1, by0, by1 = min(bx0, nx), max(bx1, nx), min(by0, ny), max(by1, ny)
+        if len(seen) > 400000:
+            return None
+    return (bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1)
+
+
+def _iou(a, b):
+    ix = max(0.0, min(a[0] + a[2], b[0] + b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[1] + a[3], b[1] + b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    u = a[2] * a[3] + b[2] * b[3] - inter
+    return inter / u if u > 0 else 0.0
+
+
 def pair(ref_lines, built_lines, floor=0.55):
     """Match the screenshot's lines to the page's by their words."""
     cand = []
@@ -721,6 +891,19 @@ def _dx(a, b):
                 b["x"] + b["w"] - a["x"] - a["w"]), key=abs)
 
 
+LINE_WORDS = 0.9      # a line is right only when its words are the screenshot's
+
+
+def _same_ends(a, b):
+    """Do two lines start and end on the same word? A long line that lost
+    its last word to the next line is still 95% the same words."""
+    # By letters, not words: OCR often drops the spaces in a line.
+    na, nb = _norm(a), _norm(b)
+    if len(na) < 6 or len(nb) < 6:
+        return True
+    return _sim(na[:5], nb[:5]) >= 0.5 and _sim(na[-5:], nb[-5:]) >= 0.5
+
+
 def placement(ref_lines, built_lines, W):
     """How many of the screenshot's lines sit in the right place at the
     right size. -> {right, total, score (0..1, continuous), lines[...]}"""
@@ -736,16 +919,33 @@ def placement(ref_lines, built_lines, W):
             continue
         dx, dy = _dx(a, b), b["y"] - a["y"]
         hr = b["h"] / max(1, a["h"])
-        ok = abs(dx) <= tol and abs(dy) <= tol and abs(math.log(hr)) <= math.log(1 + SIZE_TOL)
+        # A line broken in another place still pairs with its own by most of
+        # its words, and its left edge and top agree: without the words
+        # counted, "calm." wrapped onto a third line read as all right.
+        words = _sim(a["text"], b["text"])
+        if words < 1 and not _same_ends(a["text"], b["text"]):
+            words = min(words, LINE_WORDS - 0.05)
+        ok = abs(dx) <= tol and abs(dy) <= tol and abs(math.log(hr)) <= math.log(1 + SIZE_TOL) \
+            and words >= LINE_WORDS
         right += ok
         e = 0.6 * min(1, (abs(dx) + abs(dy)) / (10 * tol)) \
-            + 0.4 * min(1, abs(math.log(hr)) / math.log(1.6))
-        err += e
+            + 0.4 * min(1, abs(math.log(hr)) / math.log(1.6)) \
+            + min(0.5, 1.5 * (1 - words))
+        err += min(1.0, e)
         rows.append({"text": a["text"], "dx": round(dx), "dy": round(dy),
-                     "size": round(hr, 2), "ok": ok, "owner": b.get("owner")})
+                     "size": round(hr, 2), "ok": ok, "owner": b.get("owner"),
+                     "words": round(words, 2)})
+    # A line the page has and the screenshot does not, belonging to an
+    # element whose other lines are paired, is a line broken into two.
+    owned = {b.get("owner") for _, b in pairs if b.get("owner")}
+    paired = {id(b) for _, b in pairs}
+    extra = [b for b in built_lines if id(b) not in paired and b.get("owner") in owned]
+    for b in extra:
+        err += 0.5
+        rows.append({"text": b["text"], "extra": True, "owner": b.get("owner")})
     n = max(1, len(ref_lines))
-    return {"right": right, "total": len(ref_lines), "score": round(1 - err / n, 4),
-            "lines": rows}
+    return {"right": right, "total": len(ref_lines), "score": round(max(0.0, 1 - err / n), 4),
+            "lines": rows, "extra": len(extra)}
 
 
 # ─────────────────────────── fitting ───────────────────────────────────
@@ -809,7 +1009,20 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
             return None
         pl = placement(ref_lines, m["lines"], W)
         lk = likeness_fn(m["img"]) if likeness_fn else None
-        return {"m": m, "pl": pl, "look": lk}
+        return {"m": m, "pl": pl, "look": lk, "bx": box_score(m)}
+
+    refbox = {}             # drawn box id -> where the screenshot draws it
+
+    def box_score(m):
+        """How well the page's buttons and pills sit on the screenshot's:
+        the mean overlap of each with its own, 0..1 (None before any are
+        known)."""
+        if not refbox:
+            return None
+        got = {b["id"]: b for b in m.get("boxes", []) if "x" in b}
+        vals = [_iou((got[i]["x"], got[i]["y"], got[i]["w"], got[i]["h"]), r)
+                if i in got else 0.0 for i, r in refbox.items()]
+        return sum(vals) / len(vals)
 
     base = evaluate(html)
     if base is None:
@@ -827,6 +1040,9 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
         gain = c["pl"]["score"] - best["pl"]["score"]
         if gain <= 0.002:
             return False
+        if (best.get("bx") is not None and c.get("bx") is not None
+                and c["bx"] < best["bx"] - 0.03):
+            return False            # words in place, but their button pulled apart
         if best["look"] is not None and c["look"] is not None:
             # A right face moves everything below it, so the look can dip
             # until the positions follow; a big placement gain may cost a
@@ -835,19 +1051,37 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
                 return False
         return True
 
-    def attempt(name, new_rules, new_fams):
+    def boxes_better(c):
+        """A box pass is judged by the boxes: kept when they sit closer to
+        the screenshot's and the words and the look hold."""
+        if c is None or c.get("bx") is None or best.get("bx") is None:
+            return False
+        gain = c["bx"] - best["bx"]
+        if gain <= 0.01:
+            return False
+        # A button drawn right may leave its label a pixel or two off the
+        # screenshot's: worth it when the box moved a lot, not otherwise.
+        if c["pl"]["score"] < best["pl"]["score"] - (0.015 if gain >= 0.1 else 0.005):
+            return False
+        if best["look"] is not None and c["look"] is not None and c["look"] < best["look"] - 0.01:
+            return False
+        return True
+
+    def attempt(name, new_rules, new_fams, judge=None):
         nonlocal best, rules, fams
         last[0] = None
         if new_rules == rules:
             return False
         c = evaluate(apply_rules(html, new_rules, W, new_fams))
         last[0] = c
-        ok = better(c)
+        ok = (judge or better)(c)
         report["passes"].append({"pass": name, "kept": ok,
                                  "placement": c["pl"]["score"] if c else None,
                                  "look": c["look"] if c else None})
+        extra = (f", boxes {best['bx']:.1%} -> {c['bx']:.1%}"
+                 if c and c.get("bx") is not None and best.get("bx") is not None else "")
         log(f"fit · {name}: placement {best['pl']['score']:.1%} -> "
-            f"{(c['pl']['score'] if c else 0):.1%} — {'kept' if ok else 'not kept'}")
+            f"{(c['pl']['score'] if c else 0):.1%}{extra} — {'kept' if ok else 'not kept'}")
         if c and os.environ.get("AE_FIT_DEBUG"):
             for ln in c["pl"]["lines"]:
                 if not ln.get("ok"):
@@ -915,9 +1149,148 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
         lands its own lines can score worse until the rest follows. So when
         it is not kept alone, it is tried once more with every line moved
         to where the screenshot has it on the page it produced."""
-        if attempt(name, new_rules, new_fams) or last[0] is None:
-            return
-        attempt(name + ", with what follows moved", pos_rules(last[0], new_rules), new_fams)
+        if attempt(name, new_rules, new_fams):
+            return True
+        if last[0] is None:
+            return False
+        moved = pos_rules(last[0], new_rules)
+        if attempt(name + ", with what follows moved", moved, new_fams):
+            return True
+        if last[0] is None or not refbox:
+            return False
+        # The text followed; the drawn boxes (a pill holding a field, a
+        # button) are carried to their place too.
+        cur = {b["id"]: b for b in last[0]["m"].get("boxes", []) if "x" in b}
+        return attempt(name + ", with what follows and the boxes moved",
+                       _place_boxes(moved, cur), new_fams)
+
+    def find_boxes(st):
+        """Every small drawn box holding text the screenshot has (a button,
+        a pill, a badge) -> where the screenshot draws it."""
+        its = {it["id"]: it for it in st["m"]["items"]}
+        ow = owners(st)
+        found = {}
+        for b in st["m"].get("boxes", []):
+            if "x" not in b or b["w"] < 12 or b["h"] < 10 or b["w"] * b["h"] > 0.08 * W * H:
+                continue
+            inside = [(a, ln) for eid, ps in ow.items() if eid in its
+                      and (eid == b["id"] or b["id"] in its[eid]["anc"]) for a, ln in ps]
+            if not inside:
+                continue
+            dxs = sorted(a["x"] - ln["x"] for a, ln in inside)
+            dys = sorted(a["y"] - ln["y"] for a, ln in inside)
+            dx, dy = dxs[len(dxs) // 2], dys[len(dys) // 2]
+            bx, by, bw, bh = b["x"] + dx, b["y"] + dy, b["w"], b["h"]
+            win = (bx - 0.5 * bw - 16, by - 0.8 * bh - 16, bx + 1.5 * bw + 16, by + 1.8 * bh + 16)
+            seeds = [(bx + 4, by + bh / 2), (bx + bw - 4, by + bh / 2),
+                     (bx + bw / 2, by + 3), (bx + bw / 2, by + bh - 3)]
+            for a, ln in inside:
+                seeds += [((bx + a["x"]) / 2, a["y"] + a["h"] / 2),
+                          (a["x"] + a["w"] / 2, (by + a["y"]) / 2),
+                          ((a["x"] + a["w"] + bx + bw) / 2, a["y"] + a["h"] / 2)]
+            got = None
+            def fits(rb):
+                return (rb and 0.5 * bw <= rb[2] <= 2 * bw and 0.5 * bh <= rb[3] <= 2.5 * bh
+                        and all(rb[0] - 2 <= a["x"] and a["x"] + a["w"] <= rb[0] + rb[2] + 2
+                                and rb[1] - 2 <= a["y"]
+                                and a["y"] + a["h"] <= rb[1] + rb[3] + 2 for a, _ in inside))
+
+            for sd in seeds:
+                # A light pill on a light page differs from it by a few
+                # levels: try strict first, keep the fullest box that does
+                # not leak, never one that does.
+                mine = None
+                for step, reach in ((12, 20), (12, 28), (12, 40), (18, 70)):
+                    rb = ref_box(ref, sd, win, step=step, reach=reach)
+                    if fits(rb) and (mine is None or rb[2] * rb[3] > mine[2] * mine[3]):
+                        mine = rb
+                if mine and (got is None or mine[2] * mine[3] < got[2] * got[3]):
+                    got = mine
+            if got:
+                found[b["id"]] = got
+        return found
+
+    def boxes_pass(name):
+        """6. BUTTONS AND PILLS: the box the screenshot draws, at its size
+        and in its place — not only its words. Sized first (a flex row's
+        field takes up what a wider pill gives it), then carried to its
+        place with what is inside it."""
+        nonlocal best
+        if not refbox:
+            refbox.update(find_boxes(best))
+            if not refbox:
+                return
+            best["bx"] = box_score(best["m"])
+            if os.environ.get("AE_FIT_DEBUG"):
+                log("     boxes", refbox, "now", round(best["bx"], 3))
+        cur = {b["id"]: b for b in best["m"].get("boxes", []) if "x" in b}
+        r = dict(rules)
+        for bid, rb in refbox.items():
+            b = cur.get(bid)
+            if not b:
+                continue
+            props = {}
+            if abs(rb[2] - b["w"]) > 2:
+                props["width"] = f"{rb[2]}px"
+            if abs(rb[3] - b["h"]) > 2:
+                props["height"] = f"{rb[3]}px"
+            if not props:
+                continue
+            pad = b.get("pad") or []
+            if not b.get("fields") and len(pad) == 4:
+                # A button's label sits in its content box: a new size given
+                # as padding keeps the label where a button keeps it, in the
+                # middle. A height alone left "Subscribe" sitting low.
+                pt, pr, pb, pl = pad
+                ch, cw = b["h"] - pt - pb, b["w"] - pl - pr
+                if "height" in props and ch > 0 and rb[3] - ch >= 0:
+                    v = (rb[3] - ch) / 2
+                    props.update({"padding-top": f"{v:.1f}px", "padding-bottom": f"{v:.1f}px"})
+                if "width" in props and cw > 0 and rb[2] - cw >= 0:
+                    v = (rb[2] - cw) / 2
+                    props.update({"padding-left": f"{v:.1f}px", "padding-right": f"{v:.1f}px"})
+            props.update({"box-sizing": "border-box", "flex-shrink": "0"})
+            r = _merge(r, bid, props)
+            if "width" in props and b.get("flex"):
+                for fid in b.get("fields") or []:
+                    r = _merge(r, fid, {"flex": "1 1 auto", "min-width": "0", "width": "auto"})
+        if r != rules:
+            if attempt(name + ": sizes", r, fams, judge=boxes_better):
+                cur = {b["id"]: b for b in best["m"].get("boxes", []) if "x" in b}
+            elif last[0] is not None:
+                st = last[0]
+                cur2 = {b["id"]: b for b in st["m"].get("boxes", []) if "x" in b}
+                r2 = _place_boxes(r, cur2)
+                if attempt(name + ": sizes, carried to their place", r2, fams,
+                           judge=boxes_better):
+                    return
+                return
+        r2 = _place_boxes(rules, cur)
+        attempt(name + ": places", r2, fams, judge=boxes_better)
+
+    def _place_boxes(base_rules, cur):
+        r = dict(base_rules)
+        its = {it["id"]: it for it in best["m"]["items"]}
+        order = sorted(refbox, key=lambda i: len(its.get(i, {}).get("anc", [])))
+        moved = {}
+        for bid in order:
+            b = cur.get(bid)
+            if not b:
+                continue
+            rb = refbox[bid]
+            px_, py_ = rb[0] - b["x"], rb[1] - b["y"]
+            for a in (its.get(bid, {}).get("anc") or []):
+                if a in moved:
+                    px_ -= moved[a][0]
+                    py_ -= moved[a][1]
+            if abs(px_) <= 1.5 and abs(py_) <= 1.5:
+                continue
+            prev = base_rules.get(bid, {}).get("translate", "0px 0px").split()
+            tx = px_ + float(prev[0][:-2])
+            ty = py_ + (float(prev[1][:-2]) if len(prev) > 1 else 0.0)
+            moved[bid] = (px_, py_)
+            r = _merge(r, bid, {"translate": f"{tx:.1f}px {ty:.1f}px"})
+        return r
 
     lab_sized = set()       # sizes the lab measured as font-sizes; ratios never override them
 
@@ -978,34 +1351,55 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
                 r = _merge(r, eid, props)
         followed(f"sizes (round {rnd + 1})", r, fams)
 
-        r = dict(rules)
-        its = items()
-        for eid, ps in owners().items():
-            it = its.get(eid)
-            if not it:
-                continue
-            refs = [a for a, _ in ps]
-            nbuilt = len(it["rects"])
-            if len(ps) == 1 and nbuilt == 1:
-                a, b = ps[0]
-                chars = max(1, len(it["text"]) - 1)
-                cur = it.get("ls") or "normal"
-                cur = float(cur[:-2]) if cur.endswith("px") else 0.0
-                d = (a["w"] - b["w"]) / chars
-                if abs(d) > 0.08 and abs(a["w"] - b["w"]) > 3:
-                    r = _merge(r, eid, {"letter-spacing": f"{cur + d:.2f}px"})
-            elif nbuilt != len(refs) and refs:
-                widest = max(a["w"] for a in refs)
-                built_w = max(rw for _, _, rw, _ in it["rects"])
-                if nbuilt > len(refs):
-                    tw = max(widest, built_w) * 1.06
-                else:
-                    tw = widest * 1.04
-                r = _merge(r, eid, {"max-width": f"{tw:.0f}px"})
-                if it.get("align") == "center":
-                    r[eid]["margin-left"] = "auto"
-                    r[eid]["margin-right"] = "auto"
-        followed(f"tracking and line breaks (round {rnd + 1})", r, fams)
+        # Line breaks: an element whose lines are not the screenshot's — a
+        # different count, or the same count broken at other words — gets
+        # the width that breaks it there. The width is read off the
+        # screenshot's widest line, which is ink, not the box that holds it:
+        # a few widths round it are tried, and the first that measures
+        # better is kept.
+        for k, (more, fewer, same) in enumerate(((1.06, 1.04, 1.02), (1.10, 1.0, 1.0),
+                                                  (1.02, 1.08, 1.05))):
+            r = dict(rules)
+            its = items()
+            wrap = False
+            for eid, ps in owners().items():
+                it = its.get(eid)
+                if not it:
+                    continue
+                refs = [a for a, _ in ps]
+                nbuilt = len(it["rects"])
+                broken = any(_norm(a["text"]) != _norm(b["text"])
+                             and not (_sim(a["text"], b["text"]) >= 0.97
+                                      and _same_ends(a["text"], b["text"])) for a, b in ps)
+                if len(ps) == 1 and nbuilt == 1:
+                    if k:
+                        continue
+                    a, b = ps[0]
+                    chars = max(1, len(it["text"]) - 1)
+                    cur = it.get("ls") or "normal"
+                    cur = float(cur[:-2]) if cur.endswith("px") else 0.0
+                    d = (a["w"] - b["w"]) / chars
+                    if abs(d) > 0.08 and abs(a["w"] - b["w"]) > 3:
+                        r = _merge(r, eid, {"letter-spacing": f"{cur + d:.2f}px"})
+                elif refs and (nbuilt != len(refs) or broken):
+                    widest = max(a["w"] for a in refs)
+                    built_w = max(rw for _, _, rw, _ in it["rects"])
+                    if nbuilt > len(refs):
+                        tw = max(widest, built_w) * more
+                    elif nbuilt < len(refs):
+                        tw = widest * fewer
+                    else:
+                        tw = widest * same
+                    r = _merge(r, eid, {"max-width": f"{tw:.0f}px"})
+                    wrap = True
+                    if it.get("align") == "center":
+                        r[eid]["margin-left"] = "auto"
+                        r[eid]["margin-right"] = "auto"
+            if r == rules or (k and not wrap):
+                break
+            if followed(f"tracking and line breaks (round {rnd + 1})"
+                        + (f", width {k + 1}" if k else ""), r, fams):
+                break
 
         r = dict(rules)
         its = items()
@@ -1028,6 +1422,8 @@ def fit(html, ref, ref_lines, W, H, work, fonts=None, log=say, likeness_fn=None,
 
         r = pos_rules(best, rules)
         attempt(f"positions (round {rnd + 1})", r, fams)
+
+        boxes_pass(f"buttons and pills (round {rnd + 1})")
 
     # Never hand back a page that looks worse than the one given.
     if base["look"] is not None:
@@ -1066,7 +1462,6 @@ def ref_lines_for(ref, lines):
 def _selftest():
     """A known page, rendered as the "screenshot"; the same page set wrong —
     wrong faces, sizes and offsets — must be measured and fitted back."""
-    import aethron_shot2code as S
     import aethron_figma_grade as G
     ok = True
 
@@ -1075,6 +1470,37 @@ def _selftest():
         ok &= bool(cond)
         print(("PASS " if cond else "FAIL ") + name + (f" — {extra}" if extra else ""))
 
+    # A line broken in another place: same left edge and top, most of the
+    # same words. It is not right, and the line it pushed out is counted.
+    ref = [{"text": "One email every Friday and zero noise for", "x": 10, "y": 10, "w": 300, "h": 12},
+           {"text": "readers who like it calm.", "x": 10, "y": 30, "w": 200, "h": 12}]
+    good = [dict(r, owner="p") for r in ref]
+    bad = [{"text": "One email every Friday and zero noise", "x": 10, "y": 10, "w": 270, "h": 12,
+            "owner": "p"},
+           {"text": "for readers who like it", "x": 10, "y": 30, "w": 190, "h": 12, "owner": "p"},
+           {"text": "calm.", "x": 10, "y": 50, "w": 40, "h": 12, "owner": "p"}]
+    pg, pb = placement(ref, good, 900), placement(ref, bad, 900)
+    check("lines broken where the screenshot breaks them are right",
+          pg["right"] == 2 and pg["score"] > 0.99, str(pg["score"]))
+    check("a line broken in another place is not right, and the extra line costs",
+          pb["right"] == 0 and pb["extra"] == 1 and pb["score"] < pg["score"] - 0.3,
+          f"{pb['right']} right, score {pb['score']}")
+    # A light pill on a light page, a dark label inside: the box is found
+    # whole, round the letters, and stops at its edge.
+    import aethron_shot2code as S
+    Wp, Hp = 200, 80
+    px = bytearray([240, 238, 232] * Wp * Hp)
+    for y in range(20, 56):
+        for x in range(30, 170):
+            i = (y * Wp + x) * 3
+            px[i:i + 3] = bytes([226, 222, 214])
+    for y in range(32, 44):
+        for x in range(60, 140, 3):
+            i = (y * Wp + x) * 3
+            px[i:i + 3] = bytes([20, 20, 20])
+    rb = ref_box(S.Img(Wp, Hp, px), (40, 38), (0, 0, Wp, Hp), step=12, reach=20)
+    check("a pill a few levels off its page is found at its own size",
+          rb == (30, 20, 140, 36), str(rb))
     if not G.find_browser():
         print("VERDICT: SKIPPED — no browser to render with")
         return 0

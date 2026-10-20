@@ -172,6 +172,14 @@ check("the page does not look worse for it",
 check("the headline is set in a serif read off the pixels",
       re.search(r"font-family:'[^']+',[^;]*serif !important", site) is not None)
 check("the writer was shown the screenshot", looked["images"] >= 1)
+wide = rep.get("wide") or {}
+check("in a window half again as wide it looks as alike (the page scales with the picture)",
+      wide.get("likeness", 0) >= rep.get("likeness", 0) - 0.03,
+      f"{wide.get('likeness')} at {wide.get('width')}px against {rep.get('likeness')}")
+m = re.search(r'data-ae-id="(e\d+)"[^>]*>\s*One email', site)
+check("the paragraph is set upright, as the screenshot has it",
+      m and not re.search(r'\[data-ae-id="%s"\]\{[^}]*font-style:italic' % m.group(1), site),
+      m and m.group(1))
 
 print("VERDICT: " + ("PASS" if ok else "FAIL"))
 sys.exit(0 if ok else 1)
