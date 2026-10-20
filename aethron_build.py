@@ -497,6 +497,16 @@ def _active(model=None):
     return r
 
 
+def _use(r, purpose, p_in, p_out, cost, free):
+    """Record where this request really went (aethron_usage)."""
+    try:
+        import aethron_usage
+        aethron_usage.record(r.get("base", ""), r.get("model", ""), purpose,
+                             p_in, p_out, cost, free=free)
+    except Exception:
+        pass
+
+
 def _price(r):
     """(in, out) dollars per token for the active model. A local model is
     free; an unknown one is priced at the dearest known rate, so a cap is
@@ -678,6 +688,7 @@ def gemini_writer(budget_usd=0.25, model=None,
                 _t.sleep(6 * (attempt + 1))
         html, cut, p_in, p_out = _reply(r, d)
         cost = p_in * PIN + p_out * POUT
+        _use(r, "writer", p_in, p_out, cost, False)
         ledger["calls"] += 1
         ledger["in"] += p_in
         ledger["out"] += p_out
@@ -833,6 +844,7 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
             continue
         text, cut, p_in, p_out = _reply(r, d)
         cost = p_in * PIN + p_out * POUT
+        _use(r, "writer", p_in, p_out, cost, tier == "free")
         ledger["calls"] += 1
         ledger["in"] += p_in
         ledger["out"] += p_out
