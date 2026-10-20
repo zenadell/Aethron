@@ -6206,6 +6206,31 @@ its price (~$0.14/M input), not a missing call. The stuck "Thinking" was not
 reproduced; DeepSeek's ": keep-alive" lines while a request is queued are now read
 as the bridge being alive and shown as queued.
 
+## "WENT QUIET" WAS OUR OWN GUARD, AND "$0.19" WAS NOT DEEPSEEK'S PRICE — 2026-10-20
+After 1.1.36, temple's deepseek-flash run still looped "the model went quiet,
+Aethron reconnected… try 2 of 2", and the footer read "$0.19 this session"
+while DeepSeek's balance did not move. Their Mac's Aethron folder could not be
+opened from the cloud session, so both were reproduced with the real engine:
+- THE GUARD'S NO WAS A 429. The bridge's spend guard (requests/tokens/$/repeat)
+  refused with 429, which the engine treats as "busy" and retries in silence —
+  measured, no event for 8+ minutes. And the guard was reset only when the
+  provider changed, so once it tripped every later message and every reconnect
+  was refused until the app was quit. Now: a 400 the engine does not retry
+  (the turn ends with the reason), the bridge status says "stopped", and every
+  person's message starts a new run (/api/code/send resets the guard).
+- The repeat detector counted the engine's own side calls (it asks for the
+  same "current state" summary twice in a row): only streamed agent turns count.
+- "$0.19" was the ENGINE's cost, which prices every token as its own model. A
+  bridged turn now reports the bridge's figure: the provider's price on the
+  provider's token counts. deepseek-flash was missing from PRICES (priced at
+  the dearest, $2/$12) and is now listed ($0.30/$1.20 peak); cached prompt
+  tokens (DeepSeek prompt_cache_hit_tokens, OpenAI cached_tokens) are priced
+  at the cache rate ($0.006/M for flash) — most of an agent's prompt.
+- A thinking model can send nothing downstream for minutes (reasoning is not
+  forwarded, tool arguments are held until whole). The stream now opens at
+  once and pings every 10s while the provider works.
+tests/guard_battery.py 13/13 (in run_all); bridge selftest 34/34.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6453,3 +6478,6 @@ as the bridge being alive and shown as queued.
 - A SIDE JOB NEVER SPENDS ANOTHER PROVIDER'S KEY UNASKED. Only the selected
   provider is used unless the person allowed a helper in Settings, and every
   request is recorded by the address it went to.
+- A GUARD THAT SAYS NO SAYS IT ONCE AND OUT LOUD. Never refuse with a status
+  the engine retries; a run's limits reset with the person's next message.
+- THE COST SHOWN IS THE PROVIDER'S PRICE. Never the engine's own estimate.

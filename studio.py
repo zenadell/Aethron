@@ -2423,6 +2423,14 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail("empty message")
                 if not text:
                     text = "(image attached)"
+                # ONE REQUEST IS ONE RUN. The bridge's spend guard was only
+                # ever reset when the provider changed, so it counted every
+                # request since the app opened; once it tripped, every later
+                # message — and every reconnect — was refused for the rest
+                # of the day, and the person saw a model "going quiet".
+                br = sys.modules.get("aethron_bridge")
+                if br:
+                    br.reset_usage()
                 ctx = ""
                 if (s.workspace / "forge.json").exists():
                     try:

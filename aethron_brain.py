@@ -707,9 +707,8 @@ def _text_once(r, prompt, timeout, max_tokens):
         u = d.get("usage") or {}
         i = int(u.get("prompt_tokens") or u.get("input_tokens") or 0)
         o = int(u.get("completion_tokens") or u.get("output_tokens") or 0)
-        pin, pout = _br.price_of(r["model"])
         aethron_usage.record(r["base"], r["model"], "text", i, o,
-                             (i * pin + o * pout) / 1e6,
+                             _br.cost_of(r["model"], i, o, _br.cached_tokens(u)),
                              free=r["key"] in free_ring())
     except Exception:
         pass
