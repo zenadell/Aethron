@@ -469,6 +469,19 @@ def t_screenshot_to_page(a):
              f"page: {site}"]
     el = rep.get("elements") or {}
     lines.append("real elements: " + ", ".join(f"{v} {k}" for k, v in el.items() if v))
+    pl = rep.get("placement") or {}
+    if pl.get("after"):
+        b, f = pl.get("before") or {}, pl["after"]
+        lines.append(f"text placement: {b.get('placement', 0):.0%} -> {f['placement']:.0%} "
+                     f"({f.get('right', 0)} of {f.get('total', 0)} lines exactly where the "
+                     "screenshot has them; type face, size and spacing measured from its pixels)")
+    for p in rep.get("pictures") or []:
+        lines.append(f"picture {p['slot']} ({p['box'][2]}x{p['box'][3]}, {p['kind']}): "
+                     f"{p['how']} — {p['file']}"
+                     + ("" if p["how"] != "placeholder" else
+                        " (a stand-in in the region's colours; describe the picture in the "
+                        "<img alt> and run again to find or make a real one)"))
+    lines += [f"note: {n}" for n in rep.get("polish") or []]
     lines += _craft_lines(rep)
     if rep.get("findings"):
         lines.append("still failing:")
