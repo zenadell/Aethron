@@ -38,6 +38,7 @@ SUITES = [
                 "tests/adopt_battery.py",
                 "tests/alive_battery.py", "tests/engine_battery.py",
                 "tests/provider_battery.py", "tests/openai_battery.py",
+                "aethron_usage.py", "tests/routing_battery.py",
                 "tests/preview_battery.py",
                 "tests/remote_battery.py", "aethron_runlog.py",
                 "tests/keeper_battery.py",
@@ -55,6 +56,11 @@ SUITES = [
     # Saved providers: a switch changes what runs, and nothing else.
     ("provider battery (one-click switch, no Gemini left behind)",
      [PY, "tests/provider_battery.py"], False),
+    # The selected provider is the one called; side jobs on another
+    # provider's key only when allowed; every request recorded by address.
+    ("routing battery (the selected model is the one that runs)",
+     [PY, "tests/routing_battery.py"], False),
+    ("model-use record", [PY, "aethron_usage.py", "--selftest"], False),
     # OpenAI: gpt-4o-mini and gpt-5 accepted, honest prices, readable refusals.
     ("openai battery (gpt-4o-mini keeps working)",
      [PY, "tests/openai_battery.py"], False),

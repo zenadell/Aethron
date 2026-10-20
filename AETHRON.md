@@ -6188,6 +6188,24 @@ STILL OPEN: the paragraph's weight reads bolder than the screenshot's (the lab
 picks Inter 600), the handwritten "Free forever" is set in the writer's face,
 and phones still depend on the writer.
 
+## IT SAYS DEEPSEEK BUT SPENDS GEMINI — side jobs took any saved key — 2026-10-20
+temple selected DeepSeek (deepseek-flash), saw its balance stay put and Gemini fall
+$0.70 -> $0.53. Checked every path a model is reached by, offline, with all three
+providers saved and every outgoing request intercepted (tests/routing_battery.py):
+the agent's bridge, text calls and the page writer went ONLY to DeepSeek. Two side
+jobs did not: pictures for image-to-code took a saved OpenAI/Gemini key whatever
+was selected (~$0.02-0.04 each — the likely $0.17), and brand-search embeddings
+took a saved Gemini key. Neither said so anywhere a person looks.
+FIXED: brain.helper_keys(kind, provider) — the selected provider's keys always,
+another provider's only when allowed in Settings (ai.helpers.pictures /
+brand_search, off by default); a blocked side job says which saved provider could
+do it and where to allow it. aethron_usage records EVERY request by the ADDRESS it
+went to (never a label): provider, model, purpose, tokens, cost — no key, prompt or
+answer — and Settings shows "Where your requests went". DeepSeek barely moving is
+its price (~$0.14/M input), not a missing call. The stuck "Thinking" was not
+reproduced; DeepSeek's ": keep-alive" lines while a request is queued are now read
+as the bridge being alive and shown as queued.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6432,3 +6450,6 @@ and phones still depend on the writer.
 - TYPE AND PLACEMENT ARE MEASURED, NOT ASKED. Face, size, spacing and
   position come from the screenshot's pixels; a fitting pass is kept only
   when it measures better.
+- A SIDE JOB NEVER SPENDS ANOTHER PROVIDER'S KEY UNASKED. Only the selected
+  provider is used unless the person allowed a helper in Settings, and every
+  request is recorded by the address it went to.

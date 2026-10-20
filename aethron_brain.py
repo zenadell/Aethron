@@ -130,7 +130,15 @@ DEFAULT = {"provider": "deepseek", "api_key": "", "model": "",
            # 21 cents of real spend. Money is the cap that means
            # something; tokens and requests are backstops.
            "budget_requests": 600, "budget_tokens": 20_000_000,
-           "budget_usd": 1.0}
+           "budget_usd": 1.0,
+           # OTHER PROVIDERS ONLY WHEN ASKED. Some jobs only Gemini or
+           # OpenAI can do — making a picture, meaning-based brand search.
+           # These used to take any saved Gemini/OpenAI key whatever
+           # provider was selected, so a person "using DeepSeek" watched
+           # their Gemini credit fall. Now they use the SELECTED provider
+           # when it can, and another saved provider only when switched
+           # on here; every request is listed in Settings either way.
+           "helpers": {"pictures": False, "brand_search": False}}
 
 
 # ────────────────────────── settings ─────────────────────────────────
@@ -318,6 +326,34 @@ def profile_keys(provider: str) -> list:
                 if k and k not in keys:
                     keys.append(k)
     return keys
+
+
+HELPER_PROVIDERS = {"pictures": ("openai", "gemini"),
+                    "brand_search": ("gemini",)}
+
+
+def helper_keys(kind: str, provider: str) -> list:
+    """Keys a side job (`pictures`, `brand_search`) may use with `provider`.
+
+    The SELECTED provider's own keys always; another saved provider's only
+    when the person switched that job on. Never a key behind their back."""
+    if provider not in HELPER_PROVIDERS.get(kind, ()):
+        return []
+    if resolve().get("provider") == provider:
+        return profile_keys(provider)
+    if (load().get("helpers") or {}).get(kind):
+        return profile_keys(provider)
+    return []
+
+
+def helper_blocked(kind: str) -> list:
+    """Saved providers that COULD do `kind` but are not allowed to — so a
+    skipped job can say exactly what would turn it on."""
+    out = []
+    for prov in HELPER_PROVIDERS.get(kind, ()):
+        if profile_keys(prov) and not helper_keys(kind, prov):
+            out.append(PROVIDERS.get(prov, {}).get("label", prov))
+    return out
 
 
 def _fp(key: str) -> str:
@@ -664,7 +700,20 @@ def _text_once(r, prompt, timeout, max_tokens):
         pick = lambda d: d["choices"][0]["message"]["content"]
     req = urllib.request.Request(url, json.dumps(body).encode(), headers)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return pick(json.loads(resp.read()))
+        d = json.loads(resp.read())
+    try:                         # where it really went, for the settings screen
+        import aethron_usage
+        import aethron_bridge as _br
+        u = d.get("usage") or {}
+        i = int(u.get("prompt_tokens") or u.get("input_tokens") or 0)
+        o = int(u.get("completion_tokens") or u.get("output_tokens") or 0)
+        pin, pout = _br.price_of(r["model"])
+        aethron_usage.record(r["base"], r["model"], "text", i, o,
+                             (i * pin + o * pout) / 1e6,
+                             free=r["key"] in free_ring())
+    except Exception:
+        pass
+    return pick(d)
 
 
 # ─────────────────── an Anthropic endpoint, always ───────────────────

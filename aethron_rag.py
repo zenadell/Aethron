@@ -339,8 +339,11 @@ def _keys() -> list:
     # Gemini serves these embeddings, and tying them to the active
     # provider meant switching to DeepSeek quietly dropped brand memory to
     # keyword search.
+    # ...but only when Gemini is the selected provider or the person
+    # switched brand search on for it: a DeepSeek user's brand notes were
+    # quietly spending their Gemini key.
     spent = brain.spent_for(EMBED_MODEL)
-    return [k for k in brain.profile_keys("gemini")
+    return [k for k in brain.helper_keys("brand_search", "gemini")
             if brain._fp(k) not in spent]
 
 
@@ -356,6 +359,15 @@ def embed(texts: list, deadline_s=150) -> list:
     """-> one unit vector per text. Raises Unavailable with the reason."""
     keys = _keys()
     if not keys:
+        try:
+            import aethron_brain as brain
+            blocked = brain.helper_blocked("brand_search")
+        except Exception:
+            blocked = []
+        if blocked and not os.environ.get("AETHRON_EMBED_KEYS"):
+            raise Unavailable("meaning-based search uses Gemini, and another "
+                              "provider is selected — Settings → Model can "
+                              "allow your saved Gemini key for it")
         raise Unavailable("no Gemini key with embedding allowance today "
                           "(meaning-based search needs one)")
     import aethron_bridge as br
@@ -382,6 +394,13 @@ def embed(texts: list, deadline_s=150) -> list:
                 with urllib.request.urlopen(req, timeout=60) as r:
                     got = [e["values"] for e in
                            json.loads(r.read())["embeddings"]]
+                try:
+                    import aethron_usage
+                    aethron_usage.record(BASE, EMBED_MODEL, "embedding",
+                                         sum(len(t) for t in part) // 4,
+                                         note="tokens estimated")
+                except Exception:
+                    pass
             except urllib.error.HTTPError as e:
                 if e.code == 429:
                     kind, secs = br._quota_kind(e)

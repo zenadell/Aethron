@@ -158,7 +158,12 @@ try:
     os.environ["AETHRON_EMBED_KEYS"] = ""
     os.environ.pop("AETHRON_EMBED_KEYS")
     import aethron_rag as R
-    ck("brand memory keeps its Gemini keys while another provider is active",
+    # 2026-10-20: it used to take them unasked, which is how a person
+    # "using DeepSeek" paid Google. Now only when allowed in Settings.
+    ck("brand memory does NOT take the Gemini keys while another provider is active",
+       R._keys() == [], R._keys())
+    brain.save({"helpers": {"brand_search": True}})
+    ck("...and uses them once brand search is allowed for Gemini",
        R._keys() == ["g-free-1", "g-free-2", "g-paid"], R._keys())
 finally:
     urllib.request.urlopen = real

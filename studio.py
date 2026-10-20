@@ -1846,6 +1846,18 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/job":
                 self.send_json(JOBS.get(q.get("id", [""])[0])
                                or {"error": "no such job"})
+            elif u.path == "/api/ai/use":
+                # where every model request really went, read from the
+                # address it was sent to (aethron_usage)
+                import aethron_usage
+                rep = aethron_usage.summary()
+                if brain:
+                    r = brain.resolve()
+                    rep["selected"] = {"label": r["label"], "model": r["model"]}
+                    rep["helpers"] = brain.load().get("helpers") or {}
+                else:
+                    rep["selected"], rep["helpers"] = {"label": "", "model": ""}, {}
+                self.send_json(rep)
             elif u.path == "/api/ai/settings":
                 if not brain:
                     return self.send_json({"available": False})
@@ -2289,6 +2301,15 @@ class Handler(BaseHTTPRequestHandler):
                 st = brain.status()
                 st["available"], st["ended"] = True, ended
                 self.send_json(st)
+            elif u.path == "/api/ai/helpers":
+                if not brain:
+                    return self.fail("AI settings unavailable")
+                h = body.get("helpers") or {}
+                brain.save({"helpers": {
+                    "pictures": bool(h.get("pictures")),
+                    "brand_search": bool(h.get("brand_search"))}})
+                self.send_json({"ok": True,
+                                "helpers": brain.load().get("helpers")})
             elif u.path == "/api/ai/settings":
                 if not brain:
                     return self.fail("AI settings unavailable")
@@ -14260,7 +14281,7 @@ async function pollCode(){
     const viaBridge=!tool&&br&&(br.inflight>0||br.state==='retrying');
     /* waiting on a key or a busy provider is worth saying at once, not
        after 90 seconds of an unexplained spinner */
-    const waiting=viaBridge&&['pacing','busy','waiting','spent','retrying'].includes(br.state);
+    const waiting=viaBridge&&['pacing','busy','waiting','spent','retrying','queued'].includes(br.state);
     if(CODE.poll&&r.running&&!hasWaitingPermission()
        &&(quiet>SLOW_NOTICE_MS||(waiting&&quiet>15000))){
       const limit=tool?TOOL_STALL_MS:PROVIDER_STALL_MS;
@@ -14395,12 +14416,57 @@ async function renderSettings(c){
     </section>
 
     <section class="card">
+      <h3>${I('eye',14)} Where your requests went</h3>
+      <div id="aiuse"><div class="hint">reading…</div></div>
+    </section>
+
+    <section class="card">
       <h3>${I('compass',14)} Agent runs</h3>
       <div id="runshare"><div class="hint">reading…</div></div>
     </section>
   </div>`;
   bindAiSettings();
   showRunShare();
+  showAiUse();
+}
+/* WHERE EVERY REQUEST REALLY WENT. Read from the address each request was
+   sent to, not from a label, so the provider named here is the one that
+   billed it. Side jobs only the selected provider cannot do (pictures,
+   meaning-based brand search) use another saved key only when allowed. */
+async function showAiUse(){
+  const box=$('aiuse');if(!box)return;
+  let u;
+  try{u=await api('/api/ai/use')}catch(e){box.innerHTML=`<div class="hint">${esc(e.message)}</div>`;return;}
+  const usd=v=>v>=0.01?'$'+v.toFixed(2):(v>0?'<$0.01':'$0');
+  const P=u.providers||[], H=u.helpers||{}, PU=u.purposes||{};
+  const ago=t=>{const s=Date.now()/1000-t;return s<90?'just now':s<5400?Math.round(s/60)+' min ago'
+    :s<129600?Math.round(s/3600)+' h ago':Math.round(s/86400)+' d ago'};
+  box.innerHTML=`
+    <div class="hint">Selected: <b>${esc(u.selected.label)} · ${esc(u.selected.model||'')}</b>.
+      Last ${u.days} days, read from the address each request was sent to.</div>
+    ${P.length?P.map(p=>`<div class="kv"><span><b>${esc(p.label)}</b> · ${esc(p.models.join(', '))}<br>
+      <small>${Object.entries(p.purposes).map(([k,v])=>esc(PU[k]||k)+' ×'+v.requests).join(' · ')}</small></span>
+      <b>${p.requests} request${p.requests===1?'':'s'} · ${usd(p.usd)}</b></div>`).join('')
+      :'<div class="hint">No model requests recorded yet.</div>'}
+    ${(u.recent||[]).length?`<details><summary class="hint">Latest requests</summary>
+      ${u.recent.map(r=>`<div class="kv"><span>${ago(r.t)} · ${esc(r.label)} · ${esc(r.model)}
+        · ${esc(PU[r.purpose]||r.purpose)}</span><b>${r.free?'free':usd(r.usd)}</b></div>`).join('')}</details>`:''}
+    <div class="hint" style="margin-top:10px">Jobs the selected provider can't do itself:</div>
+    <label class="check"><input type="checkbox" ${H.pictures?'checked':''}
+      onchange="setHelper('pictures',this.checked)"><span>Make pictures for image-to-code with my saved
+      Gemini or OpenAI key (about $0.02–0.04 each)</span></label>
+    <label class="check"><input type="checkbox" ${H.brand_search?'checked':''}
+      onchange="setHelper('brand_search',this.checked)"><span>Use my saved Gemini key for
+      brand search (otherwise it matches by keywords)</span></label>
+    <div class="hint">Off means those jobs never touch another provider's key.
+      When the selected provider can do the job itself, it always does.</div>`;
+}
+async function setHelper(kind,on){
+  try{
+    const r=await api('/api/ai/use');const h={...(r.helpers||{}),[kind]:on};
+    await api('/api/ai/helpers',{helpers:h});
+  }catch(e){alert(e.message)}
+  showAiUse();
 }
 /* Upload this machine's agent run records to Aethron's Supabase, so a
    session that is not on this computer can read what an agent did. Off

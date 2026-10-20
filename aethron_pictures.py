@@ -500,14 +500,29 @@ def _image_providers():
         import aethron_brain as BR
     except Exception:
         return []
+    # ONLY THE SELECTED PROVIDER, unless the person allowed another. This
+    # took any saved OpenAI or Gemini key whatever was selected: a person
+    # using DeepSeek paid Google ~$0.04 a picture and could not see why.
     out = []
     for prov in ("openai", "gemini"):
         try:
-            for k in BR.profile_keys(prov):
+            for k in BR.helper_keys("pictures", prov):
                 out.append((prov, k))
         except Exception:
             pass
     return out
+
+
+def _blocked_note():
+    try:
+        import aethron_brain as BR
+        names = BR.helper_blocked("pictures")
+    except Exception:
+        return ""
+    if not names:
+        return ""
+    return (f"pictures are not made with your saved {' or '.join(names)} key "
+            f"because another provider is selected — Settings → Model can allow it")
 
 
 # What one picture costs, worst case, by provider — checked before asking.
@@ -627,7 +642,10 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     desc = descriptions(html, slots)
-    providers = _image_providers() if providers is None else providers
+    blocked = ""
+    if providers is None:
+        providers = _image_providers()
+        blocked = _blocked_note() if not providers else ""
     spent = 0.0
     records = []
     for s in slots:
@@ -643,6 +661,8 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
             # picture.
             log(f"picture {s['id']}: the page does not say what it shows — "
                 "a stand-in is used until it does")
+        if described and mode in ("auto", "make") and blocked:
+            log(f"picture {s['id']}: {blocked}")
         if described and mode in ("auto", "make"):
             for prov, key in providers:
                 cost = MAKE_COST.get(prov, 0.05)
@@ -653,6 +673,7 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
                 try:
                     data = maker(s, d, prov, key)
                     spent += cost
+                    _use(prov, cost)
                     how, credit = "made", f"made by {prov} for this page"
                     _wallet(cost)
                     break
@@ -696,6 +717,18 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
     (outdir / MANIFEST).write_text(json.dumps({"pictures": records,
                                                "usd": round(spent, 4)}, indent=1))
     return html, records
+
+
+def _use(prov, usd):
+    try:
+        import aethron_usage
+        url = {"openai": "https://api.openai.com/v1/images",
+               "gemini": "https://generativelanguage.googleapis.com/v1beta"}[prov]
+        model = {"openai": "gpt-image-1-mini",
+                 "gemini": "gemini-2.5-flash-image"}[prov]
+        aethron_usage.record(url, model, "picture", usd=usd)
+    except Exception:
+        pass
 
 
 def _wallet(usd):

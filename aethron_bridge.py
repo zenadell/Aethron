@@ -413,6 +413,16 @@ def _account(model: str, inp: int, out: int):
         USED["list_usd"] = USED.get("list_usd", 0.0) + cost
     else:
         USED["usd"] += cost
+    # WHERE IT REALLY WENT. The address this handler sent to, not a label:
+    # the owner could not tell which provider their agent was spending.
+    base = getattr(_TL, "base", "")
+    if base:
+        try:
+            import aethron_usage
+            aethron_usage.record(base, model, "agent", inp, out, cost,
+                                 free=getattr(_TL, "free", False))
+        except Exception:
+            pass
 
 
 def _budget_check(body: dict) -> str:
@@ -1064,6 +1074,7 @@ def _handler(cfg: BridgeConfig, log=None):
                      "tools": len(req.get("tools") or []),
                      "stream": req["stream"]})
             _TL.free = False
+            _TL.base = cfg.base_url
             _inflight(+1)
             try:
                 if req["stream"]:
@@ -1310,6 +1321,14 @@ def _handler(cfg: BridgeConfig, log=None):
             try:
                 for line in up:
                     line = line.decode("utf-8", "replace").strip()
+                    if line.startswith(":"):
+                        # A QUEUED REQUEST IS NOT A DEAD ONE. DeepSeek, under
+                        # load, holds a stream open with ": keep-alive"
+                        # comments before the first word. Say so, so the
+                        # screen waits instead of calling the model quiet.
+                        _status("queued", "The provider has queued the "
+                                          "request and is keeping it open.")
+                        continue
                     if not line.startswith("data:"):
                         continue
                     payload = line[5:].strip()
