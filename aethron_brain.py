@@ -131,6 +131,11 @@ DEFAULT = {"provider": "deepseek", "api_key": "", "model": "",
            # something; tokens and requests are backstops.
            "budget_requests": 600, "budget_tokens": 20_000_000,
            "budget_usd": 1.0,
+           # THE SESSION LIMIT: how much may be spent in one usage window
+           # (like a subscription's 5-hour window). 0 = unlimited. The unit
+           # is dollars or requests — requests, because a free key costs
+           # $0 and a dollar limit would never stop it.
+           "session_limit": 5.0, "session_unit": "usd", "session_hours": 5.0,
            # OTHER PROVIDERS ONLY WHEN ASKED. Some jobs only Gemini or
            # OpenAI can do — making a picture, meaning-based brand search.
            # These used to take any saved Gemini/OpenAI key whatever
@@ -478,7 +483,12 @@ def wallet(cfg: dict = None) -> dict:
     # NOT ROUNDED. A rounded balance fed back into the next addition drifts away from the bill,
     # and money is the one number in this project that may not be approximated. Round to print.
     limit, spent = float(limit), float(st.get("spent_usd") or 0.0)
-    return {"limit_usd": limit, "spent_usd": spent, "left_usd": max(0.0, limit - spent),
+    # UNLIMITED IS A CHOICE, NOT A MISSING VALUE. `or DEFAULT_WALLET` above
+    # read a saved 0 as "unset", so the ceiling could never be switched off.
+    unlimited = bool(st.get("unlimited")) and not os.environ.get("AETHRON_WALLET_USD")
+    return {"limit_usd": limit, "spent_usd": spent,
+            "left_usd": float("inf") if unlimited else max(0.0, limit - spent),
+            "unlimited": unlimited,
             "calls": int(st.get("calls") or 0), "since": st.get("since") or _today()}
 
 
@@ -487,18 +497,21 @@ def wallet_spend(usd: float) -> dict:
     an estimate must gate the call, but only the bill may reduce what is left."""
     w = wallet()
     st = {"limit_usd": w["limit_usd"], "spent_usd": w["spent_usd"] + max(0.0, float(usd)),
-          "calls": w["calls"] + 1, "since": w["since"]}
+          "calls": w["calls"] + 1, "since": w["since"], "unlimited": w["unlimited"]}
     try:
         WALLET.write_text(json.dumps(st, indent=1), encoding="utf-8")
     except OSError:
         pass
+    session_add(usd, 1)          # the same bill counts toward the usage window
     return st
 
 
 def wallet_set(limit_usd: float, keep_spent: bool = False) -> dict:
     """Set the ceiling. By default the count starts again from zero."""
     w = wallet()
-    st = {"limit_usd": round(float(limit_usd), 4),
+    limit_usd = float(limit_usd)
+    st = {"limit_usd": round(limit_usd, 4) if limit_usd > 0 else w["limit_usd"],
+          "unlimited": limit_usd <= 0,
           "spent_usd": w["spent_usd"] if keep_spent else 0.0,
           "calls": w["calls"] if keep_spent else 0, "since": _today()}
     try:
@@ -506,6 +519,147 @@ def wallet_set(limit_usd: float, keep_spent: bool = False) -> dict:
     except OSError:
         pass
     return st
+
+
+# ─────────────────────────── run limits ──────────────────────────────
+# Three limits, each the person's to set or switch off:
+#   run      the spend guard — what ONE request may cost (budget_usd)
+#   session  what one usage WINDOW may cost; the window starts with the
+#            first request after the last one ended and resets after
+#            session_hours, like a subscription's session limit
+#   wallet   a ceiling across everything, until it is reset
+# 0 means unlimited for each. None of them can lift a provider's own
+# limit: when the provider's credit is gone, it says no, and Aethron says
+# so in the provider's words.
+SESSION = HOME / "aethron_session.json"
+_SESSION_LOCK = threading.Lock()
+
+
+def _num(v, default=0.0) -> float:
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return default
+    return v if v == v and v >= 0 else default
+
+
+def limits() -> dict:
+    """The three limits as the person set them (0 = unlimited)."""
+    cfg = load()
+    w = wallet()
+    unit = cfg.get("session_unit") if cfg.get("session_unit") in (
+        "usd", "requests") else "usd"
+    return {"run_usd": _num(cfg.get("budget_usd"), 1.0),
+            "session_limit": _num(cfg.get("session_limit"), 5.0),
+            "session_unit": unit,
+            "session_hours": max(0.25, _num(cfg.get("session_hours"), 5.0)),
+            "wallet_usd": 0.0 if w.get("unlimited") else w["limit_usd"]}
+
+
+def set_limits(run_usd=None, session_limit=None, session_unit=None,
+               session_hours=None, wallet_usd=None) -> dict:
+    """Save any of the limits (0 = unlimited) and apply them at once to a
+    running agent — a limit that waits for a restart is not a limit."""
+    patch = {}
+    if run_usd is not None:
+        patch["budget_usd"] = _num(run_usd, 1.0)
+    if session_limit is not None:
+        patch["session_limit"] = _num(session_limit, 5.0)
+    if session_unit in ("usd", "requests"):
+        patch["session_unit"] = session_unit
+    if session_hours is not None:
+        patch["session_hours"] = max(0.25, min(24 * 7, _num(session_hours, 5.0)))
+    if patch:
+        ai = _stored()
+        ai.update(patch)
+        _write(ai)
+    if wallet_usd is not None:
+        wallet_set(_num(wallet_usd, DEFAULT_WALLET), keep_spent=True)
+    lim = limits()
+    br = sys.modules.get("aethron_bridge")
+    if br is not None:
+        br.set_limits(usd=lim["run_usd"])
+    return lim
+
+
+def _session_read() -> dict:
+    try:
+        return json.loads(SESSION.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def session(now: float = None) -> dict:
+    """Where this usage window stands. A window that has ended counts as
+    empty: the next request opens a new one."""
+    import time as _t
+    now = now or _t.time()
+    lim = limits()
+    hours = lim["session_hours"]
+    st = _session_read()
+    start = float(st.get("start") or 0)
+    live = bool(start) and now < start + hours * 3600
+    used_usd = float(st.get("usd") or 0) if live else 0.0
+    used_req = int(st.get("requests") or 0) if live else 0
+    limit, unit = lim["session_limit"], lim["session_unit"]
+    used = used_usd if unit == "usd" else used_req
+    return {"limit": limit, "unit": unit, "hours": hours,
+            "unlimited": not limit, "started": start if live else 0,
+            "resets_at": start + hours * 3600 if live else 0,
+            "used_usd": used_usd, "used_requests": used_req,
+            "left": None if not limit else max(0.0, limit - used),
+            "reached": bool(limit) and used >= limit}
+
+
+def session_add(usd: float = 0.0, requests: int = 0, now: float = None) -> dict:
+    """Count spend into the current window, opening one if none is live."""
+    import time as _t
+    now = now or _t.time()
+    with _SESSION_LOCK:
+        hours = limits()["session_hours"]
+        st = _session_read()
+        start = float(st.get("start") or 0)
+        if not start or now >= start + hours * 3600:
+            st = {"start": now, "usd": 0.0, "requests": 0}
+        st["usd"] = float(st.get("usd") or 0) + max(0.0, float(usd or 0))
+        st["requests"] = int(st.get("requests") or 0) + int(requests or 0)
+        try:
+            SESSION.parent.mkdir(parents=True, exist_ok=True)
+            SESSION.write_text(json.dumps(st), encoding="utf-8")
+        except OSError:
+            pass
+    return session(now)
+
+
+def _clock(t: float) -> str:
+    import time as _t
+    return _t.strftime("%H:%M", _t.localtime(t))
+
+
+def session_check(now: float = None) -> str:
+    """"" when a request may start, else the sentence that says why not."""
+    import time as _t
+    now = now or _t.time()
+    s = session(now)
+    if not s["reached"]:
+        return ""
+    left = max(0, int(s["resets_at"] - now))
+    h, m = divmod(left // 60, 60)
+    used = (f"${s['used_usd']:.2f} of ${s['limit']:.2f}" if s["unit"] == "usd"
+            else f"{s['used_requests']} of {int(s['limit'])} requests")
+    return (f"Aethron session limit: {used} used in this "
+            f"{s['hours']:g}-hour window. It resets at {_clock(s['resets_at'])} "
+            f"(in {h}h {m:02d}m). Raise it or set it to Unlimited in "
+            f"Settings → Limits to keep going now.")
+
+
+def session_reset() -> dict:
+    with _SESSION_LOCK:
+        try:
+            SESSION.unlink()
+        except OSError:
+            pass
+    return session()
 
 
 def free_ring(cfg: dict = None) -> list:

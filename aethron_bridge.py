@@ -346,9 +346,39 @@ def _status(state: str, detail: str = "") -> None:
     STATUS.update(state=state, detail=detail, since=time.time())
 
 
+# WHERE THE TIME WENT. A long run with no error has three possible
+# owners: the model taking long to answer, tools taking long to run, or
+# Aethron waiting out limits and retries. The bridge times the first and
+# the third; the session times the tools. Reset with each person's message.
+TIMING = {"t0": 0.0, "model_s": 0.0, "answers": 0, "slowest_s": 0.0,
+          "waited_s": 0.0, "failures": 0, "_busy_since": 0.0}
+
+
+def _timing_reset():
+    TIMING.update(t0=time.time(), model_s=0.0, answers=0, slowest_s=0.0,
+                  waited_s=0.0, failures=0, _busy_since=0.0)
+
+
+def timing() -> dict:
+    t = {k: v for k, v in TIMING.items() if not k.startswith("_")}
+    if TIMING["_busy_since"]:
+        t["model_s"] += time.time() - TIMING["_busy_since"]
+    t["model_s"] = round(t["model_s"], 1)
+    t["waited_s"] = round(t["waited_s"], 1)
+    t["slowest_s"] = round(t["slowest_s"], 1)
+    return t
+
+
 def _inflight(delta: int) -> None:
     with _ST_LOCK:
+        before = STATUS["inflight"]
         STATUS["inflight"] = max(0, STATUS["inflight"] + delta)
+        now = time.time()
+        if not before and STATUS["inflight"]:
+            TIMING["_busy_since"] = now
+        elif before and not STATUS["inflight"] and TIMING["_busy_since"]:
+            TIMING["model_s"] += now - TIMING["_busy_since"]
+            TIMING["_busy_since"] = 0.0
         if not STATUS["inflight"]:
             n = STATUS["fails"]
             if n:
@@ -362,6 +392,7 @@ def _inflight(delta: int) -> None:
 def _failed() -> None:
     with _ST_LOCK:
         STATUS["fails"] += 1
+        TIMING["failures"] += 1
 
 
 def _answered() -> None:
@@ -405,6 +436,7 @@ def set_limits(requests=None, tokens=None, repeats=None, usd=None):
 
 
 def reset_usage():
+    _timing_reset()
     USED.update(requests=0, input=0, output=0, usd=0.0, list_usd=0.0,
                 last_hash="", repeats=0, stopped="", loop_stopped="")
 
@@ -462,6 +494,7 @@ def _account(model: str, inp: int, out: int, cached: int = 0):
         USED["list_usd"] = USED.get("list_usd", 0.0) + cost
     else:
         USED["usd"] += cost
+        _session_count(cost)
     # WHERE IT REALLY WENT. The address this handler sent to, not a label:
     # the owner could not tell which provider their agent was spending.
     base = getattr(_TL, "base", "")
@@ -480,22 +513,35 @@ def _budget_check(body: dict) -> str:
         return USED["stopped"]
     if USED["loop_stopped"]:
         return USED["loop_stopped"]
-    if USED["requests"] >= LIMITS["requests"]:
+    # THE PERSON'S USAGE WINDOW, across every run (Settings → Limits).
+    why = _session_why()
+    if why:
+        return why          # not latched: the window resets on its own
+    # UNLIMITED MEANS UNLIMITED. With the spend guard switched off the
+    # request and token caps — backstops FOR the money cap — go with it;
+    # only the loop detector stays, because a stuck agent makes no
+    # progress at any price.
+    unlimited = LIMITS["usd"] == float("inf")
+    if not unlimited and USED["requests"] >= LIMITS["requests"]:
         USED["stopped"] = (f"Aethron spend guard: {USED['requests']} requests "
                            f"is the limit for this run "
-                           f"(~${USED['usd']:.2f} spent, "
+                           f"(${USED['usd']:.2f} spent, "
                            f"{USED['input'] + USED['output']:,} tokens). "
-                           f"Raise it deliberately if this run is worth it.")
+                           f"Set the spend guard to Unlimited in Settings → "
+                           f"Limits to lift it.")
         return USED["stopped"]
     if USED["usd"] >= LIMITS["usd"]:
-        USED["stopped"] = (f"Aethron spend guard: ~${USED['usd']:.2f} spent, "
-                           f"which is the limit for this run. Raise "
-                           f"AETHRON_MAX_USD deliberately if it is worth it.")
+        USED["stopped"] = (f"Aethron spend guard: ${USED['usd']:.2f} spent "
+                           f"on this request, which is the ${LIMITS['usd']:.2f} "
+                           f"limit per run. Raise it or set it to Unlimited "
+                           f"in Settings → Limits, then send “continue”.")
         return USED["stopped"]
     total = USED["input"] + USED["output"]
-    if total >= LIMITS["tokens"]:
+    if not unlimited and total >= LIMITS["tokens"]:
         USED["stopped"] = (f"Aethron spend guard: {total:,} tokens is the "
-                           f"limit for this run (~${USED['usd']:.2f}).")
+                           f"limit for this run (${USED['usd']:.2f}). Set the "
+                           f"spend guard to Unlimited in Settings → Limits "
+                           f"to lift it.")
         return USED["stopped"]
     # a stuck agent sends the same thing over and over. Only the agent's
     # own turns stream: the engine's side calls (a "current state" summary
@@ -549,7 +595,27 @@ def _budget_check(body: dict) -> str:
     else:
         USED["last_hash"], USED["repeats"] = h, 0
     USED["requests"] += 1
+    _session_count(0.0, 1)
     return ""
+
+
+def _session_why() -> str:
+    # only where the app's settings are loaded: a bare bridge (a test, a
+    # script) has no person's window to keep
+    b = sys.modules.get("aethron_brain")
+    try:
+        return b.session_check() if b else ""
+    except Exception:
+        return ""
+
+
+def _session_count(usd: float, requests: int = 0) -> None:
+    b = sys.modules.get("aethron_brain")
+    try:
+        if b:
+            b.session_add(usd, requests)
+    except Exception:
+        pass
 
 # ─────────────────── Anthropic  ->  OpenAI  (request) ────────────────
 
@@ -1139,11 +1205,15 @@ def _handler(cfg: BridgeConfig, log=None):
             _TL.free = False
             _TL.base = cfg.base_url
             _inflight(+1)
+            t_req = time.time()
             try:
                 if req["stream"]:
                     return self._stream(req, body)
                 return self._once(req)
             finally:
+                took = time.time() - t_req
+                TIMING["answers"] += 1
+                TIMING["slowest_s"] = max(TIMING["slowest_s"], took)
                 _inflight(-1)
 
         # -- upstream ------------------------------------------------
@@ -1256,6 +1326,7 @@ def _handler(cfg: BridgeConfig, log=None):
                 _status("waiting", f"Every key is busy or pacing; trying "
                                    f"again in {int(pause)}s.")
                 time.sleep(pause)
+                TIMING["waited_s"] += pause
             if last is None:
                 raise NoKeysLeft()
             raise last

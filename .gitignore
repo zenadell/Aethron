@@ -32,6 +32,7 @@ dist/
 # name — one `git add -A` away from putting five keys in history.
 aethron_config*.json
 aethron_spend.json
+aethron_session.json
 
 # admin console secrets (service_role, netlify token) — never commit
 aethron_admin_config.json

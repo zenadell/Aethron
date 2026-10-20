@@ -612,6 +612,35 @@ def _limit_kind(r, code, body):
     return "pace", 15
 
 
+def _run_budget(budget_usd):
+    """A job's own budget, unless the person set the spend guard to
+    Unlimited in Settings — then no job stops on money."""
+    try:
+        import aethron_brain as _B
+        if not _B.limits()["run_usd"]:
+            return float("inf")
+    except Exception:
+        pass
+    return budget_usd
+
+
+def _session_gate(ledger):
+    """Refuse to start a call once the usage window's limit is reached."""
+    import aethron_brain as _B
+    why = _B.session_check()
+    if why:
+        ledger["stopped"] = why
+        raise BudgetExhausted(why)
+
+
+def _B_session_add(usd):
+    try:
+        import aethron_brain as _B
+        _B.session_add(usd, 1)
+    except Exception:
+        pass
+
+
 def gemini_writer(budget_usd=0.25, model=None,
                   max_tokens=12000, key=None, verbose=True):
     """One direct call per round, with a spend cap that cannot be crossed.
@@ -661,7 +690,8 @@ def gemini_writer(budget_usd=0.25, model=None,
                  "no commentary).")
         est_in = len(text) // 3 + 50          # generous: ~3 chars/token
         worst = est_in * PIN + max_tokens * POUT
-        if ledger["usd"] + worst > budget_usd:
+        _session_gate(ledger)
+        if ledger["usd"] + worst > _run_budget(budget_usd):
             ledger["stopped"] = (f"cap: ${ledger['usd']:.4f} spent, next "
                                  f"call could cost up to ${worst:.4f}, "
                                  f"budget ${budget_usd:.2f}")
@@ -689,6 +719,7 @@ def gemini_writer(budget_usd=0.25, model=None,
         html, cut, p_in, p_out = _reply(r, d)
         cost = p_in * PIN + p_out * POUT
         _use(r, "writer", p_in, p_out, cost, False)
+        _B_session_add(cost)
         ledger["calls"] += 1
         ledger["in"] += p_in
         ledger["out"] += p_out
@@ -754,6 +785,8 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
     r = _active(model)
     model = r["model"]
     PIN, POUT = _price(r)
+    budget_usd = _run_budget(budget_usd)
+    _session_gate(ledger)
     if r.get("local") and not key:
         key = "local"           # a local model takes no key; one pass, free
         ring = [(key, "given")]
@@ -851,10 +884,12 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
         ledger["list_usd"] += cost
         if tier == "free":
             ledger["free_calls"] += 1
+            _B.session_add(0.0, 1)          # a free answer still counts as a request
         else:
             ledger["usd"] += cost
             st = _B.wallet_spend(cost)      # once: a second call would count the same money twice
-            ledger["wallet_left"] = max(0.0, st["limit_usd"] - st["spent_usd"])
+            ledger["wallet_left"] = (float("inf") if st.get("unlimited")
+                                     else max(0.0, st["limit_usd"] - st["spent_usd"]))
         ledger["last_key"] = f"{tier} {fp}"
         if cut:
             raise RuntimeError("the model ran out of tokens mid-reply — a cut-off plan is not applied")
