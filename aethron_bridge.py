@@ -173,7 +173,15 @@ def _recall(msg: dict):
 # unchanged: an estimate known to be conservative is more useful than a
 # guess re-tuned from one day's data.
 PRICES = {
-    "deepseek-v4-pro": (0.55, 2.19), "deepseek-v4-flash": (0.07, 0.28),
+    # DeepSeek, peak rates per 1M tokens (checked on
+    # api-docs.deepseek.com/quick_start/pricing 2026-10-20; off-peak is
+    # half). "deepseek-flash" was MISSING, so it priced at the dearest
+    # rate in this table ($2/$12) — the owner saw "$0.19 this session"
+    # while DeepSeek billed a fraction of a cent. The legacy flash names
+    # are served by the same model at the same price.
+    "deepseek-flash": (0.30, 1.20), "deepseek-v4-flash": (0.30, 1.20),
+    "deepseek-v4-flash-vision-exp": (0.30, 1.20),
+    "deepseek-v4-pro": (1.32, 3.96),
     "deepseek-chat": (0.27, 1.10), "deepseek-reasoner": (0.55, 2.19),
     "gemini-2.5-flash": (0.30, 2.50), "gemini-2.5-pro": (1.25, 10.0),
     "gpt-5": (1.25, 10.0), "gpt-5-mini": (0.25, 2.0),
@@ -193,6 +201,47 @@ PRICES = {
     "gpt-4.1-nano": (0.10, 0.40), "gpt-5-nano": (0.05, 0.40),
     "o4-mini": (1.10, 4.40), "o3": (2.00, 8.00), "o3-mini": (1.10, 4.40),
 }
+
+# WHAT A REPEATED PROMPT COSTS. An agent sends its whole conversation on
+# every turn, and providers that cache it bill the repeated part at a
+# small fraction of the input price. DeepSeek reports it as
+# prompt_cache_hit_tokens, OpenAI as prompt_tokens_details.cached_tokens.
+# $/1M for those tokens; a model not listed gets no discount (high, never
+# low).
+CACHED_PRICES = {
+    "deepseek-flash": 0.006, "deepseek-v4-flash": 0.006,
+    "deepseek-v4-flash-vision-exp": 0.006, "deepseek-v4-pro": 0.044,
+    "deepseek-chat": 0.07, "deepseek-reasoner": 0.14,
+    "gpt-4o-mini": 0.075, "gpt-4o": 1.25, "gpt-4.1": 0.50,
+    "gpt-4.1-mini": 0.10, "gpt-4.1-nano": 0.025, "gpt-5": 0.125,
+    "gpt-5-mini": 0.025, "gpt-5-nano": 0.005,
+}
+
+
+def cached_tokens(u: dict) -> int:
+    """How many of a reply's prompt tokens the provider served from its
+    cache, in either wire's spelling. 0 when it does not say."""
+    u = u or {}
+    n = u.get("prompt_cache_hit_tokens")
+    if n is None:
+        n = (u.get("prompt_tokens_details") or {}).get("cached_tokens")
+    if n is None:
+        n = u.get("cache_read_input_tokens")
+    try:
+        return max(0, int(n or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def cost_of(model: str, inp: int, out: int, cached: int = 0) -> float:
+    """Dollars for one reply: cached prompt tokens at the cache rate, the
+    rest of the prompt at the input rate, the answer at the output rate."""
+    pin, pout = price_of(model)
+    m = (model or "").split("/")[-1].strip()
+    pc = CACHED_PRICES.get(m, CACHED_PRICES.get(_SNAPSHOT.sub("", m), pin))
+    cached = min(max(0, int(cached or 0)), max(0, int(inp or 0)))
+    return ((inp - cached) * pin + cached * pc + out * pout) / 1_000_000
+
 
 UNKNOWN_PRICE = max(PRICES.values(), key=lambda p: p[0] + p[1])
 
@@ -248,6 +297,7 @@ LIMITS = {"requests": int(os.environ.get("AETHRON_MAX_REQUESTS", "600")),
 # The whole sweep must therefore fit inside the idle budget:
 #     4 keys x 90s = 360s  <  420s idle guard
 # Raise this only together with the idle limit in aethron_code, never alone.
+PING_EVERY = 10.0          # seconds of downstream silence before a ping
 UPSTREAM_TIMEOUT = float(os.environ.get("AETHRON_UPSTREAM_TIMEOUT", "90"))
 # answers the engine asks for again by itself — a failure, not a refusal
 RETRIED_CODES = (408, 500, 502, 503, 504, 529)
@@ -395,7 +445,7 @@ def usage_report() -> dict:
     return {**USED, "limits": dict(LIMITS)}
 
 
-def _account(model: str, inp: int, out: int):
+def _account(model: str, inp: int, out: int, cached: int = 0):
     USED["input"] += inp
     USED["output"] += out
     # AN UNKNOWN MODEL IS PRICED HIGH, NEVER AT ZERO. A model missing from
@@ -404,8 +454,7 @@ def _account(model: str, inp: int, out: int):
     # is exactly what switching the owner to gemini-3.8-flash would have
     # done. Counting an unknown model at the dearest known rate means the
     # cap trips early rather than never.
-    price = price_of(model)
-    cost = (inp * price[0] + out * price[1]) / 1_000_000
+    cost = cost_of(model, inp, out, cached)
     # A FREE KEY CHARGES NOTHING. Its list price is kept apart so a report
     # can say what the work would have cost, and so the money cap is never
     # tripped by money that was never spent.
@@ -448,10 +497,16 @@ def _budget_check(body: dict) -> str:
         USED["stopped"] = (f"Aethron spend guard: {total:,} tokens is the "
                            f"limit for this run (~${USED['usd']:.2f}).")
         return USED["stopped"]
-    # a stuck agent sends the same thing over and over
+    # a stuck agent sends the same thing over and over. Only the agent's
+    # own turns stream: the engine's side calls (a "current state" summary
+    # it asks for while working, sent twice in a row with the same words)
+    # are not the agent repeating itself, and counting them tripped this
+    # guard on a healthy run.
     tail = json.dumps((body.get("messages") or [])[-2:], sort_keys=True)[-4000:]
     h = str(hash(tail))
-    if h == USED["last_hash"]:
+    if not body.get("stream"):
+        pass                              # a side call: neither counted nor reset
+    elif h == USED["last_hash"]:
         USED["repeats"] += 1
         if USED["repeats"] >= LIMITS["repeats"]:
             # SAY WHAT REPEATED. "The agent is looping" is a verdict about
@@ -916,7 +971,7 @@ def from_openai_message(data: dict, model: str) -> dict:
                         "name": fn.get("name", ""), "input": args})
     u = data.get("usage") or {}
     _account(model or data.get("model", ""), u.get("prompt_tokens", 0),
-             u.get("completion_tokens", 0))
+             u.get("completion_tokens", 0), cached_tokens(u))
     return {"id": data.get("id", "msg_bridge"), "type": "message",
             "role": "assistant", "model": model or data.get("model", ""),
             "content": content or [{"type": "text", "text": ""}],
@@ -1066,7 +1121,15 @@ def _handler(cfg: BridgeConfig, log=None):
                 return self._error(400, "bad JSON")
             stop = _budget_check(body)
             if stop:
-                return self._error(429, stop)
+                # A GUARD'S NO MUST BE HEARD. It was a 429, and the agent
+                # engine treats 429 as "busy, ask again" — measured: it
+                # retried in silence for over eight minutes, the screen
+                # called the model quiet, reconnected to the same tripped
+                # guard and went quiet again ("try 2 of 2"). A refusal the
+                # engine does not retry ends the turn with this sentence.
+                _status("stopped", stop)
+                return self._say(400, {"type": "error", "error": {
+                    "type": "invalid_request_error", "message": stop}})
             req = to_openai(body, cfg.model)
             if log:
                 log({"event": "request", "model": req["model"],
@@ -1257,6 +1320,20 @@ def _handler(cfg: BridgeConfig, log=None):
                     gone.append(True)
 
             out = AnthropicStream(cfg.model or req.get("model", ""), emit)
+            # A THINKING MODEL SAYS NOTHING FOR MINUTES. DeepSeek's flash
+            # thinks by default, the reasoning is not forwarded and tool
+            # arguments are held until they are whole, so the engine could
+            # receive no byte at all until the end of a long answer. Open
+            # the message at once and send the protocol's own ping while
+            # the provider is working, so nothing downstream mistakes a
+            # working model for a dead connection.
+            out.start()
+            beat = [time.time()]
+
+            def alive():
+                if time.time() - beat[0] >= PING_EVERY:
+                    beat[0] = time.time()
+                    emit("ping", {"type": "ping"})
             stop, usage = None, {}
             # Do not forward tool-argument fragments as they arrive. Some
             # OpenAI-compatible endpoints emit a redundant ``{}`` before the
@@ -1328,6 +1405,7 @@ def _handler(cfg: BridgeConfig, log=None):
                         # screen waits instead of calling the model quiet.
                         _status("queued", "The provider has queued the "
                                           "request and is keeping it open.")
+                        alive()
                         continue
                     if not line.startswith("data:"):
                         continue
@@ -1341,12 +1419,13 @@ def _handler(cfg: BridgeConfig, log=None):
                     # every chunk is proof of life; the screen measures
                     # silence from here, not from the start of the request
                     _status("writing", "The model is writing its answer.")
+                    alive()
                     if d.get("usage"):
                         u = d["usage"]
                         usage = {"input_tokens": u.get("prompt_tokens", 0),
                                  "output_tokens": u.get("completion_tokens", 0)}
                         _account(cfg.model, usage["input_tokens"],
-                                 usage["output_tokens"])
+                                 usage["output_tokens"], cached_tokens(u))
                     for ch in d.get("choices") or []:
                         delta = ch.get("delta") or {}
                         if delta.get("reasoning_content"):
@@ -1752,7 +1831,9 @@ def selftest() -> int:
     codes = [ask(i)[0] for i in range(3)]
     ck("requests under the cap go through", codes == [200, 200, 200], str(codes))
     code, msg = ask(99)
-    ck("the request cap stops the run", code == 429 and "spend guard" in msg,
+    # a 400, never a 429: the engine retries a 429 in silence for minutes
+    ck("the request cap stops the run, with a refusal the engine does not retry",
+       code == 400 and "spend guard" in msg,
        f"{code} {msg[:80]}")
     ck("and it says what was spent", "$" in msg and "tokens" in msg, msg[:90])
     ck("usage is accounted", usage_report()["input"] > 0
@@ -1760,9 +1841,24 @@ def selftest() -> int:
 
     reset_usage()
     set_limits(requests=999, tokens=10_000_000, repeats=3)
-    same = json.dumps({"model": "x", "max_tokens": 20,
+    # the agent's own turns stream; a side call repeated is not a loop
+    same = json.dumps({"model": "x", "max_tokens": 20, "stream": True,
                        "messages": [{"role": "user", "content": "identical"}]}
                       ).encode()
+    side = json.dumps({"model": "x", "max_tokens": 20,
+                       "messages": [{"role": "user", "content": "state?"}]}
+                      ).encode()
+    side_codes = []
+    for _ in range(5):
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                url2 + "/v1/messages", side,
+                {"Content-Type": "application/json"}), timeout=30).read()
+            side_codes.append(200)
+        except urllib.error.HTTPError as e:
+            side_codes.append(e.code)
+    ck("the engine's repeated side calls are not taken for a loop",
+       side_codes == [200] * 5, str(side_codes))
 
     def ask_same():
         try:
@@ -1774,7 +1870,7 @@ def selftest() -> int:
             return e.code, json.loads(e.read())["error"]["message"]
 
     seen = [ask_same()[0] for _ in range(5)]
-    ck("a looping agent is cut off", 429 in seen, str(seen))
+    ck("a looping agent is cut off", 400 in seen, str(seen))
     reset_usage()
     set_limits(requests=200, tokens=2_000_000, repeats=3)
     srv2.shutdown()

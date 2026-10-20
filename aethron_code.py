@@ -1215,6 +1215,7 @@ class CodeSession:
                 # actually answered by the configured provider, and the
                 # UI must say what is really running
                 model = prov.get('model') or 'your chosen model'
+                self.via_bridge = True
             out.append({"type": "ready", "session_id": self.session_id,
                         "model": model,
                         "tools": d.get("tools", []),
@@ -1256,14 +1257,28 @@ class CodeSession:
                             out.append({"type": "error", "text": stopped})
         elif t == "result":
             self.busy = False
-            self.cost_usd = d.get("total_cost_usd") or self.cost_usd
+            cost = d.get("total_cost_usd", 0)
+            if getattr(self, "via_bridge", False):
+                # THE ENGINE PRICES EVERY TOKEN AS ITS OWN MODEL. Behind the
+                # bridge that is a guess at someone else's rates: the owner
+                # read "$0.19 this session" for a DeepSeek run DeepSeek
+                # billed a fraction of a cent for. The bridge counts the
+                # tokens the provider reported at the provider's own price
+                # (cached prompt tokens at the cache rate), since this
+                # request began.
+                try:
+                    import aethron_bridge
+                    cost = round(aethron_bridge.USED.get("usd", 0.0), 6)
+                except Exception:
+                    pass
+            self.cost_usd = cost or self.cost_usd
             err = bool(d.get("is_error"))
             text = d.get("result") or ""
             if err and not text:
                 text = d.get("subtype", "error")
             self.error = text if err else ""
             out.append({"type": "done", "error": err, "text": text,
-                        "cost_usd": d.get("total_cost_usd", 0),
+                        "cost_usd": cost,
                         "turns": d.get("num_turns", 0),
                         "session_id": d.get("session_id", "")})
         elif t == "stream_event":

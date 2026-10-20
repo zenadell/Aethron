@@ -61,6 +61,10 @@ SUITES = [
     ("routing battery (the selected model is the one that runs)",
      [PY, "tests/routing_battery.py"], False),
     ("model-use record", [PY, "aethron_usage.py", "--selftest"], False),
+    # A tripped guard is said, not retried in silence; the cost shown is
+    # the provider's own; a thinking model keeps the stream alive.
+    ("guard battery (no silent refusals, honest cost)",
+     [PY, "tests/guard_battery.py"], False),
     # OpenAI: gpt-4o-mini and gpt-5 accepted, honest prices, readable refusals.
     ("openai battery (gpt-4o-mini keeps working)",
      [PY, "tests/openai_battery.py"], False),
