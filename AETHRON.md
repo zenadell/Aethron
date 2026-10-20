@@ -6231,6 +6231,42 @@ opened from the cloud session, so both were reproduced with the real engine:
   once and pings every 10s while the provider works.
 tests/guard_battery.py 13/13 (in run_all); bridge selftest 34/34.
 
+## "THE ELEMENTS ARE SMALLER AND SIT ABOVE THE HAIR" — 2026-10-20
+temple rated the newsletter rebuild 7.5/10: in their window the menu and
+the type were smaller than the original's and the form sat above the hair
+instead of at its tip. Measured, not guessed: the page set every length in
+px while the portrait covers the window, so in a wider window the picture
+grew and the type did not. 66% alike at the screenshot's 1199px, 20% at
+1798px. Four fixes:
+- THE PAGE SCALES AS ONE (`aethron_shot2code.fluid`): every px length in
+  styles becomes `calc(N * var(--ae-u))`, with --ae-u = max(1px, 100vw/W).
+  Identical at the design width and below; above it the composition grows
+  together. Breakpoints, url() and quoted names stay in px. Applied in the
+  build loop, after fitting, and by grade_page to pages the agent writes.
+  grade() now also renders at 1.5x and fails a drop over 8 points:
+  now 66.5% / 66.3% / 66.1% / 65.9% at 1x / 1.25x / 1.5x / 2x.
+- THE PARAGRAPH WAS ITALIC SERIF because the font lab grouped it with the
+  italic "your inbox." by ink height. Lines stacked at a line's pitch are one
+  block; a block whose own reading beats its role's by 15% gets its own
+  role; italic is read only when it beats upright by 20%.
+- BUTTONS AND PILLS ARE SIZED FROM THE SCREENSHOT: `ref_box` flood-fills the
+  drawn box round its letters (strict colour steps first, so a light pill on
+  a light page does not leak) and the box pass sizes it and carries it to
+  its place, judged by box overlap (83% -> 99.9%). A button with no field
+  is sized by PADDING, or its label sat low in a fixed height.
+- A WRONG LINE BREAK WAS SCORED AS RIGHT: a paragraph wrapped onto a third
+  line kept its left edge, top and 95% of its words, so placement said
+  13/13. A line is right only when it starts and ends on the screenshot's
+  letters (compared by letters: OCR drops spaces), and a line the element
+  has that the screenshot does not costs. The fit's own selftest had been
+  passing a wrong break this way; the line-break pass now also fixes a
+  same-count, wrong-word break by trying widths round the widest line.
+Dispatch stand-in (tests/pages/dispatch-draft.html — rebuilt from temple's
+screenshot of their output, NOT their HTML; the portrait is a placeholder
+wash): placement 76% -> 97%, 13/13 lines with the right words, box overlap
+99.9%. Still open: small text is read at weight 600 (bolder than the
+original), and the logo line's OCR box includes the icon.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6472,6 +6508,11 @@ tests/guard_battery.py 13/13 (in run_all); bridge selftest 34/34.
 - A PICTURE IS NEVER DRAWN IN CODE. A photo, painting or illustration in the
   screenshot becomes an image slot; a picture found for it must match the
   region's colours, and one nobody described is never searched for.
+- A PAGE BUILT FROM A SCREENSHOT GROWS WITH THE WINDOW AS ONE. Lengths
+  scale with the picture above the design width, and the page is graded in
+  a wider window too.
+- A LINE IS RIGHT ONLY WITH THE SCREENSHOT'S WORDS. Same place, same size,
+  broken at another word, is wrong.
 - TYPE AND PLACEMENT ARE MEASURED, NOT ASKED. Face, size, spacing and
   position come from the screenshot's pixels; a fitting pass is kept only
   when it measures better.
