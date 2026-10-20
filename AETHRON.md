@@ -6267,6 +6267,38 @@ wash): placement 76% -> 97%, 13/13 lines with the right words, box overlap
 99.9%. Still open: small text is read at weight 600 (bolder than the
 original), and the logo line's OCR box includes the icon.
 
+## LIMITS THE PERSON SETS, A REAL SESSION WINDOW, AND A RUN CLOCK — 2026-10-20
+temple: the $1 spend guard trips too early; let me pick the amount or
+Unlimited; add a session limit like Claude's that resets after hours (also
+Unlimited); show how long a run has been going; and check why a run took
+"over 2 hours" with no error.
+- SETTINGS → LIMITS (one card): spend guard per run, session limit per
+  window (dollars or requests, default $5 per 5 hours), the window length,
+  and the overall ceiling, each with an Unlimited switch (0 = Unlimited).
+  aethron_brain.limits/set_limits/session/session_add/session_check; the
+  window lives in HOME/aethron_session.json, so it survives restarts and
+  updates. /api/limits GET/POST (inf -> null).
+- The window is enforced wherever money is spent: the bridge refuses the
+  request after the limit BEFORE the provider is asked (a 400 saying when
+  it resets and where to change it); page writers and side jobs check it
+  and count their paid calls. An Unlimited spend guard also lifts the
+  bridge's request/token caps; the loop detector stays.
+- Provider credit cannot be overridden: a 402 / "insufficient balance" /
+  insufficient_quota reads "your provider says this account is out of
+  credit", with the provider's own words under it.
+- RUN CLOCK: the live line shows the run's time, ticking; a reopened
+  screen takes the server's turn_t0. Every finished run says where its
+  time went (aethron_code.turn_timing + aethron_bridge.timing): waiting
+  for the model (answers, slowest), running steps (union of parallel
+  tools, longest named), rate-limit waits, retried provider errors.
+- THE 2-HOUR RUN was NOT inspected: temple's Mac folder could not be
+  opened from the cloud session. Known silent time sinks: engine retries
+  of 429/5xx, rate-limit pacing, the 150s stall then up to two
+  reconnects, truth-check push-back rounds, DeepSeek queueing. The next
+  slow run names which it was.
+tests/limits_battery.py 34/34 (in run_all; part E is a real studio in a
+browser). Related batteries re-run green.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6522,3 +6554,6 @@ original), and the logo line's OCR box includes the icon.
 - A GUARD THAT SAYS NO SAYS IT ONCE AND OUT LOUD. Never refuse with a status
   the engine retries; a run's limits reset with the person's next message.
 - THE COST SHOWN IS THE PROVIDER'S PRICE. Never the engine's own estimate.
+- A LIMIT THE PERSON SETS IS THEIRS. 0 means Unlimited, and Unlimited is
+  honoured everywhere; only the provider's own credit cannot be overridden,
+  and its refusal is shown in its own words.

@@ -1059,6 +1059,8 @@ class CodeSession:
             + pics + [{"type": "text", "text": text}])
         msg = {"type": "user", "message": {"role": "user", "content": content}}
         self.busy = True
+        self.turn_t0 = time.time()
+        self.turn_from = len(self._events)
         # the screen draws the person's words itself as they are sent, so
         # they are kept aside rather than emitted — but a screen that comes
         # BACK to a running session needs them to redraw the conversation
@@ -1066,6 +1068,41 @@ class CodeSession:
                            [b for b in (images or []) if Path(b).is_file()]))
         self.proc.stdin.write(json.dumps(msg) + "\n")
         self.proc.stdin.flush()
+
+    def turn_timing(self, result: dict = None) -> dict:
+        """Where this turn's time went: waiting on the model, running
+        tools, or waiting out limits and retries — so a long run explains
+        itself instead of looking stuck."""
+        now = time.time()
+        t0 = getattr(self, "turn_t0", 0.0) or now
+        evs = self._events[getattr(self, "turn_from", 0):]
+        starts, spans, names = {}, [], {}
+        for ev in evs:
+            if ev.get("type") == "tool" and ev.get("id"):
+                starts[ev["id"]] = ev.get("t", now)
+                names[ev["id"]] = ev.get("name", "")
+            elif ev.get("type") == "tool_result" and ev.get("id") in starts:
+                a = starts.pop(ev["id"])
+                spans.append((a, ev.get("t", now), names.get(ev["id"], "")))
+        tools_s, end, longest = 0.0, 0.0, ("", 0.0)
+        for a, b, name in sorted(spans):          # union: parallel calls overlap
+            if b - a > longest[1]:
+                longest = (name, b - a)
+            if b > end:
+                tools_s += b - max(a, end)
+                end = b
+        out = {"total_s": round(now - t0, 1), "tools_s": round(tools_s, 1),
+               "tool_calls": len(spans),
+               "longest_tool": longest[0], "longest_tool_s": round(longest[1], 1)}
+        if getattr(self, "via_bridge", False):
+            try:
+                import aethron_bridge
+                out.update(aethron_bridge.timing())
+            except Exception:
+                pass
+        elif result and result.get("duration_api_ms"):
+            out["model_s"] = round(result["duration_api_ms"] / 1000, 1)
+        return out
 
     def replay(self) -> list:
         """Every event so far, with the person's messages put back where
@@ -1279,6 +1316,7 @@ class CodeSession:
             self.error = text if err else ""
             out.append({"type": "done", "error": err, "text": text,
                         "cost_usd": cost,
+                        "timing": self.turn_timing(d),
                         "turns": d.get("num_turns", 0),
                         "session_id": d.get("session_id", "")})
         elif t == "stream_event":

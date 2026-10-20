@@ -1326,6 +1326,24 @@ def store_upload(blob: bytes, ext: str) -> dict:
 NATIVE = None
 NATIVE_DROP_SEEN = {"count": None}
 
+def _jsonable(d: dict) -> dict:
+    """JSON has no infinity: an unlimited figure travels as null."""
+    return {k: (None if isinstance(v, float) and v == float("inf") else v)
+            for k, v in d.items()}
+
+
+def limits_report() -> dict:
+    """Every limit, what has been used against it, and when it resets."""
+    import aethron_brain as _brain
+    lim = _brain.limits()
+    out = {**lim, "session": _jsonable(_brain.session()),
+           "wallet": _jsonable(_brain.wallet())}
+    br = sys.modules.get("aethron_bridge")
+    if br is not None:
+        out["run_spent_usd"] = round(br.USED.get("usd", 0.0), 6)
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     def _authed(self):
         # HTTP Basic auth, only when STUDIO_PASSWORD is set (hosted
@@ -1491,7 +1509,9 @@ class Handler(BaseHTTPRequestHandler):
                                        "code": page.read_text(errors="replace")})
             if u.path == "/api/wallet":
                 import aethron_brain as _brain
-                return self.send_json(_brain.wallet())
+                return self.send_json(_jsonable(_brain.wallet()))
+            if u.path == "/api/limits":
+                return self.send_json(limits_report())
             if u.path.startswith("/design/"):
                 # The page itself, for the preview frame. Served from HOME/pages,
                 # never from anywhere a crafted name could reach.
@@ -1925,6 +1945,8 @@ class Handler(BaseHTTPRequestHandler):
                 br = sys.modules.get("aethron_bridge")
                 self.send_json({"events": evs, "n": n,
                                 "running": s.alive, "busy": s.busy,
+                                "turn_t0": getattr(s, "turn_t0", 0) or 0,
+                                "now": time.time(),
                                 "cost_usd": s.cost_usd,
                                 "bridge": br.status() if br else None})
             elif u.path == "/api/fs/tree":
@@ -2801,7 +2823,28 @@ class Handler(BaseHTTPRequestHandler):
                 if not 0 <= limit <= 1000:
                     return self.fail("a ceiling between $0 and $1000, please")
                 _brain.wallet_set(limit, keep_spent=bool(body.get("keep_spent")))
-                return self.send_json(_brain.wallet())
+                return self.send_json(_jsonable(_brain.wallet()))
+            elif u.path == "/api/limits":
+                # THE PERSON'S LIMITS, 0 = UNLIMITED. Applied at once to a
+                # running agent; nothing needs restarting.
+                import aethron_brain as _brain
+                vals = {}
+                for k, top in (("run_usd", 10000), ("session_limit", 1e6),
+                               ("session_hours", 168), ("wallet_usd", 10000)):
+                    if k in body and body[k] is not None:
+                        try:
+                            v = float(body[k])
+                        except (TypeError, ValueError):
+                            return self.fail(f"{k}: give a number, or 0 for unlimited")
+                        if not 0 <= v <= top:
+                            return self.fail(f"{k}: between 0 and {top:g}")
+                        vals[k] = v
+                if body.get("session_unit") in ("usd", "requests"):
+                    vals["session_unit"] = body["session_unit"]
+                _brain.set_limits(**vals)
+                if body.get("reset_session"):
+                    _brain.session_reset()
+                return self.send_json(limits_report())
             elif u.path in ("/api/design/reveal", "/api/design/snapshot",
                             "/api/design/undo", "/api/design/remove",
                             "/api/design/delete"):
@@ -11540,6 +11583,12 @@ body.pvwopen .dotf.hero{opacity:0}
 .nowline .sv{color:var(--tx);font-weight:500}
 .nowline .ac{margin-left:auto;font-size:11px;color:var(--lo)}
 .nowline .ac.slow{color:var(--acc2);cursor:help}
+.nowline .runclock{font:12px ui-monospace,Menlo,monospace;color:var(--lo);
+  margin-left:10px;font-variant-numeric:tabular-nums}
+.nowline .ac+.runclock{margin-left:10px}
+.nowline .st+.runclock{margin-left:auto}
+.dockmeta .runclock{font-variant-numeric:tabular-nums}
+.turn.sys.timing{display:flex;align-items:center;gap:7px;color:var(--lo);font-size:12px}
 
 /* HIDDEN MEANS HIDDEN. The browser's own `[hidden]{display:none}` is a
    UA rule of the same specificity as any class, so every author rule
@@ -11564,6 +11613,14 @@ body.pvwopen .dotf.hero{opacity:0}
 .meter{height:5px;border-radius:3px;background:var(--panel2);overflow:hidden;
   margin:10px 0 2px}
 .meter i{display:block;height:100%;background:var(--acc)}
+.limrow{display:flex;align-items:center;justify-content:space-between;gap:14px;
+  padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--dim)}
+.limctl{display:flex;align-items:center;gap:8px}
+.limctl input[type=number]{width:96px}
+.limctl input:disabled{opacity:.55}
+.limu{color:var(--lo);font-size:12px}
+.limctl .check{margin:0}
+.limnow{margin-top:12px}
 
 .startrow textarea{flex:1;min-height:44px;max-height:180px;padding:12px 14px;
   font:inherit;font-size:15px;line-height:1.45;resize:none;overflow:auto;
@@ -13201,14 +13258,15 @@ async function designChange(){
 async function showWallet(){
   try{
     const w=await api('/api/wallet');const el=$('dwallet');
-    if(el)el.textContent='$'+w.left_usd.toFixed(2)+' of $'+w.limit_usd.toFixed(2)+' left';
+    if(el)el.textContent=w.unlimited?'no spending ceiling'
+      :'$'+w.left_usd.toFixed(2)+' of $'+w.limit_usd.toFixed(2)+' left';
   }catch(e){}
 }
 async function designWallet(){
   const w=await api('/api/wallet').catch(()=>null);if(!w)return;
   const v=prompt('How much may Aethron spend on paid model calls, in total?\\n\\n'
     +usd(w.spent_usd)+' of '+usd(w.limit_usd)+' has been spent over '+w.calls
-    +' paid calls. Free calls never touch this.\\n\\nNew ceiling in dollars:', w.limit_usd.toFixed(2));
+    +' paid calls. Free calls never touch this.\\n\\nNew ceiling in dollars (0 = unlimited):', w.unlimited?'0':w.limit_usd.toFixed(2));
   if(v===null)return;
   try{await api('/api/wallet',{limit_usd:parseFloat(v)});await showWallet();}
   catch(e){alert(e.message);}
@@ -14028,6 +14086,7 @@ async function sendCode(){
    never disagree about whether something is still happening. */
 function endTurn(){
   if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
+  CODE.runT0=0;
   renderChat(); syncComposer(); syncHero();
 }
 /* The bridge itself gives an upstream provider 90 seconds to answer.  The
@@ -14250,6 +14309,10 @@ async function pollCode(){
        deadline must win over any local silence calculation. */
     const r=await api('/api/code/events?key='+encodeURIComponent(CODE.key)
                       +'&since='+CODE.since);
+    /* a screen that came back to a run in progress takes the run's own
+       start time (on this machine's clock) */
+    if(!CODE.runT0&&r.running&&r.turn_t0&&r.now)
+      CODE.runT0=Date.now()-(r.now-r.turn_t0)*1000;
     if(r.events&&r.events.length){
       CODE.events.push(...r.events);CODE.since=r.n;CODE.lastEv=Date.now();
       clearSlowNote();
@@ -14405,22 +14468,9 @@ async function renderSettings(c){
       <div data-aiblock>${aiSettingsHtml()}</div>
     </section>
 
-    <section class="card">
-      <h3>${I('coins',14)} Spending</h3>
-      ${typeof left==='number'?`
-        <div class="kv"><span>Ceiling</span><b>$${Number(lim).toFixed(2)}</b></div>
-        <div class="kv"><span>Spent</span><b>${usd(spent)}</b></div>
-        <div class="kv"><span>Left</span><b>${usd(left)}</b></div>
-        <div class="meter"><i style="width:${Math.max(0,Math.min(100,
-           (Number(spent)/Math.max(0.0001,Number(lim)))*100)).toFixed(1)}%"></i></div>
-        <div class="rowbtns">
-          <input id="wlimit" type="number" step="0.5" min="0"
-            value="${Number(lim).toFixed(2)}" style="width:110px">
-          <button onclick="setWallet()">Set ceiling</button></div>
-        <div class="hint">A ceiling that survives restarts. It is checked
-          BEFORE a paid call starts and counted down by the real bill, not an
-          estimate — free keys never touch it.</div>`
-      :`<div class="hint">No wallet is configured for this copy.</div>`}
+    <section class="card" id="limitscard">
+      <h3>${I('coins',14)} Limits</h3>
+      <div id="limitsbox"><div class="hint">reading…</div></div>
     </section>
 
     <section class="card">
@@ -14436,6 +14486,67 @@ async function renderSettings(c){
   bindAiSettings();
   showRunShare();
   showAiUse();
+  showLimits();
+}
+/* THE PERSON'S LIMITS. Three, each switchable to Unlimited:
+   the spend guard (one request), the session limit (a usage window that
+   resets on its own, like a subscription's), and the overall ceiling.
+   None of them can lift the provider's own credit: when that runs out
+   the provider refuses, and Aethron says so in its words. */
+async function showLimits(){
+  const box=$('limitsbox');if(!box)return;
+  let L;
+  try{L=await api('/api/limits')}catch(e){box.innerHTML=`<div class="hint">${esc(e.message)}</div>`;return;}
+  const S2=L.session||{}, W=L.wallet||{};
+  const money=v=>'$'+Number(v||0).toFixed(2);
+  const used=S2.unit==='requests'?(S2.used_requests||0)+' requests':money(S2.used_usd);
+  const lim=S2.unit==='requests'?Math.round(S2.limit)+' requests':money(S2.limit);
+  const frac=S2.limit?Math.min(100,100*(S2.unit==='requests'?S2.used_requests:S2.used_usd)/S2.limit):0;
+  const resets=S2.resets_at?new Date(S2.resets_at*1000):null;
+  const inn=resets?Math.max(0,Math.round((S2.resets_at-Date.now()/1000)/60)):0;
+  const row=(id,label,val,unl,step,extra)=>`<div class="limrow">
+      <div class="limlab">${label}</div>
+      <div class="limctl"><input id="${id}" type="number" min="0" step="${step}"
+        value="${unl?'':val}" placeholder="${unl?'Unlimited':''}" ${unl?'disabled':''}>${extra||''}
+      <label class="check"><input type="checkbox" id="${id}u" ${unl?'checked':''}
+        onchange="limUnl('${id}')"><span>Unlimited</span></label></div></div>`;
+  box.innerHTML=`
+    ${row('lrun','Spend guard · stop one request after',Number(L.run_usd||0).toFixed(2),!L.run_usd,'0.5','<span class="limu">$</span>')}
+    ${row('lses','Session limit · per window',S2.unit==='requests'?Math.round(L.session_limit||0):Number(L.session_limit||0).toFixed(2),!L.session_limit,'0.5',
+      `<select id="lsesunit"><option value="usd" ${S2.unit!=='requests'?'selected':''}>dollars</option>
+        <option value="requests" ${S2.unit==='requests'?'selected':''}>requests</option></select>`)}
+    <div class="limrow"><div class="limlab">Window length</div>
+      <div class="limctl"><input id="lhrs" type="number" min="0.25" step="0.5" value="${Number(L.session_hours||5)}"><span class="limu">hours</span></div></div>
+    ${row('lwal','Overall ceiling · until you reset it',Number(W.limit_usd||0).toFixed(2),!!W.unlimited,'0.5','<span class="limu">$</span>')}
+    <div class="rowbtns"><button class="primary" onclick="saveLimits()">Save limits</button>
+      <span class="hint" id="limsaved"></span></div>
+    <div class="limnow">
+      <div class="kv"><span>This window</span><b>${S2.started?used+(S2.limit?' of '+lim:'')
+        +' · resets '+resets.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})
+        +' (in '+Math.floor(inn/60)+'h '+String(inn%60).padStart(2,'0')+'m)':'not started — opens with the next request'}</b></div>
+      ${S2.limit?`<div class="meter"><i style="width:${frac.toFixed(1)}%"></i></div>`:''}
+      <div class="kv"><span>Spent overall</span><b>${money(W.spent_usd)}${W.unlimited?'':' of '+money(W.limit_usd)}</b></div>
+      <div class="rowbtns"><button onclick="saveLimits(true)" ${S2.started?'':'disabled'}>Start a new window now</button></div>
+    </div>
+    <div class="hint">The spend guard stops one request (everything you asked in one message,
+      until Aethron answers). The session limit counts every request in a window of the length
+      you choose and resets on its own when the window ends. Set both to Unlimited and Aethron
+      never stops on its own. It still can't spend credit your provider doesn't have: if the
+      provider's balance runs out, it refuses, and Aethron shows you its own words.</div>`;
+}
+function limUnl(id){
+  const i=$(id),u=$(id+'u');if(!i||!u)return;
+  i.disabled=u.checked;i.placeholder=u.checked?'Unlimited':'';
+  if(u.checked)i.value='';else if(!i.value)i.value=id==='lses'?'5':'1';
+}
+async function saveLimits(resetSession){
+  const v=id=>$(id+'u')&&$(id+'u').checked?0:Math.max(0,parseFloat(($(id)||{}).value)||0);
+  const body={run_usd:v('lrun'),session_limit:v('lses'),session_unit:($('lsesunit')||{}).value,
+    session_hours:parseFloat(($('lhrs')||{}).value)||5,wallet_usd:v('lwal')};
+  if(resetSession===true)body.reset_session=true;
+  try{await api('/api/limits',body);}catch(e){alert(e.message);return;}
+  await showLimits();
+  const m=$('limsaved');if(m)m.textContent=resetSession===true?'New window started.':'Saved. Applies to the run in progress too.';
 }
 /* WHERE EVERY REQUEST REALLY WENT. Read from the address each request was
    sent to, not from a label, so the provider named here is the one that
@@ -15632,6 +15743,7 @@ async function consoleSend(){
       CODE.key=r.key;
       CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
     }
+    CODE.runT0=Date.now();
     CODE.events.push({type:'you',text,images:pics.map(p=>p.url)});renderChat();
     CODE.lastEv=Date.now();CODE.slowNote='';
     await api('/api/code/send',{key:CODE.key,text,images:pics.map(p=>p.name)});
@@ -17374,6 +17486,8 @@ function convBlocks(evs){
     else if(e.type==='error')out.push({kind:'sys',...humanErr(e.text)});
     else if(e.type==='done'&&e.error)
       out.push({kind:'sys',...humanErr(e.text)});
+    if(e.type==='done'&&e.timing&&timingText(e.timing))
+      out.push({kind:'timing',text:timingText(e.timing)});
     else if(e.type==='exit'&&e.code)
       out.push({kind:'sys',text:'the session ended',bad:true});
   }
@@ -17464,8 +17578,15 @@ function humanErr(raw){
        +'Start a fresh session and choose Semi-manual or Automatic in the permission menu.';
   else if(has('getaddrinfo')||has('connection')||has('network')||has('dns'))
     msg='Could not reach the provider. Aethron did not ask, so nothing was changed.';
-  else if(has('credit')||has('billing'))
-    msg='This key has no credit left. Switch provider or top it up in Settings.';
+  else if(/aethron session limit/i.test(t))
+    msg=t.replace(/^.*?(Aethron session limit)/i,'$1');
+  else if(/aethron spend guard/i.test(t))
+    msg=t.replace(/^.*?(Aethron spend guard)/i,'$1');
+  else if(/\b402\b/.test(t)||has('insufficient balance')||has('insufficient_quota')
+          ||has('credit')||has('billing'))
+    msg="Your provider says this account is out of credit. Aethron's own limits "
+       +"can't override that — top it up on the provider's site, or switch "
+       +"provider in Settings. Its exact words are below.";
   return msg?{text:msg,bad:true,detail:t}:{text:t,bad:true};
 }
 CODE.open=CODE.open||{};
@@ -17540,7 +17661,34 @@ function nowHtml(){
       data-state="${orbState(verb)}"></canvas>
     <span class="sv">${esc(verb)}</span>
     <span class="st">${esc(last?toolTarget(last.name,last.input):'')}</span>
-    ${state}</div>`;
+    ${state}<span class="runclock" title="how long this run has been going">${runClock()}</span></div>`;
+}
+/* HOW LONG IT HAS BEEN GOING. The clock starts when a message is sent and
+   survives reconnects and reloads (the server keeps the start time), so a
+   long run is never a mystery. */
+function fmtDur(s){
+  s=Math.max(0,Math.round(s));
+  const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;
+  return h?h+'h '+String(m).padStart(2,'0')+'m':m?m+'m '+String(x).padStart(2,'0')+'s':x+'s';
+}
+function runClock(){return CODE.runT0?fmtDur((Date.now()-CODE.runT0)/1000):'';}
+setInterval(()=>{
+  if(!CODE.poll||!CODE.runT0)return;
+  const t=runClock();
+  document.querySelectorAll('.runclock').forEach(e=>{if(e.textContent!==t)e.textContent=t;});
+},1000);
+/* WHERE THE TIME WENT, said once at the end of every run. */
+function timingText(t){
+  if(!t||!t.total_s)return '';
+  const bits=['Took '+fmtDur(t.total_s)];
+  if(t.model_s)bits.push(fmtDur(t.model_s)+' waiting for the model'
+    +(t.answers?' ('+t.answers+' answer'+(t.answers===1?'':'s')
+      +(t.slowest_s>=20?', slowest '+fmtDur(t.slowest_s):'')+')':''));
+  if(t.tools_s)bits.push(fmtDur(t.tools_s)+' running '+t.tool_calls+' step'+(t.tool_calls===1?'':'s')
+    +(t.longest_tool_s>=30?' (longest: '+toolVerb(t.longest_tool).toLowerCase()+', '+fmtDur(t.longest_tool_s)+')':''));
+  if(t.waited_s>=5)bits.push(fmtDur(t.waited_s)+' waiting out rate limits');
+  if(t.failures)bits.push(t.failures+' provider error'+(t.failures===1?'':'s')+' retried');
+  return bits.join(' · ');
 }
 function renderChat(){
   if(CODE.pending&&CODE.pending.length)renderPending();
@@ -17573,6 +17721,7 @@ function renderChat(){
           {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})):''
         } — Aethron remembers it and carries on from here.</span>
         <button onclick="newConversation()">Start a new conversation</button></div>`
+    : b.kind==='timing' ? `<div class="turn sys timing">${I('clock',12)}<span>${esc(b.text)}</span></div>`
     : b.text        ?`<div class="turn sys${b.bad?' bad':''}">${esc(b.text)}${
         b.detail?`<details class="errdet"><summary>what the provider said</summary>
           <div>${esc(b.detail)}</div></details>`:''}</div>`
@@ -17596,7 +17745,7 @@ function dockMeta(){
   const bits=[];
   if(model)bits.push(esc(model));
   if(spent)bits.push(usd(spent)+' this session');
-  if(CODE.poll)bits.push('working…');
+  if(CODE.poll)bits.push('working'+(CODE.runT0?' · <span class="runclock">'+runClock()+'</span>':'…'));
   m.innerHTML=bits.length?bits.join('<span class="dot"></span>'):'';
 }
 

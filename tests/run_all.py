@@ -65,6 +65,10 @@ SUITES = [
     # the provider's own; a thinking model keeps the stream alive.
     ("guard battery (no silent refusals, honest cost)",
      [PY, "tests/guard_battery.py"], False),
+    # Limits the person sets (dollars or Unlimited), a session window that
+    # resets, the run clock, and where a run's time went.
+    ("limits battery (spend guard, session window, run clock)",
+     [PY, "tests/limits_battery.py"], False),
     # OpenAI: gpt-4o-mini and gpt-5 accepted, honest prices, readable refusals.
     ("openai battery (gpt-4o-mini keeps working)",
      [PY, "tests/openai_battery.py"], False),
