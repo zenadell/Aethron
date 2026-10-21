@@ -116,8 +116,11 @@ class Model:
 
     # -- OpenAI-compatible (DeepSeek, OpenAI, OpenRouter, Groq, Ollama) --
     def _openai(self, messages, tools, temperature, timeout):
+        import aethron_bridge as _br
         body = {"model": self.model, "messages": messages,
                 "temperature": temperature}
+        if _br.openai_reasoning(self.model):
+            body.pop("temperature", None)
         if tools:
             body["tools"] = [{"type": "function", "function": t.schema()}
                              for t in tools]
@@ -160,15 +163,19 @@ class Model:
         return {"text": text, "calls": calls, "raw": data}
 
     def _post(self, path, body, timeout):
-        req = urllib.request.Request(self.base + path,
-                                     data=json.dumps(body).encode(),
-                                     method="POST")
-        req.add_header("Content-Type", "application/json")
-        if self.wire == "anthropic":
-            req.add_header("x-api-key", self.key)
-            req.add_header("anthropic-version", "2023-06-01")
-        else:
-            req.add_header("Authorization", "Bearer " + self.key)
+        def _req(b):
+            r = urllib.request.Request(self.base + path,
+                                       data=json.dumps(b).encode(),
+                                       method="POST")
+            r.add_header("Content-Type", "application/json")
+            if self.wire == "anthropic":
+                r.add_header("x-api-key", self.key)
+                r.add_header("anthropic-version", "2023-06-01")
+            else:
+                r.add_header("Authorization", "Bearer " + self.key)
+            return r
+
+        req = _req(body)
         last = None
         for attempt in range(3):            # transient failures are normal
             try:
@@ -176,6 +183,13 @@ class Model:
                     return json.loads(r.read().decode())
             except urllib.error.HTTPError as e:
                 detail = e.read().decode()[:300]
+                if e.code in (400, 422) and self.wire != "anthropic":
+                    import aethron_bridge as _br
+                    fixed = _br.adapt_params(body, detail)
+                    if fixed:
+                        body = fixed
+                        req = _req(body)
+                        continue
                 if e.code in (400, 401, 403, 404):
                     raise RuntimeError(f"model error {e.code}: {detail}")
                 last = RuntimeError(f"model error {e.code}: {detail}")
