@@ -69,6 +69,10 @@ SUITES = [
     # resets, the run clock, and where a run's time went.
     ("limits battery (spend guard, session window, run clock)",
      [PY, "tests/limits_battery.py"], False),
+    # A run that outgrew the model: trimmed before the wall, and a size
+    # refusal survived instead of ending every later message.
+    ("context battery (trim before the wall, survive a size refusal)",
+     [PY, "tests/context_battery.py"], False),
     # OpenAI: gpt-4o-mini and gpt-5 accepted, honest prices, readable refusals.
     ("openai battery (gpt-4o-mini keeps working)",
      [PY, "tests/openai_battery.py"], False),

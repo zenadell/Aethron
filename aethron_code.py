@@ -405,6 +405,12 @@ def load_config(home: Path = None) -> dict:
     return cfg
 
 
+# The history size, in tokens, at which a session behind a provider other
+# than the engine's own is trimmed. Every provider Aethron offers takes
+# more than this, and every request is billed for the whole history.
+COMPACT_WINDOW = 200_000
+
+
 def resolve_provider(cfg: dict) -> dict:
     """-> {base_url, token, label, ready, why}"""
     if cfg.get("provider", "auto") == "auto":
@@ -883,6 +889,16 @@ class CodeSession:
             env["ANTHROPIC_BASE_URL"] = prov["base_url"]
             if prov["token"]:
                 env["ANTHROPIC_AUTH_TOKEN"] = prov["token"]
+            # A CONVERSATION THAT IS NEVER TRIMMED HITS THE WALL. The engine
+            # trims (compacts) its history by the window it assumes for its
+            # own model, and behind the bridge it assumed 1M tokens: a
+            # deepseek-flash run grew every request to ~1M (about $0.30
+            # each, minutes per answer) until DeepSeek refused it outright
+            # at 1,048,576. Trim at a working size instead — set, not
+            # defaulted: an engine launched from a terminal inherits that
+            # terminal's own settings, and those were for another model.
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(COMPACT_WINDOW)
+            env.pop("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", None)
         env["CLAUDE_CODE_NONINTERACTIVE"] = "1"
         env.setdefault("AETHRON_HOME", str(self.home or ROOT))
         return env

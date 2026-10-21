@@ -6315,6 +6315,41 @@ projects/aethron-web/post_build.py writes /download/index.html (forwards to
 the newest zip) and Netlify _redirects; render.website.yaml is a free Render
 static-site Blueprint.
 
+## THE RUN THAT GREW TO A MILLION TOKENS — never trimmed — 2026-10-21
+temple's deepseek-flash run: 2h 32m, $8.56, then "maximum context length
+is 1048576 tokens, you requested 1058475". The last turn alone was 18
+answers in 28 minutes (slowest 2m 03s). Every request near the end
+carried the WHOLE run: ~1M tokens, about $0.30 and minutes each.
+THE CAUSE, proven with the real engine and a fake provider: the engine
+compacts by the prompt size the API reports, and the bridge never
+reported it. A provider sends its usage at the END of a stream; the
+bridge's message_start (opened at once since #28) carried 0 and its
+message_delta carried only output tokens. The engine believed every
+request was empty and never compacted. Before the fix: a reported 990k
+prompt, no compaction; after: compaction on the next turn.
+FIXED:
+- message_delta carries input_tokens (and cache reads).
+- the engine is spawned with CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000
+  (aethron_code.COMPACT_WINDOW) behind any non-native provider. Its
+  default here was 500k (a 1M-model assumption). SET, not defaulted, and
+  CLAUDE_AUTOCOMPACT_PCT_OVERRIDE removed: an engine launched from a
+  terminal inherits that terminal's settings — this cloud session's own
+  shell had both, and the first test silently measured them instead.
+  Effective trim point = window - 20k, minus the engine's buffer.
+- a provider's size refusal (DeepSeek/OpenAI "maximum context length",
+  Gemini "input token count … exceeds", context_length_exceeded) is
+  asked ONCE more with the oldest long parts cut (trim_to_fit: content
+  only, no message dropped so tool calls keep results, system rules and
+  the last two messages whole). If it still cannot fit, the engine is
+  told in its own words ("prompt is too long: N tokens > M maximum").
+  In -p mode the engine does NOT compact reactively on that: it just
+  ends the turn, and every later message hit the same wall. The screen
+  now explains it and says "continue" carries on.
+tests/context_battery.py 22/22 (in run_all); guard battery's fake usage
+lowered to 100k (at 1M the engine now, correctly, compacts first).
+NOT INSPECTED: temple's own transcript (their Mac folder can't be opened
+from the cloud session); the cause is reproduced, not read off their run.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6575,3 +6610,6 @@ static-site Blueprint.
 - A LIMIT THE PERSON SETS IS THEIRS. 0 means Unlimited, and Unlimited is
   honoured everywhere; only the provider's own credit cannot be overridden,
   and its refusal is shown in its own words.
+- THE ENGINE IS TOLD WHAT EVERY REQUEST COST IN TOKENS. A conversation
+  whose size is never reported is never trimmed, and grows until the
+  provider refuses it.
