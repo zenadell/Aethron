@@ -1,11 +1,15 @@
 # The Aethron marketing site (aethron.jomiez.com).
-# website/ is a hand-written static page: no build step, nothing to install.
-# The old site (projects/aethron-site, a forge migration) is kept in the repo
-# but no longer published.
+# projects/aethron-web is the Kaviyan Framer template migrated with forge:
+# pristine/ is the untouched template, copy_map.json holds every change.
+# Netlify rebuilds it from source on every push and points /download at the
+# newest Mac release (netlify_post.py). forge is pure stdlib: nothing to install.
 [build]
-  base = "website"
-  publish = "."
-  command = "true"
+  base = "projects/aethron-web"
+  command = "python3 ../../forge.py build && python3 netlify_post.py"
+  publish = "site"
+
+[build.environment]
+  PYTHON_VERSION = "3.11"
 
 [[headers]]
   for = "/assets/*"
