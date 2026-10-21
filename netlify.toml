@@ -1,12 +1,13 @@
-# Git-based auto-deploy for the Aethron marketing site.
-# Once the Netlify site is linked to this repo, every push to the default
-# branch rebuilds the site from source (forge build) and deploys it — no
-# more manual drag-and-drop. forge is pure stdlib, so there's nothing to
-# pip-install; Netlify's image already has Python.
+# The Aethron marketing site (aethron.jomiez.com).
+# website/ is a hand-written static page: no build step, nothing to install.
+# The old site (projects/aethron-site, a forge migration) is kept in the repo
+# but no longer published.
 [build]
-  base = "projects/aethron-site"     # run the build from the project dir
-  command = "python3 ../../forge.py build"
-  publish = "site"                   # forge writes the deployable site/ here
+  base = "website"
+  publish = "."
+  command = "true"
 
-[build.environment]
-  PYTHON_VERSION = "3.11"
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
