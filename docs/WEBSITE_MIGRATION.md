@@ -141,6 +141,50 @@ inside a `style` attribute. Two parts:
 - Images still load from framerusercontent.com. `forge.py localize` can make
   them local later if that matters.
 
+## 6b. Make it look like Aethron: real app screenshots in the template's frames
+
+The first pass kept every template picture, so the page read like a video
+agency with Aethron's words. The second pass replaced the pictures that show
+the product with screenshots of Aethron itself:
+
+| where on the page | template picture | now |
+|---|---|---|
+| the four steps (Bring, Edit, Check, Ship) | video-editing stills | `app-bring.jpg` (the home composer), `app-edit.jpg` (point and edit on a rebuilt page), `app-check.jpg` (a rebuilt page at phone width), `app-ship.jpg` (the project rail) |
+| the three create modes | footage thumbnails | `shot-in.jpg` (a screenshot going in), `page-dispatch.jpg` and `page-apps.jpg` (pages Aethron built) |
+| pricing avatar | a stock face | `aethron-icon.jpg` (the app icon) |
+| hero chip icon | the template's glyph | the Aethron mark |
+| contact icon | a phone | a mail icon (the contact is email) |
+
+How the screenshots were made, so they show a clean app:
+
+1. Start a throwaway studio with its own data folder
+   (`AETHRON_HOME=<scratch>/ahome python3 studio.py`), holding copies of real
+   projects and of the test pages in `tests/pages/` (never the person's own
+   folder).
+2. Mark the What's new card seen (`POST /api/news/seen`), set
+   `localStorage.forge_tour='1'`, and hide `#newsov` and `#updchip` with an
+   injected style, so no pop-up or update chip is in the shot.
+3. Drive it with Playwright at 1600px wide, click the real controls (the
+   preview's desktop/phone switch is sticky between captures, so set it
+   every time), screenshot.
+4. Crop each shot to the SAME aspect ratio as the template picture it
+   replaces. The template's frames are sized to their picture; a different
+   aspect is cropped by `object-fit` in ways nobody chose.
+
+How they were swapped: an image entry's `new` set to `/assets/<file>`. The
+entry is the picture's base address, so every `?width=` variant follows.
+Alt texts were rewritten with the pictures.
+
+Two icons are SVGs drawn inline by the template, not image entries. They were
+swapped with `styles`: the SVG is hidden (`opacity:0`, never removed, because
+hydration puts it back) and the Aethron icon is set as the container's
+`background-image`.
+
+Kept on purpose: the plush agents. They are the template's character design,
+and Aethron has no separate agent artwork.
+
+Checked after: verify CLEAN, probe CLEAN on all 3 pages, every image loads.
+
 ## 7. The legal pages
 
 The template's privacy policy and terms describe a video SaaS. They were
@@ -195,3 +239,5 @@ Supabase) and writes `site/_redirects`:
 5. Labels must match where their (shared) href now goes.
 6. A logo inside a style attribute is replaced with a `styles` rule, not a
    text pair.
+7. Show the product: replace pictures of the template's subject with real
+   screenshots of the product, cropped to the frame's own aspect.

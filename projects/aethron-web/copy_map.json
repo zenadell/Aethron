@@ -5842,7 +5842,7 @@
   },
   {
    "old": "Pastel stones stacked on a peach background",
-   "new": "",
+   "new": "Aethron's home screen: paste a template link or say what you want built",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -5860,7 +5860,7 @@
   },
   {
    "old": "Soft orange, blue and yellow shapes stacked together",
-   "new": "",
+   "new": "Point and edit in Aethron: click the headline and say what should change",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -5888,7 +5888,7 @@
   },
   {
    "old": "Holographic pastel gradient",
-   "new": "",
+   "new": "Aethron checking a rebuilt page at phone width",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -5916,7 +5916,7 @@
   },
   {
    "old": "Cute blue toy rocket on a pale blue background",
-   "new": "",
+   "new": "Aethron's project panel: build, then download the site or port it to a framework",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -5998,7 +5998,7 @@
   },
   {
    "old": "Small peach ghost character on an orange background",
-   "new": "",
+   "new": "A newsletter page Aethron rebuilt from a screenshot",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6007,7 +6007,7 @@
   },
   {
    "old": "Soft purple and blue blob gradient",
-   "new": "",
+   "new": "A landing page Aethron rebuilt from a screenshot",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6016,7 +6016,7 @@
   },
   {
    "old": "Pink fluffy star on a pastel background",
-   "new": "",
+   "new": "A screenshot dropped into Aethron",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6109,7 +6109,7 @@
   },
   {
    "old": "0:15",
-   "new": "1:59",
+   "new": "Halo",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -21325,7 +21325,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/F8fmcWsggenheniUcjFSf6PzU.jpg",
-   "new": ""
+   "new": "/assets/app-bring.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/F8fmcWsggenheniUcjFSf6PzU.jpg?width=2400&amp;height=1350",
@@ -21745,7 +21745,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/VRtDmU4zmgLxEVM4KM7gRPJBvj0.jpg",
-   "new": ""
+   "new": "/assets/app-check.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/VRtDmU4zmgLxEVM4KM7gRPJBvj0.jpg?width=2400&amp;height=1350",
@@ -21969,7 +21969,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/kqzyTcS5ESDEhcL3eo8LBATRKc.jpg",
-   "new": ""
+   "new": "/assets/shot-in.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/kqzyTcS5ESDEhcL3eo8LBATRKc.jpg?width=2400&amp;height=2400",
@@ -22009,7 +22009,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/ltRtLVazJTi0EDfRM5h6Ctk0Nec.jpg",
-   "new": ""
+   "new": "/assets/aethron-icon.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/ltRtLVazJTi0EDfRM5h6Ctk0Nec.jpg?width=160&amp;height=160",
@@ -22033,7 +22033,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/mXmwio5in5FSGyJNl0v5ONZIXE.jpg",
-   "new": ""
+   "new": "/assets/page-apps.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/mXmwio5in5FSGyJNl0v5ONZIXE.jpg?width=2400&amp;height=1800",
@@ -22257,7 +22257,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/v7YXBFgD6AjdLHE23ZI5mz5xo.jpg",
-   "new": ""
+   "new": "/assets/page-dispatch.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/v7YXBFgD6AjdLHE23ZI5mz5xo.jpg?width=2400&amp;height=2400",
@@ -22289,7 +22289,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/vZ85Tdk0O0eH607I5NQpyZsAg.png",
-   "new": ""
+   "new": "/assets/app-ship.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/vZ85Tdk0O0eH607I5NQpyZsAg.png?width=736&amp;height=1104",
@@ -22305,7 +22305,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/vuATYfVl7lvSvTCBuqVUJt9toFo.jpg",
-   "new": ""
+   "new": "/assets/app-edit.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/vuATYfVl7lvSvTCBuqVUJt9toFo.jpg?width=2400&amp;height=1551",
@@ -23601,6 +23601,40 @@
     "background-image": "url(/assets/aethron-logo-dark.svg)"
    },
    "label": "Aethron wordmark in place of the template logo"
+  },
+  {
+   "selector": ".framer-1jvgith > svg",
+   "css": {
+    "opacity": "0"
+   },
+   "label": "hero chip: hide template icon"
+  },
+  {
+   "selector": ".framer-1jvgith",
+   "css": {
+    "background-image": "url(/assets/aethron-mark-white.png)",
+    "background-size": "56%",
+    "background-position": "center",
+    "background-repeat": "no-repeat"
+   },
+   "label": "hero chip: Aethron mark"
+  },
+  {
+   "selector": ".framer-66lvdv > svg",
+   "css": {
+    "opacity": "0"
+   },
+   "label": "help chip: hide phone icon"
+  },
+  {
+   "selector": ".framer-66lvdv",
+   "css": {
+    "background-image": "url(/assets/icon-mail.svg)",
+    "background-size": "46%",
+    "background-position": "center",
+    "background-repeat": "no-repeat"
+   },
+   "label": "help chip: mail icon"
   }
  ]
 }
