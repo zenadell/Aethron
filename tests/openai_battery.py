@@ -80,7 +80,7 @@ def fake_openai(req, timeout=None):
     b = json.loads(req.data or b"{}")
     seen.append(b)
     m = b.get("model", "")
-    reasoning = m.startswith(("gpt-5", "o1", "o3", "o4"))
+    reasoning = m.startswith(("gpt-5", "gpt-6", "gpt-7", "o1", "o3", "o4", "o5", "custom-reasoner"))
     if MODE["billing"]:
         raise err(429, "insufficient_quota",
                   "You exceeded your current quota, please check your plan "
@@ -121,6 +121,27 @@ try:
     ck("gpt-5 gets max_completion_tokens and no temperature",
        ok and "max_completion_tokens" in seen[-1] and "max_tokens" not in seen[-1]
        and "temperature" not in seen[-1], seen[-1:])
+
+    brain.save({"provider": "openai", "model": "gpt-6-luna", "api_key": "sk-test"})
+    try:
+        B.gemini_text("hi", {}, budget_usd=1.0)
+        ok = True
+    except Exception as e:
+        ok = False
+    ck("gpt-6-luna gets max_completion_tokens and no temperature",
+       ok and "max_completion_tokens" in seen[-1] and "max_tokens" not in seen[-1]
+       and "temperature" not in seen[-1], seen[-1:])
+
+    brain.save({"provider": "openai", "model": "custom-reasoner", "api_key": "sk-test"})
+    try:
+        B.gemini_text("hi", {}, budget_usd=1.0)
+        ok = True
+    except Exception as e:
+        ok = False
+    ck("an arbitrary model that refuses max_tokens adapts automatically and succeeds",
+       ok and "max_completion_tokens" in seen[-1] and "max_tokens" not in seen[-1]
+       and "temperature" not in seen[-1], seen[-1:])
+
     brain.save({"provider": "openai", "model": "gpt-4o-mini", "api_key": "sk-test"})
 
     MODE["billing"] = True
@@ -152,12 +173,24 @@ ck("the translator sends gpt-5 max_completion_tokens, no temperature",
    "max_completion_tokens" in b and "max_tokens" not in b
    and "temperature" not in b, b)
 b = BR.to_openai({"model": "x", "max_tokens": 9000, "temperature": 0.7,
+                  "messages": [{"role": "user", "content": "hi"}]}, "gpt-6-luna")
+ck("the translator sends gpt-6-luna max_completion_tokens, no temperature",
+   "max_completion_tokens" in b and "max_tokens" not in b
+   and "temperature" not in b, b)
+b = BR.to_openai({"model": "x", "max_tokens": 9000, "temperature": 0.7,
                   "messages": [{"role": "user", "content": "hi"}]}, "gpt-4o-mini")
 ck("…and leaves gpt-4o-mini's max_tokens and temperature alone",
    b.get("max_tokens") == 9000 and b.get("temperature") == 0.7, b)
 b = BR.to_openai({"model": "x", "max_tokens": 9000,
                   "messages": [{"role": "user", "content": "hi"}]}, "openai/gpt-5")
 ck("…and OpenRouter ids keep max_tokens", "max_tokens" in b, b)
+adapted = BR.adapt_params(
+    {"model": "custom-reasoner", "max_tokens": 4096, "temperature": 0.2},
+    "Unsupported parameter: 'max_tokens' is not supported with this model. "
+    "Use 'max_completion_tokens' instead.")
+ck("adapt_params swaps max_tokens -> max_completion_tokens and drops temperature",
+   adapted and adapted.get("max_completion_tokens") == 4096
+   and "max_tokens" not in adapted and "temperature" not in adapted, adapted)
 
 # money
 ck("gpt-4o-mini is priced at its real rate, not the dearest",
