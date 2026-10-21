@@ -200,6 +200,8 @@ PRICES = {
     "gpt-4.1": (2.00, 8.00), "gpt-4.1-mini": (0.40, 1.60),
     "gpt-4.1-nano": (0.10, 0.40), "gpt-5-nano": (0.05, 0.40),
     "o4-mini": (1.10, 4.40), "o3": (2.00, 8.00), "o3-mini": (1.10, 4.40),
+    "gpt-6": (1.25, 10.0), "gpt-6-luna": (1.25, 10.0),
+    "gpt-6-mini": (0.25, 2.0), "gpt-6-nano": (0.05, 0.40),
 }
 
 # WHAT A REPEATED PROMPT COSTS. An agent sends its whole conversation on
@@ -215,6 +217,8 @@ CACHED_PRICES = {
     "gpt-4o-mini": 0.075, "gpt-4o": 1.25, "gpt-4.1": 0.50,
     "gpt-4.1-mini": 0.10, "gpt-4.1-nano": 0.025, "gpt-5": 0.125,
     "gpt-5-mini": 0.025, "gpt-5-nano": 0.005,
+    "gpt-6": 0.125, "gpt-6-luna": 0.125, "gpt-6-mini": 0.025,
+    "gpt-6-nano": 0.005,
 }
 
 
@@ -257,16 +261,47 @@ def price_of(model: str) -> tuple:
     return PRICES.get(m) or PRICES.get(_SNAPSHOT.sub("", m)) or UNKNOWN_PRICE
 
 
-_OPENAI_REASONING = re.compile(r"^(gpt-5|o\d)", re.I)
+_OPENAI_REASONING = re.compile(r"^(gpt-([5-9]|\d{2,})\b|o\d\b)", re.I)
 
 
 def openai_reasoning(model: str) -> bool:
-    """True for OpenAI's reasoning models (gpt-5*, o1/o3/o4*). They refuse
-    `max_tokens` (it must be `max_completion_tokens`) and any temperature but
-    the default, while gpt-4o/4.1 refuse `reasoning_effort`. Only a BARE id
-    counts: "openai/gpt-5" goes through OpenRouter, which takes max_tokens."""
+    """True for OpenAI's reasoning models (gpt-5*, gpt-6*, o1/o3/o4*). They
+    refuse `max_tokens` (it must be `max_completion_tokens`) and any
+    temperature but the default, while gpt-4o/4.1 refuse `reasoning_effort`.
+    Only a BARE id counts: "openai/gpt-5" goes through OpenRouter, which
+    takes max_tokens."""
     m = (model or "").strip()
     return "/" not in m and bool(_OPENAI_REASONING.match(m))
+
+
+def adapt_params(req: dict, body: str) -> dict | None:
+    """When a model refuses a parameter we sent (`max_tokens`,
+    `max_completion_tokens`, `temperature`, `reasoning_effort`,
+    `stream_options`), return a copy adjusted to what the error asked for,
+    or None when nothing in the error is a parameter mismatch we can fix."""
+    b = (body or "").lower()
+    out = dict(req)
+    changed = False
+    if "max_completion_tokens" in b and "max_tokens" in out:
+        out["max_completion_tokens"] = out.pop("max_tokens")
+        out.pop("temperature", None)
+        changed = True
+    elif ("'max_completion_tokens'" in b or '"max_completion_tokens"' in b) \
+            and "max_completion_tokens" in out:
+        out["max_tokens"] = out.pop("max_completion_tokens")
+        changed = True
+    if "temperature" in b and "temperature" in out and (
+            "unsupported" in b or "does not support" in b
+            or "only the default" in b or "unrecognized" in b):
+        out.pop("temperature", None)
+        changed = True
+    if "reasoning_effort" in b and "reasoning_effort" in out:
+        out.pop("reasoning_effort", None)
+        changed = True
+    if "stream_options" in b and "stream_options" in out:
+        out.pop("stream_options", None)
+        changed = True
+    return out if changed else None
 
 # MONEY IS THE LIMIT THAT MEANS SOMETHING.
 #
@@ -1320,6 +1355,26 @@ def _handler(cfg: BridgeConfig, log=None):
                                 return up
                             except urllib.error.HTTPError as e2:
                                 last = e = e2
+                        if e.code in (400, 422):
+                            fixed = adapt_params(req, _error_body(e))
+                            if fixed:
+                                req.clear(); req.update(fixed)
+                                try:
+                                    up = self._open(req)
+                                    _TL.free = key in cfg.free
+                                    return up
+                                except urllib.error.HTTPError as e2:
+                                    last = e = e2
+                                    fixed2 = adapt_params(req, _error_body(e2)) \
+                                        if e2.code in (400, 422) else None
+                                    if fixed2:
+                                        req.clear(); req.update(fixed2)
+                                        try:
+                                            up = self._open(req)
+                                            _TL.free = key in cfg.free
+                                            return up
+                                        except urllib.error.HTTPError as e3:
+                                            last = e = e3
                         if e.code not in (429, 500, 502, 503, 529):
                             raise
                         # A QUOTA WALL IS NOT A RATE LIMIT — and neither is
