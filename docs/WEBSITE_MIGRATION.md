@@ -149,7 +149,7 @@ the product with screenshots of Aethron itself:
 
 | where on the page | template picture | now |
 |---|---|---|
-| the four steps (Bring, Edit, Check, Ship) | video-editing stills | `app-bring.jpg` (the home composer), `app-edit.jpg` (point and edit on a rebuilt page), `app-check.jpg` (a rebuilt page at phone width), `app-ship.jpg` (the project rail) |
+| the four steps (Bring, Edit, Check, Ship) | video-editing stills | `app-bring.jpg` (the whole Home window with a template link typed in), `app-edit.jpg` (point and edit on a rebuilt page), `app-check.jpg` (the whole window, previewing a rebuilt page at phone width), `app-ship.jpg` (the whole project window, rail included) |
 | the three create modes | footage thumbnails | `shot-in.jpg` (a screenshot going in), `page-dispatch.jpg` and `page-apps.jpg` (pages Aethron built) |
 | pricing avatar | a stock face | `aethron-icon.jpg` (the app icon) |
 | hero chip icon | the template's glyph | the Aethron mark |
@@ -167,9 +167,11 @@ How the screenshots were made, so they show a clean app:
 3. Drive it with Playwright at 1600px wide, click the real controls (the
    preview's desktop/phone switch is sticky between captures, so set it
    every time), screenshot.
-4. Crop each shot to the SAME aspect ratio as the template picture it
-   replaces. The template's frames are sized to their picture; a different
-   aspect is cropped by `object-fit` in ways nobody chose.
+4. Measure the frame the picture sits in (here 413x258, 1.6:1) and shoot
+   the WHOLE app window at that ratio (1440x900 is 1.6:1), then scale it to
+   1600x1000. temple's verdict on the first try: close crops of one panel
+   "look like a zoomed screenshot"; the whole window, small, reads as the
+   product. Only crop when the crop is the point (the Edit step).
 
 How they were swapped: an image entry's `new` set to `/assets/<file>`. The
 entry is the picture's base address, so every `?width=` variant follows.
@@ -185,6 +187,38 @@ and Aethron has no separate agent artwork.
 
 Checked after: verify CLEAN, probe CLEAN on all 3 pages, every image loads.
 
+## 6c. The timeline section, put back
+
+The first pass hid the template's Process section (the six-week Gantt
+chart). temple wanted it back. It now shows a migration minute by minute:
+the phase names were kept (Discover, Design, Build, Handover fit Aethron as
+they are), the descriptions, durations (`1 week` -> `1 min`), column labels
+(`W1` -> `1m`) and the footnote were filled, and both hide rules for it
+(`section#process` and its phone variant) were removed. The playhead
+animation is the template's own.
+
+## 6d. Page links after hydration (the bug link entries cannot fix)
+
+Link entries changed the server HTML, and the site looked right. But Framer
+re-renders every page link from its route table once the page is live: after
+hydration "Download free" was `./contact` again, "Agents" was `./services`,
+and a click opened the TEMPLATE's own pages client-side (its chunks still
+hold them). Nobody saw it, because every check read the page before anyone
+clicked.
+
+The fix is a forge option, `link_routes` in `forge.json`:
+
+```json
+"link_routes": {"services": "#product", "pricing": "#pricing",
+                "contact": "/download/", "blog": "mailto:hello@jomiez.com"}
+```
+
+Build injects a click listener that runs before Framer's router: `#id`
+scrolls to that section, anything else navigates. Checked by clicking every
+nav, menu and footer link in a browser after the page has loaded.
+
+Rule: test links by CLICKING them after hydration, not by reading hrefs.
+
 ## 7. The legal pages
 
 The template's privacy policy and terms describe a video SaaS. They were
@@ -197,16 +231,21 @@ migrate, Jomiez owns the app. Contact: hello@jomiez.com.
 
 ## 8. Hosting and the Download button
 
+The site is static. No backend is needed: forge writes plain files and
+`post_build.py` runs once at build time. It works on Render (temple's
+choice), Netlify or any file host.
+
 `netlify.toml` builds the project on Netlify from source:
 
 ```
 base    = projects/aethron-web
-command = python3 ../../forge.py build && python3 netlify_post.py
+command = python3 ../../forge.py build && python3 post_build.py
 publish = site
 ```
 
-`netlify_post.py` reads the app's update feed (`releases/mac.json` on
-Supabase) and writes `site/_redirects`:
+`post_build.py` reads the app's update feed (`releases/mac.json` on
+Supabase) and writes `site/download/index.html` (a page that forwards to the
+newest zip, works on any host) and `site/_redirects` (Netlify):
 
 - `/download` (and the old site's `/assets/downloads/Aethron-mac.zip`) ->
   302 to the newest Mac zip, so the button always gives the current release
@@ -217,6 +256,11 @@ Supabase) and writes `site/_redirects`:
   paths when a legal link is clicked; a reload there must still find the page
   and its scripts (they are referenced relative to the page).
 - everything else -> the home page.
+
+Render: `render.website.yaml` is a Blueprint for a free static site with
+the same rules (Render applies a rule only where no file exists, so the
+`/* -> /index.html` fallback never hides a real file). New -> Blueprint ->
+this repo -> Blueprint path `render.website.yaml`.
 
 ## 9. Checks run
 

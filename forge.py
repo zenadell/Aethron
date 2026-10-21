@@ -2712,6 +2712,7 @@ def cmd_build(_args):
         t = _apply(t, pairs, escaped=True, stats=stats)
         t = _localize_refs(t, cfg.get("localized", {}))
         t = _inject_runtime_map(t, cfg, pairs)
+        t = _inject_link_routes(t, cfg)
         t, n_regen = _regen_split_runs(t, pairs, stats=stats)
         if held:
             t = re.sub(r"\x00W(\d+)\x00", lambda m: held[int(m.group(1))], t)
@@ -3788,6 +3789,42 @@ def _inject_runtime_map(t: str, cfg: dict, pairs) -> str:
         return t
     tag = ('<script data-aethron-runtime-map>' + RUNTIME_MAP_JS
            % json.dumps(rmap).replace("</", "<\\/") + "</script>")
+    m = re.search(r"<head\b[^>]*>", t, re.I)
+    return (t[:m.end()] + tag + t[m.end():]) if m else tag + t
+
+
+LINK_ROUTES_JS = r"""(function(R){function k(h){return(h||'').replace(/^\.?\/+/,'')
+.replace(/\/$/,'')}function t(a){var h=a.getAttribute('data-ae-route')||a.getAttribute('href');
+if(h==null)return;var x=k(h);if(R[x]!=null){a.setAttribute('data-ae-route',x);
+return R[x]}var p=x.split('#')[0];if(p!==x&&R[p]!=null)
+return R[p]}function go(e){var a=e.target&&e.target.closest&&e.target.closest('a[href]');
+if(!a)return;var d=t(a);if(d==null)return;if(e.type!=='click'){a.setAttribute('href',d);
+return}if(e.metaKey||e.ctrlKey||e.shiftKey||e.button)return;e.preventDefault();
+e.stopImmediatePropagation();if(d.charAt(0)==='#'){var el=document.getElementById(
+d.slice(1));if(el){el.scrollIntoView({behavior:'smooth'});history.replaceState(null,
+'',d)}return}location.href=d}document.addEventListener('click',go,true);
+document.addEventListener('mouseover',go,true);document.addEventListener('focusin',
+go,true)})(%s);"""
+
+
+def _inject_link_routes(t: str, cfg: dict) -> str:
+    """cfg["link_routes"]: where a template's own page links really go.
+
+    Framer re-renders every page link from its route table after
+    hydration, so a link entry only changes the server HTML: once the page
+    is live, "Get the app" is ./contact again and Framer's router opens the
+    template's own contact page client-side (seen on the Aethron site, cut
+    to one page: every nav and footer link opened a Kaviyan page). A click
+    listener that runs before the router sends each route where it
+    belongs: "#id" scrolls to that section, anything else navigates.
+    Keys are route paths without "./" ("services", "about#careers")."""
+    routes = cfg.get("link_routes") or {}
+    if not routes:
+        return t
+    clean = {str(k).strip().lstrip("./").rstrip("/"): str(v)
+             for k, v in routes.items()}
+    tag = ('<script data-aethron-link-routes>' + LINK_ROUTES_JS
+           % json.dumps(clean).replace("</", "<\\/") + "</script>")
     m = re.search(r"<head\b[^>]*>", t, re.I)
     return (t[:m.end()] + tag + t[m.end():]) if m else tag + t
 

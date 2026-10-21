@@ -6299,6 +6299,22 @@ Unlimited); show how long a run has been going; and check why a run took
 tests/limits_battery.py 34/34 (in run_all; part E is a real studio in a
 browser). Related batteries re-run green.
 
+## A FRAMER LINK ENTRY ONLY CHANGES THE SERVER HTML — `link_routes` — 2026-10-21
+Migrating the Kaviyan template into Aethron's one-page site: every nav,
+menu, footer and Download link read right in the built HTML, and after
+hydration all of them were the template's routes again (./contact,
+./services…), so a click opened the TEMPLATE's own pages client-side from
+its chunks. Framer renders page links from its route table, not from the
+href. New forge.json option `link_routes` {"services": "#product",
+"contact": "/download/"}: build injects a capture-phase click listener that
+runs before the router ("#id" scrolls, anything else navigates; the original
+route is kept in data-ae-route so a hover that rewrites the href does not
+lose it). Proven by clicking every link after load. Full write-up:
+docs/WEBSITE_MIGRATION.md. The site is static and hosts anywhere:
+projects/aethron-web/post_build.py writes /download/index.html (forwards to
+the newest zip) and Netlify _redirects; render.website.yaml is a free Render
+static-site Blueprint.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6554,6 +6570,8 @@ browser). Related batteries re-run green.
 - A GUARD THAT SAYS NO SAYS IT ONCE AND OUT LOUD. Never refuse with a status
   the engine retries; a run's limits reset with the person's next message.
 - THE COST SHOWN IS THE PROVIDER'S PRICE. Never the engine's own estimate.
+- A LINK IS TESTED BY CLICKING IT AFTER THE PAGE HAS LOADED. Reading the
+  built href proves nothing on a runtime that re-renders links.
 - A LIMIT THE PERSON SETS IS THEIRS. 0 means Unlimited, and Unlimited is
   honoured everywhere; only the provider's own credit cannot be overridden,
   and its refusal is shown in its own words.

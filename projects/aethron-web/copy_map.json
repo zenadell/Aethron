@@ -6584,7 +6584,7 @@
   },
   {
    "old": "2 weeks",
-   "new": "",
+   "new": "2 min",
    "max_bytes": 7,
    "scope": "all",
    "where": [
@@ -6674,7 +6674,7 @@
   },
   {
    "old": "1 week",
-   "new": "",
+   "new": "1 min",
    "max_bytes": 6,
    "scope": "all",
    "where": [
@@ -6739,7 +6739,7 @@
   },
   {
    "old": "W1",
-   "new": "",
+   "new": "1m",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -6749,7 +6749,7 @@
   },
   {
    "old": "W2",
-   "new": "",
+   "new": "2m",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -6759,7 +6759,7 @@
   },
   {
    "old": "W3",
-   "new": "",
+   "new": "3m",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -6769,7 +6769,7 @@
   },
   {
    "old": "W4",
-   "new": "",
+   "new": "4m",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6778,7 +6778,7 @@
   },
   {
    "old": "W5",
-   "new": "",
+   "new": "5m",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -6788,7 +6788,7 @@
   },
   {
    "old": "W6",
-   "new": "",
+   "new": "6m",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -6808,7 +6808,7 @@
   },
   {
    "old": "A scoping call and an audit of your recent edits.",
-   "new": "",
+   "new": "Map reads every page, image, link and animation.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6817,7 +6817,7 @@
   },
   {
    "old": "Motion principles, key frames and the first blocks.",
-   "new": "",
+   "new": "Your brand, copy and images go in. The design stays.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6836,7 +6836,7 @@
   },
   {
    "old": "Blocks, templates and cuts, reviewed every Friday.",
-   "new": "",
+   "new": "Aethron builds it and Scan opens every page in a browser.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6845,7 +6845,7 @@
   },
   {
    "old": "3 weeks",
-   "new": "",
+   "new": "3 min",
    "max_bytes": 7,
    "scope": "all",
    "where": [
@@ -6865,7 +6865,7 @@
   },
   {
    "old": "Recorded walkthroughs and a workspace your team owns.",
-   "new": "",
+   "new": "Download files you own, or port them to Next.js or Astro.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6874,7 +6874,7 @@
   },
   {
    "old": "Week 6 · Handover complete",
-   "new": "",
+   "new": "Minute 6 · Your site is ready",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -6901,7 +6901,7 @@
   },
   {
    "old": "A typical six-week engagement. Brand Kit Setup and Team Onboarding run shorter.",
-   "new": "",
+   "new": "An example run on a small template. Bigger sites take longer, and every step shows live.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -8393,7 +8393,7 @@
   },
   {
    "old": "Email, a scoping call or a visit to the studio.",
-   "new": "",
+   "new": "Email us at hello@jomiez.com.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -19660,7 +19660,7 @@
   },
   {
    "old": "Every engagement runs on one timeline.",
-   "new": "",
+   "new": "Every migration runs on one timeline.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19669,7 +19669,7 @@
   },
   {
    "old": "Four phases and one shared plan. You always know what is being made this week, and what comes next.",
-   "new": "",
+   "new": "Four steps and one live checklist. You always see what the agents are doing now, and what comes next.",
    "scope": "all",
    "where": [
     "chunks"
@@ -20459,7 +20459,7 @@
   },
   {
    "old": "Four phases, week by week.",
-   "new": "",
+   "new": "Four steps, minute by minute.",
    "scope": "all",
    "where": [
     "chunks"

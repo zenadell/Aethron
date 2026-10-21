@@ -1,48 +1,56 @@
 {
-  "name": "aethron-web",
-  "platform": "framer",
-  "pages": [
-    "index.html",
-    "legal-privacy-policy.html",
-    "legal-terms-of-service.html"
-  ],
-  "routes": {
-    "": "index.html",
-    "legal/privacy-policy": "legal-privacy-policy.html",
-    "legal/terms-of-service": "legal-terms-of-service.html"
-  },
-  "own_hosts": [
-    "kaviyan.framer.website"
-  ],
-  "source_url": "https://kaviyan.framer.website/",
-  "public_base": "/assets",
-  "forbidden_words": [
-    "Kaviyan"
-  ],
-  "hide_selectors": [
-    "section#services",
-    "section#process",
-    "section[data-framer-name=\"Process \u00b7 Phone\"]",
-    "section#projects",
-    "section#gallery",
-    "section#team",
-    "section:has(#stories)",
-    "section#testimonials",
-    "section#contact",
-    "a[href=\"https://x.com/ViyakoDesigns\"]"
-  ],
-  "site_bases": [
-    "https://framerusercontent.com/sites/58eFdirA6DfbOUPquuBAdT/"
-  ],
-  "cms_module_bases": [
-    "https://framerusercontent.com/modules/60kRpw06rkabHB4xn1Vm/GkGja9dv5YepIiZMTLRH/o4xxjC8ce.js",
-    "https://framerusercontent.com/modules/9mGv6wqYFcXWY73dgt6r/QEZLdpeHJwUK0qX0VODI/dpeCBdbQq.js",
-    "https://framerusercontent.com/modules/E4YVXadEGDprXxQ2FM94/BlNi5I9qSyez6URop2E9/zM1zRQ9BN.js",
-    "https://framerusercontent.com/modules/Fal9S9nXT6mtzjCAXLKF/y5g1aBXMd1u6GZoTr9bd/RP_mpdBqx.js",
-    "https://framerusercontent.com/modules/Gf2Y0OXSBZhuy6Y0Yk8q/4BJM8wLC789vp4egI7GR/UHWqLItu8.js",
-    "https://framerusercontent.com/modules/QICC44Wjxu8GopJ5iihA/KvY0bQRLR5fq7cglCcz9/aDRf6LgMJ.js",
-    "https://framerusercontent.com/modules/V7YeUCqW9YqyejgiCRx3/9yGDxKnBwKDoy8ygKoRT/qk1JhmwIA.js",
-    "https://framerusercontent.com/modules/wLC6GsDK3rNMN0EFq56j/Wx46o8eLWCN0H5K22RIf/HL_kIOdw0.js"
-  ],
-  "icon_bases": []
+ "name": "aethron-web",
+ "platform": "framer",
+ "pages": [
+  "index.html",
+  "legal-privacy-policy.html",
+  "legal-terms-of-service.html"
+ ],
+ "routes": {
+  "": "index.html",
+  "legal/privacy-policy": "legal-privacy-policy.html",
+  "legal/terms-of-service": "legal-terms-of-service.html"
+ },
+ "own_hosts": [
+  "kaviyan.framer.website"
+ ],
+ "source_url": "https://kaviyan.framer.website/",
+ "public_base": "/assets",
+ "forbidden_words": [
+  "Kaviyan"
+ ],
+ "hide_selectors": [
+  "section#services",
+  "section#projects",
+  "section#gallery",
+  "section#team",
+  "section:has(#stories)",
+  "section#testimonials",
+  "section#contact",
+  "a[href=\"https://x.com/ViyakoDesigns\"]"
+ ],
+ "site_bases": [
+  "https://framerusercontent.com/sites/58eFdirA6DfbOUPquuBAdT/"
+ ],
+ "cms_module_bases": [
+  "https://framerusercontent.com/modules/60kRpw06rkabHB4xn1Vm/GkGja9dv5YepIiZMTLRH/o4xxjC8ce.js",
+  "https://framerusercontent.com/modules/9mGv6wqYFcXWY73dgt6r/QEZLdpeHJwUK0qX0VODI/dpeCBdbQq.js",
+  "https://framerusercontent.com/modules/E4YVXadEGDprXxQ2FM94/BlNi5I9qSyez6URop2E9/zM1zRQ9BN.js",
+  "https://framerusercontent.com/modules/Fal9S9nXT6mtzjCAXLKF/y5g1aBXMd1u6GZoTr9bd/RP_mpdBqx.js",
+  "https://framerusercontent.com/modules/Gf2Y0OXSBZhuy6Y0Yk8q/4BJM8wLC789vp4egI7GR/UHWqLItu8.js",
+  "https://framerusercontent.com/modules/QICC44Wjxu8GopJ5iihA/KvY0bQRLR5fq7cglCcz9/aDRf6LgMJ.js",
+  "https://framerusercontent.com/modules/V7YeUCqW9YqyejgiCRx3/9yGDxKnBwKDoy8ygKoRT/qk1JhmwIA.js",
+  "https://framerusercontent.com/modules/wLC6GsDK3rNMN0EFq56j/Wx46o8eLWCN0H5K22RIf/HL_kIOdw0.js"
+ ],
+ "icon_bases": [],
+ "link_routes": {
+  "services": "#product",
+  "projects": "#connected",
+  "gallery": "#timeline",
+  "pricing": "#pricing",
+  "about": "#faq",
+  "about#careers": "https://jomiez.com",
+  "contact": "/download/",
+  "blog": "mailto:hello@jomiez.com"
+ }
 }

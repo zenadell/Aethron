@@ -1,0 +1,42 @@
+# The Aethron marketing site (aethron.jomiez.com) as a Render static site.
+# No backend: forge builds plain files and post_build.py points /download at
+# the newest Mac release. Free on Render (static sites have no plan).
+#   render.com -> New -> Blueprint -> this repo -> Blueprint Path:
+#   render.website.yaml
+services:
+  - type: web
+    name: aethron-website
+    runtime: static
+    rootDir: projects/aethron-web
+    buildCommand: python3 ../../forge.py build && python3 post_build.py
+    staticPublishPath: site
+    autoDeployTrigger: commit
+    domains:
+      - aethron.jomiez.com
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=604800
+    # Rules never apply where a file exists, so the last one is a fallback.
+    routes:
+      - type: redirect
+        source: /assets/downloads/Aethron-mac.zip
+        destination: /download/
+      - type: rewrite
+        source: /download
+        destination: /download/index.html
+      - type: rewrite
+        source: /download/mac
+        destination: /download/mac/index.html
+      - type: rewrite
+        source: /legal/assets/*
+        destination: /assets/*
+      - type: rewrite
+        source: /legal/privacy-policy
+        destination: /legal-privacy-policy.html
+      - type: rewrite
+        source: /legal/terms-of-service
+        destination: /legal-terms-of-service.html
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -2,10 +2,10 @@
 # projects/aethron-web is the Kaviyan Framer template migrated with forge:
 # pristine/ is the untouched template, copy_map.json holds every change.
 # Netlify rebuilds it from source on every push and points /download at the
-# newest Mac release (netlify_post.py). forge is pure stdlib: nothing to install.
+# newest Mac release (post_build.py). forge is pure stdlib: nothing to install.
 [build]
   base = "projects/aethron-web"
-  command = "python3 ../../forge.py build && python3 netlify_post.py"
+  command = "python3 ../../forge.py build && python3 post_build.py"
   publish = "site"
 
 [build.environment]
