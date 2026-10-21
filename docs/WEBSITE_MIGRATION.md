@@ -285,3 +285,32 @@ this repo -> Blueprint path `render.website.yaml`.
    text pair.
 7. Show the product: replace pictures of the template's subject with real
    screenshots of the product, cropped to the frame's own aspect.
+
+## Round 2: every page back (2026-10-21)
+
+The first version kept only the home page and turned the nav into scroll
+anchors. That was wrong: the template has 27 pages and a migration keeps them.
+
+- `forge.json` `pages` lists all 27 pristine pages (index first); `link_routes`
+  is gone, so links go to real pages again. Only links to pages with no
+  Aethron equivalent are retargeted (careers -> about, contact -> /download,
+  the template's sample product -> projects).
+- Sections that would be fake on Aethron's site (team, testimonials, careers,
+  recognition, visit/contact forms, compare, add-ons) are hidden by `id` or
+  `data-framer-name` in `hide_selectors`, never deleted.
+- 963 lines of copy are written for Aethron. Fills equal to the template text
+  are cleared, never kept as "filled".
+- Projects show real migrations: Jomiez (NexMind), Lesmana, Gravitest
+  (Flowtive, run by another AI agent) were re-migrated with Aethron and
+  screenshotted; Cyntra, Agero and Lewius are screenshots of the templates
+  those runs started from. Category words are single tokens and apply
+  site-wide (Beauty -> Framer, Footwear -> Folio, Apparel -> Webflow,
+  Food & Beverage -> Agent run), so pick labels that are right for every
+  card using that category.
+- The footer wordmark was clipped by its wrapper's fixed 180px height. Fixed
+  with `styles`: `height:auto; overflow:visible` on Wordmark Wrap, Tray and
+  footer.
+- Hosts: `post_build.py` writes one rewrite per route (`/services/x` ->
+  `services-x.html`), an assets rewrite per nested segment, and the download
+  302s, into `_redirects`; `render.website.yaml` carries the same rules.
+  Without them a reload on a nested route lands on the home page.
