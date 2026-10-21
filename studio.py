@@ -17578,6 +17578,10 @@ function humanErr(raw){
        +'Start a fresh session and choose Semi-manual or Automatic in the permission menu.';
   else if(has('getaddrinfo')||has('connection')||has('network')||has('dns'))
     msg='Could not reach the provider. Aethron did not ask, so nothing was changed.';
+  else if(/prompt is too long|maximum context length|exceeds the maximum number of tokens/i.test(t))
+    msg='This conversation grew larger than the model can read at once. Send '
+       +'"continue" and Aethron trims the oldest parts and carries on, or '
+       +'start a new conversation for a fresh run.';
   else if(/aethron session limit/i.test(t))
     msg=t.replace(/^.*?(Aethron session limit)/i,'$1');
   else if(/aethron spend guard/i.test(t))

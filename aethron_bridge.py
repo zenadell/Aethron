@@ -1009,7 +1009,9 @@ class AnthropicStream:
             "type": "message_delta",
             "delta": {"stop_reason": stop_reason or self.stop,
                       "stop_sequence": None},
-            "usage": {"output_tokens": self.usage.get("output_tokens", 0)}})
+            "usage": {k: v for k, v in self.usage.items()
+                      if k in ("input_tokens", "output_tokens",
+                               "cache_read_input_tokens")}})
         self._ev("message_stop", {"type": "message_stop"})
 
 
@@ -1156,6 +1158,42 @@ def _handler(cfg: BridgeConfig, log=None):
             # so upstream failures reach the user instead of "unknown".
             self._say(code, {"type": "error",
                              "error": {"type": "api_error", "message": msg}})
+
+        def _open_fit(self, req):
+            """Ask; and when the conversation is too big for the model, ask
+            once more with its oldest long parts cut down to fit."""
+            try:
+                return self._open_rotating(req)
+            except urllib.error.HTTPError as e:
+                over = too_long(_error_body(e), req) \
+                    if e.code in (400, 413) else None
+                small = trim_to_fit(req, *over) if over else None
+                if not small:
+                    raise
+                _status("trimming", "The conversation is too big for the "
+                                    "model; cutting its oldest long parts "
+                                    "down and asking again.")
+                req.clear(); req.update(small)
+                return self._open_rotating(req)
+
+        def _upstream_fail(self, e, req):
+            over = too_long(_error_body(e), req) if e.code in (400, 413) \
+                else None
+            if over:
+                # A CONVERSATION TOO BIG FOR THE MODEL IS TRIMMED, NOT
+                # RETRIED. Each provider words it its own way ("maximum
+                # context length is…", "input token count … exceeds…"); the
+                # engine compacts and carries on only on its own wording,
+                # and otherwise stopped the turn. The screen then
+                # reconnected the same oversized conversation to the same
+                # refusal.
+                _status("trimming", "The conversation is too big for the "
+                                    "model; trimming it and carrying on.")
+                return self._say(400, {"type": "error", "error": {
+                    "type": "invalid_request_error", "message":
+                    f"prompt is too long: {over[0]} tokens > "
+                    f"{over[1]} maximum"}})
+            return self._error(e.code, _upstream_error(e))
 
         @property
         def route(self):
@@ -1333,14 +1371,14 @@ def _handler(cfg: BridgeConfig, log=None):
 
         def _once(self, req):
             try:
-                with self._open_rotating(req) as r:
+                with self._open_fit(req) as r:
                     _status("answering", "The model is working on its answer.")
                     data = json.loads(r.read())
             except urllib.error.HTTPError as e:
                 _retry_not_repeat()
                 if e.code in RETRIED_CODES:
                     _failed()
-                return self._error(e.code, _upstream_error(e))
+                return self._upstream_fail(e, req)
             except NoKeysLeft as e:
                 _retry_not_repeat()
                 return self._error(429, f"upstream 429: {e}")
@@ -1354,12 +1392,12 @@ def _handler(cfg: BridgeConfig, log=None):
 
         def _stream(self, req, original):
             try:
-                up = self._open_rotating(req)
+                up = self._open_fit(req)
             except urllib.error.HTTPError as e:
                 _retry_not_repeat()
                 if e.code in RETRIED_CODES:
                     _failed()
-                return self._error(e.code, _upstream_error(e))
+                return self._upstream_fail(e, req)
             except NoKeysLeft as e:
                 _retry_not_repeat()
                 return self._error(429, f"upstream 429: {e}")
@@ -1639,6 +1677,94 @@ def _is_quota_wall(e) -> bool:
     """
     body = _error_body(e)
     return bool(QUOTA_WALL_RE.search(body)) and "PerMinute" not in body
+
+
+# How providers word "the conversation is longer than this model takes".
+TOO_LONG_RES = (
+    # DeepSeek, OpenAI and most OpenAI-compatible servers
+    (re.compile(r"(?is)maximum context length is (\d+) tokens.*?"
+                r"(?:requested|resulted in|have) (\d+)"), "limit_first"),
+    # Gemini
+    (re.compile(r"(?is)input token count \(?(\d+)\)? exceeds the maximum"
+                r"[^0-9]*(\d+)"), "actual_first"),
+)
+TOO_LONG_WORDS = re.compile(
+    r"(?i)context_length_exceeded|context length|context window|"
+    r"too many tokens|prompt is too long|input is too long")
+
+
+def too_long(body: str, req: dict = None):
+    """(tokens asked, tokens allowed) when a refusal says the conversation
+    is too big for the model, else None."""
+    b = body or ""
+    for rx, order in TOO_LONG_RES:
+        m = rx.search(b)
+        if m:
+            a, c = int(m.group(1)), int(m.group(2))
+            return (c, a) if order == "limit_first" else (a, c)
+    if TOO_LONG_WORDS.search(b):
+        n = len(json.dumps(req or {})) // 4 + 1
+        return (n, max(1, int(n * 0.9)))
+    return None
+
+
+TRIM_KEEP_LAST = 6       # the latest messages are cut only as a last resort
+TRIM_MIN = 1500          # a part shorter than this is left whole
+TRIM_HEAD = 600          # what a cut part keeps of its start
+
+
+def trim_to_fit(req: dict, asked: int, allowed: int):
+    """The same request with its oldest long parts cut down until it fits
+    the model, or None when it cannot be made to fit.
+
+    Only CONTENT is shortened — no message is dropped — so every tool call
+    still has its result and the provider accepts the order. The newest
+    messages are left whole: they are what the model is working on."""
+    msgs = [dict(m) for m in req.get("messages") or []]
+    # the whole request counts (tool definitions are tokens too), so the
+    # rate is measured on all of it and only the messages are shortened
+    fixed = len(json.dumps(dict(req, messages=[])))
+    size = fixed + len(json.dumps(msgs))
+    if not msgs or asked <= 0:
+        return None
+    per_char = asked / max(1, size)
+    reserve = int(req.get("max_tokens") or req.get("max_completion_tokens")
+                  or 0)
+    target = int((allowed - reserve) * 0.8 / per_char)
+    if target <= 0:
+        return None
+
+    def cut(text: str) -> str:
+        return (text[:TRIM_HEAD] + f"\n[… {len(text) - TRIM_HEAD} characters"
+                f" of earlier content cut by Aethron to fit the model]")
+
+    # oldest first; only when that is not enough, newer parts too — but
+    # never the last two, the request the model is answering
+    order = list(range(max(0, len(msgs) - TRIM_KEEP_LAST)))
+    order += [i for i in range(max(0, len(msgs) - 2)) if i not in order]
+    for i in order:
+        if size <= target:
+            break
+        m = msgs[i]
+        if m.get("role") == "system":
+            continue
+        c = m.get("content")
+        if isinstance(c, str) and len(c) > TRIM_MIN:
+            m["content"] = cut(c)
+        elif isinstance(c, list):
+            parts = []
+            for x in c:
+                if x.get("type") == "text" and len(x.get("text", "")) > TRIM_MIN:
+                    x = dict(x, text=cut(x["text"]))
+                elif x.get("type") == "image_url":
+                    x = {"type": "text", "text": "[an earlier picture, cut "
+                                                 "by Aethron to fit the model]"}
+                parts.append(x)
+            m["content"] = parts
+        size = fixed + len(json.dumps(msgs))
+    if size > target:
+        return None
+    return dict(req, messages=msgs)
 
 
 def _upstream_error(e) -> str:
