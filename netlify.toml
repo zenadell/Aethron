@@ -1,12 +1,17 @@
-# Git-based auto-deploy for the Aethron marketing site.
-# Once the Netlify site is linked to this repo, every push to the default
-# branch rebuilds the site from source (forge build) and deploys it — no
-# more manual drag-and-drop. forge is pure stdlib, so there's nothing to
-# pip-install; Netlify's image already has Python.
+# The Aethron marketing site (aethron.jomiez.com).
+# projects/aethron-web is the Kaviyan Framer template migrated with forge:
+# pristine/ is the untouched template, copy_map.json holds every change.
+# Netlify rebuilds it from source on every push and points /download at the
+# newest Mac release (post_build.py). forge is pure stdlib: nothing to install.
 [build]
-  base = "projects/aethron-site"     # run the build from the project dir
-  command = "python3 ../../forge.py build"
-  publish = "site"                   # forge writes the deployable site/ here
+  base = "projects/aethron-web"
+  command = "python3 ../../forge.py build && python3 post_build.py"
+  publish = "site"
 
 [build.environment]
   PYTHON_VERSION = "3.11"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"

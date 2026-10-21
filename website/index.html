@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aethron</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Aethron is a Mac app with five AI agents that migrate templates, turn screenshots into code, check every page, fix what breaks and port your site to any framework.">
+<meta property="og:title" content="Aethron: own any website with AI agents">
+<meta property="og:description" content="Five AI agents that migrate, rebuild, check, fix and port websites, on your Mac, with any AI model.">
+<meta property="og:image" content="https://aethron.jomiez.com/assets/og.jpg">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#fafafa">
+<link rel="icon" href="assets/icon.png">
+<link rel="preload" href="assets/fonts/switzer-500.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/agents/forge.webp" as="image">
+<style>
+/* Layout: centred 1200px column; one sticky "story" stage where five agents travel
+   from the hero row, into a sentence, into a dark dock; quiet card sections after. */
+@font-face{font-family:"Switzer";src:url(assets/fonts/switzer-400.woff2) format("woff2");font-weight:400;font-display:swap}
+@font-face{font-family:"Switzer";src:url(assets/fonts/switzer-500.woff2) format("woff2");font-weight:500;font-display:swap}
+@font-face{font-family:"Switzer";src:url(assets/fonts/switzer-600.woff2) format("woff2");font-weight:600;font-display:swap}
+:root{
+  --bg:#fafafa; --ink:#0e0e10; --ink-2:#3a3a40; --muted:#707077; --line:#ececee;
+  --card:#ffffff; --well:#f3f3f4; --night:#111113; --night-2:#1c1c1f;
+  --go:#34d63f; --go-ink:#0b3d10;
+  --sans:"Switzer","Inter Tight","Helvetica Neue",Arial,system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --r:22px; --wrap:1200px;
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+img{max-width:100%;display:block}
+a{color:inherit}
+h1,h2,h3{margin:0;font-weight:500;letter-spacing:-.035em;text-wrap:balance}
+p{margin:0}
+.wrap{max-width:var(--wrap);margin:0 auto}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:8px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--ink);color:#fff;padding:8px 12px;border-radius:8px;z-index:100}
+.skip:focus{left:16px}
+
+/* ---------- buttons ---------- */
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 16px;border-radius:10px;
+  font:500 15px/1 var(--sans);text-decoration:none;border:0;cursor:pointer;white-space:nowrap;
+  transition:transform .2s cubic-bezier(.3,1.6,.5,1),background .2s}
+.btn:active{transform:scale(.97)}
+.btn-dark{background:var(--ink);color:#fff}
+.btn-dark:hover{background:#2a2a2e}
+.btn-light{background:#fff;color:var(--ink);box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.04)}
+.btn-light:hover{background:var(--well)}
+.btn svg{width:16px;height:16px}
+.chip{display:inline-flex;align-items:center;gap:8px;font:500 12px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
+.chip i{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--ink);color:#fff}
+.chip i svg{width:14px;height:14px}
+
+/* ---------- nav ---------- */
+.nav{position:fixed;inset:0 0 auto;z-index:50;padding:16px max(16px,env(safe-area-inset-left,0px)) 0;
+  padding-top:calc(16px + env(safe-area-inset-top,0px));pointer-events:none}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;max-width:1360px}
+.nav > .wrap > *{pointer-events:auto}
+.logo{display:flex;align-items:center;gap:8px;text-decoration:none;font:600 21px/1 var(--sans);letter-spacing:-.04em}
+.logo img{width:24px;height:24px}
+.menu{position:relative}
+.menu-btn{display:flex;align-items:center;gap:10px;height:48px;padding:0 6px 0 16px;border-radius:14px;
+  background:var(--night);color:#fff;border:0;font:500 15px/1 var(--sans);cursor:pointer}
+.menu-btn svg{width:16px;height:16px}
+.menu-btn b{display:grid;place-items:center;min-width:44px;height:36px;padding:0 8px;border-radius:10px;
+  background:#2a2a2e;font:500 12px/1 var(--mono);font-variant-numeric:tabular-nums;font-weight:500}
+.menu-list{position:absolute;top:56px;left:50%;transform:translateX(-50%) translateY(-6px) scale(.98);
+  min-width:240px;padding:8px;background:var(--night);border-radius:16px;opacity:0;visibility:hidden;
+  transition:opacity .2s,transform .25s cubic-bezier(.3,1.4,.5,1),visibility .2s;
+  box-shadow:0 20px 40px -12px rgba(0,0,0,.35)}
+.menu.open .menu-list{opacity:1;visibility:visible;transform:translateX(-50%) translateY(0) scale(1)}
+.menu-list a{display:flex;justify-content:space-between;padding:11px 12px;border-radius:10px;color:#e8e8ea;text-decoration:none;font-size:15px}
+.menu-list a:hover,.menu-list a:focus-visible{background:#232326;color:#fff}
+.menu-list a span{color:#77777e;font:400 12px/1.6 var(--mono)}
+.nav .btn{height:36px;padding:0 14px;font-size:14px;border-radius:9px}
+
+/* ---------- story (hero → sentence → dock) ---------- */
+.story{position:relative}
+.stage{position:relative}
+.scene{padding-block:120px 40px;text-align:center}
+.hero{padding-top:calc(150px + env(safe-area-inset-top,0px))}
+.hero h1{font-size:clamp(46px,9.2vw,124px);line-height:.92;letter-spacing:-.05em}
+.hero h1 .line{display:block}
+.hero .tile{display:inline-grid;place-items:center;width:.86em;height:.86em;border-radius:.2em;background:var(--ink);
+  vertical-align:-.1em;margin:0 .06em;transform:rotate(-6deg);box-shadow:0 .14em .3em -.08em rgba(0,0,0,.45),inset 0 -.04em 0 rgba(255,255,255,.12)}
+.hero .tile img{width:58%;height:58%;filter:invert(1)}
+.hero p{max-width:440px;margin:28px auto 0;color:var(--muted);font-size:17px;line-height:1.45}
+.hero .cta{display:flex;gap:10px;justify-content:center;margin-top:28px;flex-wrap:wrap}
+.row{display:flex;justify-content:center;gap:0;margin:56px auto 0;max-width:1320px}
+.row .slot{width:clamp(64px,19vw,270px);aspect-ratio:1;margin:0 -1.2%}
+.slot img{width:100%;height:100%}
+
+.sentence{display:grid;place-items:center;min-height:70vh}
+.sentence p{max-width:880px;font-size:clamp(26px,4.4vw,58px);line-height:1.2;letter-spacing:-.035em;font-weight:500}
+.sentence .slot{display:inline-block;width:1.05em;height:1.05em;vertical-align:-.18em;margin:0 .08em}
+.sentence .dim{color:#c3c3c8;transition:color .3s}
+
+.dock-scene{padding-block:40px 80px}
+.dock{max-width:1080px;margin:0 auto;border-radius:28px;background:var(--go);padding-bottom:48px;position:relative;
+  box-shadow:0 30px 60px -30px rgba(20,120,30,.45)}
+.dock-in{background:var(--night);border-radius:28px;padding:16px 16px 28px;position:relative}
+.dock-top{display:flex;align-items:center;justify-content:space-between;color:#d8d8dc;font-size:13px}
+.dock-top span{display:flex;align-items:center;gap:10px}
+.dock-top i{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--night-2)}
+.dock-top i svg{width:14px;height:14px}
+.dock-top em{font-style:normal;display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:99px;background:var(--night-2);font-size:12px}
+.dock-top em::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--go);box-shadow:0 0 8px var(--go)}
+.dock-row{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:12px}
+.dock-row .slot{aspect-ratio:1;position:relative;border-radius:18px;cursor:default}
+.dock-row .slot:hover,.dock-row .slot:focus-visible{background:rgba(255,255,255,.04)}
+.tip{position:absolute;left:50%;bottom:calc(100% - 4px);transform:translate(-50%,6px);background:#fff;color:var(--ink);
+  padding:10px 12px;border-radius:12px;width:max-content;max-width:210px;text-align:left;font-size:13px;line-height:1.35;
+  opacity:0;pointer-events:none;transition:opacity .18s,transform .25s cubic-bezier(.3,1.5,.5,1);box-shadow:0 10px 30px -8px rgba(0,0,0,.4);z-index:5}
+.tip b{display:block;font-weight:600;font-size:14px}
+.slot:hover .tip,.slot:focus-visible .tip{opacity:1;transform:translate(-50%,0)}
+.dock-foot{position:absolute;left:0;right:0;bottom:0;height:48px;display:flex;align-items:center;justify-content:center;gap:8px;
+  color:var(--go-ink);font-weight:500;font-size:15px}
+.dock-foot svg{width:16px;height:16px}
+
+/* flying layer: only when JS turns the story live */
+.fly{display:none}
+.story.live{height:var(--story-h,360vh)}
+.story.live .stage{position:sticky;top:0;height:100vh;height:100svh;overflow:hidden}
+.story.live .scene{position:absolute;inset:0;padding:0;display:flex;flex-direction:column;justify-content:center}
+.story.live .hero{justify-content:flex-start;padding-top:calc(130px + env(safe-area-inset-top,0px))}
+.story.live .hero .row{position:absolute;left:0;right:0;bottom:-3vh;margin:0 auto}
+.story.live .slot img{visibility:hidden}
+.story.live .fly{display:block;position:absolute;inset:0;pointer-events:none;z-index:4}
+.fly img{position:absolute;left:0;top:0;width:200px;height:200px;transform-origin:50% 50%;will-change:transform;
+  filter:drop-shadow(0 14px 18px rgba(0,0,0,.18))}
+
+/* ---------- sections ---------- */
+section.blk{padding-block:120px 0}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:32px;flex-wrap:wrap;margin-bottom:40px}
+.head h2{font-size:clamp(32px,4vw,48px);line-height:1.04;max-width:640px;margin-top:18px}
+.head p{max-width:360px;color:var(--muted);font-size:15px}
+.center{text-align:center}
+.center .head{flex-direction:column;align-items:center}
+.center .head p{max-width:520px}
+
+.marquee{padding-block:72px 0;text-align:center;color:var(--muted);font-size:13px}
+.logos{display:flex;gap:56px;justify-content:center;flex-wrap:wrap;margin-top:24px;color:#9a9aa1;
+  font:500 20px/1 var(--sans);letter-spacing:-.02em}
+.logos span{display:flex;align-items:center;gap:8px}
+.logos svg{width:18px;height:18px}
+
+.shell{background:var(--card);border-radius:28px;padding:8px;box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.03)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:var(--card);border-radius:20px;padding:22px 24px 26px;box-shadow:0 0 0 1px var(--line)}
+.stat small{display:flex;align-items:center;gap:8px;font:500 11px/1 var(--sans);letter-spacing:.06em;text-transform:uppercase}
+.stat small i{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--ink);color:#fff}
+.stat small i svg{width:13px;height:13px}
+.stat strong{display:block;font-weight:500;font-size:clamp(44px,5vw,64px);letter-spacing:-.05em;margin-top:44px;line-height:1;font-variant-numeric:tabular-nums}
+.stat p{color:var(--muted);font-size:14px;margin-top:10px}
+.bar{height:3px;border-radius:3px;background:var(--well);margin-top:20px;overflow:hidden}
+.bar::before{content:"";display:block;height:100%;width:var(--w,40%);background:var(--go);border-radius:3px}
+
+.steps{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.step{border-radius:20px;padding:24px 24px 0;overflow:hidden;display:flex;flex-direction:column}
+.step h3{font-size:20px;letter-spacing:-.02em}
+.step p{color:var(--ink-2);font-size:14px;margin-top:6px;max-width:380px}
+.step figure{margin:28px auto 0;width:78%;height:230px;flex:none;border-radius:16px 16px 0 0;overflow:hidden;
+  box-shadow:0 0 0 6px rgba(255,255,255,.55);min-height:200px}
+.step figure img{width:100%;height:100%;object-fit:cover}
+.s1{background:linear-gradient(160deg,#efeafc,#f7f4ff)}
+.s2{background:linear-gradient(160deg,#fde8dc,#fff3ec)}
+.s3{background:linear-gradient(160deg,#e3f6e5,#f2fbf3)}
+.s4{background:linear-gradient(160deg,#e0ecfb,#f1f6ff)}
+
+.ways{display:grid;grid-template-columns:1fr 1fr 1.6fr;gap:8px}
+.way{background:var(--card);border-radius:20px;box-shadow:0 0 0 1px var(--line);padding:20px;min-height:330px;display:flex;flex-direction:column}
+.way-top{display:flex;justify-content:space-between;color:#a6a6ad;font:500 12px/1 var(--mono)}
+.way-top i{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;background:var(--ink);color:#fff}
+.way-top i svg{width:15px;height:15px}
+.way .demo{flex:1;display:grid;place-items:center;padding:20px 0}
+.way h3{font-size:24px;letter-spacing:-.03em}
+.way p{color:var(--muted);font-size:14px;margin-top:4px}
+.urlbar{width:100%;max-width:240px;background:var(--well);border-radius:12px;padding:10px 12px;font:400 12px/1.3 var(--mono);color:var(--ink-2);
+  box-shadow:inset 0 0 0 1px var(--line);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.urlbar b{color:var(--ink);font-weight:500}
+.polaroid{width:132px;height:100px;border-radius:10px;background:#fff;padding:6px;box-shadow:0 12px 24px -8px rgba(0,0,0,.25);transform:rotate(-5deg)}
+.polaroid span{display:block;width:100%;height:100%;border-radius:6px;background:linear-gradient(135deg,#ffb38a,#ff5f6d 50%,#1b1b25)}
+.prompt{width:100%;max-width:400px;background:var(--night);color:#e7e7ea;border-radius:14px;padding:14px 16px;font-size:14px;line-height:1.45;box-shadow:0 18px 30px -14px rgba(0,0,0,.4)}
+.prompt small{display:flex;justify-content:space-between;color:#88888f;font-size:12px;margin-top:12px}
+.prompt small b{color:var(--go);font-weight:500}
+
+.product{position:relative;border-radius:28px;overflow:hidden;background:linear-gradient(180deg,#f1f1f3,#fafafa)}
+.product .glowL,.product .glowR{position:absolute;width:420px;height:420px;border-radius:50%;filter:blur(70px);opacity:.55;top:30%}
+.product .glowL{left:-120px;background:#bff3c4}
+.product .glowR{right:-120px;background:#ffd2b5}
+.window{position:relative;max-width:980px;margin:0 auto;border-radius:16px;overflow:hidden;
+  box-shadow:0 0 0 1px rgba(0,0,0,.08),0 40px 80px -30px rgba(0,0,0,.45)}
+.window img{width:100%;height:auto;aspect-ratio:1600/1000}
+.feats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:820px;margin:28px auto 0;position:relative}
+.feat{background:var(--card);border-radius:16px;padding:18px;text-align:center;box-shadow:0 0 0 1px var(--line);font-size:14px;color:var(--ink-2)}
+.feat i{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--ink);color:#fff;margin:0 auto 10px}
+.feat i svg{width:14px;height:14px}
+
+.agents{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.agent{background:var(--card);border-radius:20px;padding:22px 22px 24px;box-shadow:0 0 0 1px var(--line);display:flex;flex-direction:column;min-height:220px;
+  transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
+.agent:hover{transform:translateY(-3px)}
+.agent .face{width:58px;height:58px;margin:-8px 0 0 -8px}
+.agent .face.ico{display:grid;place-items:center;width:40px;height:40px;margin:0;border-radius:11px;background:var(--ink);color:#fff}
+.agent .face.ico svg{width:18px;height:18px}
+.agent h3{font-size:28px;letter-spacing:-.035em;margin-top:auto;padding-top:28px}
+.agent p{color:var(--muted);font-size:14px;margin-top:4px}
+
+.beta{display:grid;grid-template-columns:1.1fr 1fr;gap:8px}
+.plan{background:var(--card);border-radius:20px;box-shadow:0 0 0 1px var(--line);padding:26px}
+.plan h3{font-size:22px;letter-spacing:-.02em}
+.plan .price{font-size:56px;letter-spacing:-.05em;font-weight:500;margin-top:14px;line-height:1}
+.plan .price small{font-size:15px;color:var(--muted);letter-spacing:0;margin-left:6px}
+.plan ul{list-style:none;padding:0;margin:22px 0 0;display:grid;gap:10px;font-size:14px;color:var(--ink-2)}
+.plan li{display:flex;gap:10px;align-items:flex-start}
+.plan li svg{flex:none;width:16px;height:16px;margin-top:2px;color:var(--go)}
+.plan .btn{margin-top:26px;width:100%;justify-content:center}
+.plan.green{background:linear-gradient(140deg,#e9fbe9,#b5f0b7 70%,#7fe381);box-shadow:none;display:flex;flex-direction:column}
+.plan.green p{color:#1f4d22;font-size:15px;margin-top:10px;max-width:380px}
+.plan.green .agents-mini{display:flex;margin-top:auto;padding-top:26px}
+.plan.green .agents-mini img{width:64px;height:64px;margin-right:-14px;filter:drop-shadow(0 6px 8px rgba(0,0,0,.15))}
+.plan.green .who{font-size:13px;color:#1f4d22;margin-top:12px}
+
+.faq{max-width:640px;margin:0 auto;display:grid;gap:8px}
+.faq details{background:var(--card);border-radius:16px;box-shadow:0 0 0 1px var(--line);padding:0 20px}
+.faq summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:16px;padding:18px 0;font-weight:500;font-size:16px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary i{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--well);transition:transform .3s}
+.faq summary i svg{width:12px;height:12px}
+.faq details[open] summary i{transform:rotate(45deg)}
+.faq details p{padding:0 0 20px;color:var(--muted);font-size:15px;max-width:540px}
+
+.final{margin-top:140px;border-radius:32px;padding:110px 24px 90px;text-align:center;color:#fff;position:relative;overflow:hidden;
+  background:linear-gradient(180deg,#72b8ff 0%,#8f8bf5 45%,#a06df0 100%)}
+.final h2{font-size:clamp(40px,7vw,96px);line-height:.95;letter-spacing:-.05em;position:relative}
+.final p{max-width:420px;margin:24px auto 0;color:rgba(255,255,255,.82);font-size:17px;position:relative}
+.final .cta{display:flex;gap:10px;justify-content:center;margin-top:28px;flex-wrap:wrap;position:relative}
+.final .parade{display:flex;justify-content:center;margin:46px auto 0;position:relative}
+.final .parade img{width:clamp(56px,11vw,120px);margin:0 -10px;animation:bob 4s ease-in-out infinite;filter:drop-shadow(0 16px 18px rgba(40,0,90,.35))}
+.final .parade img:nth-child(2){animation-delay:-.8s}.final .parade img:nth-child(3){animation-delay:-1.6s}
+.final .parade img:nth-child(4){animation-delay:-2.4s}.final .parade img:nth-child(5){animation-delay:-3.2s}
+.final .note{font-size:13px;margin-top:14px;color:rgba(255,255,255,.75)}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-10px) rotate(2deg)}}
+
+footer{margin:8px 0 16px;border-radius:32px;background:#ececee;overflow:hidden}
+.foot{background:var(--card);border-radius:28px;margin:8px;padding:40px 40px 28px}
+.foot-grid{display:grid;grid-template-columns:1.6fr repeat(3,1fr);gap:32px}
+.foot-grid p{color:var(--muted);font-size:14px;max-width:280px;margin-top:14px}
+.foot-grid h4{margin:0 0 12px;font:500 13px/1 var(--sans);color:#a0a0a7}
+.foot-grid a{display:block;text-decoration:none;font-size:14px;padding:4px 0;color:var(--ink-2)}
+.foot-grid a:hover{color:var(--ink)}
+.foot-grid a.logo{display:flex;font-size:21px;color:var(--ink)}
+.foot-bot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:44px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+.wordmark{font-weight:600;letter-spacing:-.07em;font-size:clamp(90px,24vw,330px);line-height:.72;color:#dedee2;text-align:center;
+  margin:20px 0 -.06em;user-select:none}
+
+/* ---------- small screens ---------- */
+@media (max-width:900px){
+  .ways{grid-template-columns:1fr 1fr}.ways .way:last-child{grid-column:1/-1}
+  .agents{grid-template-columns:1fr 1fr}
+  .foot-grid{grid-template-columns:1fr 1fr}
+  .beta{grid-template-columns:1fr}
+}
+@media (max-width:640px){
+  .nav .menu-btn{height:42px;padding-left:12px}.menu-btn .lbl{display:none}
+  .logo span{display:none}
+  .stats,.steps,.ways,.agents,.feats{grid-template-columns:1fr}
+  .story.live .hero .row{position:static;margin-top:44px}
+  .step figure{height:200px}
+  section.blk{padding-block:88px 0}
+  .dock-row{gap:2px}
+  .dock{padding-bottom:44px}
+  .dock-top b{display:none}
+  .foot{padding:28px 22px 22px}
+  .final{padding:80px 20px 64px;margin-top:100px}
+  .tip{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .final .parade img{animation:none}
+  *{transition-duration:.01ms !important}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="#top" aria-label="Aethron home"><img src="assets/mark.png" alt="" width="24" height="24"><span>Aethron</span></a>
+    <nav class="menu" id="menu" aria-label="Sections">
+      <button class="menu-btn" id="menuBtn" aria-expanded="false" aria-controls="menuList">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 4.5h12M2 8h12M2 11.5h12"/></svg>
+        <span class="lbl">Menu</span><b id="pct" aria-label="Page progress">0%</b>
+      </button>
+      <div class="menu-list" id="menuList">
+        <a href="#agents">The agents <span>05</span></a>
+        <a href="#how">How it works <span>04</span></a>
+        <a href="#ways">Three ways in <span>03</span></a>
+        <a href="#pricing">Pricing <span>beta</span></a>
+        <a href="#faq">Questions <span>06</span></a>
+      </div>
+    </nav>
+    <a class="btn btn-dark dl" href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.39-mac.zip">Download</a>
+  </div>
+</header>
+
+<main id="main">
+<div class="story" id="story">
+  <div class="stage" id="stage">
+
+    <div class="scene hero" id="top">
+      <h1><span class="line">Own Any Website</span><span class="line">With <span class="tile" aria-hidden="true"><img src="assets/mark.png" alt=""></span> AI Agents.</span></h1>
+      <p>Five AI agents that migrate templates, turn screenshots into code, check every page and fix what breaks. On your Mac, with the AI model you already pay for.</p>
+      <div class="cta">
+        <a class="btn btn-dark dl" href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.39-mac.zip"><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M11.2 8.5c0-1.6 1.3-2.4 1.4-2.4-.8-1.1-2-1.3-2.4-1.3-1-.1-2 .6-2.5.6s-1.3-.6-2.2-.6C4.4 4.8 3.3 5.5 2.7 6.6c-1.2 2.1-.3 5.2.9 6.9.6.8 1.2 1.7 2.1 1.7.8 0 1.2-.5 2.2-.5s1.3.5 2.2.5c.9 0 1.5-.9 2-1.7.6-.9.9-1.8.9-1.9 0 0-1.8-.7-1.8-3.1zM9.6 3.6c.4-.6.8-1.3.7-2.1-.7 0-1.5.5-2 1-.4.5-.8 1.3-.7 2 .8.1 1.5-.4 2-.9z"/></svg>Download for Mac</a>
+        <a class="btn btn-light" href="#agents">Meet the agents</a>
+      </div>
+      <div class="row" aria-hidden="true">
+        <div class="slot" data-a="0"><img src="assets/agents/forge.webp" alt="" width="270" height="270"></div>
+        <div class="slot" data-a="1"><img src="assets/agents/lens.webp" alt="" width="270" height="270"></div>
+        <div class="slot" data-a="2"><img src="assets/agents/probe.webp" alt="" width="270" height="270"></div>
+        <div class="slot" data-a="3"><img src="assets/agents/mend.webp" alt="" width="270" height="270"></div>
+        <div class="slot" data-a="4"><img src="assets/agents/port.webp" alt="" width="270" height="270"></div>
+      </div>
+    </div>
+
+    <div class="scene sentence" id="sentence">
+      <p>Aethron <span class="slot" data-a="0"><img src="assets/agents/forge.webp" alt="Forge"></span> migrates your template, <span class="slot" data-a="1"><img src="assets/agents/lens.webp" alt="Lens"></span> <span class="dim" data-d="1">turns screenshots into code,</span> <span class="slot" data-a="2"><img src="assets/agents/probe.webp" alt="Probe"></span> <span class="dim" data-d="2">checks every page,</span> <span class="slot" data-a="3"><img src="assets/agents/mend.webp" alt="Mend"></span> <span class="dim" data-d="3">fixes what breaks</span> <span class="slot" data-a="4"><img src="assets/agents/port.webp" alt="Port"></span> <span class="dim" data-d="4">and ships it in any framework.</span></p>
+    </div>
+
+    <div class="scene dock-scene" id="dockScene">
+      <div class="dock">
+        <div class="dock-in">
+          <div class="dock-top">
+            <span><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.8l1.8 3.9 4.2.5-3.1 2.9.8 4.2L8 11.2l-3.7 2.1.8-4.2L2 6.2l4.2-.5z"/></svg></i><b>Hover the agents to see who they are.</b></span>
+            <em>5 agents</em>
+          </div>
+          <div class="dock-row">
+            <div class="slot" data-a="0" tabindex="0"><img src="assets/agents/forge.webp" alt="Forge"><span class="tip"><b>Forge</b>Takes a Framer, Webflow or live site and makes it yours.</span></div>
+            <div class="slot" data-a="1" tabindex="0"><img src="assets/agents/lens.webp" alt="Lens"><span class="tip"><b>Lens</b>Turns a screenshot into a real, responsive page.</span></div>
+            <div class="slot" data-a="2" tabindex="0"><img src="assets/agents/probe.webp" alt="Probe"><span class="tip"><b>Probe</b>Opens every page in a real browser before you ship.</span></div>
+            <div class="slot" data-a="3" tabindex="0"><img src="assets/agents/mend.webp" alt="Mend"><span class="tip"><b>Mend</b>Finds edits that did not land and fixes them.</span></div>
+            <div class="slot" data-a="4" tabindex="0"><img src="assets/agents/port.webp" alt="Port"><span class="tip"><b>Port</b>Hands you a Next, Astro, React, Vue or Svelte project.</span></div>
+          </div>
+        </div>
+        <div class="dock-foot"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z"/></svg>All 5 agents are online and ready to build.</div>
+      </div>
+    </div>
+
+    <div class="fly" id="fly" aria-hidden="true">
+      <img src="assets/agents/forge.webp" alt=""><img src="assets/agents/lens.webp" alt=""><img src="assets/agents/probe.webp" alt=""><img src="assets/agents/mend.webp" alt=""><img src="assets/agents/port.webp" alt="">
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="marquee">
+    Works with the tools designers already use
+    <div class="logos">
+      <span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 1h10v5H8zM3 6h5l5 5H8v4l-5-5z"/></svg>Framer</span>
+      <span><svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M15 3.5s-1.8 5.6-1.9 6c0-.4-1.3-6-1.3-6-2.4 0-3.6 1.6-4.3 3.4L5.8 13s-.1-6.2-.1-6.6C5.5 4.6 3.9 3.5 2.5 3.5L1 12.5h.1c2.4 0 3.6-1.6 4.3-3.4L7 3.6s.1 6.3.1 6.6c.1.4 1.6 2.3 3.2 2.3L15 3.5z"/></svg>Webflow</span>
+      <span>Next.js</span><span>Astro</span><span>React</span><span>Vue</span><span>Svelte</span>
+    </div>
+  </div>
+
+  <section class="blk" aria-labelledby="h-numbers">
+    <div class="head">
+      <div><span class="chip"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 13h12M4 10V6M8 10V3M12 10V8"/></svg></i>By the numbers</span>
+      <h2 id="h-numbers">Five agents doing the work of a whole web team.</h2></div>
+      <p>From one bought template to a site with your name, copy, images and links on it, with nothing left that points back to the platform.</p>
+    </div>
+    <div class="shell stats">
+      <div class="stat"><small><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 4L1.5 8 5 12M11 4l3.5 4-3.5 4"/></svg></i>Frameworks</small><strong>6</strong><p>Static HTML, Next, Astro, React, Vue and Svelte.</p><div class="bar" style="--w:62%"></div></div>
+      <div class="stat"><small><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg></i>Checks per release</small><strong>45</strong><p>Test suites run before any update reaches your Mac.</p><div class="bar" style="--w:88%"></div></div>
+      <div class="stat"><small><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="2"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/></svg></i>Stays on your Mac</small><strong>100%</strong><p>Your projects and templates never leave your computer.</p><div class="bar" style="--w:100%"></div></div>
+    </div>
+  </section>
+
+  <section class="blk" id="how" aria-labelledby="h-how">
+    <div class="head">
+      <div><span class="chip"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 4h10M3 8h10M3 12h6"/></svg></i>How it works</span>
+      <h2 id="h-how">A site you own, in four steps.</h2></div>
+    </div>
+    <div class="shell steps">
+      <div class="step s1"><h3>Bring</h3><p>Paste a live Framer or Webflow link, drop in a screenshot, or say what you want built.</p><figure><img src="assets/img/step1.webp" alt="Pastel stones stacked on a peach background" loading="lazy"></figure></div>
+      <div class="step s2"><h3>Rebrand</h3><p>The agents rewrite every line, image and link to your brand, without breaking the animations.</p><figure><img src="assets/img/step2.webp" alt="Soft orange, blue and yellow shapes stacked together" loading="lazy"></figure></div>
+      <div class="step s3"><h3>Check</h3><p>Probe opens every page in a real browser. Mend fixes anything that did not land.</p><figure><img src="assets/img/step3.webp" alt="Holographic pastel gradient" loading="lazy"></figure></div>
+      <div class="step s4"><h3>Ship</h3><p>Download a static site that runs on any host, or a project in the framework your client wants.</p><figure><img src="assets/img/step4.webp" alt="Blue toy rocket on a pale blue background" loading="lazy"></figure></div>
+    </div>
+  </section>
+
+  <section class="blk" id="ways" aria-labelledby="h-ways">
+    <div class="head">
+      <div><span class="chip"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2v12M2 8h12"/></svg></i>Three ways in</span>
+      <h2 id="h-ways">Start from a link, a screenshot or a sentence.</h2></div>
+      <p>All three end in the same place: a working site in the Aethron window that you can click on and edit.</p>
+    </div>
+    <div class="shell ways">
+      <div class="way"><div class="way-top"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 014 4l-1 1M9 11.5l-1 1a2.8 2.8 0 01-4-4l1-1"/></svg></i>01</div>
+        <div class="demo"><div class="urlbar"><b>https://</b>yourtemplate.framer.website</div></div>
+        <h3>Template link</h3><p>Every page is fetched for you.</p></div>
+      <div class="way"><div class="way-top"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><circle cx="6" cy="7" r="1.3"/><path d="M14 11l-3.5-3.5L4 13"/></svg></i>02</div>
+        <div class="demo"><div class="polaroid"><span></span></div></div>
+        <h3>Screenshot</h3><p>Drop or paste it anywhere in the app.</p></div>
+      <div class="way"><div class="way-top"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 12.5l2.5-.5 7.5-7.5-2-2L3 10z"/></svg></i>03</div>
+        <div class="demo"><div class="prompt">Make the hero orange blending into black, and add a pricing page with three plans.<small><span>Your model</span><b>Applied · checked</b></small></div></div>
+        <h3>Words</h3><p>Ask for a change. Aethron keeps it only if the page measures right.</p></div>
+    </div>
+  </section>
+
+  <section class="blk center" aria-labelledby="h-app">
+    <div class="product" style="padding:72px 24px 56px">
+      <span class="glowL"></span><span class="glowR"></span>
+      <div class="head" style="position:relative"><span class="chip"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M2 6h12"/></svg></i>The app</span>
+        <h2 id="h-app">Your agents, in one window.</h2>
+        <p>Aethron is a native Mac app. Talk to it, point at anything on the page to change it, and undo any step.</p></div>
+      <div class="window"><img src="assets/img/app.webp" alt="The Aethron app: a home screen that asks for a template link or what you want built" loading="lazy" width="1600" height="1000"></div>
+      <div class="feats">
+        <div class="feat"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M3 2l9 5-4 1-1 4z"/></svg></i>Point and edit any element</div>
+        <div class="feat"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M5 6H11a3 3 0 010 6H8M5 6l2.5-2.5M5 6l2.5 2.5"/></svg></i>Undo every change</div>
+        <div class="feat"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10"/></svg></i>Updates itself in one click</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="blk" id="agents" aria-labelledby="h-agents">
+    <div class="head">
+      <div><span class="chip"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="6" r="3"/><path d="M2.5 14a5.5 5.5 0 0111 0"/></svg></i>The agents</span>
+      <h2 id="h-agents">Five AI agents, each with one craft.</h2></div>
+      <p>They share one project, so nothing gets lost between migrating, checking, fixing and shipping.</p>
+    </div>
+    <div class="shell agents">
+      <div class="agent"><img class="face" src="assets/agents/forge.webp" alt="" loading="lazy"><h3>Forge</h3><p>The migration agent. Rebrands a Framer, Webflow or live site: copy, images, links, badge gone.</p></div>
+      <div class="agent"><img class="face" src="assets/agents/lens.webp" alt="" loading="lazy"><h3>Lens</h3><p>The image agent. Turns a screenshot into real HTML that works on phones, with real pictures.</p></div>
+      <div class="agent"><img class="face" src="assets/agents/probe.webp" alt="" loading="lazy"><h3>Probe</h3><p>The checking agent. Opens every page in a browser and reports blank pages and dead images.</p></div>
+      <div class="agent"><img class="face" src="assets/agents/mend.webp" alt="" loading="lazy"><h3>Mend</h3><p>The repair agent. Finds edits that did not land and fixes them before you see them.</p></div>
+      <div class="agent"><img class="face" src="assets/agents/port.webp" alt="" loading="lazy"><h3>Port</h3><p>The framework agent. Converts the finished site to Next, Astro, React, Vue or Svelte.</p></div>
+      <div class="agent"><span class="face ico"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="5" cy="11" r="2.5"/><path d="M7 9l6-6M11 5l2 2"/></svg></span><h3>Any model</h3><p>Bring your own key: OpenAI, Gemini, DeepSeek, Anthropic, OpenRouter, or a local model.</p></div>
+    </div>
+  </section>
+
+  <section class="blk" id="pricing" aria-labelledby="h-pricing">
+    <div class="head">
+      <div><span class="chip"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M8 2v12M11 4.5H6.8a1.8 1.8 0 000 3.5h2.4a1.8 1.8 0 010 3.5H5"/></svg></i>Pricing</span>
+      <h2 id="h-pricing">Free while Aethron is in beta.</h2></div>
+      <p>Your AI provider bills you directly for the model you choose. Aethron adds nothing on top during the beta.</p>
+    </div>
+    <div class="shell beta">
+      <div class="plan">
+        <h3>Beta</h3>
+        <div class="price">$0<small>during the beta</small></div>
+        <ul>
+          <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>All five agents and every framework export</li>
+          <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Unlimited projects, kept on your Mac</li>
+          <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>Spend limits you set, or Unlimited</li>
+          <li><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8.5l3 3 7-7"/></svg>New releases delivered inside the app</li>
+        </ul>
+        <a class="btn btn-dark dl" href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.39-mac.zip">Download for Mac</a>
+      </div>
+      <div class="plan green">
+        <h3>Made for designers who buy templates</h3>
+        <p>Buy a template you love, then make it entirely yours: your name, your words, your pictures, your code.</p>
+        <div class="agents-mini" aria-hidden="true"><img src="assets/agents/forge.webp" alt="" loading="lazy"><img src="assets/agents/lens.webp" alt="" loading="lazy"><img src="assets/agents/probe.webp" alt="" loading="lazy"><img src="assets/agents/mend.webp" alt="" loading="lazy"><img src="assets/agents/port.webp" alt="" loading="lazy"></div>
+        <div class="who">Built by Jomiez</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="blk center" id="faq" aria-labelledby="h-faq">
+    <div class="head"><span class="chip"><i><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M6.3 6.3a1.8 1.8 0 113 1.4c-.7.4-1.3.9-1.3 1.8M8 11.6v.1"/></svg></i>FAQ</span>
+      <h2 id="h-faq">Questions, answered.</h2></div>
+    <div class="faq" style="text-align:left">
+      <details open><summary>What does Aethron actually do?<i><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 1v10M1 6h10"/></svg></i></summary><p>It takes a website design you like, from a Framer or Webflow template, a live site or a screenshot, and turns it into a site that is yours: your brand, copy and images, no platform badge, and code you can host anywhere.</p></details>
+      <details><summary>Do I need an AI subscription?<i><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 1v10M1 6h10"/></svg></i></summary><p>You need an API key from any provider: OpenAI, Gemini, DeepSeek, Anthropic or OpenRouter. You can save several and switch in one click. Spend limits stop a run before it costs more than you set.</p></details>
+      <details><summary>Which Macs does it run on?<i><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 1v10M1 6h10"/></svg></i></summary><p>Macs with Apple silicon (M1 and newer). Unzip the download and move Aethron to Applications. The first time, right-click the app and choose Open, because the beta is not yet notarized by Apple.</p></details>
+      <details><summary>Where do my projects live?<i><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 1v10M1 6h10"/></svg></i></summary><p>On your Mac. Templates, projects and keys stay in your own Library folder. Only the requests you make go to the AI provider you picked.</p></details>
+      <details><summary>Will the animations survive?<i><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 1v10M1 6h10"/></svg></i></summary><p>Yes. Aethron changes the words, images and links and leaves the design and motion as the designer made them. Every page is opened in a real browser before you get it.</p></details>
+      <details><summary>How do updates work?<i><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M6 1v10M1 6h10"/></svg></i></summary><p>When a new version is out, an Update now chip appears at the top of the app. One click installs it and keeps your projects, keys and conversations.</p></details>
+    </div>
+  </section>
+
+  <section class="final" aria-labelledby="h-final">
+    <h2 id="h-final">The next website<br>you love is yours.</h2>
+    <p>Download Aethron, paste a template link, and watch the agents go to work.</p>
+    <div class="cta">
+      <a class="btn btn-light dl" href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.39-mac.zip">Download for Mac</a>
+      <a class="btn btn-dark" href="#how">See how it works</a>
+    </div>
+    <div class="note" id="ver">Version 1.1.39 · Apple silicon · free during the beta</div>
+    <div class="parade" aria-hidden="true"><img src="assets/agents/forge.webp" alt="" loading="lazy"><img src="assets/agents/lens.webp" alt="" loading="lazy"><img src="assets/agents/probe.webp" alt="" loading="lazy"><img src="assets/agents/mend.webp" alt="" loading="lazy"><img src="assets/agents/port.webp" alt="" loading="lazy"></div>
+  </section>
+
+  <footer>
+    <div class="foot">
+      <div class="foot-grid">
+        <div><a class="logo" href="#top"><img src="assets/mark.png" alt="" width="24" height="24">Aethron</a><p>Five AI agents that migrate, rebuild, check, fix and port websites, on your Mac.</p></div>
+        <div><h4>Product</h4><a href="#agents">Agents</a><a href="#how">How it works</a><a href="#pricing">Pricing</a><a class="dl" href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.39-mac.zip">Download</a></div>
+        <div><h4>Help</h4><a href="#faq">Questions</a><a href="mailto:hello@aethron.app">hello@aethron.app</a></div>
+        <div><h4>Company</h4><a href="https://jomiez.com">Jomiez</a></div>
+      </div>
+      <div class="foot-bot"><span>© 2026 Aethron. All rights reserved.</span><span>Built by Jomiez</span></div>
+    </div>
+    <div class="wordmark" aria-hidden="true">Aethron</div>
+  </footer>
+</div>
+</main>
+
+<script>
+(()=>{
+  // Download: always point at the newest Mac release the app's own updater reads.
+  const FEED='https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/mac.json';
+  fetch(FEED,{cache:'no-store'}).then(r=>r.ok?r.json():null).then(j=>{
+    if(!j||!j.url||!/^https:\/\//.test(j.url))return;
+    document.querySelectorAll('a.dl').forEach(a=>a.href=j.url);
+    const v=document.getElementById('ver');
+    if(v&&j.version)v.textContent='Version '+j.version+' · Apple silicon · free during the beta';
+  }).catch(()=>{});
+
+  // Menu
+  const menu=document.getElementById('menu'),btn=document.getElementById('menuBtn');
+  const setOpen=o=>{menu.classList.toggle('open',o);btn.setAttribute('aria-expanded',o)};
+  btn.addEventListener('click',e=>{e.stopPropagation();setOpen(!menu.classList.contains('open'))});
+  document.addEventListener('click',e=>{if(!menu.contains(e.target))setOpen(false)});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')setOpen(false)});
+  menu.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>setOpen(false)));
+
+  const pct=document.getElementById('pct');
+  const story=document.getElementById('story'),stage=document.getElementById('stage');
+  const hero=document.getElementById('top'),sent=document.getElementById('sentence'),dock=document.getElementById('dockScene');
+  const flies=[...document.querySelectorAll('#fly img')];
+  const dims=[...sent.querySelectorAll('.dim')];
+  const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const BASE=200;
+  let live=false,slots=null,raf=0;
+
+  if(!reduce){story.classList.add('live');live=true}
+
+  // Slot positions relative to the stage, measured without transforms.
+  function pos(el){let x=0,y=0,n=el;while(n&&n!==stage){x+=n.offsetLeft;y+=n.offsetTop;n=n.offsetParent}return{x,y,w:el.offsetWidth}}
+  function measure(){
+    if(!live)return;
+    const get=s=>[0,1,2,3,4].map(i=>pos(s.querySelector('.slot[data-a="'+i+'"]')));
+    slots=[get(hero),get(sent),get(dock)];
+  }
+  const ease=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+  const clamp=(v,a=0,b=1)=>Math.min(b,Math.max(a,v));
+  const seg=(p,a,b)=>clamp((p-a)/(b-a));
+
+  function frame(now){
+    raf=0;
+    const doc=document.documentElement;
+    const max=doc.scrollHeight-innerHeight;
+    pct.textContent=Math.round(clamp(scrollY/(max||1))*100)+'%';
+    if(!live||!slots)return;
+    const r=story.getBoundingClientRect();
+    const span=story.offsetHeight-innerHeight;
+    const p=clamp(-r.top/(span||1));
+    if(r.bottom<-50||r.top>innerHeight+50)return;
+    // Scene timing: hero → sentence (0.08–0.38), hold, sentence → dock (0.56–0.86).
+    const a=ease(seg(p,.08,.38)), b=ease(seg(p,.56,.86));
+    hero.style.opacity=1-seg(p,.06,.22);
+    hero.style.transform='translateY('+(-60*seg(p,.06,.3))+'px)';
+    sent.style.opacity=seg(p,.2,.34)*(1-seg(p,.6,.72));
+    sent.style.transform='translateY('+(30*(1-seg(p,.2,.36))-40*seg(p,.6,.8))+'px)';
+    dock.style.opacity=seg(p,.62,.8);
+    dock.style.transform='translateY('+(80*(1-ease(seg(p,.6,.86))))+'px)';
+    // Words light up one by one while the sentence holds.
+    dims.forEach((d,i)=>d.style.color=seg(p,.32+i*.05,.37+i*.05)>.5?'var(--ink)':'');
+    const t=(now||performance.now())/1000;
+    const hy=-60*seg(p,.06,.3);
+    flies.forEach((img,i)=>{
+      const h=slots[0][i],s=slots[1][i],d=slots[2][i];
+      let x,y,w,rot;
+      if(p<.47){
+        x=h.x+(s.x-h.x)*a; y=h.y+hy*(1-a)+(s.y+ (30*(1-seg(p,.2,.36))) -h.y-hy)*a; w=h.w+(s.w-h.w)*a;
+        rot=(i-2)*4*(1-a)+Math.sin(a*Math.PI)*(i%2?14:-14);
+      }else{
+        const sy=s.y-40*seg(p,.6,.8);
+        const dy=d.y+80*(1-ease(seg(p,.6,.86)));
+        x=s.x+(d.x-s.x)*b; y=sy+(dy-sy)*b; w=s.w+(d.w-s.w)*b;
+        rot=Math.sin(b*Math.PI)*(i%2?-18:18);
+      }
+      // Idle float in the hero and the dock, still while travelling.
+      const idle=(1-a)+(b>.98?1:0);
+      const bob=Math.sin(t*1.6+i*1.3)*6*idle;
+      rot+=Math.sin(t*1.1+i)*2.5*idle;
+      img.style.transform='translate('+(x+w/2-BASE/2).toFixed(1)+'px,'+(y+w/2-BASE/2+bob).toFixed(1)+'px) rotate('+rot.toFixed(2)+'deg) scale('+(w/BASE).toFixed(4)+')';
+    });
+    if(inView&&(p<.12||p>.84))raf=requestAnimationFrame(frame);
+  }
+  const kick=()=>{if(!raf)raf=requestAnimationFrame(frame)};
+  let inView=true;
+  new IntersectionObserver(es=>{inView=es[0].isIntersecting;if(inView)kick()}).observe(story);
+  addEventListener('scroll',kick,{passive:true});
+  addEventListener('resize',()=>{measure();kick()});
+  document.fonts&&document.fonts.ready.then(()=>{measure();kick()});
+  addEventListener('load',()=>{measure();kick()});
+  measure();kick();
+})();
+</script>
+</body>
+</html>
