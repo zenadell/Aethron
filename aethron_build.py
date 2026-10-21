@@ -705,6 +705,13 @@ def gemini_writer(budget_usd=0.25, model=None,
                 break
             except _ue.HTTPError as e:
                 msg = e.read()[:400].decode(errors="replace")
+                if e.code in (400, 422) and r["wire"] != "anthropic":
+                    import aethron_bridge as _br
+                    fixed = _br.adapt_params(_j.loads(req.data.decode()), msg)
+                    if fixed:
+                        req = _u.Request(req.full_url, data=_j.dumps(fixed).encode(),
+                                         headers=dict(req.header_items()))
+                        continue
                 # "credits depleted" also arrives as a 429, and retrying
                 # it is how the last run spent four rounds of back-off
                 # waiting on a balance that was not coming back.
@@ -857,6 +864,13 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
                                    max_tokens, temperature)
                     ledger["no_images"] = True
                     continue
+                if e.code in (400, 422) and r["wire"] != "anthropic":
+                    import aethron_bridge as _br
+                    fixed = _br.adapt_params(_j.loads(req.data.decode()), msg)
+                    if fixed:
+                        req = _u.Request(req.full_url, data=_j.dumps(fixed).encode(),
+                                         headers=dict(req.header_items()))
+                        continue
                 tried.append(f"{tier} key {fp}: provider said {e.code}: {msg[:200]}")
                 break
             except (_ue.URLError, TimeoutError, ConnectionError, OSError) as e:
