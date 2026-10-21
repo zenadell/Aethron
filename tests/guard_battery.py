@@ -88,8 +88,9 @@ class Up(BaseHTTPRequestHandler):
             time.sleep(0.3)
         for c in ({"choices": [{"index": 0, "delta": {"content": "FULL ANSWER"}}]},
                   {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-                   "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 1000,
-                             "prompt_cache_hit_tokens": 900_000}}):
+                   # under the engine's trim window, or it compacts first
+                   "usage": {"prompt_tokens": 100_000, "completion_tokens": 1000,
+                             "prompt_cache_hit_tokens": 90_000}}):
             self.wfile.write(f"data: {json.dumps(c)}\n\n".encode())
         self.wfile.write(b"data: [DONE]\n\n")
         self.wfile.flush()
