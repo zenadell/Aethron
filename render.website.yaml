@@ -18,6 +18,7 @@ services:
         name: Cache-Control
         value: public, max-age=604800
     # Rules never apply where a file exists, so the last one is a fallback.
+    # One rewrite per template page (generated from forge.json routes).
     routes:
       - type: redirect
         source: /assets/downloads/Aethron-mac.zip
@@ -29,14 +30,98 @@ services:
         source: /download/mac
         destination: /download/mac/index.html
       - type: rewrite
+        source: /blog/assets/*
+        destination: /assets/*
+      - type: rewrite
+        source: /gallery/assets/*
+        destination: /assets/*
+      - type: rewrite
         source: /legal/assets/*
         destination: /assets/*
+      - type: rewrite
+        source: /projects/assets/*
+        destination: /assets/*
+      - type: rewrite
+        source: /services/assets/*
+        destination: /assets/*
+      - type: rewrite
+        source: /blog/reusable-video-editing-workflows
+        destination: /blog-reusable-video-editing-workflows.html
+      - type: rewrite
+        source: /blog/maison-vire-120-localized-edits
+        destination: /blog-maison-vire-120-localized-edits.html
+      - type: rewrite
+        source: /projects/sodas-back-but-better
+        destination: /projects-sodas-back-but-better.html
+      - type: rewrite
+        source: /services/localization-at-scale
+        destination: /services-localization-at-scale.html
+      - type: rewrite
+        source: /blog/northfold-4x-social-cuts
+        destination: /blog-northfold-4x-social-cuts.html
+      - type: rewrite
+        source: /projects/fit-for-any-forecast
+        destination: /projects-fit-for-any-forecast.html
+      - type: rewrite
+        source: /services/campaign-production
+        destination: /services-campaign-production.html
+      - type: rewrite
+        source: /blog/ai-video-editing-guide
+        destination: /blog-ai-video-editing-guide.html
+      - type: rewrite
+        source: /projects/glow-serum-launch
+        destination: /projects-glow-serum-launch.html
+      - type: rewrite
+        source: /projects/watermelon-rind
+        destination: /projects-watermelon-rind.html
+      - type: rewrite
+        source: /services/brand-kit-setup
+        destination: /services-brand-kit-setup.html
+      - type: rewrite
+        source: /services/team-onboarding
+        destination: /services-team-onboarding.html
+      - type: rewrite
+        source: /services/template-design
+        destination: /services-template-design.html
+      - type: rewrite
+        source: /services/motion-systems
+        destination: /services-motion-systems.html
+      - type: rewrite
+        source: /gallery/neon-outerwear
+        destination: /gallery-neon-outerwear.html
+      - type: rewrite
+        source: /legal/terms-of-service
+        destination: /legal-terms-of-service.html
       - type: rewrite
         source: /legal/privacy-policy
         destination: /legal-privacy-policy.html
       - type: rewrite
-        source: /legal/terms-of-service
-        destination: /legal-terms-of-service.html
+        source: /projects/pastel-drop
+        destination: /projects-pastel-drop.html
+      - type: rewrite
+        source: /projects/running-kit
+        destination: /projects-running-kit.html
+      - type: rewrite
+        source: /projects
+        destination: /projects.html
+      - type: rewrite
+        source: /services
+        destination: /services.html
+      - type: rewrite
+        source: /contact
+        destination: /contact.html
+      - type: rewrite
+        source: /gallery
+        destination: /gallery.html
+      - type: rewrite
+        source: /pricing
+        destination: /pricing.html
+      - type: rewrite
+        source: /about
+        destination: /about.html
+      - type: rewrite
+        source: /blog
+        destination: /blog.html
       - type: rewrite
         source: /*
         destination: /index.html

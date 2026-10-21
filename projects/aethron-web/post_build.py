@@ -41,13 +41,21 @@ a{{color:#111}}</style></head><body><main><h1>Your download is starting</h1>
 for d in ("download", "download/mac"):
     (site / d).mkdir(parents=True, exist_ok=True)
     (site / d / "index.html").write_text(page)
+# The build turns the template's own download links into /download.html.
+(site / "download.html").write_text(page)
 
-(site / "_redirects").write_text(f"""/download {url} 302
-/download/mac {url} 302
-/assets/downloads/Aethron-mac.zip {url} 302
-/legal/assets/* /assets/:splat 200
-/legal/privacy-policy /legal-privacy-policy.html 200
-/legal/terms-of-service /legal-terms-of-service.html 200
-/* /index.html 200
-""")
-print(f"/download -> {url} ({ver})")
+# Every template page is a real page. Framer's router moves between them
+# without a reload, but a reload or a shared link at /services/motion-systems
+# must still find services-motion-systems.html, and a nested page asks for
+# its assets relative to itself (/services/assets/...).
+routes = json.loads(pathlib.Path("forge.json").read_text())["routes"]
+rules = [f"/download {url} 302", f"/download/mac {url} 302",
+         f"/assets/downloads/Aethron-mac.zip {url} 302"]
+for seg in sorted({r.split("/")[0] for r in routes if "/" in r}):
+    rules.append(f"/{seg}/assets/* /assets/:splat 200")
+for r, f in sorted(routes.items(), key=lambda kv: -len(kv[0])):
+    if r:
+        rules.append(f"/{r} /{f} 200")
+rules.append("/* /index.html 200")
+(site / "_redirects").write_text("\n".join(rules) + "\n")
+print(f"/download -> {url} ({ver}); {len(routes)} page routes")
