@@ -1943,12 +1943,31 @@ class Handler(BaseHTTPRequestHandler):
                 since = int(q.get("since", ["0"])[0] or 0)
                 evs, n = s.drain(since)
                 br = sys.modules.get("aethron_bridge")
+                now = time.time()
+                t0 = getattr(s, "turn_t0", 0) or 0
+                ts = None
+                try:
+                    t_last, detail = 0.0, ""
+                    tf = HOME / ".tool_status.json"
+                    if tf.is_file():
+                        d = json.loads(tf.read_text(encoding="utf-8"))
+                        t_last = float(d.get("t") or 0)
+                        detail = str(d.get("detail") or "")
+                    mf = HOME / "model_use.jsonl"
+                    if mf.is_file():
+                        t_last = max(t_last, mf.stat().st_mtime)
+                    if t_last and (not t0 or t_last >= t0 - 2):
+                        ts = {"for_s": max(0.0, round(now - t_last, 1)),
+                              "detail": detail}
+                except Exception:
+                    pass
                 self.send_json({"events": evs, "n": n,
                                 "running": s.alive, "busy": s.busy,
-                                "turn_t0": getattr(s, "turn_t0", 0) or 0,
-                                "now": time.time(),
+                                "turn_t0": t0,
+                                "now": now,
                                 "cost_usd": s.cost_usd,
-                                "bridge": br.status() if br else None})
+                                "bridge": br.status() if br else None,
+                                "tool_status": ts})
             elif u.path == "/api/fs/tree":
                 d = self.ws_dir(q)
                 self.send_json({"root": d.name, "files": fs_tree(d)})
@@ -14102,7 +14121,7 @@ function endTurn(){
    run must actually be stopped. */
 const SLOW_NOTICE_MS=90000;
 const PROVIDER_STALL_MS=150000;
-const TOOL_STALL_MS=10*60*1000;
+const TOOL_STALL_MS=20*60*1000;
 function hasWaitingPermission(){
   const ids=new Set();
   for(const e of CODE.events||[]){
@@ -14124,11 +14143,12 @@ function inFlightTool(){
 function clearSlowNote(){
   if(CODE.slowNote){CODE.slowNote='';}
 }
-function slowNoteFor(tool){
+function slowNoteFor(tool,ts){
   if(tool){
     const target=toolTarget(tool.name,tool.input);
+    const step=ts&&ts.detail?' — '+ts.detail:'';
     return 'Still working on '+toolVerb(tool.name)
-      +(target?' '+target:'')+'. You can stop it at any time.';
+      +(target?' '+target:'')+step+'. You can stop it at any time.';
   }
   return 'Still waiting for the provider. Aethron is keeping this run open so its real response can arrive.';
 }
@@ -14172,8 +14192,9 @@ async function stopForSilence(tool,last){
   }
   const tried=CODE.recoveries?' Aethron reconnected '+CODE.recoveries
     +' time'+(CODE.recoveries===1?'':'s')+' and it went quiet again.':'';
+  const mins=Math.round(TOOL_STALL_MS/60000);
   CODE.events.push({type:'error',text:tool
-    ?'This step did not report back after 10 minutes, so Aethron stopped the run. Work completed before the pause is still there.'
+    ?'This step did not report back after '+mins+' minutes, so Aethron stopped the run. Work completed before the pause is still there.'
     :'The provider stopped answering, so Aethron stopped the run.'+tried
       +(last?' Last thing it said: '+last:'')
       +' Work completed before the pause is still there; send “continue” to pick up from there.'});
@@ -14342,7 +14363,7 @@ async function pollCode(){
     }
     /* A permission card is intentional waiting, not a stalled model. */
     const quiet=Date.now()-CODE.lastEv;
-    const br=r.bridge, tool=inFlightTool();
+    const br=r.bridge, ts=r.tool_status, tool=inFlightTool();
     /* BETWEEN TWO TRIES NOTHING IS IN FLIGHT. When an answer does not
        come the engine asks again, and for that moment the bridge holds no
        request — so this used to fall back to "time since the agent last
@@ -14356,8 +14377,8 @@ async function pollCode(){
     if(CODE.poll&&r.running&&!hasWaitingPermission()
        &&(quiet>SLOW_NOTICE_MS||(waiting&&quiet>15000))){
       const limit=tool?TOOL_STALL_MS:PROVIDER_STALL_MS;
-      const idle=viaBridge?Math.min(quiet,br.for_s*1000):quiet;
-      const note=viaBridge?bridgeNote(br):slowNoteFor(tool);
+      const idle=viaBridge?Math.min(quiet,br.for_s*1000):(tool&&ts&&ts.for_s!=null?Math.min(quiet,ts.for_s*1000):quiet);
+      const note=viaBridge?bridgeNote(br):slowNoteFor(tool,ts);
       if(CODE.slowNote!==note){CODE.slowNote=note;renderChat();}
       if(idle>limit)return stopForSilence(tool,viaBridge?br.detail:'');
     }

@@ -1118,7 +1118,13 @@ def grade(image, page, ref: Img = None, work=None, slots=None):
         rep.update(likeness=0.0, colour=0.0, structure=0.0, regions=[],
                    verdict="FAIL", phones_checked=False)
         return rep
-    png = render(page, W, H, work / "render.png")
+    import concurrent.futures
+    ww, wh = round(W * WIDE), round(H * WIDE)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        f_png = ex.submit(render, page, W, H, work / "render.png")
+        f_big = ex.submit(render, page, ww, wh, work / "render-wide.png")
+        png = f_png.result()
+        big = f_big.result() if png is not None else None
     if png is None:
         rep["verdict"] = "SKIPPED"
         rep["why"] = "no browser could render the page — UNVERIFIED, not good"
@@ -1133,8 +1139,6 @@ def grade(image, page, ref: Img = None, work=None, slots=None):
     # must hold in a bigger one, or the type shrinks against the picture
     # and the form drifts off the feature it sat on. Seen at the
     # screenshot's size, a render half again as wide should look as alike.
-    ww, wh = round(W * WIDE), round(H * WIDE)
-    big = render(page, ww, wh, work / "render-wide.png")
     if big is not None:
         rep["wide"] = {"width": ww,
                        "likeness": likeness(ref, big.shrink(ref.w, ref.h))["likeness"]}
@@ -1296,6 +1300,9 @@ def _polish(src, ref, scale, W, H, rep, html, lines, slots, fonts, out, work, re
         html2, pics = PIC.fill(html2, slots, out, log=log)
         if pics:
             report["pictures"] = pics
+        # Save the page with its filled pictures right away so the work on
+        # disk is already complete even before the typography fitting pass.
+        (out / "site.html").write_text(stamp_ids(fluid(html2, W)))
         fitdir = work / "fit"
         fitdir.mkdir(parents=True, exist_ok=True)
         for r in pics or []:
@@ -1363,8 +1370,13 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
     html = None
     prev = None
     for rnd in range(1, rounds + 1):
-        if time.time() - t0 > minutes * 60:
+        elapsed = time.time() - t0
+        if elapsed > minutes * 60 or (
+                rnd > 1 and best is not None and not best[0].get("reused")
+                and elapsed + elapsed / (rnd - 1) + 45 > minutes * 60):
             report["stopped"] = f"stopped at the {minutes}-minute limit"
+            log(f"round {rnd}: skipping to leave time for the finishing pass "
+                f"({minutes}-minute limit)")
             break
         if rnd == 1:
             prompt, images = _first_prompt(f), [("image/png", ref_png.read_bytes())]
@@ -1415,6 +1427,11 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
         if not rep["reused"] and (best is None or best[0]["reused"]
                                   or _rank(rep) > _rank(best[0])):
             best = (rep, html)
+            # Save the best page after each round so work completed before
+            # any pause or interruption is already on disk in site.html.
+            (out / "site.html").write_text(stamp_ids(html))
+            if rep.get("render_png") and Path(rep["render_png"]).is_file():
+                (out / "render.png").write_bytes(Path(rep["render_png"]).read_bytes())
         elif best is None:
             best = (rep, html)
         if rep["verdict"] == "PASS" and rep["likeness"] >= GOOD_ENOUGH:

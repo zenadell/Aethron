@@ -411,6 +411,20 @@ def _craft_lines(rep):
             + [("  ✓ " if x["ok"] else "  ✗ ") + x["check"] for x in c])
 
 
+def _tool_note(tool: str, detail: str = ""):
+    """Record a live heartbeat so the studio knows a long MCP tool is
+    actively making progress and what step it is on."""
+    try:
+        f = HOME / ".tool_status.json"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"t": round(time.time(), 1),
+                                 "tool": str(tool or ""),
+                                 "detail": str(detail or "")[:200]}),
+                     encoding="utf-8")
+    except Exception:
+        pass
+
+
 def t_screenshot_to_page(a):
     """A screenshot becomes a REAL page: HTML, CSS and SVG, checked.
 
@@ -449,13 +463,19 @@ def t_screenshot_to_page(a):
                 f"({r.get('why') or 'this provider has no API'}).\n" + yourself
                 + name_line)
     import contextlib
+
+    def _s2c_log(*x):
+        msg = " ".join(str(v) for v in x)
+        print(msg, file=sys.stderr, flush=True)
+        _tool_note("screenshot_to_page", msg)
+
     try:
         # stdout is the MCP channel on stdio; nothing the build prints may land in it.
         with contextlib.redirect_stdout(sys.stderr):
             rep = S2C.build(str(a["image"]), str(out),
-                            rounds=int(a.get("rounds", 3)), minutes=8,
+                            rounds=int(a.get("rounds", 3)), minutes=12,
                             budget_usd=float(a.get("budget_usd", 0.40)),
-                            log=lambda *x: print(*x, file=sys.stderr, flush=True))
+                            log=_s2c_log)
     except SystemExit as e:
         return f"FAILED {e}"
     except Exception as e:
