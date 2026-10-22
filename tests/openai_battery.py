@@ -192,6 +192,22 @@ ck("adapt_params swaps max_tokens -> max_completion_tokens and drops temperature
    adapted and adapted.get("max_completion_tokens") == 4096
    and "max_tokens" not in adapted and "temperature" not in adapted, adapted)
 
+b = BR.to_openai({"model": "x", "max_tokens": 9000,
+                  "tools": [{"name": "t", "input_schema": {"type": "object"}}],
+                  "messages": [{"role": "user", "content": "hi"}]}, "gpt-6-luna")
+ck("gpt-6-luna with tools sends reasoning_effort none",
+   b.get("reasoning_effort") == "none", b)
+b = BR.to_openai({"model": "x", "max_tokens": 9000,
+                  "tools": [{"name": "t", "input_schema": {"type": "object"}}],
+                  "messages": [{"role": "user", "content": "hi"}]}, "gpt-5")
+ck("…gpt-5 with tools is left without reasoning_effort", "reasoning_effort" not in b, b)
+a2 = BR.adapt_params({"model": "m", "tools": [1]},
+    "Function tools with reasoning_effort are not supported for m in "
+    "/v1/chat/completions. To use function tools, use /v1/responses or set "
+    "reasoning_effort to 'none'.")
+ck("adapt_params answers the tools+reasoning refusal with reasoning_effort none",
+   a2 and a2.get("reasoning_effort") == "none", a2)
+
 # money
 ck("gpt-4o-mini is priced at its real rate, not the dearest",
    BR.price_of("gpt-4o-mini") == (0.15, 0.60))
