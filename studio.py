@@ -2447,7 +2447,25 @@ class Handler(BaseHTTPRequestHandler):
                 conv_set(key, "")
                 self.send_json({"ok": True})
             elif u.path == "/api/code/send":
-                s = CODE_SESSIONS.get(body.get("key", ""))
+                key = body.get("key", "")
+                s = CODE_SESSIONS.get(key)
+                if (not s or not s.alive) and key and codelayer:
+                    d = Path(key)
+                    if d.is_dir():
+                        rcfg = {"permission_endpoint": (
+                            "http://127.0.0.1:%s/api/code/permission/request"
+                            % self.server.server_address[1])}
+                        if d == (WORKSPACES / "__console__"):
+                            rcfg.setdefault("append_system", codelayer.CONSOLE_RULES)
+                        if conv_get(key).get("id"):
+                            rcfg["resume_id"] = conv_get(key)["id"]
+                        try:
+                            s = codelayer.CodeSession(
+                                d, cfg=rcfg, home=HOME).start()
+                            CODE_SESSIONS[key] = s
+                            conv_set(key, s.id)
+                        except Exception:
+                            s = None
                 if not s or not s.alive:
                     return self.fail("no running session — start one first")
                 text = (body.get("text") or "").strip()
@@ -14347,10 +14365,12 @@ async function pollCode(){
          failed. The client ends its own turn the moment a done, error or
          exit arrives; the server catching up later changes nothing. */
       if(r.events.some(e=>['done','error','exit'].includes(e.type))){
+        if(r.events.some(e=>e.type==='exit')||!r.alive)CODE.key='';
         endTurn();
         if(r.events.some(e=>e.type==='done'&&!e.error))checkTruth();
       }
     }
+    if(!r.alive&&CODE.key&&!r.running)CODE.key='';
     if(!r.running&&CODE.key){
       clearInterval(CODE.poll);CODE.poll=0;
       /* AND REDRAW. The live line ("Thinking", the orb, the step count)

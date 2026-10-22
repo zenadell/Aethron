@@ -25,11 +25,13 @@ Run it standalone:
     python3 aethron_bridge.py --port 8790          (reads Aethron settings)
     python3 aethron_bridge.py --selftest           (no key needed)
 """
+import hashlib
 import json
 import os
 import re
 import sys
 import time
+import uuid
 import urllib.parse
 import threading
 import urllib.error
@@ -600,10 +602,13 @@ def _budget_check(body: dict) -> str:
     # it asks for while working, sent twice in a row with the same words)
     # are not the agent repeating itself, and counting them tripped this
     # guard on a healthy run.
-    tail = json.dumps((body.get("messages") or [])[-2:], sort_keys=True)[-4000:]
-    h = str(hash(tail))
-    if not body.get("stream"):
-        pass                              # a side call: neither counted nor reset
+    non_sys = [m for m in (body.get("messages") or [])
+               if isinstance(m, dict) and m.get("role") != "system"]
+    h = hashlib.sha256(
+        json.dumps(non_sys, sort_keys=True).encode("utf-8", "replace")
+    ).hexdigest()
+    if not body.get("stream") or unlimited:
+        pass                              # side call or unlimited: never trip repeat guard
     elif h == USED["last_hash"]:
         USED["repeats"] += 1
         if USED["repeats"] >= LIMITS["repeats"]:
@@ -997,6 +1002,7 @@ class AnthropicStream:
     def __init__(self, model: str, emit):
         self.model = model
         self.emit = emit
+        self.msg_id = f"msg_bridge_{uuid.uuid4().hex[:16]}"
         self.started = False
         self.index = -1
         self.open_kind = None      # 'text' | 'tool'
@@ -1012,7 +1018,7 @@ class AnthropicStream:
             return
         self.started = True
         self._ev("message_start", {"type": "message_start", "message": {
-            "id": "msg_bridge", "type": "message", "role": "assistant",
+            "id": self.msg_id, "type": "message", "role": "assistant",
             "model": self.model, "content": [], "stop_reason": None,
             "stop_sequence": None, "usage": self.usage}})
 
@@ -1096,7 +1102,10 @@ def from_openai_message(data: dict, model: str) -> dict:
     u = data.get("usage") or {}
     _account(model or data.get("model", ""), u.get("prompt_tokens", 0),
              u.get("completion_tokens", 0), cached_tokens(u))
-    return {"id": data.get("id", "msg_bridge"), "type": "message",
+    raw_id = data.get("id") or ""
+    msg_id = (raw_id if raw_id and raw_id not in ("msg_bridge", "cmpl")
+              else f"msg_bridge_{uuid.uuid4().hex[:16]}")
+    return {"id": msg_id, "type": "message",
             "role": "assistant", "model": model or data.get("model", ""),
             "content": content or [{"type": "text", "text": ""}],
             "stop_reason": STOP_MAP.get(choice.get("finish_reason"),

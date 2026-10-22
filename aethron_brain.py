@@ -264,7 +264,17 @@ def save(patch: dict) -> dict:
         if patch.get("label"):
             prof["label"] = str(patch["label"])[:60]
         ai["active"] = pid
-    return _write(ai)
+    res = _write(ai)
+    try:
+        import aethron_bridge
+        cfg_all = load()
+        aethron_bridge.set_limits(
+            requests=cfg_all.get("budget_requests"),
+            tokens=cfg_all.get("budget_tokens"),
+            usd=cfg_all.get("budget_usd"))
+    except Exception:
+        pass
+    return res
 
 
 def _new_id(profs: dict, base: str) -> str:
@@ -936,16 +946,14 @@ def anthropic_endpoint(cfg: dict = None) -> dict:
     # that is still talking to it (a dead socket, no error, no timeout)
     sig = f"{r['base']}|{','.join(_fp(k) for k in pool['api_key'])}|{r['model']}"
     with _LOCK:
+        cfg_all = {**load(), **(cfg or {})}
+        aethron_bridge.set_limits(
+            requests=cfg_all.get("budget_requests"),
+            tokens=cfg_all.get("budget_tokens"),
+            usd=cfg_all.get("budget_usd"))
         if _BRIDGE["sig"] != sig:
             if _BRIDGE["srv"]:
                 _BRIDGE["srv"].shutdown()
-            cfg_all = {**load(), **(cfg or {})}
-            # pass the DOLLAR cap too — it was defined here and never
-            # sent, so the bridge fell back to counting tokens alone
-            aethron_bridge.set_limits(
-                requests=cfg_all.get("budget_requests"),
-                tokens=cfg_all.get("budget_tokens"),
-                usd=cfg_all.get("budget_usd"))
             aethron_bridge.reset_usage()
             # what Gemini/DeepSeek demand back on every later turn must
             # outlive this process, or a resumed conversation is refused

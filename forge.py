@@ -103,12 +103,18 @@ HIDE_CSS = (
     '#__framer-badge-container,#__framer-editorbar,.__framer-badge,'
     'a[href*="framer.com/r/badge"],'
     '[data-framer-name*="Buy Promo"],[name*="Buy Promo"],'
+    '[data-framer-name*="Template Buy"],[name*="Template Buy"],'
+    '[data-framer-name*="Buy Template"],[name*="Buy Template"],'
+    '[data-framer-name*="Get Template"],[name*="Get Template"],'
     '[data-framer-name="Framer Badge"],'
     # "Buy Template" pills link to the marketplace checkout; hiding by
     # href means the button REAPPEARS if the owner retargets the link
     # to their own URL via copy_map
     'a[href*="buy.polar.sh"],a[href*="lemonsqueezy.com"],'
     'a[href*="gumroad.com"],a[href*="framer.com/marketplace"],'
+    'a[href*="launchnow.design/checkout"],'
+    '[class$="-container"]:has(> a[href*="launchnow.design/checkout"]),'
+    '#licence-management,'
     # A template author's OWN marketplace profile is the same promo with
     # a different URL: framer.com/@nframe/?tab=marketplace slipped past
     # both of the rules above and shipped a visible 142x110 "buy this
@@ -2707,6 +2713,10 @@ def cmd_build(_args):
                    r'[^>]*>\s*</script>\n?', "", t)
         t = re.sub(r"<script>[^<]*(?:validation-worker|__WF_REVIEW_BRIDGE)"
                    r"[^<]*</script>\n?", "", t)
+        # Frameship template license banner ("BUY LICENSE TO PUBLISH YOUR STORE")
+        t = re.sub(r'<script[^>]*\b(?:id="licence-management"|'
+                   r'src="[^"]*licence-management\.js[^"]*")[^>]*>\s*</script>\n?',
+                   "", t)
         t = t.replace("</head>", hide_css + "\n</head>")
         t, held = _regen_word_runs(t, pairs, stats=stats)
         t = _apply(t, pairs, escaped=True, stats=stats)

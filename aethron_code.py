@@ -549,6 +549,79 @@ def transcript_path(session_id: str):
     return hits[0] if hits else None
 
 
+def repair_transcript(path: Path) -> bool:
+    """Repair older bridge transcripts where every assistant turn shared
+    `id: "msg_bridge"`, which caused Claude Code to merge all assistant
+    turns into `messages[1]` and trip the repeat guard."""
+    if not path or not path.is_file():
+        return False
+    try:
+        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    changed = False
+    turn_idx = 0
+    in_asst = False
+    out_lines = []
+    for line in raw_lines:
+        if not line.strip():
+            out_lines.append(line)
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            out_lines.append(line)
+            continue
+        t = d.get("type")
+        if t == "assistant":
+            msg = d.get("message")
+            if isinstance(msg, dict) and msg.get("id") == "msg_bridge":
+                if not in_asst:
+                    turn_idx += 1
+                    in_asst = True
+                msg["id"] = f"msg_bridge_{turn_idx}"
+                line = json.dumps(d, ensure_ascii=False)
+                changed = True
+        elif t in ("user", "system", "attachment"):
+            in_asst = False
+        out_lines.append(line)
+    if changed:
+        try:
+            path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+        except OSError:
+            return False
+    return changed
+
+
+def ensure_workspace_transcript(session_id: str, workspace: Path):
+    """Ensure the CLI's `<config>/projects/<escaped-workspace>/<id>.jsonl`
+    exists when resuming a conversation started in another directory
+    (such as Home's `__console__` workspace)."""
+    src = transcript_path(session_id)
+    if not src:
+        return None
+    repair_transcript(src)
+    base = Path(os.environ.get("CLAUDE_CONFIG_DIR")
+                or Path.home() / ".claude") / "projects"
+    slug = _re.sub(r"[^a-zA-Z0-9]", "-", str(Path(workspace).resolve()))
+    if len(slug) > 200:
+        slug = slug[:200]
+    dst_dir = base / slug
+    dst = dst_dir / f"{session_id}.jsonl"
+    try:
+        if dst != src:
+            if (not dst.exists()
+                    or src.stat().st_mtime > dst.stat().st_mtime
+                    or src.stat().st_size > dst.stat().st_size):
+                dst_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+            else:
+                repair_transcript(dst)
+    except OSError:
+        return src
+    return dst if dst.exists() else src
+
+
 # What Aethron measured, attached to a message so the agent starts from the
 # project as it is — never shown as the person's words.
 STATUS_OPEN, STATUS_CLOSE = "<aethron-status>", "</aethron-status>"
@@ -631,7 +704,7 @@ def transcript_events(session_id: str, limit: int = 400) -> list:
             except ValueError:
                 continue
             if m.get("isMeta") or m.get("isSidechain") \
-                    or m.get("isCompactSummary"):
+                    or m.get("isCompactSummary") or m.get("isApiErrorMessage"):
                 continue
             c = (m.get("message") or {}).get("content")
             if m.get("type") == "user":
@@ -693,7 +766,7 @@ class CodeSession:
         # sat in the CLI's own transcript on disk. Given the id of one that
         # still exists, the session CONTINUES it (--resume keeps the id).
         rid = str(self.cfg.get("resume_id") or "").strip()
-        self.resumed = bool(rid and transcript_path(rid))
+        self.resumed = bool(rid and ensure_workspace_transcript(rid, self.workspace))
         if self.resumed:
             self.id = rid
         self.session_id = ""          # the CLI's own id, for --resume
@@ -1328,7 +1401,8 @@ class CodeSession:
             err = bool(d.get("is_error"))
             text = d.get("result") or ""
             if err and not text:
-                text = d.get("subtype", "error")
+                errs = [str(x) for x in (d.get("errors") or []) if x]
+                text = "; ".join(errs) if errs else d.get("subtype", "error")
             self.error = text if err else ""
             out.append({"type": "done", "error": err, "text": text,
                         "cost_usd": cost,
@@ -1475,7 +1549,7 @@ def mock_provider(port=0, script=None):
             stop = "tool_use" if any("tool" in b for b in blocks) else "end_turn"
             chunks = [("message_start", {
                 "type": "message_start",
-                "message": {"id": "msg_mock", "type": "message",
+                "message": {"id": f"msg_mock_{state['n']}", "type": "message",
                             "role": "assistant", "model": "mock-1",
                             "content": [], "stop_reason": None,
                             "stop_sequence": None,
@@ -1487,7 +1561,7 @@ def mock_provider(port=0, script=None):
                         ("content_block_start", {
                             "type": "content_block_start", "index": idx,
                             "content_block": {"type": "tool_use",
-                                              "id": f"toolu_{idx}",
+                                              "id": f"toolu_{state['n']}_{idx}",
                                               "name": b["tool"],
                                               "input": {}}}),
                         ("content_block_delta", {
