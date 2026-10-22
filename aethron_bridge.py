@@ -274,6 +274,17 @@ def openai_reasoning(model: str) -> bool:
     return "/" not in m and bool(_OPENAI_REASONING.match(m))
 
 
+_OPENAI_NO_TOOL_REASONING = re.compile(r"^(gpt-([6-9]|\d{2,})\b)", re.I)
+
+
+def openai_tools_need_no_reasoning(model: str) -> bool:
+    """gpt-6* (bare ids) accept function tools on /chat/completions only
+    with reasoning_effort "none". gpt-5 does not accept "none", so it is
+    left alone; any other model that asks gets it via adapt_params."""
+    m = (model or "").strip()
+    return "/" not in m and bool(_OPENAI_NO_TOOL_REASONING.match(m))
+
+
 def adapt_params(req: dict, body: str) -> dict | None:
     """When a model refuses a parameter we sent (`max_tokens`,
     `max_completion_tokens`, `temperature`, `reasoning_effort`,
@@ -295,7 +306,13 @@ def adapt_params(req: dict, body: str) -> dict | None:
             or "only the default" in b or "unrecognized" in b):
         out.pop("temperature", None)
         changed = True
-    if "reasoning_effort" in b and "reasoning_effort" in out:
+    if "reasoning_effort to 'none'" in b or 'reasoning_effort to "none"' in b:
+        # tools + reasoning on /chat/completions (gpt-6*): the model asks
+        # for reasoning_effort "none" rather than for it to be dropped
+        if out.get("reasoning_effort") != "none":
+            out["reasoning_effort"] = "none"
+            changed = True
+    elif "reasoning_effort" in b and "reasoning_effort" in out:
         out.pop("reasoning_effort", None)
         changed = True
     if "stream_options" in b and "stream_options" in out:
@@ -897,6 +914,10 @@ def to_openai(body: dict, model: str = "") -> dict:
         elif kind == "tool" and tc.get("name"):
             out["tool_choice"] = {"type": "function",
                                   "function": {"name": tc["name"]}}
+    if tools and openai_tools_need_no_reasoning(out["model"]):
+        # gpt-6* refuse function tools with any reasoning on
+        # /chat/completions: "set reasoning_effort to 'none'"
+        out["reasoning_effort"] = "none"
     if out["stream"]:
         out["stream_options"] = {"include_usage": True}
     return out
