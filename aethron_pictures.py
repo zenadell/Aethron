@@ -639,6 +639,8 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
     mode: "auto" (make if a saved provider can, else find, else
     placeholder), "make", "find", "placeholder".
     """
+    import concurrent.futures
+    import threading
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     desc = descriptions(html, slots)
@@ -647,10 +649,11 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
         providers = _image_providers()
         blocked = _blocked_note() if not providers else ""
     spent = 0.0
-    records = []
-    for s in slots:
-        if s.get("drawn_ok"):
-            continue
+    spent_lock = threading.Lock()
+    todo = [s for s in slots if not s.get("drawn_ok")]
+
+    def _one(s):
+        nonlocal spent
         described = bool(desc.get(s["id"]))
         d = desc.get(s["id"]) or ("an illustration in the colours "
                                   + ", ".join(s["colours"][:4]))
@@ -666,18 +669,25 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
         if described and mode in ("auto", "make"):
             for prov, key in providers:
                 cost = MAKE_COST.get(prov, 0.05)
-                if spent + cost > budget_usd:
+                with spent_lock:
+                    if spent + cost > budget_usd:
+                        over = True
+                    else:
+                        spent += cost
+                        over = False
+                if over:
                     log(f"picture {s['id']}: making one would pass the "
                         f"${budget_usd:.2f} picture budget — not asked")
                     break
                 try:
                     data = maker(s, d, prov, key)
-                    spent += cost
                     _use(prov, cost)
                     how, credit = "made", f"made by {prov} for this page"
                     _wallet(cost)
                     break
                 except Exception as e:
+                    with spent_lock:
+                        spent = max(0.0, spent - cost)
                     log(f"picture {s['id']}: {prov} could not make it ({str(e)[:120]})")
         if data is None and described and mode in ("auto", "find"):
             best = None
@@ -703,6 +713,16 @@ def fill(html, slots, outdir, mode="auto", budget_usd=0.10, log=print,
         if data is None:
             data = placeholder_png(s)
             how, credit = "placeholder", "drawn by Aethron from the region's colours"
+        return s, d, data, how, credit
+
+    if len(todo) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(todo))) as ex:
+            results = list(ex.map(_one, todo))
+    else:
+        results = [_one(s) for s in todo]
+
+    records = []
+    for s, d, data, how, credit in results:
         ext = _ext(data)
         name = f"{s['file']}.{ext}"
         (outdir / name).write_bytes(data)
