@@ -1079,6 +1079,308 @@ def word_fragments(root: Path, cm=None) -> dict:
     return frag
 
 
+# ONE CMS ITEM'S OWN VALUES. A project card says "40 cuts" and the next
+# says "9 drops": the same short value ("9", "Templates") sits in many
+# items, and as a plain pair it would change in every one of them — and a
+# bare number would also match code. copy_map["items"] entries name the
+# item by its slug and change only fields WHOLLY equal to old inside that
+# item's record (byte-locked, space-padded), plus the text nodes that show
+# them on the pages: on the item's own page before another item's card
+# begins, elsewhere where this item's title is the nearest one.
+_ITEM_REC = re.compile(rb"\x02id\x0c\x00\x00\x00\t\w{9}\x00\x00\x00\tcreatedAt")
+_FIELD = re.compile(rb"\x00\x00\x00\t(\w{9})\x0c\x00\x00\x00(.)", re.S)
+
+
+def _cms_records(blob):
+    """(start, end, [(fid, value_offset, value_bytes)]) per top-level item."""
+    st = [m.start() for m in _ITEM_REC.finditer(blob)] + [len(blob)]
+    out = []
+    for a, b in zip(st, st[1:]):
+        fields = []
+        for m in _FIELD.finditer(blob, a, b):
+            o = m.end()
+            n = int.from_bytes(blob[m.end() - 4:m.end()], "big")
+            if o + n <= b:
+                fields.append((m.group(1).decode(), o, blob[o:o + n]))
+        out.append((a, b, fields))
+    return out
+
+
+def _item_plan(root, cm):
+    """Resolve copy_map["items"] against pristine CMS: byte patches per
+    blob, the padded text per entry, and every item's title."""
+    items = [e for e in cm.get("items", []) if e.get("new") not in
+             (None, "", e.get("old"))]
+    patches, titles, padded = {}, {}, {}
+    cms_src = root / "pristine" / "cms"
+    blobs = {p.name: p.read_bytes() for p in cms_src.glob("*.framercms")
+             if "-chunk-" in p.name} if cms_src.exists() else {}
+    idx_blobs = {p.name: p.read_bytes() for p in cms_src.glob("*.framercms")
+                 if "-indexes-" in p.name} if cms_src.exists() else {}
+    item_recs = {}
+    for name, blob in blobs.items():
+        recs = _cms_records(blob)
+        if not any(e["item"].encode() in [v for _f, _o, v in fl]
+                   for e in items for _a, _b, fl in recs):
+            continue
+        for a, b, fields in recs:
+            vals = [v for _f, _o, v in fields]
+            for i, (_f, _o, v) in enumerate(fields):
+                if i and re.fullmatch(rb"[a-z0-9]+(?:-[a-z0-9]+)+", v):
+                    titles.setdefault(v.decode(), fields[i - 1][2].decode(
+                        "utf-8", "replace"))
+                    break
+            for e in items:
+                slug = e["item"].encode()
+                if slug not in vals:
+                    continue
+                rr = item_recs.setdefault(name, {}).setdefault(e["item"], [])
+                if (a, b) not in rr:
+                    rr.append((a, b))
+                old_b, new_b = e["old"].encode(), e["new"].encode()
+                if len(new_b) > len(old_b):
+                    die(f"item {e['item']}: {e['new']!r} is {len(new_b)} "
+                        f"bytes, the slot for {e['old']!r} holds "
+                        f"{len(old_b)} — shorten it")
+                if "`" in e["new"] or "${" in e["new"]:
+                    die(f"item {e['item']}: 'new' contains ` or ${{")
+                pad = new_b + b" " * (len(old_b) - len(new_b))
+                hit = 0
+                for fid, o, v in fields:
+                    if v == old_b and (not e.get("field") or fid == e["field"]):
+                        patches.setdefault(name, []).append((o, pad))
+                        e["_off"] = min(e.get("_off", o), o)
+                        hit += 1
+                if hit:
+                    padded[id(e)] = pad.decode()
+                    e["_hits"] = e.get("_hits", 0) + hit
+    # A LIST READS ITS INDEX, NOT THE ITEM. The cards on a listing page
+    # come from the collection's -indexes- blob: per field, each value
+    # followed by a pointer (offset, length) to its item in the chunk.
+    # Patch the entries that point into the item's record too, or the
+    # list keeps showing the template's number after the page loads.
+    for e in items:
+        for name, recs in list(item_recs.items()):
+            iname = name.replace("-chunk-", "-indexes-")
+            if iname not in idx_blobs:
+                continue
+            ib = idx_blobs[iname]
+            old_b = e["old"].encode()
+            for a, b in recs.get(e["item"], []):
+                for h in re.finditer(rb"\x00\x00\x00\t(\w{9})\x00\x00\x00"
+                                     rb"\x07", ib):
+                    if e.get("field") and h.group(1).decode() != e["field"]:
+                        continue
+                    nxt = ib.find(b"\x00\x00\x00\x07", h.end())
+                    end = len(ib) if nxt < 0 else nxt
+                    for m in re.finditer(rb"\x0c\x00\x00\x00" +
+                                         bytes([len(old_b)]) + re.escape(old_b) +
+                                         rb"(?=..(....)(....))", ib[:end], re.S):
+                        if m.start() < h.end():
+                            continue
+                        off = int.from_bytes(m.group(1), "big")
+                        if a - 8 <= off < b and id(e) in padded:
+                            patches.setdefault(iname, []).append(
+                                (m.start() + 5, padded[id(e)].encode()))
+    for e in items:
+        if not e.get("_hits"):
+            print(f"  WARNING item {e['item']}: {e['old']!r} is not a field "
+                  "of that item — nothing changed")
+    return items, patches, titles, padded
+
+
+# A PLACEHOLDER MUST NOT LOOK LIKE COPY. "\x00W1\x00" held a rebuilt
+# heading while a fill "W1" -> "1m" (a week label) rewrote the marker and
+# the page shipped "\x001m\x00" where the heading was. The index is spelled
+# in private-use characters, kind and index, which no fill can contain.
+def _seal_mark(kind, n):
+    return ("\x00" + chr(0xE100 + ord(kind))
+            + "".join(chr(0xE000 + int(d)) for d in str(n)) + "\x00")
+
+
+def _unseal_marks(t, kind, held):
+    return re.sub("\x00" + chr(0xE100 + ord(kind)) + "([\ue000-\ue009]+)\x00",
+                  lambda m: held[int("".join(str(ord(c) - 0xE000)
+                                             for c in m.group(1)))], t)
+
+
+def _node_entries(cm):
+    """copy_map strings marked "node": true change only where the whole
+    text of an element is the old value — `>92%<` on a page, a component
+    prop `aBcDeFgH1: 92%` in a chunk — never inside code. This is how
+    a bare number ("92%" beside "Rebook rate") is filled safely."""
+    return [e for e in cm.get("strings", []) if e.get("node")
+            and e.get("new") not in (None, "", e["old"])
+            and "`" not in e["new"] and "${" not in e["new"]]
+
+
+def _node_chunk(t, nodes):
+    for e in nodes:
+        t = re.sub(r"(?<![\w$])((?=\w*[A-Z])(?=\w*[a-z0-9])\w{9}):`"
+                   + re.escape(e["old"]) + "`",
+                   lambda m: f"{m.group(1)}:`{e['new']}`", t)
+    return t
+
+
+def _hold_handover(t, items, padded, held, titles=None):
+    """THE PAGE HANDS ITS CMS ROWS TO THE RUNTIME. Framer serialises the
+    query results it rendered into <script type="framer/handover"> — a
+    flat, de-duplicated array where one "9" may serve three projects —
+    and hydration re-draws the cards from it. Give the item its own copy
+    of each changed value (appended, so no index moves) and point only
+    that item's field at it."""
+    m = re.search(r'(<script type="framer/handover"[^>]*>)(.*?)(</script>)',
+                  t, re.S)
+    if not m or not items:
+        return t
+    try:
+        d = json.loads(m.group(2))
+    except ValueError:
+        return t
+    if not isinstance(d, list):
+        return t
+
+    def sval(i):
+        w = d[i] if isinstance(i, int) and 0 <= i < len(d) else None
+        if isinstance(w, dict) and set(w) == {"type", "value"} and \
+                isinstance(w["value"], int) and 0 <= w["value"] < len(d):
+            return w["value"], d[w["value"]]
+        return None, None
+
+    def walk(i, depth, seen, out):
+        if depth > 6 or not isinstance(i, int) or i in seen or \
+                not 0 <= i < len(d):
+            return
+        seen.add(i)
+        v = d[i]
+        if isinstance(v, dict) and set(v) == {"type", "value"}:
+            walk(v["value"], depth + 1, seen, out)   # a wrapper: its value
+        elif isinstance(v, dict):
+            out.append(v)
+            for x in v.values():
+                walk(x, depth + 1, seen, out)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x, depth + 1, seen, out)
+
+    tokens = {}
+    for k, obj in enumerate(list(d)):
+        if not isinstance(obj, dict) or "type" in obj:
+            continue
+        # An item's own page carries no slug of its own (only the NEXT
+        # item's, under "nextItemId.*"), so an item is also known by its
+        # title. Next-item fields belong to another item: never touched.
+        own_f = {f: r for f, r in obj.items()
+                 if not str(f).startswith("nextItemId")}
+        vals = {v for v in (sval(x)[1] for x in own_f.values())
+                if isinstance(v, str)}
+        slugs = {s for s in vals} | {s for s, ti in (titles or {}).items()
+                                     if ti and ti in vals}
+        mine = [e for e in items if e["item"] in slugs and id(e) in padded]
+        if not mine:
+            continue
+        dicts = []
+        for x in own_f.values():
+            walk(x, 0, set(), dicts)
+        seen_n = {}
+        for o in [obj] + dicts:
+            for fid, ref in list(o.items()):
+                if str(fid).startswith("nextItemId"):
+                    continue
+                _si, val = sval(ref)
+                cand = sorted((e for e in mine if val == e["old"]
+                               and e.get("field", fid) == fid),
+                              key=lambda e: e.get("_off", 0))
+                if cand:
+                    # rows repeat a field: the n-th row with this value
+                    # takes the n-th entry, in record order
+                    n = seen_n.get((fid, val), 0)
+                    seen_n[(fid, val)] = n + 1
+                    cand = [cand[min(n, len(cand) - 1)]]
+                for e in cand:
+                    if True:
+                        tok = f"AEITEM{len(tokens)}HOLD"
+                        tokens[tok] = padded[id(e)]
+                        d.append(tok)
+                        d.append({"type": d[ref]["type"], "value": len(d) - 1})
+                        o[fid] = len(d) - 1
+                        break
+    if not tokens:
+        return t
+    body = json.dumps(d, ensure_ascii=False, separators=(",", ":"))
+    for tok, new in tokens.items():
+        held.append(json.dumps(new, ensure_ascii=False)[1:-1])
+        body = body.replace('"' + tok + '"',
+                            '"' + _seal_mark("I", len(held) - 1) + '"')
+    return t[:m.start(2)] + body + t[m.end(2):]
+
+
+def _hold_item_nodes(t, page, items, titles, padded, nodes=()):
+    """Replace this page's text nodes showing an item's own value with
+    placeholders (restored after every other pass, so no pair touches
+    them). Returns (text, held)."""
+    held = []
+    marks = {}
+    for e in nodes:
+        for m in re.finditer(">" + re.escape(e["old"]) + "<", t):
+            marks[(m.start() + 1, m.end() - 1)] = e["new"]
+    if not items and not marks:
+        return t, held
+    t = _hold_handover(t, items, padded, held, titles)
+    spots = {s: [m.start() for m in re.finditer(re.escape(ti), t)]
+             for s, ti in titles.items() if ti}
+    own = next((s for s in titles if page.rsplit(".", 1)[0].endswith(s)),
+               None)
+    first_other = min([p for s, ps in spots.items() if s != own for p in ps]
+                      or [len(t)])
+    groups = {}
+    for e in items:
+        if id(e) in padded:
+            groups.setdefault((e["item"], e["old"]), []).append(e)
+    for (slug, old), es in groups.items():
+        found = []
+        for m in re.finditer(">" + re.escape(old) + "<", t):
+            at = m.start()
+            if own == slug:
+                ok = at < first_other - 2500
+            elif own:
+                ok = False
+            else:
+                best = min(((abs(p - at), s) for s, ps in spots.items()
+                            for p in ps), default=(10 ** 9, None))
+                ok = best[1] == slug and best[0] < 3000
+            if ok:
+                found.append((m.start() + 1, m.end() - 1))
+        if not found:
+            continue
+        es = sorted(es, key=lambda e: e.get("_off", 0))
+        if len({e["new"] for e in es}) == 1:
+            for a, b in found:
+                marks[(a, b)] = padded[id(es[0])]
+            continue
+        # one value in two fields of one item ("Templates" as a stat label
+        # and as a delivery row): the page shows the fields in record
+        # order, each as a run of breakpoint copies — map runs to fields.
+        runs = [[found[0]]]
+        for a, b in found[1:]:
+            if a - runs[-1][-1][0] > 10000:
+                runs.append([])
+            runs[-1].append((a, b))
+        if len(runs) == 1 and own != slug:
+            runs, es = runs, es[:1]  # a card shows the item's lead field
+        if len(runs) != len(es):
+            print(f"  WARNING {page}: {old!r} of {slug} shows {len(runs)} "
+                  f"time(s) for {len(es)} field(s) — left as it is")
+            continue
+        for run, e in zip(runs, es):
+            for a, b in run:
+                marks[(a, b)] = padded[id(e)]
+    for (a, b), new in sorted(marks.items(), reverse=True):
+        held.append(new)
+        t = t[:a] + _seal_mark("I", len(held) - 1) + t[b:]
+    return t, held
+
+
 def _regen_word_runs(t, pairs, stats=None):
     """Rebuild each word-animated heading from its whole line's new text,
     cloning the word span, so the page spells what the code renders
@@ -1100,7 +1402,7 @@ def _regen_word_runs(t, pairs, stats=None):
                            "</span>" for w in p["new"].split())
         out.append(t[pos:m.start()])
         held.append(rebuilt)
-        out.append(f"\x00W{len(held) - 1}\x00")
+        out.append(_seal_mark("W", len(held) - 1))
         pos = m.end()
         if stats is not None:
             stats[p["old"]] = stats.get(p["old"], 0) + 1
@@ -1434,7 +1736,7 @@ def _cms_localize_pairs(cfg, cms_blobs, existing):
     locked, and a shorter replacement shifts every offset after it.
 
     So they go through the pair machinery instead, which already knows
-    how to hold the lock — fragment padding (#000…), never spaces, since
+    how to hold the lock — fragment padding (#a000…), never spaces, since
     the CMS stores a url and its ?query contiguously and a space lands
     mid-url. The padded form then goes into pages, chunks AND the blob
     identically, which is what hydration equality requires.
@@ -1461,12 +1763,21 @@ def _cms_localize_pairs(cfg, cms_blobs, existing):
             # _localize_refs, and the check will still report the blob.
             continue
         out.append({"old": url,
-                    "new": new + ("#" + "0" * (pad - 1) if pad else ""),
+                    "new": new + (_frag_pad(pad) if pad else ""),
                     "scope": "all", "in_cms": True, "flex": False})
     if out:
         log(f"CMS: localizing {len(out)} platform url(s) inside byte-locked "
             f"CMS data")
     return out
+
+
+def _frag_pad(n):
+    """n bytes of URL padding: a fragment, never sent to the server. It
+    starts with a letter: Framer hands a link's hash to querySelector, and
+    "#000…" is not a valid selector (a console error on every page)."""
+    if n <= 0:
+        return ""
+    return "#" if n == 1 else "#a" + "0" * (n - 2)
 
 
 def _pairs_from_map(root: Path, cms_blobs):
@@ -1499,6 +1810,8 @@ def _pairs_from_map(root: Path, cms_blobs):
         old, new = entry["old"], entry.get("new", "")
         if old in frag and id(entry) in strings:
             continue
+        if entry.get("node"):
+            continue               # a whole text node only — see _node_*
         if old in derived and (not new or new == old):
             new = derived[old]
         if not new or new == old:
@@ -1581,7 +1894,7 @@ def _pairs_from_map(root: Path, cms_blobs):
                     # url and its ?query contiguously — padding lands MID-
                     # url). A #fragment is never sent to the server, so it
                     # pads to exact byte length without breaking the fetch.
-                    new = new + "#" + "0" * (pad - 1)
+                    new = new + _frag_pad(pad)
                 else:
                     new = new + " " * pad
         pairs.append({"old": old, "new": new, "brand": old.lower() in brand,
@@ -2529,6 +2842,9 @@ def cmd_build(_args):
         if cms_src.exists() else []
     pairs = _pairs_from_map(root, cms_blobs)
     pairs += _cms_localize_pairs(cfg, cms_blobs, pairs)
+    items, item_patches, item_titles, item_padded = _item_plan(
+        root, _copy_map(root))
+    nodes = _node_entries(_copy_map(root))
 
     # CAN'T-FAIL local images in CMS slots: a local asset whose path is
     # longer than a byte-locked slot can't fit — so build ships a SHORT
@@ -2548,7 +2864,7 @@ def cmd_build(_args):
             pad = len(p["old"].encode()) - len(alias.encode())
             if pad >= 0:
                 alias_files.append((alias, newp))
-                p["new"] = alias + ("#" + "0" * (pad - 1) if pad else "")
+                p["new"] = alias + (_frag_pad(pad) if pad else "")
                 p["in_cms"] = True
                 log(f"NOTE: {newp} is longer than its CMS slot — shipped "
                     f"as short alias {alias}")
@@ -2603,7 +2919,7 @@ def cmd_build(_args):
             if v in _existing:
                 continue
             # SAME budget rules as _pairs_from_map: a variant living in
-            # a CMS blob is byte-locked. Fragment-pad URLs (#000… — never
+            # a CMS blob is byte-locked. Fragment-pad URLs (#a000… — never
             # sent to the server); if the new path simply doesn't fit,
             # SKIP that variant gracefully (auto-generated pairs must
             # never crash a build) — the report still shows the swap.
@@ -2617,7 +2933,7 @@ def cmd_build(_args):
                         "the new image shorter to cover it)")
                     continue
                 if pad:
-                    v_new = v_new + "#" + "0" * (pad - 1)
+                    v_new = v_new + _frag_pad(pad)
             _existing.add(v)
             _img_extra.append({"old": v, "new": v_new, "scope": "all",
                                "in_cms": v_cms, "flex": False})
@@ -2789,6 +3105,8 @@ def cmd_build(_args):
                    r'src="[^"]*licence-management\.js[^"]*")[^>]*>\s*</script>\n?',
                    "", t)
         t = t.replace("</head>", hide_css + "\n</head>")
+        t, iheld = _hold_item_nodes(t, page, items, item_titles,
+                                    item_padded, nodes)
         t, held = _regen_word_runs(t, pairs, stats=stats)
         t = _apply(t, pairs, escaped=True, stats=stats)
         t = _localize_refs(t, cfg.get("localized", {}))
@@ -2796,8 +3114,11 @@ def cmd_build(_args):
         t = _inject_link_routes(t, cfg, pairs)
         t, n_regen = _regen_split_runs(t, pairs, stats=stats)
         if held:
-            t = re.sub(r"\x00W(\d+)\x00", lambda m: held[int(m.group(1))], t)
+            t = _unseal_marks(t, "W", held)
             n_regen += len(held)
+        if iheld:
+            t = _unseal_marks(t, "I", iheld)
+            log(f"{page}: {len(iheld)} item value(s) set")
         if n_regen:
             log(f"{page}: {n_regen} split-text run(s) regenerated "
                 "(animation preserved)")
@@ -2932,6 +3253,7 @@ def cmd_build(_args):
             # Ship them as name.1.2.3.js instead (copy is renamed below)
             t = re.sub(r"\.js@([0-9.]+)", r".\1.js", t)
             t = _apply(t, pairs, stats=stats, code=True)
+            t = _node_chunk(t, nodes)
             t = _localize_refs(t, cfg.get("localized", {}))
             (cdir / p.name).write_text(t, encoding="utf-8")
             n_patched += t != orig
@@ -2997,6 +3319,11 @@ def cmd_build(_args):
             for frx, frepl, forig in flex_subs:  # per-occurrence padding
                 data, k = frx.subn(frepl, data)
                 stats[forig] = stats.get(forig, 0) + k
+            if item_patches.get(p.name):
+                data = bytearray(data)
+                for o, pad in item_patches[p.name]:
+                    data[o:o + len(pad)] = pad
+                data = bytes(data)
             assert len(data) == p.stat().st_size, f"size drift in {p.name}"
             (mdir / p.name).write_bytes(data)
         log(f"CMS: {len(list(cms_src.glob('*.framercms')))} binaries patched")
@@ -3905,13 +4232,13 @@ def _inject_link_routes(t: str, cfg: dict, pairs=()) -> str:
     The same listener carries links the copy map points at a page of the
     owner's own that is NOT a template route ("mailto:..." -> "/start"):
     Framer's router swallowed those clicks and the visitor went nowhere.
-    It loads the page, without the "#000" a byte-locked slot pads with."""
+    It loads the page, without the "#a000" a byte-locked slot pads with."""
     clean = {str(k).strip().lstrip("./").rstrip("/"): str(v)
              for k, v in (cfg.get("link_routes") or {}).items()}
     if cfg.get("platform") == "framer":
         known = {str(r).strip("/") for r in (cfg.get("routes") or {})}
         for pr in pairs:
-            dest = re.sub(r"#0+$", "", str(pr.get("new") or "").strip())
+            dest = re.sub(r"#a?0+$", "", str(pr.get("new") or "").strip())
             if not dest.startswith("/") or dest.startswith("//"):
                 continue
             key = dest.lstrip("/").split("#")[0].split("?")[0].rstrip("/")

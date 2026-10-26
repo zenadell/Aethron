@@ -6389,6 +6389,35 @@ you → review) sent with Netlify Forms (form "start-project"); a failed
 send offers the same brief by email. Every mailto on the site now opens it;
 "Jomiez" links go to jomiez.com. engine battery 36 -> 39.
 
+## ONE CMS ITEM, ITS OWN NUMBERS — copy_map["items"] — 2026-10-26
+temple: every page of the website still carried template facts. The project
+pages were the hard part: each project's stats ("9 Drops since launch"),
+delivery rows and credits live in ONE CMS record per item, and the same "9"
+or "1" serves several items, so a string fill changed all of them at once.
+copy_map["items"]: {item: <slug>, field?: <fid>, old, new}. Build:
+- patches the item's own record in the chunk blob (byte-locked, padded)
+  and the index blob entries that point into it (listing cards read those);
+- on the item's page and on listings (nearest title decides the card),
+  replaces the text nodes showing that item's value, held behind
+  private-use seal marks until every other pass is done;
+- rewrites the page's framer/handover JSON: hydration redraws the cards
+  from it, and its strings are de-duplicated across items, so the item gets
+  its own copy of each changed value and only its field is repointed.
+  An item's own page carries no slug of its own (only "nextItemId.*", the
+  NEXT item's), so items are also known by their original title, and
+  next-item fields are never touched. Repeated rows take the n-th entry.
+"node": true on a strings entry changes a whole text node and the matching
+component prop in chunks, never CSS (a bare "6" fill is otherwise refused).
+TWO BUGS ON THE WAY: (1) the held-text marker "\x00W1\x00" was itself
+matched by a fill ("W1"->"1m") and blanked the closing headline on two
+pages: markers are now private-use characters no fill can spell; (2) the
+URL padding "#000…" made Framer call querySelector("#000…"), an invalid
+selector, logging an error on EVERY page: padding is now "#a000…"
+(_frag_pad; preview rebase reads both).
+Site: 6 project pages with real migration numbers, quote roles, alt text,
+gallery albums, and the arc banner on every page now shows app screens.
+All 27 routes + /start: 0 console errors, 0 failed requests, 0 dead images.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

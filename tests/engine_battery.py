@@ -213,7 +213,7 @@ page = (proj / "pristine" / "index.html").read_text(encoding="utf-8")
 t, held = F._regen_word_runs(page, pairs)
 t = F._apply(t, pairs, escaped=True)
 for i, run in enumerate(held):
-    t = t.replace(f"\x00W{i}\x00", run)
+    t = t.replace(F._seal_mark("W", i), run)
 ck("the page rebuilds each heading word by word from its new line",
    " ".join(W.format(w) for w in "Engineering software that scales".split())
    in t and " ".join(W.format(w) for w in "Over our decades".split()) in t,
@@ -283,6 +283,50 @@ _m = re.search(r"\}\)\((\{.*?\})\);", _t)
 _R = _json.loads(_m.group(1)) if _m else {}
 ck("a link to a page outside the template is loaded, without its padding",
    _R == {"start": "/start"}, _t[-200:])
+
+# ── one project's own numbers (2026-10-26, the aethron-web site) ────────
+# Every project card carried the template's "40 cuts", "28% view-through".
+# "9" sits in three projects and a bare number also matches code, so a
+# plain pair cannot set one project's stat. copy_map["items"] can.
+def _f(fid, v):
+    v = v.encode()
+    return b"\x00\x00\x00\t" + fid.encode() + b"\x0c\x00\x00\x00" + bytes([len(v)]) + v
+def _rec(rid, title, slug, *fields):
+    return (b"\x00\x00\x00\x02id\x0c\x00\x00\x00\t" + rid.encode()
+            + b"\x00\x00\x00\tcreatedAt\x04" + b"\x00" * 8
+            + _f("TitleFld1", title) + _f("SlugFld01", slug)
+            + b"".join(_f(a, b) for a, b in fields))
+_pr = _P(_tf.mkdtemp()); (_pr / "pristine/cms").mkdir(parents=True)
+_blob = (_rec("RecAAAAA1", "Alpha Job", "alpha-job", ("StatFld01", "9"), ("StatLab01", "Drops"))
+         + _rec("RecBBBBB2", "Beta Job", "beta-job", ("StatFld01", "9"), ("StatLab01", "Drops")))
+(_pr / "pristine/cms/X-chunk-default-0.framercms").write_bytes(_blob)
+_cm = {"strings": [], "items": [{"item": "beta-job", "field": "StatFld01", "old": "9", "new": "5"},
+                                {"item": "beta-job", "old": "Drops", "new": "Pages"}]}
+_it, _pa, _ti, _pd = F._item_plan(_pr, _cm)
+_out = bytearray(_blob)
+for _o, _pad in _pa["X-chunk-default-0.framercms"]:
+    _out[_o:_o + len(_pad)] = _pad
+ck("an item value changes in that item's record only, byte for byte",
+   len(_out) == len(_blob) and bytes(_out).count(_f("StatFld01", "5")) == 1
+   and bytes(_out).index(_f("StatFld01", "5")) > bytes(_out).index(b"beta-job")
+   and bytes(_out).count(_f("StatLab01", "Pages")) == 1, bytes(_out))
+_page = ("<p>Alpha Job</p><b>9</b><i>Drops</i>" + "x" * 4000 +
+         "<b>9</b><i>Drops</i><p>Beta Job</p><svg><path d=\"M9 6\"/></svg>")
+_h, _held = F._hold_item_nodes(_page, "work.html", _it, _ti, _pd)
+_h = F._unseal_marks(_h, "I", _held)
+ck("a held heading survives a fill whose old looks like the marker",
+   F._apply(F._seal_mark("W", 1) + " W1", [pair("W1", "1m")])
+   == F._seal_mark("W", 1) + " 1m")
+ck("on a listing, only the card nearest that item's title changes",
+   _h.count("<b>9</b>") == 1 and _h.count("<b>5</b>") == 1
+   and _h.index("<b>5</b>") > 4000 and 'd="M9 6"' in _h, _h[-120:])
+_sh.rmtree(_pr, ignore_errors=True)
+_n = F._node_entries({"strings": [{"old": "92%", "new": "5", "node": True}]})
+_c = F._node_chunk("hXpXGYb5L:`92%`,height:`92%`,transform:`92%`", _n)
+_h, _held = F._hold_item_nodes("<p>92%</p><div style=\"width:92%\">", "a.html", [], {}, {}, _n)
+ck("a whole-node number fill changes the text and the prop, never CSS",
+   _c == "hXpXGYb5L:`5`,height:`92%`,transform:`92%`"
+   and _held == ["5"] and "width:92%" in _h, (_c, _h))
 
 bad = [n for n, ok in checks if not ok]
 print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
