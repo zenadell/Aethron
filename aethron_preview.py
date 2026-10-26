@@ -598,8 +598,8 @@ def _rebase_assets(out: Path, base: str) -> int:
                     return m.group(0)  # browser check will name it
                 left = pad - add
                 return (base.encode() + m.group(1)
-                        + (b"#" + b"0" * (left - 1) if left else b""))
-            nb = re.sub(rb"(/assets/r/[\w.@-]+(?:\?[\w=&.%-]*)?)((?:#0*)?)",
+                        + (b"#" if left == 1 else b"#a" + b"0" * (left - 2) if left else b""))
+            nb = re.sub(rb"(/assets/r/[\w.@-]+(?:\?[\w=&.%-]*)?)((?:#a?0*)?)",
                         fit, b)
             if nb != b:
                 assert len(nb) == len(b), "CMS length changed"
