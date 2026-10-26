@@ -2157,7 +2157,7 @@
   },
   {
    "old": "Apparel",
-   "new": "Webflow",
+   "new": "Agency",
    "max_bytes": 7,
    "scope": "all",
    "where": [
@@ -2167,7 +2167,7 @@
   },
   {
    "old": "40",
-   "new": "6",
+   "new": "",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -2247,7 +2247,7 @@
   },
   {
    "old": "Beauty",
-   "new": "Framer",
+   "new": "Folio",
    "max_bytes": 6,
    "scope": "all",
    "where": [
@@ -2257,7 +2257,7 @@
   },
   {
    "old": "28%",
-   "new": "9",
+   "new": "",
    "max_bytes": 3,
    "scope": "all",
    "where": [
@@ -2327,7 +2327,7 @@
   },
   {
    "old": "Footwear",
-   "new": "Folio",
+   "new": "Framer",
    "max_bytes": 8,
    "scope": "all",
    "where": [
@@ -2417,7 +2417,7 @@
   },
   {
    "old": "Food & Beverage",
-   "new": "Agent run",
+   "new": "Webflow",
    "max_bytes": 15,
    "scope": "all",
    "where": [
@@ -2427,7 +2427,7 @@
   },
   {
    "old": "18",
-   "new": "0",
+   "new": "",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -2567,7 +2567,7 @@
   },
   {
    "old": "14",
-   "new": "18",
+   "new": "",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -11576,7 +11576,7 @@
   },
   {
    "old": "24",
-   "new": "6",
+   "new": "",
    "max_bytes": 2,
    "scope": "all",
    "where": [
@@ -12854,7 +12854,7 @@
   },
   {
    "old": "120",
-   "new": "100",
+   "new": "",
    "max_bytes": 3,
    "scope": "all",
    "where": [
@@ -13665,7 +13665,7 @@
   },
   {
    "old": "100%",
-   "new": "0",
+   "new": "",
    "max_bytes": 4,
    "scope": "all",
    "where": [
@@ -15954,7 +15954,7 @@
   },
   {
    "old": "92%",
-   "new": "6",
+   "new": "",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -21065,11 +21065,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/3xSrY2voQVJTPAuS7WALQ430JOs.jpg",
-   "new": "/assets/cov-nexmind.jpg"
+   "new": "/assets/cov-lesmana.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/3xSrY2voQVJTPAuS7WALQ430JOs.jpg?width=1200&amp;height=1800",
-   "new": "/assets/cov-nexmind.jpg"
+   "new": "/assets/cov-lesmana.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/4HIs2cERYPnGr3ApWXkHFggyK1I.jpg",
@@ -21097,11 +21097,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/5km3V9PHcVFrSRhLgrlkCxAykM.jpg",
-   "new": "/assets/cov-flowtive.jpg"
+   "new": "/assets/cov-cyntra.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/5km3V9PHcVFrSRhLgrlkCxAykM.jpg?width=1200&amp;height=1800",
-   "new": "/assets/cov-flowtive.jpg"
+   "new": "/assets/cov-cyntra.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/6NTGs59vF2bxMD8uAPCP8y7U.png",
@@ -21193,11 +21193,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/CNHD8AFHqnUvOTRrN4eOysiJZU.jpg",
-   "new": "/assets/cov-agero.jpg"
+   "new": "/assets/cov-lewius.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/CNHD8AFHqnUvOTRrN4eOysiJZU.jpg?width=2400&amp;height=3000",
-   "new": "/assets/cov-agero.jpg"
+   "new": "/assets/cov-lewius.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/Cn1llk5aCMQGLsRRQHjytsDk4Yw.jpg",
@@ -21281,11 +21281,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/EaB84O4rDAeDgxTDK5t6zmTOXYA.jpg",
-   "new": "/assets/cov-lewius.jpg"
+   "new": "/assets/cov-developflow.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/EaB84O4rDAeDgxTDK5t6zmTOXYA.jpg?width=1200&amp;height=1800",
-   "new": "/assets/cov-lewius.jpg"
+   "new": "/assets/cov-developflow.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/EnsML8oqsJokjh5ZkT9MY9xYU1E.jpg",
@@ -21517,11 +21517,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/M9DSutOgZRGphNA6LfFh5z8.jpg",
-   "new": "/assets/cov-cyntra.jpg"
+   "new": "/assets/cov-agero.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/M9DSutOgZRGphNA6LfFh5z8.jpg?width=1200&amp;height=1800",
-   "new": "/assets/cov-cyntra.jpg"
+   "new": "/assets/cov-agero.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/Mgm5uuI0ouoaE3FF0g4tONc6Sfc.jpg",
@@ -22029,11 +22029,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/nvskXNrtrV6AZ0USp4fiu6odA.jpg",
-   "new": ""
+   "new": "/assets/cov-nexmind.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/nvskXNrtrV6AZ0USp4fiu6odA.jpg?width=1200&amp;height=1800",
-   "new": ""
+   "new": "/assets/cov-nexmind.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/nxfJiLCajWUHhllEvCj7H6PNgc.png",
@@ -22053,11 +22053,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/oGl80lviM2FwlvBH2WFAUdfkA.jpg",
-   "new": "/assets/cov-lesmana.jpg"
+   "new": "/assets/cov-flowtive.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/oGl80lviM2FwlvBH2WFAUdfkA.jpg?width=2400&amp;height=1266",
-   "new": "/assets/cov-lesmana.jpg"
+   "new": "/assets/cov-flowtive.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/oMxes2HgqsrRKpSO1Ahz025oquc.jpg",

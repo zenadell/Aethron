@@ -6350,6 +6350,23 @@ lowered to 100k (at 1M the engine now, correctly, compacts first).
 NOT INSPECTED: temple's own transcript (their Mac folder can't be opened
 from the cloud session); the cause is reproduced, not read off their run.
 
+## A NUMBER FILL BROKE THE SITE'S CODE — 2026-10-21
+temple: project pages squashed to a 64px strip after clicking into them,
+the Menu misbehaving, icons gone. Caused by fills on bare numbers in the
+migrated site's copy map: "100%" -> "0" rewrote every width:100% in
+Framer's chunks (only seen on client navigation; a reload looked fine),
+and "18"/"40" -> "0" rewrote SVG path data ("Expected number" in the
+console). A number in a template is far more often code than copy.
+FIXED: build SKIPS a whole-string entry that is only a number (with an
+optional unit) and says so — numbers change inside a longer line; and a
+number pair never lands inside another number (118, 1.18, 18.5 stay).
+Site: covers now follow each CMS item's real image URL (items share
+images, so mapping by order shifted them by one); hides of
+"Stats"/"Results" are scoped by ancestor (the same names exist on home
+and services); `keep_routes` keeps Framer route hrefs as-is on
+multi-route sites. Checked: all 27 pages 0 errors, 0 template words,
+client-nav full width, Menu at 2000/1440/390. engine battery 35 -> 36.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6610,6 +6627,8 @@ from the cloud session); the cause is reproduced, not read off their run.
 - A LIMIT THE PERSON SETS IS THEIRS. 0 means Unlimited, and Unlimited is
   honoured everywhere; only the provider's own credit cannot be overridden,
   and its refusal is shown in its own words.
+- A BARE NUMBER IS CODE UNTIL PROVEN COPY. Never fill a line that is only
+  a number; change it inside its sentence.
 - THE ENGINE IS TOLD WHAT EVERY REQUEST COST IN TOKENS. A conversation
   whose size is never reported is never trimmed, and grows until the
   provider refuses it.

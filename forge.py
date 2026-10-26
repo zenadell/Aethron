@@ -1503,6 +1503,16 @@ def _pairs_from_map(root: Path, cms_blobs):
             new = derived[old]
         if not new or new == old:
             continue
+        # A BARE NUMBER IS NOT COPY. "100%" -> "0" rewrote every
+        # width:100% in the runtime (pages collapsed to 64px), "18" -> "0"
+        # rewrote SVG path data. The same characters are code everywhere
+        # around the one place they were meant. Give such a line more
+        # context ("100% match") or leave it.
+        if re.fullmatch(r"[\d.,]+\s*(?:%|px|em|rem|vh|vw|s|ms)?",
+                        old.strip()) and entry in cm["strings"]:
+            print(f"  SKIPPED bare number {old!r} -> {new!r}: a number "
+                  "alone also matches code; fill a longer line instead")
+            continue
         if "`" in new or "${" in new:
             die(f"'new' for {old[:40]!r} contains ` or ${{ — forbidden "
                 "(these strings land inside JS template literals)")
@@ -1634,6 +1644,18 @@ def _rx(pairs, escaped, also_escaped=False):
     return (re.compile("|".join(parts)) if parts else None), lookup
 
 
+def _num_guard(old, pat):
+    """A NUMBER IS NOT A WORD. \\b lets "18" match inside "18.808", so a
+    counter fill rewrote SVG path data and CSS values. A pair starting or
+    ending with a digit never touches a digit, or a decimal point next to
+    one, on that side."""
+    if old[:1].isdigit():
+        pat = r"(?<![\d.])" + pat
+    if old[-1:].isdigit():
+        pat = pat + r"(?!\.?\d)"
+    return pat
+
+
 def _register(parts, lookup, old, new, p, escaped):
     """Add one spelling of a pair to the alternation."""
     if escaped:
@@ -1641,7 +1663,7 @@ def _register(parts, lookup, old, new, p, escaped):
         new = html_mod.escape(new, quote=False)
     if old in lookup:
         return
-    pat = re.escape(old)
+    pat = _num_guard(old, re.escape(old))
     if re.fullmatch(r"\w+", old, re.A):
         pat = rf"\b{pat}\b"
     parts.append(pat)
@@ -2674,7 +2696,12 @@ def cmd_build(_args):
         for host in cfg.get("own_hosts", []):
             t = re.sub(rf'href="https?://{re.escape(host)}'
                        r'(?P<p>/[^"#?]*|)(?P<t>[^"]*)"', _localize, t)
-        if len(routes) > 1:
+        # cfg["keep_routes"]: the host rewrites every route to its file
+        # (Netlify _redirects, Render routes), so links keep the template's
+        # own spelling. Framer's router keys its page tree on that
+        # spelling; a localized "/x-y.html" href rendered the next page
+        # through the wrong route, with its content column 64px wide.
+        if len(routes) > 1 and not cfg.get("keep_routes"):
             t = re.sub(r'href="(?P<p>/[^"#?]*)(?P<t>[^"]*)"', _localize, t)
             # framer-style relative routes (./about) — only rewritten
             # when the page actually exists locally, so single-page SPA
@@ -2895,7 +2922,7 @@ def cmd_build(_args):
             old_b = pr["old"].encode()
             if old_b in blookup:
                 continue
-            pat = re.escape(old_b)
+            pat = _num_guard(pr["old"], re.escape(pr["old"])).encode()
             if re.fullmatch(r"\w+", pr["old"], re.A):
                 pat = rb"\b" + pat + rb"\b"
             bparts.append(pat)
