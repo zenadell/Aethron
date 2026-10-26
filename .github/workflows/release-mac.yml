@@ -11,6 +11,11 @@ name: Release Aethron for Mac
 on:
   push:
     branches: [main]
+    # The website is not part of the app: a push that only touches it
+    # deploys on Netlify and does not cut a Mac release.
+    paths-ignore:
+      - "projects/aethron-web/**"
+      - "render.website.yaml"
   workflow_dispatch:
 
 concurrency:
