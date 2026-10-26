@@ -14,9 +14,11 @@ services:
     domains:
       - aethron.jomiez.com
     headers:
+      # Builds rewrite chunks in place (stamped ?v=), so a browser must ask
+      # again rather than run last week's copy.
       - path: /assets/*
         name: Cache-Control
-        value: public, max-age=604800
+        value: public, max-age=0, must-revalidate
     # Rules never apply where a file exists, so the last one is a fallback.
     # One rewrite per template page (generated from forge.json routes).
     routes:
@@ -29,6 +31,12 @@ services:
       - type: rewrite
         source: /download/mac
         destination: /download/mac/index.html
+      - type: rewrite
+        source: /start
+        destination: /start/index.html
+      - type: rewrite
+        source: /jomiez
+        destination: /jomiez/index.html
       - type: rewrite
         source: /blog/assets/*
         destination: /assets/*
