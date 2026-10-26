@@ -69,19 +69,48 @@ start = pathlib.Path("start.html").read_text()
 (site / "start" / "index.html").write_text(start)
 (site / "start.html").write_text(start)
 
+# /jomiez: a page about Jomiez, the team that makes Aethron, with a way out
+# to jomiez.com. Every "Jomiez" link on the template points here.
+jz = pathlib.Path("jomiez.html").read_text()
+(site / "jomiez").mkdir(exist_ok=True)
+(site / "jomiez" / "index.html").write_text(jz)
+(site / "jomiez.html").write_text(jz)
+
 # "Jomiez" (footer credit, socials) shares one CMS link value with the
 # template's email links, so the copy map cannot send it elsewhere. Clicks
-# on it go to jomiez.com; the href is set on hover so the status bar shows it.
+# on it open /jomiez (our page about Jomiez); the href is set as soon as the
+# pointer arrives so the status bar shows it.
 JOMIEZ = """<script>(function(){function j(e){var a=e.target.closest&&e.target.closest('a');
 if(!a||a.textContent.trim()!=='Jomiez')return null;return a}
-window.addEventListener('mouseover',function(e){var a=j(e);if(a)a.setAttribute('href','https://jomiez.com')},true);
+window.addEventListener('mouseover',function(e){var a=j(e);if(a)a.setAttribute('href','/jomiez')},true);
 window.addEventListener('click',function(e){var a=j(e);if(!a)return;e.preventDefault();e.stopImmediatePropagation();
-window.open('https://jomiez.com','_blank','noopener')},true)})()</script>"""
+location.href='/jomiez'},true)})()</script>"""
 n = 0
 for f in site.glob("*.html"):
-    if f.name in ("start.html", "download.html"):
+    if f.name in ("start.html", "download.html", "jomiez.html"):
         continue
     t = f.read_text()
-    if "</body>" in t and "jomiez.com','_blank'" not in t:
+    if "</body>" in t and "location.href='/jomiez'" not in t:
         f.write_text(t.replace("</body>", JOMIEZ + "</body>", 1)); n += 1
-print(f"/start written; Jomiez link fixed on {n} pages")
+print(f"/start and /jomiez written; Jomiez link fixed on {n} pages")
+
+# Screens are shown whole, never zoomed in: every app or site screenshot we
+# own is drawn with object-fit:contain, and the space a frame leaves around
+# it is painted the screenshot's own edge colour (fit_edges.json), so it
+# reads as one picture. Project covers are long page captures and keep
+# cover, anchored to the top so the hero shows.
+import json as _json
+_edges = _json.loads(pathlib.Path("fit_edges.json").read_text())
+FIT = "".join(
+    f'img[src*="/assets/{n}."]{{object-fit:contain!important;background-color:{c}!important}}'
+    for n, c in sorted(_edges.items()))
+FIT += 'img[src*="/assets/cov-"]{object-position:50% 0!important}'
+FIT = f'<style data-ae-fit>{FIT}</style>'
+m = 0
+for f in site.glob("*.html"):
+    if f.name in ("start.html", "download.html", "jomiez.html"):
+        continue
+    t = f.read_text()
+    if "data-ae-fit" not in t and "</head>" in t:
+        f.write_text(t.replace("</head>", FIT + "</head>", 1)); m += 1
+print(f"screens shown whole on {m} pages")

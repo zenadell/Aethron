@@ -19841,7 +19841,7 @@
   },
   {
    "old": "Book a scoping call or get product support. Every message goes to the people who can act on it.",
-   "new": "",
+   "new": "Get product support, report a bug or tell us what to build next. Every message goes to the people who can act on it.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19850,7 +19850,7 @@
   },
   {
    "old": "Visit our video studio in London.",
-   "new": "",
+   "new": "Made by Jomiez, an AI agency in Lagos.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19859,7 +19859,7 @@
   },
   {
    "old": "Five minutes from Shoreditch High Street station. Tell us you’re coming and the coffee is on us.",
-   "new": "",
+   "new": "We work remotely. Write to hello@jomiez.com and a person replies.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19868,7 +19868,7 @@
   },
   {
    "old": "What you are making, when it has to ship and roughly what you can spend. A link to a recent edit helps more than a long brief.",
-   "new": "",
+   "new": "The template or site link, what you expected and what happened. A screenshot helps more than a long note.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19877,7 +19877,7 @@
   },
   {
    "old": "Yes. The London studio is open for visits on weekdays, by appointment. Scoping calls over video are just as common.",
-   "new": "",
+   "new": "Not yet. Aethron is a Mac app today. Write to us if you need Windows and we will tell you when it is ready.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19886,7 +19886,7 @@
   },
   {
    "old": "Happily. Send yours with the first message, or ask for ours.",
-   "new": "",
+   "new": "Yes, if you bought it or have the designer’s permission. Aethron makes the site yours to edit; the template licence still applies.",
    "scope": "all",
    "where": [
     "chunks"
@@ -21242,11 +21242,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/DnqzP4I3ItDJflthQjN7aowjhhs.jpg",
-   "new": "/assets/g-dispatch.jpg"
+   "new": "/assets/shot-dispatch.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/DnqzP4I3ItDJflthQjN7aowjhhs.jpg?width=2400&amp;height=2400",
-   "new": "/assets/g-dispatch.jpg"
+   "new": "/assets/shot-dispatch.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/DtQBU6DaswtQmfaH2IgaHwV8PRA.jpg",
@@ -22238,7 +22238,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/v7YXBFgD6AjdLHE23ZI5mz5xo.jpg",
-   "new": "/assets/page-dispatch.jpg"
+   "new": "/assets/shot-dispatch-fan.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/v7YXBFgD6AjdLHE23ZI5mz5xo.jpg?width=2400&amp;height=2400",
