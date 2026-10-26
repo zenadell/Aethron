@@ -81,7 +81,9 @@
     "section#compare",
     "section#finder",
     "section[data-framer-name=\"Add-ons\"]",
-    "section[data-framer-name=\"Work\"]"
+    "section[data-framer-name=\"Work\"]",
+    "[data-framer-name=\"Project Poster\"] [data-framer-name=\"Stats\"]",
+    "[data-framer-name=\"Content\"] > [data-framer-name=\"Results\"]"
   ],
   "site_bases": [
     "https://framerusercontent.com/sites/58eFdirA6DfbOUPquuBAdT/"
@@ -96,5 +98,6 @@
     "https://framerusercontent.com/modules/V7YeUCqW9YqyejgiCRx3/9yGDxKnBwKDoy8ygKoRT/qk1JhmwIA.js",
     "https://framerusercontent.com/modules/wLC6GsDK3rNMN0EFq56j/Wx46o8eLWCN0H5K22RIf/HL_kIOdw0.js"
   ],
-  "icon_bases": []
+  "icon_bases": [],
+  "keep_routes": true
 }

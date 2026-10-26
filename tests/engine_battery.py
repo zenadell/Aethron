@@ -241,6 +241,13 @@ ck("a write to a heading word is refused, naming its heading",
 _sh.rmtree(home, ignore_errors=True)
 _sh.rmtree(proj, ignore_errors=True)
 
+# ── a number is not a word (2026-10-21, the aethron-web site) ────────────
+# A fill "18" -> "0" rewrote SVG path data ("M18 6") and broke every icon;
+# "100%" -> "0" rewrote width:100% across the chunks and squashed pages.
+out = F._apply('<p>118 and 1.18 and 18.5 and 18</p>', [pair("18", "40")])
+ck("a number fill never lands inside another number",
+   out == '<p>118 and 1.18 and 18.5 and 40</p>', out)
+
 bad = [n for n, ok in checks if not ok]
 print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
 sys.exit(1 if bad else 0)
