@@ -484,6 +484,11 @@ def mint_session(auth_result):
     if not user.get("id"):
         return None, ("could not resolve user", 401)
     user["plan"] = cloud.plan_of(user["token"], user["id"])
+    try:                                   # the MCP's plan check reads this
+        import aethron_access
+        aethron_access.record_plan(user["plan"], user["id"])
+    except Exception:
+        pass
     if not cloud.entitled(user["plan"]):
         cloud.track("login_blocked", token=user["token"], step="billing")
         return None, ("Your free beta access has ended — upgrade to Pro "
@@ -2204,6 +2209,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not user.get("id"):
                     return self.fail("could not resolve user", 401)
                 user["plan"] = cloud.plan_of(user["token"], user["id"])
+                try:                                   # the MCP's plan check reads this
+                    import aethron_access
+                    aethron_access.record_plan(user["plan"], user["id"])
+                except Exception:
+                    pass
                 if not cloud.entitled(user["plan"]):
                     cloud.track("login_blocked", token=user["token"],
                                 step="billing")
@@ -3481,6 +3491,11 @@ class Handler(BaseHTTPRequestHandler):
             # signup with email-confirmation on: no session yet
             return self.send_json({"ok": True, "confirm": True})
         user["plan"] = cloud.plan_of(user["token"], user["id"])
+        try:                                   # the MCP's plan check reads this
+            import aethron_access
+            aethron_access.record_plan(user["plan"], user["id"])
+        except Exception:
+            pass
         if not cloud.entitled(user["plan"]):
             cloud.track("login_blocked", token=user["token"], step="billing")
             return self.fail("Your free beta access has ended — upgrade "

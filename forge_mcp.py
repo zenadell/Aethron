@@ -1892,6 +1892,22 @@ def send(obj):
     sys.stdout.flush()
 
 
+# The MCP is part of Studio. Only the stdio server an outside coding agent
+# starts is checked (the HTTP server is run by us, behind its own tokens).
+# The answer is kept for a few minutes so a migration's many calls do not
+# each ask the account.
+GATED = False
+_ACCESS = {"at": 0.0, "v": (True, "")}
+
+
+def _access():
+    if time.time() - _ACCESS["at"] > 300:
+        import aethron_access
+        _ACCESS["v"] = aethron_access.mcp_access()
+        _ACCESS["at"] = time.time()
+    return _ACCESS["v"]
+
+
 def dispatch(msg, run=None):
     """One JSON-RPC message in, its reply out (None for a notification).
     The same answers whether the message came over stdio or HTTP. `run`
@@ -1915,6 +1931,11 @@ def dispatch(msg, run=None):
         name = params.get("name", "")
         args = params.get("arguments") or {}
         t0 = time.time()
+        if GATED:
+            allowed, why = _access()
+            if not allowed:
+                return ok({"content": [{"type": "text", "text": why}],
+                           "isError": True})
         try:
             if name not in HANDLERS:
                 raise ValueError(f"unknown tool {name!r}")
@@ -1948,6 +1969,8 @@ def dispatch(msg, run=None):
 
 
 def main():
+    global GATED
+    GATED = True
     import aethron_runlog as RL
     run = RL.Session("stdio")
     for line in sys.stdin:

@@ -38,6 +38,9 @@ services:
         source: /jomiez
         destination: /jomiez/index.html
       - type: rewrite
+        source: /docs
+        destination: /docs/index.html
+      - type: rewrite
         source: /blog/assets/*
         destination: /assets/*
       - type: rewrite

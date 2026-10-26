@@ -6418,6 +6418,25 @@ Site: 6 project pages with real migration numbers, quote roles, alt text,
 gallery albums, and the arc banner on every page now shows app screens.
 All 27 routes + /start: 0 console errors, 0 failed requests, 0 dead images.
 
+## MCP DOCS + THE STUDIO LOCK (switched off) — 2026-10-26
+Owner: the MCP is for the Studio plan ($49). `/docs` on the website
+(projects/aethron-web/docs.html, written by post_build) shows how to connect
+`/Applications/Aethron.app/Contents/MacOS/Aethron --mcp` to Claude Code,
+Claude Desktop, Codex, Gemini CLI, Antigravity, Cursor, Windsurf, VS Code
+and any stdio client, plus the 46 tools, the usual flow and the rules.
+The docs are public; access is locked in the app. aethron_access.mcp_access()
+is checked by forge_mcp on every tools/call of the STDIO server only (the
+HTTP server is ours, behind tokens):
+  * AETHRON_ENFORCE_BILLING unset (today) -> open to everyone;
+  * the app's own agent -> always (aethron_code passes AETHRON_MCP_INTERNAL,
+    a secret in <home>/.mcp_internal);
+  * otherwise the signed-in account must be on Studio: confirmed live from
+    profiles.plan when possible, recorded in <home>/.plan.json at sign-in,
+    trusted offline for mcp_offline_days (default 3; owner will set it).
+A refusal is a tool answer telling the agent to sign in or upgrade, never a
+dropped connection. A local lock can be taken apart; the owner plans to
+serve Aethron from our own servers later, which is what makes it hard.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
