@@ -89,6 +89,10 @@ for attr in ('property="og:image"', 'name="twitter:image"'):
     jz = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="https://aethron.jomiez.com/assets/jz-home.jpg">', jz, count=1)
 body = pathlib.Path("jomiez_body.html").read_text()
 css, rest = body.split("</style>", 1)
+JZ_HEAD = ("<script data-ae-jz-path>if(/^\\/jomiez\\/?$/.test(location.pathname)){"
+           "window.__aeJzPath='/jomiez'+location.search+location.hash;"
+           "history.replaceState(history.state,'','/about'+location.search+location.hash)}</script>")
+jz = _re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + JZ_HEAD, jz, count=1)
 jz = jz.replace("</head>", css + "</style></head>", 1)
 jz = jz.replace("</body>", rest + "</body>", 1)
 assert jz.count("ae-jz-tpl") == 2 and JZ_TITLE in jz

@@ -156,9 +156,10 @@ div:has(> section[data-framer-name="Intro"]) > section{display:none!important}
 <script data-ae-jz>
 (function(){
   var TITLE='Jomiez, the team behind Aethron';
-  var HOME=location.pathname.replace(/\/$/,'')||'/jomiez', left=false;
+  var HOME='/jomiez', left=false, ready=false;
   function here(){return (location.pathname.replace(/\/$/,'')||'/')===HOME}
   function place(){
+    if(!ready)return;
     var css=document.querySelector('style[data-ae-jz]');
     if(!here()){
       /* the menu opened another page in place: take ours away with it */
@@ -182,10 +183,27 @@ div:has(> section[data-framer-name="Intro"]) > section{display:none!important}
     var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});
     els.forEach(function(e){io.observe(e)});
   }
-  place();
-  document.addEventListener('DOMContentLoaded',place);
-  window.addEventListener('load',place);
+  /* Framer's router must believe this is the about page while it starts:
+     at an unknown address a client-side render falls back to the home page.
+     The head script showed it /about; once it has hydrated, the address
+     goes back to /jomiez and the Jomiez sections go in. Nothing is put
+     into the page before then, so hydration sees exactly the about page. */
+  function start(){
+    if(ready)return;ready=true;
+    if(window.__aeJzPath){history.replaceState(history.state,'',window.__aeJzPath);window.__aeJzPath=null}
+    place();
+    new MutationObserver(function(){place()}).observe(document.documentElement,{childList:true,subtree:true});
+  }
+  function later(){requestAnimationFrame(function(){setTimeout(start,400)})}
+  if(document.readyState==='complete')later();else window.addEventListener('load',later);
+  setTimeout(start,6000);
   window.addEventListener('popstate',function(){setTimeout(place,0)});
-  new MutationObserver(function(){place()}).observe(document.documentElement,{childList:true,subtree:true});
+  /* Jomiez links lead here: on this page they just go back to the top. */
+  window.addEventListener('click',function(e){
+    if(!here())return;
+    var a=e.target.closest&&e.target.closest('a');if(!a)return;
+    if(!/^(Jomiez)+$/.test(a.textContent.trim()))return;
+    e.preventDefault();e.stopImmediatePropagation();scrollTo({top:0,behavior:'smooth'});
+  },true);
 })();
 </script>
