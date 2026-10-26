@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Start a project · Aethron</title>
+<meta name="description" content="Tell us what you want to build. Migrate a template you own, turn a design into a real site, or have the whole website built. A person replies within one business day.">
+<meta property="og:title" content="Start a project · Aethron">
+<meta property="og:description" content="Tell us what you want to build. A person replies within one business day.">
+<meta property="og:image" content="/assets/og.jpg">
+<meta name="theme-color" content="#fafafa">
+<link rel="icon" href="/assets/aethron-icon.jpg">
+<style>
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/BLNB4FAQFNK56DWWNF7PMGTCOTZHOEII/ST3WKSSDMBK2MIQQO3MAVYWLF4FTOLFV/6IN5WOLRCYP4G4MOCOHOMXNON6Q7MDAR.woff2");font-weight:400;font-display:swap}
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/HBNTRIISA5MEXGL5WPYI7CV2HIWTDV3Q/YDPDINVT673XLXNSTMLG4JNCZZMVVNPN/Y7SCNZJOT2MW5ADSGOFLDGH4TNL4JCQY.woff2");font-weight:700;font-display:swap}
+:root{--bg:#fafafa;--ink:#0f0f0f;--mute:#7a7a7a;--soft:#999;--line:#e6e6e6;--card:#fff;--fill:#f1f1f1;
+--go:#4fe02f;--go-ink:#0b2a05;--r:22px;--ease:cubic-bezier(.2,.8,.2,1)}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 Switzer,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.skip{position:absolute;left:-999px;top:8px;background:var(--ink);color:#fff;padding:8px 14px;border-radius:10px;z-index:9}
+.skip:focus{left:12px}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:10px}
+header.top{display:flex;align-items:center;justify-content:space-between;padding:22px clamp(16px,3vw,48px)}
+.brand{font-weight:700;font-size:19px;letter-spacing:-.02em;text-decoration:none}
+.btn-dark{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:#fff;text-decoration:none;border:0;border-radius:10px;padding:10px 16px;font:500 15px Switzer,system-ui,sans-serif;cursor:pointer;transition:transform .2s var(--ease),opacity .2s}
+.btn-dark:hover{transform:translateY(-1px)}
+.btn-dark:active{transform:translateY(1px)}
+main{max-width:1180px;margin:0 auto;padding:clamp(24px,5vw,64px) clamp(16px,3vw,32px) 80px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font:500 12px "Geist Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.04em;color:var(--ink)}
+.eyebrow i{width:26px;height:26px;border-radius:8px;background:var(--ink);display:grid;place-items:center}
+.eyebrow i::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--go)}
+h1{font-weight:700;font-size:clamp(38px,6vw,72px);line-height:1;letter-spacing:-.045em;margin:18px 0 14px}
+.lede{color:var(--mute);font-size:clamp(16px,1.6vw,19px);max-width:560px;margin:0}
+.live{display:flex;align-items:center;gap:8px;color:var(--soft);font-size:13px;margin-top:18px}
+.live b{width:8px;height:8px;border-radius:50%;background:var(--go);box-shadow:0 0 0 4px #4fe02f33;animation:pulse 2.2s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 7px #4fe02f11}}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:24px;margin-top:44px;align-items:start}
+@media (max-width:920px){.grid{grid-template-columns:1fr}.side{position:static}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:28px;padding:clamp(20px,3vw,36px);position:relative;overflow:hidden}
+.progress{display:flex;gap:6px;margin-bottom:26px}
+.progress span{flex:1;height:4px;border-radius:4px;background:var(--fill);overflow:hidden;position:relative}
+.progress span::after{content:"";position:absolute;inset:0;background:var(--ink);transform:scaleX(0);transform-origin:left;transition:transform .5s var(--ease)}
+.progress span.on::after{transform:scaleX(1)}
+.stepname{font:500 12px "Geist Mono",ui-monospace,monospace;color:var(--soft);text-transform:uppercase;letter-spacing:.05em}
+.step{display:none}
+.step.on{display:block;animation:rise .45s var(--ease)}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}}
+h2{font-size:clamp(24px,2.6vw,32px);letter-spacing:-.03em;line-height:1.1;margin:8px 0 6px;font-weight:700}
+.hint{color:var(--mute);margin:0 0 22px}
+.kinds{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.kind{position:relative;text-align:left;background:var(--bg);border:1.5px solid var(--line);border-radius:var(--r);padding:18px 18px 16px;cursor:pointer;font:inherit;color:inherit;transition:border-color .2s,transform .2s var(--ease),background .2s}
+.kind:hover{transform:translateY(-2px);border-color:#cfcfcf}
+.kind[aria-pressed=true]{border-color:var(--ink);background:#fff;box-shadow:0 10px 30px -18px #0005}
+.kind .ic{width:38px;height:38px;border-radius:11px;background:var(--ink);display:grid;place-items:center;margin-bottom:14px}
+.kind .ic svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.kind strong{display:block;font-size:16px;letter-spacing:-.01em}
+.kind small{display:block;color:var(--mute);font-size:13.5px;line-height:1.4;margin-top:4px}
+.kind .tick{position:absolute;top:14px;right:14px;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--line);transition:.2s}
+.kind[aria-pressed=true] .tick{background:var(--ink);border-color:var(--ink)}
+.kind[aria-pressed=true] .tick::after{content:"";position:absolute;left:6px;top:3px;width:5px;height:9px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+fieldset{border:0;padding:0;margin:0 0 24px}
+legend,label.l{display:block;font-weight:700;font-size:14.5px;margin-bottom:10px}
+legend small,label.l small{color:var(--soft);font-weight:400;margin-left:6px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1.5px solid var(--line);background:var(--bg);border-radius:999px;padding:8px 14px;font:500 14px Switzer,system-ui,sans-serif;color:var(--ink);cursor:pointer;transition:.18s}
+.chip:hover{border-color:#cfcfcf}
+.chip[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+input[type=text],input[type=email],input[type=url],textarea{width:100%;border:1.5px solid var(--line);background:var(--bg);border-radius:14px;padding:13px 15px;font:inherit;color:var(--ink);transition:border-color .2s,background .2s}
+input:focus,textarea:focus{outline:none;border-color:var(--ink);background:#fff}
+textarea{min-height:130px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:620px){.two{grid-template-columns:1fr}}
+.field{margin-bottom:18px}
+.range{display:flex;align-items:center;gap:14px}
+input[type=range]{flex:1;accent-color:var(--ink)}
+.range output{font:700 15px Switzer,sans-serif;min-width:88px;text-align:right}
+.err{color:#c4320a;font-size:13.5px;margin-top:8px;min-height:1px}
+.nav{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}
+.ghost{background:none;border:0;font:500 15px Switzer,system-ui,sans-serif;color:var(--mute);cursor:pointer;padding:10px 4px}
+.ghost:hover{color:var(--ink)}
+.ghost[hidden]{visibility:hidden;display:block}
+.go{display:inline-flex;align-items:center;gap:10px;background:var(--go);color:var(--go-ink);border:0;border-radius:12px;padding:13px 20px;font:700 15.5px Switzer,system-ui,sans-serif;cursor:pointer;transition:transform .2s var(--ease),filter .2s}
+.go:hover{transform:translateY(-1px);filter:brightness(1.04)}
+.go:active{transform:translateY(1px)}
+.go svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2.2}
+.go[disabled]{opacity:.6;cursor:wait}
+.kbd{color:var(--soft);font-size:12.5px}
+.review{display:grid;gap:10px}
+.review div{display:grid;grid-template-columns:140px 1fr auto;gap:12px;align-items:start;padding:12px 14px;background:var(--bg);border-radius:14px;font-size:14.5px}
+.review dt{color:var(--soft)}
+.review dd{margin:0;white-space:pre-wrap;word-break:break-word}
+.review button{padding:0 2px;font-size:13.5px}
+@media (max-width:520px){.review div{grid-template-columns:1fr auto;gap:2px 12px}.review dt{grid-column:1/-1}}
+.consent{display:flex;gap:10px;align-items:flex-start;color:var(--mute);font-size:13.5px;margin-top:16px}
+.side{display:grid;gap:16px;position:sticky;top:20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:22px}
+.card.dark{background:#0f0f0f;color:#fff;border-color:#0f0f0f}
+.card h3{font-size:13px;font-family:"Geist Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em;margin:0 0 14px;color:var(--soft);font-weight:500}
+.card.dark h3{color:#8a8a8a}
+.next{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+.next li{display:grid;grid-template-columns:26px 1fr;gap:12px;font-size:14.5px;line-height:1.4}
+.next li span{width:26px;height:26px;border-radius:50%;border:1px solid #333;display:grid;place-items:center;font-size:12px;color:#bbb}
+.next li small{display:block;color:#8a8a8a;font-size:13px}
+.sum{display:grid;gap:8px;font-size:14px}
+.sum p{margin:0;display:flex;justify-content:space-between;gap:12px;border-bottom:1px dashed var(--line);padding-bottom:8px}
+.sum p:last-child{border:0;padding:0}
+.sum span{color:var(--soft)}
+.sum b{font-weight:500;text-align:right}
+.done{text-align:center;padding:30px 10px}
+.done .ok{width:64px;height:64px;border-radius:50%;background:var(--go);display:grid;place-items:center;margin:0 auto 18px;animation:pop .5s var(--ease)}
+.done .ok svg{width:28px;height:28px;stroke:var(--go-ink);fill:none;stroke-width:2.6;stroke-dasharray:30;stroke-dashoffset:30;animation:draw .5s .2s var(--ease) forwards}
+@keyframes pop{from{transform:scale(.5);opacity:0}}
+@keyframes draw{to{stroke-dashoffset:0}}
+.hp{position:absolute;left:-5000px}
+footer{max-width:1180px;margin:0 auto;padding:0 clamp(16px,3vw,32px) 40px;color:var(--soft);font-size:13.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+footer a{color:var(--mute);text-decoration:none}
+footer a:hover{color:var(--ink)}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#brief">Skip to the form</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Aethron home">Aethron</a>
+  <a class="btn-dark" href="/download/">Download free</a>
+</header>
+
+<main>
+  <span class="eyebrow"><i></i>Start a project</span>
+  <h1>Tell us what<br>you're building.</h1>
+  <p class="lede">Migrate a template you own, turn a design into a real site, or have the whole website built for you. Five short steps. A person reads every brief.</p>
+  <p class="live"><b></b>Taking new projects · replies within one business day</p>
+
+  <div class="grid">
+    <form class="panel" id="brief" name="start-project" method="POST" action="/start/?sent=1" data-netlify="true" netlify-honeypot="company_site" novalidate>
+      <input type="hidden" name="form-name" value="start-project">
+      <p class="hp"><label>Leave this empty <input name="company_site" tabindex="-1" autocomplete="off"></label></p>
+      <input type="hidden" name="kind"><input type="hidden" name="platform"><input type="hidden" name="features">
+      <input type="hidden" name="budget"><input type="hidden" name="timeline">
+
+      <div class="progress" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+
+      <!-- 1 -->
+      <section class="step" data-name="What you need" aria-labelledby="s1">
+        <span class="stepname">Step 1 of 5</span>
+        <h2 id="s1">What are we starting?</h2>
+        <p class="hint">Pick the one closest to what you have in mind.</p>
+        <div class="kinds" role="group" aria-label="Project type">
+          <button type="button" class="kind" data-kind="Migrate a template" aria-pressed="false"><span class="tick"></span>
+            <span class="ic"><svg viewBox="0 0 24 24"><path d="M4 7h11l-3-3M20 17H9l3 3"/></svg></span>
+            <strong>Migrate a template</strong><small>A Framer or Webflow template you bought, made fully yours.</small></button>
+          <button type="button" class="kind" data-kind="Design to website" aria-pressed="false"><span class="tick"></span>
+            <span class="ic"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M9 9l-2 2 2 2M15 9l2 2-2 2"/></svg></span>
+            <strong>Design to website</strong><small>A screenshot, Figma file or mockup turned into real code.</small></button>
+          <button type="button" class="kind" data-kind="Complete website" aria-pressed="false"><span class="tick"></span>
+            <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></span>
+            <strong>Complete website</strong><small>Every page, copy, images, motion and launch. Done for you.</small></button>
+          <button type="button" class="kind" data-kind="Help with Aethron" aria-pressed="false"><span class="tick"></span>
+            <span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6M12 17h.01"/></svg></span>
+            <strong>Help with Aethron</strong><small>Install, updates, or a migration that went wrong.</small></button>
+          <button type="button" class="kind" data-kind="Press or partnership" aria-pressed="false"><span class="tick"></span>
+            <span class="ic"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 16 0 8 8 0 0 0-16 0M4 12h16M12 4c2.5 2.5 2.5 13.5 0 16M12 4c-2.5 2.5-2.5 13.5 0 16"/></svg></span>
+            <strong>Press or partnership</strong><small>Interviews, talks, reviews and collaborations.</small></button>
+        </div>
+        <p class="err" data-err="kind"></p>
+      </section>
+
+      <!-- 2 -->
+      <section class="step" data-name="The details" aria-labelledby="s2">
+        <span class="stepname">Step 2 of 5</span>
+        <h2 id="s2">Tell us about it.</h2>
+        <p class="hint" data-hint-project>Links help most. Share what you have, even if it is rough.</p>
+        <div data-only="project">
+          <fieldset>
+            <legend>Where is it now?</legend>
+            <div class="chips" data-chips="platform" data-multi="false">
+              <button type="button" class="chip" aria-pressed="false">Framer</button>
+              <button type="button" class="chip" aria-pressed="false">Webflow</button>
+              <button type="button" class="chip" aria-pressed="false">Figma</button>
+              <button type="button" class="chip" aria-pressed="false">Screenshot or mockup</button>
+              <button type="button" class="chip" aria-pressed="false">An existing site</button>
+              <button type="button" class="chip" aria-pressed="false">Just an idea</button>
+            </div>
+          </fieldset>
+          <div class="two">
+            <div class="field"><label class="l" for="link">Template or design link <small>optional</small></label>
+              <input id="link" name="link" type="url" inputmode="url" placeholder="https://yourtemplate.framer.website"></div>
+            <div class="field"><label class="l" for="current">Your current site <small>optional</small></label>
+              <input id="current" name="current_site" type="url" inputmode="url" placeholder="https://yourbrand.com"></div>
+          </div>
+          <div class="field"><label class="l" for="pages">How many pages?</label>
+            <div class="range"><input id="pages" name="pages" type="range" min="1" max="30" value="5"><output for="pages" id="pagesOut">5 pages</output></div></div>
+          <fieldset>
+            <legend>What should it do? <small>pick any</small></legend>
+            <div class="chips" data-chips="features" data-multi="true">
+              <button type="button" class="chip" aria-pressed="false">Blog or CMS</button>
+              <button type="button" class="chip" aria-pressed="false">Animations kept exactly</button>
+              <button type="button" class="chip" aria-pressed="false">Contact forms</button>
+              <button type="button" class="chip" aria-pressed="false">Online store</button>
+              <button type="button" class="chip" aria-pressed="false">Several languages</button>
+              <button type="button" class="chip" aria-pressed="false">SEO and analytics</button>
+              <button type="button" class="chip" aria-pressed="false">Next.js or React code</button>
+              <button type="button" class="chip" aria-pressed="false">Hosting and domain</button>
+            </div>
+          </fieldset>
+        </div>
+        <div class="field">
+          <label class="l" for="about" data-about-label>What should we know?</label>
+          <textarea id="about" name="message" placeholder="Your brand, who it is for, what is not working today, sites you love…"></textarea>
+          <p class="err" data-err="about"></p>
+        </div>
+      </section>
+
+      <!-- 3 -->
+      <section class="step" data-name="Budget and timing" aria-labelledby="s3">
+        <span class="stepname">Step 3 of 5</span>
+        <h2 id="s3">Budget and timing.</h2>
+        <p class="hint">A range is enough. It helps us suggest the right way to do it, including doing it yourself in Aethron for free.</p>
+        <fieldset>
+          <legend>Budget</legend>
+          <div class="chips" data-chips="budget" data-multi="false">
+            <button type="button" class="chip" aria-pressed="false">I'll do it myself in Aethron</button>
+            <button type="button" class="chip" aria-pressed="false">Under $500</button>
+            <button type="button" class="chip" aria-pressed="false">$500 – $2,000</button>
+            <button type="button" class="chip" aria-pressed="false">$2,000 – $5,000</button>
+            <button type="button" class="chip" aria-pressed="false">$5,000+</button>
+            <button type="button" class="chip" aria-pressed="false">Not sure yet</button>
+          </div>
+          <p class="err" data-err="budget"></p>
+        </fieldset>
+        <fieldset>
+          <legend>When do you need it?</legend>
+          <div class="chips" data-chips="timeline" data-multi="false">
+            <button type="button" class="chip" aria-pressed="false">As soon as possible</button>
+            <button type="button" class="chip" aria-pressed="false">Within 2 weeks</button>
+            <button type="button" class="chip" aria-pressed="false">Within a month</button>
+            <button type="button" class="chip" aria-pressed="false">Flexible</button>
+          </div>
+        </fieldset>
+      </section>
+
+      <!-- 4 -->
+      <section class="step" data-name="About you" aria-labelledby="s4">
+        <span class="stepname">Step 4 of 5</span>
+        <h2 id="s4">Where do we reply?</h2>
+        <p class="hint">We only use this to answer you.</p>
+        <div class="two">
+          <div class="field"><label class="l" for="name">Your name</label>
+            <input id="name" name="name" type="text" autocomplete="name" placeholder="Ada Lovelace"><p class="err" data-err="name"></p></div>
+          <div class="field"><label class="l" for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com"><p class="err" data-err="email"></p></div>
+        </div>
+        <div class="two">
+          <div class="field"><label class="l" for="org">Company or brand <small>optional</small></label>
+            <input id="org" name="company" type="text" autocomplete="organization" placeholder="Northwind"></div>
+          <div class="field"><label class="l" for="role">Your role <small>optional</small></label>
+            <input id="role" name="role" type="text" placeholder="Founder, designer, marketer…"></div>
+        </div>
+      </section>
+
+      <!-- 5 -->
+      <section class="step" data-name="Review" aria-labelledby="s5">
+        <span class="stepname">Step 5 of 5</span>
+        <h2 id="s5">Look right?</h2>
+        <p class="hint">Check your brief, then send it. You can go back to any step.</p>
+        <dl class="review" id="review"></dl>
+        <label class="consent"><input type="checkbox" name="updates" value="yes"> Send me Aethron product news now and then. No spam.</label>
+        <p class="err" data-err="send" role="alert"></p>
+      </section>
+
+      <div class="step done" data-name="Sent" id="done" tabindex="-1">
+        <div class="ok"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+        <h2>Brief received.</h2>
+        <p class="hint" style="max-width:420px;margin:8px auto 22px">Thanks, <span id="doneName">friend</span>. A person on the team reads it and replies to <b id="doneEmail"></b> within one business day.</p>
+        <a class="btn-dark" href="/download/">While you wait, try Aethron free</a>
+      </div>
+
+      <div class="nav" id="nav">
+        <button type="button" class="ghost" id="back" hidden>← Back</button>
+        <span class="kbd" id="kbd">Press Enter ↵</span>
+        <button type="button" class="go" id="next">Continue <svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+      </div>
+    </form>
+
+    <aside class="side" aria-label="Your brief so far">
+      <div class="card">
+        <h3>Your brief</h3>
+        <div class="sum" id="sum">
+          <p><span>Type</span><b data-s="kind">Not chosen yet</b></p>
+          <p><span>Starting from</span><b data-s="platform">—</b></p>
+          <p><span>Pages</span><b data-s="pages">5</b></p>
+          <p><span>Budget</span><b data-s="budget">—</b></p>
+          <p><span>Timing</span><b data-s="timeline">—</b></p>
+        </div>
+      </div>
+      <div class="card dark">
+        <h3>What happens next</h3>
+        <ol class="next">
+          <li><span>1</span><div>A person reads your brief<small>Not a bot, not a ticket queue.</small></div></li>
+          <li><span>2</span><div>Reply within one business day<small>With questions, or a plan and a price.</small></div></li>
+          <li><span>3</span><div>A first preview, fast<small>Migrations are often live the same week.</small></div></li>
+        </ol>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<footer>
+  <span>© 2026 Aethron. Built by <a href="https://jomiez.com" target="_blank" rel="noopener">Jomiez</a>.</span>
+  <span><a href="/">Home</a> · <a href="/pricing">Pricing</a> · <a href="/projects">Projects</a> · <a href="/legal/privacy-policy">Privacy</a></span>
+</footer>
+
+<script>
+(function(){
+  var form=document.getElementById('brief'),steps=[].slice.call(form.querySelectorAll('.step')),
+      bars=[].slice.call(form.querySelectorAll('.progress span')),next=document.getElementById('next'),
+      back=document.getElementById('back'),nav=document.getElementById('nav'),kbd=document.getElementById('kbd'),
+      at=0,PROJECT={'Migrate a template':1,'Design to website':1,'Complete website':1};
+  var val=function(n){return form.elements[n].value.trim()};
+  var isProject=function(){return !!PROJECT[val('kind')]};
+  var order=function(){return isProject()||!val('kind')?[0,1,2,3,4]:[0,1,3,4]};
+
+  function setKind(k){
+    form.elements.kind.value=k;
+    [].forEach.call(form.querySelectorAll('.kind'),function(b){b.setAttribute('aria-pressed',b.dataset.kind===k)});
+    var p=isProject();
+    [].forEach.call(form.querySelectorAll('[data-only=project]'),function(e){e.hidden=!p});
+    form.querySelector('[data-about-label]').textContent=p?'What should we know?':(k==='Help with Aethron'?'What is happening?':'Tell us about it');
+    document.getElementById('about').placeholder=p?'Your brand, who it is for, what is not working today, sites you love…':
+      (k==='Help with Aethron'?'What you tried, what you expected, and what happened instead. Include your Aethron version from Settings → Version.':'Who you are, what you have in mind, and any dates.');
+    summary(); clear('kind');
+  }
+  [].forEach.call(form.querySelectorAll('.kind'),function(b){b.addEventListener('click',function(){setKind(b.dataset.kind);setTimeout(go,180)})});
+
+  [].forEach.call(form.querySelectorAll('[data-chips]'),function(g){
+    var name=g.dataset.chips,multi=g.dataset.multi==='true';
+    g.setAttribute('role','group');
+    [].forEach.call(g.querySelectorAll('.chip'),function(c){c.addEventListener('click',function(){
+      if(multi){c.setAttribute('aria-pressed',c.getAttribute('aria-pressed')!=='true')}
+      else{[].forEach.call(g.querySelectorAll('.chip'),function(o){o.setAttribute('aria-pressed',o===c&&o.getAttribute('aria-pressed')!=='true')})}
+      form.elements[name].value=[].map.call(g.querySelectorAll('.chip[aria-pressed=true]'),function(o){return o.textContent}).join(', ');
+      summary(); clear(name);
+    })});
+  });
+
+  var pages=document.getElementById('pages'),pagesOut=document.getElementById('pagesOut');
+  pages.addEventListener('input',function(){pagesOut.textContent=pages.value==='30'?'30+ pages':pages.value+(pages.value==='1'?' page':' pages');summary()});
+
+  function summary(){
+    var s={kind:val('kind')||'Not chosen yet',platform:val('platform')||'—',pages:isProject()?pagesOut.textContent:'—',budget:val('budget')||'—',timeline:val('timeline')||'—'};
+    for(var k in s){var e=document.querySelector('[data-s='+k+']');if(e)e.textContent=s[k]}
+  }
+  function err(n,m){var e=form.querySelector('[data-err='+n+']');if(e)e.textContent=m;return false}
+  function clear(n){err(n,'')}
+
+  function check(i){
+    if(i===0&&!val('kind'))return err('kind','Choose one to continue.');
+    if(i===1&&val('message').length<10&&!val('link')&&!val('current_site'))return err('about','A sentence or a link is enough.');
+    if(i===2&&!val('budget'))return err('budget','Pick a range, or "Not sure yet".');
+    if(i===3){var ok=true;
+      if(!val('name'))ok=err('name','Your name, so we know who we are writing to.');else clear('name');
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val('email')))ok=err('email','An email we can reply to.');else clear('email');
+      return ok}
+    return true;
+  }
+
+  function show(i){
+    at=i;steps.forEach(function(s,k){s.classList.toggle('on',k===i)});
+    var o=order(),pos=o.indexOf(i);
+    bars.forEach(function(b,k){b.classList.toggle('on',k<=Math.round(pos*(4/(o.length-1))))});
+    [].forEach.call(steps[i].querySelectorAll('.stepname'),function(e){e.textContent='Step '+(pos+1)+' of '+o.length});
+    back.hidden=pos<=0;
+    next.firstChild.nodeValue=i===4?'Send brief ':'Continue ';
+    if(i===4)review();
+    var f=steps[i].querySelector('input:not([type=hidden]):not([type=range]):not(.hp input),textarea');
+    if(i!==0&&f&&matchMedia('(min-width:700px)').matches)setTimeout(function(){f.focus({preventScroll:true})},60);
+    if(i!==0)form.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  function go(){
+    if(!check(at))return;
+    var o=order(),pos=o.indexOf(at);
+    if(at===4)return send();
+    show(o[pos+1]);
+  }
+  next.addEventListener('click',go);
+  back.addEventListener('click',function(){var o=order();show(o[Math.max(0,o.indexOf(at)-1)])});
+  form.addEventListener('keydown',function(e){
+    if(e.key==='Enter'&&!e.shiftKey&&e.target.tagName!=='TEXTAREA'&&e.target.tagName!=='BUTTON'){e.preventDefault();go()}
+    if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();go()}
+  });
+  form.addEventListener('submit',function(e){e.preventDefault();go()});
+
+  function esc(t){return String(t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+  function review(){
+    var rows=[['Type',val('kind'),0]];
+    if(isProject()){rows.push(['Starting from',val('platform'),1],['Links',[val('link'),val('current_site')].filter(Boolean).join('\n'),1],
+      ['Pages',pagesOut.textContent,1],['Needs',val('features'),1],['Budget',val('budget'),2],['Timing',val('timeline'),2])}
+    rows.push(['Message',val('message'),1],['You',[val('name'),val('role'),val('company')].filter(Boolean).join(' · ')+'\n'+val('email'),3]);
+    document.getElementById('review').innerHTML=rows.filter(function(r){return r[1]}).map(function(r){
+      return '<div><dt>'+r[0]+'</dt><dd>'+esc(r[1])+'</dd><button type="button" class="ghost" data-goto="'+r[2]+'" aria-label="Edit '+r[0]+'">Edit</button></div>'}).join('');
+    [].forEach.call(document.querySelectorAll('[data-goto]'),function(b){b.addEventListener('click',function(){show(+b.dataset.goto)})});
+  }
+
+  function send(){
+    next.disabled=true;next.firstChild.nodeValue='Sending… ';clear('send');
+    var body=new URLSearchParams(new FormData(form)).toString();
+    fetch('/',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);done()})
+      .catch(function(){
+        next.disabled=false;next.firstChild.nodeValue='Try again ';
+        var lines=[].map.call(document.querySelectorAll('#review > div'),function(d){return d.querySelector('dt').textContent+': '+d.querySelector('dd').firstChild.textContent}).join('\n');
+        var mail='mailto:hello@jomiez.com?subject='+encodeURIComponent('New brief: '+val('kind'))+'&body='+encodeURIComponent(lines);
+        var e=form.querySelector('[data-err=send]');
+        e.innerHTML='We could not send it just now. Try again, or <a href="'+mail+'">send the same brief by email</a>.';
+      });
+  }
+  function done(){
+    document.getElementById('doneName').textContent=val('name').split(' ')[0]||'friend';
+    document.getElementById('doneEmail').textContent=val('email');
+    steps.forEach(function(s){s.classList.remove('on')});
+    var d=document.getElementById('done');d.classList.add('on');nav.hidden=true;
+    bars.forEach(function(b){b.classList.add('on')});
+    document.querySelector('.progress').hidden=true;d.focus();
+  }
+
+  var t=new URLSearchParams(location.search).get('type');
+  var map={migrate:'Migrate a template',migration:'Migrate a template',design:'Design to website',website:'Complete website',
+           help:'Help with Aethron',support:'Help with Aethron',press:'Press or partnership',partner:'Press or partnership'};
+  if(new URLSearchParams(location.search).get('sent')){show(0);done();document.getElementById('doneEmail').textContent='your email'}
+  else if(map[t]){setKind(map[t]);show(1)}else show(0);
+  summary();
+})();
+</script>
+</body>
+</html>

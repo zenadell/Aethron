@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jomiez, the team behind Aethron</title>
+<meta name="description" content="Aethron is made by Jomiez, a software company growing its own AI products and custom software for businesses. Meet the team, the products and some of the work.">
+<meta property="og:title" content="Jomiez, the team behind Aethron">
+<meta property="og:description" content="A software company growing its own AI products and custom software for businesses.">
+<meta property="og:image" content="/assets/jz-home.jpg">
+<meta name="theme-color" content="#fafafa">
+<link rel="icon" href="/assets/aethron-icon.jpg">
+<style>
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/BLNB4FAQFNK56DWWNF7PMGTCOTZHOEII/ST3WKSSDMBK2MIQQO3MAVYWLF4FTOLFV/6IN5WOLRCYP4G4MOCOHOMXNON6Q7MDAR.woff2");font-weight:400;font-display:swap}
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/HBNTRIISA5MEXGL5WPYI7CV2HIWTDV3Q/YDPDINVT673XLXNSTMLG4JNCZZMVVNPN/Y7SCNZJOT2MW5ADSGOFLDGH4TNL4JCQY.woff2");font-weight:700;font-display:swap}
+:root{--bg:#fafafa;--ink:#0f0f0f;--mute:#6f6f6f;--soft:#999;--line:#e6e6e6;--card:#fff;--fill:#f1f1f1;--go:#4fe02f;--ease:cubic-bezier(.2,.8,.2,1)}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 Switzer,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+img{display:block;max-width:100%}
+.skip{position:absolute;left:-999px;top:8px;background:var(--ink);color:#fff;padding:8px 14px;border-radius:10px;z-index:9}
+.skip:focus{left:12px}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:10px}
+header.top{display:flex;align-items:center;justify-content:space-between;padding:22px clamp(16px,3vw,48px)}
+.brand{font-weight:700;font-size:19px;letter-spacing:-.02em;text-decoration:none}
+.btn-dark,.btn-light{display:inline-flex;align-items:center;gap:8px;text-decoration:none;border-radius:10px;padding:11px 18px;font:500 15px Switzer,system-ui,sans-serif;transition:transform .2s var(--ease),background .2s}
+.btn-dark{background:var(--ink);color:#fff}
+.btn-light{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.btn-dark:hover,.btn-light:hover{transform:translateY(-1px)}
+.btn-dark svg,.btn-light svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+main{max-width:1180px;margin:0 auto;padding:clamp(24px,5vw,64px) clamp(16px,3vw,32px) 80px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font:500 12px "Geist Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.04em}
+.eyebrow i{width:26px;height:26px;border-radius:8px;background:var(--ink);display:grid;place-items:center}
+.eyebrow i::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--go)}
+h1{font-weight:700;font-size:clamp(40px,6.4vw,80px);line-height:.98;letter-spacing:-.045em;margin:18px 0 18px;max-width:900px}
+h2{font-weight:700;font-size:clamp(28px,3.4vw,44px);line-height:1.04;letter-spacing:-.035em;margin:0 0 12px}
+h3{font-size:20px;letter-spacing:-.02em;margin:0 0 6px}
+.lede{color:var(--mute);font-size:clamp(17px,1.7vw,20px);max-width:620px;margin:0}
+.ctas{display:flex;gap:10px;flex-wrap:wrap;margin-top:28px}
+.hero-shot{margin-top:48px;border-radius:28px;overflow:hidden;border:1px solid var(--line);background:#e9e9e7;box-shadow:0 40px 80px -50px #0006}
+.hero-shot img{width:100%;height:auto}
+.cap{color:var(--soft);font-size:13.5px;margin:12px 4px 0}
+section{margin-top:clamp(64px,9vw,120px)}
+.head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:28px}
+.head p{color:var(--mute);max-width:440px;margin:0}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:24px}
+.stat b{display:block;font-size:clamp(34px,4vw,52px);letter-spacing:-.04em;line-height:1}
+.stat span{color:var(--mute);font-size:14.5px;display:block;margin-top:10px}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:24px;overflow:hidden;display:flex;flex-direction:column;text-decoration:none;transition:transform .25s var(--ease),box-shadow .25s}
+.card:hover{transform:translateY(-3px);box-shadow:0 24px 50px -36px #0007}
+.card .pic{aspect-ratio:1279/742;background:#111;overflow:hidden}
+.card .pic img{width:100%;height:100%;object-fit:contain}
+.card .txt{padding:20px 22px 24px}
+.tag{font:500 11.5px "Geist Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em;color:var(--soft)}
+.card p{color:var(--mute);font-size:14.5px;margin:6px 0 0}
+.more{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+.row{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:22px;text-decoration:none;display:block;transition:border-color .2s}
+.row:hover{border-color:#cfcfcf}
+.row p{color:var(--mute);font-size:14.5px;margin:6px 0 0}
+.services{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.svc{border-top:1px solid var(--ink);padding-top:16px}
+.svc small{font:500 12px "Geist Mono",ui-monospace,monospace;color:var(--soft)}
+.svc p{color:var(--mute);font-size:15px;margin:6px 0 0}
+.quote{background:var(--ink);color:#fff;border-radius:28px;padding:clamp(28px,5vw,64px);display:grid;grid-template-columns:1.4fr 1fr;gap:32px;align-items:end}
+.quote blockquote{margin:0;font-size:clamp(24px,2.8vw,36px);line-height:1.15;letter-spacing:-.03em}
+.quote cite{display:block;color:#aaa;font-style:normal;font-size:14.5px;margin-top:18px}
+.quote .btn-light{background:#fff;border-color:#fff}
+.quote p{color:#bbb;margin:0 0 18px}
+footer{max-width:1180px;margin:0 auto;padding:0 clamp(16px,3vw,32px) 40px;color:var(--soft);font-size:13.5px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+footer a{color:var(--mute);text-decoration:none}
+footer a:hover{color:var(--ink)}
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+@media (max-width:900px){.cards,.services{grid-template-columns:1fr 1fr}.quote{grid-template-columns:1fr}}
+@media (max-width:620px){.cards,.services,.stats,.more{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}*{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="/" aria-label="Aethron home">Aethron</a>
+  <a class="btn-dark" href="/download/">Download free</a>
+</header>
+<main id="main">
+  <span class="eyebrow"><i></i>Made by Jomiez</span>
+  <h1>The team behind Aethron.</h1>
+  <p class="lede">Jomiez is a software company growing its own AI products and custom software for businesses, rooted deep and built to endure. Aethron is one of the things we grow.</p>
+  <div class="ctas">
+    <a class="btn-dark" href="https://jomiez.com" target="_blank" rel="noopener">Visit jomiez.com <svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+    <a class="btn-light" href="https://www.jomiez.com/work" target="_blank" rel="noopener">See all our work</a>
+  </div>
+  <figure class="hero-shot reveal" style="margin-left:0;margin-right:0">
+    <a href="https://jomiez.com" target="_blank" rel="noopener"><img src="/assets/jz-home.jpg" width="1440" height="900" alt="The Jomiez website: Where intelligence takes root" loading="eager"></a>
+  </figure>
+  <p class="cap">jomiez.com</p>
+
+  <section aria-labelledby="numbers">
+    <div class="head"><h2 id="numbers">Engineers and designers, building our own products and the products of those we believe in.</h2></div>
+    <div class="stats">
+      <div class="stat reveal"><b>80+</b><span>Projects grown from first sketch to production, for founders, businesses and our own product line.</span></div>
+      <div class="stat reveal"><b>7+</b><span>Years of craft, and still growing.</span></div>
+      <div class="stat reveal"><b>100%</b><span>Client satisfaction.</span></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="products">
+    <div class="head"><h2 id="products">Our own products</h2><p>Three products we build and run ourselves. Aethron is the newest.</p></div>
+    <div class="cards">
+      <a class="card reveal" href="https://www.jomiez.com/work/chaka-ai" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-chaka-ai.jpg" width="1279" height="742" alt="Chaka AI, the Jomiez voice assistant" loading="lazy"></div>
+        <div class="txt"><span class="tag">AI platform</span><h3>Chaka AI</h3><p>A multimodal AI with real-time voice, deep research and a memory that grows with every conversation.</p></div>
+      </a>
+      <a class="card reveal" href="https://www.jomiez.com/work/chaka-wap" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-chaka-wap.jpg" width="1279" height="742" alt="Chaka WAP settings" loading="lazy"></div>
+        <div class="txt"><span class="tag">AI automation</span><h3>Chaka WAP</h3><p>A local-first AI that joins WhatsApp conversations as a human-like participant, learning the style of every chat it's in.</p></div>
+      </a>
+      <a class="card reveal" href="/" >
+        <div class="pic"><img src="/assets/jz-aethron.jpg" width="1600" height="978" alt="Aethron's Studio" loading="lazy"></div>
+        <div class="txt"><span class="tag">AI tooling</span><h3>Aethron</h3><p>Rebrand any Framer or Webflow template with AI while the design stays pixel-identical. You are on its website.</p></div>
+      </a>
+    </div>
+  </section>
+
+  <section aria-labelledby="work">
+    <div class="head"><h2 id="work">Some of our work</h2><p>Beyond our own products, we lend our craft to others.</p></div>
+    <div class="cards" style="grid-template-columns:repeat(2,1fr)">
+      <a class="card reveal" href="https://www.jomiez.com/work/zyro" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-zyro.jpg" width="1279" height="742" alt="Zyro, a SaaS landing page" loading="lazy"></div>
+        <div class="txt"><span class="tag">SaaS landing · Framer · 2025</span><h3>Zyro</h3><p>A modern, high-performance SaaS landing page system for startups and digital products, built for NFrame.</p></div>
+      </a>
+      <a class="card reveal" href="https://www.jomiez.com/work/renok" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-renok.jpg" width="1279" height="742" alt="Renok, a creative studio site" loading="lazy"></div>
+        <div class="txt"><span class="tag">Creative studio · Webflow</span><h3>Renok</h3><p>A digital identity for a creative agency, with bold brand storytelling, a modular grid and high-end motion.</p></div>
+      </a>
+    </div>
+    <div class="more">
+      <a class="row reveal" href="https://www.jomiez.com/work/job-foundry-hub" target="_blank" rel="noopener"><span class="tag">Web platform · Django</span><h3>Job Foundry Hub</h3><p>A career blog and job platform built with Django and PostgreSQL, with automated SEO auditing.</p></a>
+      <a class="row reveal" href="https://www.jomiez.com/work/morae" target="_blank" rel="noopener"><span class="tag">E-commerce</span><h3>MORAE</h3><p>A minimalist, high-fidelity store for premium audio hardware.</p></a>
+    </div>
+  </section>
+
+  <section aria-labelledby="services">
+    <div class="head"><h2 id="services">What Jomiez builds for others</h2><p>Need something built? This is what the team does every day.</p></div>
+    <div class="services">
+      <div class="svc reveal"><small>001</small><h3>Custom software and AI</h3><p>Cloud platforms and AI systems, precise, secure and made to carry weight for years.</p></div>
+      <div class="svc reveal"><small>002</small><h3>Web and mobile apps</h3><p>Websites, web apps and mobile apps that are fast, responsive and ready for real use.</p></div>
+      <div class="svc reveal"><small>003</small><h3>APIs and integrations</h3><p>APIs, automations and integrations that let your tools, data and AI models work together.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="quote reveal">
+      <div>
+        <blockquote>“We don't chase what's fashionable. We plant ideas, tend them with patience, and build software meant to stand for years.”</blockquote>
+        <cite>Templeton, Founder and Lead Engineer, Jomiez</cite>
+      </div>
+      <div>
+        <p>Want to see more, or have something built? Everything about Jomiez lives on its own site.</p>
+        <div class="ctas" style="margin-top:0">
+          <a class="btn-light" href="https://jomiez.com" target="_blank" rel="noopener">Visit jomiez.com <svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+          <a class="btn-light" href="https://www.jomiez.com/book-a-call" target="_blank" rel="noopener">Book a call</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>
+  <span>© 2026 Aethron. Built by <a href="https://jomiez.com" target="_blank" rel="noopener">Jomiez</a>.</span>
+  <span><a href="/">Home</a> · <a href="/pricing">Pricing</a> · <a href="/projects">Projects</a> · <a href="/legal/privacy-policy">Privacy</a></span>
+</footer>
+<script>
+(function(){var els=document.querySelectorAll('.reveal');
+if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in')});return}
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});
+els.forEach(function(e){io.observe(e)});setTimeout(function(){els.forEach(function(e){e.classList.add('in')})},2500)})();
+</script>
+</body>
+</html>
