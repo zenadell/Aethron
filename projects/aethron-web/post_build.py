@@ -27,17 +27,13 @@ except Exception as e:  # a feed outage must not take the website down
 
 site = pathlib.Path("site")
 u = html.escape(url, quote=True)
-page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Downloading Aethron</title><meta name="robots" content="noindex">
-<meta http-equiv="refresh" content="0; url={u}">
-<style>body{{font:16px/1.5 -apple-system,system-ui,sans-serif;background:#fafafa;color:#111;
-display:grid;place-items:center;min-height:100vh;margin:0;text-align:center}}
-a{{color:#111}}</style></head><body><main><h1>Your download is starting</h1>
-<p>Aethron {html.escape(str(ver))} for Mac. If nothing happens, <a href="{u}">download it here</a>.</p>
-<p><a href="/">Back to the site</a></p></main>
-<script>location.replace({json.dumps(url)})</script></body></html>
-"""
+# /download: Aethron's own page (download.html), not a bare redirect. It
+# starts the file on a Mac, shows how to open it, and on a phone offers to
+# send the link to a Mac instead of dropping a zip there.
+page = (pathlib.Path("download.html").read_text()
+        .replace("{{URL_JSON}}", json.dumps(url).replace("</", "<\\/"))
+        .replace("{{URL}}", u).replace("{{VER}}", html.escape(str(ver))))
+assert "{{" not in page
 for d in ("download", "download/mac"):
     (site / d).mkdir(parents=True, exist_ok=True)
     (site / d / "index.html").write_text(page)
@@ -49,8 +45,7 @@ for d in ("download", "download/mac"):
 # must still find services-motion-systems.html, and a nested page asks for
 # its assets relative to itself (/services/assets/...).
 routes = json.loads(pathlib.Path("forge.json").read_text())["routes"]
-rules = [f"/download {url} 302", f"/download/mac {url} 302",
-         f"/assets/downloads/Aethron-mac.zip {url} 302"]
+rules = ["/assets/downloads/Aethron-mac.zip /download/ 302"]
 for seg in sorted({r.split("/")[0] for r in routes if "/" in r}):
     rules.append(f"/{seg}/assets/* /assets/:splat 200")
 for r, f in sorted(routes.items(), key=lambda kv: -len(kv[0])):
@@ -121,6 +116,22 @@ for f in site.glob("*.html"):
         f.write_text(t.replace("</body>", JOMIEZ + "</body>", 1)); n += 1
 print(f"/start and /jomiez written; Jomiez credit sent on, {n} pages")
 
+# Phones have no hover: project decks spread by themselves while in view,
+# and the album switcher moves on every 7 seconds (mobile_motion.js).
+MM = "<script data-ae-mm>" + pathlib.Path("mobile_motion.js").read_text() + "</script>"
+k = 0
+for f in site.glob("*.html"):
+    if f.name in ("start.html", "download.html"):
+        continue
+    t = f.read_text()
+    if "data-ae-mm" not in t and "</body>" in t:
+        f.write_text(t.replace("</body>", MM + "</body>", 1)); k += 1
+for f in site.glob("*/index.html"):
+    t = f.read_text()
+    if f.parent.name == "jomiez" and "data-ae-mm" not in t:
+        f.write_text(t.replace("</body>", MM + "</body>", 1)); k += 1
+print(f"mobile motion on {k} pages")
+
 # App and site screenshots are cropped by their frames from the top-left
 # corner, where a screen begins (logo, nav, first line of text), not from
 # the middle, which cut words in half at the frame's edge. Frames stay full;
@@ -128,6 +139,9 @@ print(f"/start and /jomiez written; Jomiez credit sent on, {n} pages")
 import json as _json
 _shots = _json.loads(pathlib.Path("screen_assets.json").read_text())
 CROP = "".join(f'img[src*="/assets/{n}."]{{object-position:0 0!important}}' for n in _shots)
+# Centred designs (screenshot-to-code examples) keep their middle, from the top.
+CROP += "".join(f'img[src*="/assets/{n}."]{{object-position:50% 0!important}}'
+                for n in ("shot-in", "shot-dispatch", "shot-dispatch-fan", "page-apps", "page-dispatch"))
 CROP = f'<style data-ae-crop>{CROP}</style>'
 m = 0
 for f in site.glob("*.html"):

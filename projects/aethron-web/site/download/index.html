@@ -1,10 +1,280 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Downloading Aethron</title><meta name="robots" content="noindex">
-<meta http-equiv="refresh" content="0; url=https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip">
-<style>body{font:16px/1.5 -apple-system,system-ui,sans-serif;background:#fafafa;color:#111;
-display:grid;place-items:center;min-height:100vh;margin:0;text-align:center}
-a{color:#111}</style></head><body><main><h1>Your download is starting</h1>
-<p>Aethron 1.1.51 for Mac. If nothing happens, <a href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip">download it here</a>.</p>
-<p><a href="/">Back to the site</a></p></main>
-<script>location.replace("https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip")</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Aethron is on its way</title>
+<meta name="robots" content="noindex">
+<meta name="description" content="Aethron for Mac is downloading. Three short steps and it is yours.">
+<meta name="theme-color" content="#fafafa">
+<link rel="icon" href="/assets/aethron-icon.jpg">
+<style>
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/BLNB4FAQFNK56DWWNF7PMGTCOTZHOEII/ST3WKSSDMBK2MIQQO3MAVYWLF4FTOLFV/6IN5WOLRCYP4G4MOCOHOMXNON6Q7MDAR.woff2");font-weight:400;font-display:swap}
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/HBNTRIISA5MEXGL5WPYI7CV2HIWTDV3Q/YDPDINVT673XLXNSTMLG4JNCZZMVVNPN/Y7SCNZJOT2MW5ADSGOFLDGH4TNL4JCQY.woff2");font-weight:700;font-display:swap}
+:root{--bg:#fafafa;--ink:#0f0f0f;--mute:#6f6f6f;--soft:#9a9a9a;--line:#e7e7e7;--card:#fff;--fill:#f1f1f1;
+--go:#4fe02f;--ease:cubic-bezier(.2,.8,.2,1);--spring:cubic-bezier(.34,1.56,.64,1)}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.5 Switzer,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{min-height:100vh;overflow-x:hidden}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:10px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--ink);color:#fff;padding:8px 14px;border-radius:10px;z-index:9}
+.skip:focus{left:12px}
+header{display:flex;align-items:center;justify-content:space-between;padding:22px clamp(16px,3vw,48px);position:relative;z-index:2}
+.brand{font-weight:700;font-size:19px;letter-spacing:-.02em;text-decoration:none}
+.back{display:inline-flex;align-items:center;gap:6px;text-decoration:none;color:var(--mute);font-size:15px;padding:8px 12px;border-radius:10px;transition:background .2s,color .2s}
+.back:hover{background:var(--fill);color:var(--ink)}
+main{max-width:1080px;margin:0 auto;padding:clamp(20px,5vw,56px) clamp(16px,3vw,32px) 72px;position:relative;z-index:1}
+
+/* the glow behind everything: soft, warm, alive */
+.aura{position:fixed;inset:-20vmax;z-index:0;pointer-events:none;
+background:radial-gradient(40vmax 30vmax at 50% 22%,#4fe02f22,transparent 70%),
+radial-gradient(30vmax 24vmax at 20% 70%,#ffd9a81c,transparent 70%),
+radial-gradient(30vmax 24vmax at 82% 64%,#b8e7ff22,transparent 70%);
+animation:drift 18s ease-in-out infinite alternate}
+@keyframes drift{to{transform:translate3d(2vmax,-2vmax,0) scale(1.05)}}
+
+.hero{text-align:center;display:flex;flex-direction:column;align-items:center}
+/* the icon lands in a ring that closes once the download has been asked for */
+.stage{position:relative;width:168px;height:168px;margin:8px 0 26px}
+.ring{position:absolute;inset:0;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:3}
+.ring .track{stroke:var(--line)}
+.ring .arc{stroke:var(--ink);stroke-linecap:round;stroke-dasharray:502;stroke-dashoffset:502;transition:stroke-dashoffset 1.6s var(--ease)}
+.started .ring .arc{stroke-dashoffset:0}
+.icon{position:absolute;inset:22px;border-radius:30px;overflow:hidden;background:#111;
+box-shadow:0 30px 60px -24px #0008,0 0 0 1px #0001;animation:land .9s var(--spring) both .1s}
+.icon img{width:100%;height:100%;object-fit:cover;display:block}
+@keyframes land{from{opacity:0;transform:translateY(-36px) scale(.8) rotate(-6deg)}}
+.halo{position:absolute;inset:14px;border-radius:38px;background:var(--go);filter:blur(28px);opacity:0;transition:opacity 1.2s ease .6s}
+.started .halo{opacity:.28;animation:breathe 3.6s ease-in-out infinite 1.8s}
+@keyframes breathe{50%{opacity:.14}}
+.badge{position:absolute;right:6px;bottom:6px;width:42px;height:42px;border-radius:50%;background:var(--ink);display:grid;place-items:center;
+box-shadow:0 0 0 5px var(--bg);transform:scale(0);transition:transform .55s var(--spring) 1.3s}
+.started .badge{transform:scale(1)}
+.badge svg{width:20px;height:20px;stroke:var(--go);stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24;transition:stroke-dashoffset .5s ease 1.7s}
+.started .badge svg{stroke-dashoffset:0}
+
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font:500 12px "Geist Mono",ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);
+background:#fff;border:1px solid var(--line);border-radius:99px;padding:6px 12px 6px 8px}
+.eyebrow b{width:8px;height:8px;border-radius:50%;background:var(--go);box-shadow:0 0 0 4px #4fe02f33;animation:pulse 2.2s infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 7px #4fe02f11}}
+h1{font-weight:700;font-size:clamp(40px,7vw,80px);line-height:.98;letter-spacing:-.05em;margin:18px auto 14px;max-width:13ch;text-wrap:balance}
+h1 span{display:inline-block;opacity:0;transform:translateY(14px);animation:word .7s var(--ease) forwards}
+@keyframes word{to{opacity:1;transform:none}}
+.lede{color:var(--mute);font-size:clamp(16px,1.7vw,19px);max-width:30em;margin:0 auto}
+.lede strong{color:var(--ink);font-weight:500}
+.actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-top:26px}
+.btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;border:0;border-radius:12px;padding:13px 20px;font:500 15px Switzer,system-ui,sans-serif;cursor:pointer;transition:transform .2s var(--ease),background .2s,box-shadow .2s}
+.btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.btn.dark{background:var(--ink);color:#fff;box-shadow:0 12px 30px -14px #000a}
+.btn.dark:hover{transform:translateY(-2px)}
+.btn.dark:active{transform:translateY(1px)}
+.btn.light{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.btn.light:hover{background:var(--fill)}
+.meta{margin-top:14px;color:var(--soft);font-size:13px}
+
+/* three steps, each with its own small scene */
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:clamp(48px,8vw,84px);counter-reset:s}
+@media (max-width:860px){.steps{grid-template-columns:1fr}}
+.step{background:var(--card);border:1px solid var(--line);border-radius:26px;padding:16px 16px 22px;opacity:0;transform:translateY(18px);transition:opacity .7s var(--ease),transform .7s var(--ease),box-shadow .3s}
+.step.in{opacity:1;transform:none}
+.step:hover{box-shadow:0 24px 50px -32px #0006}
+.scene{height:150px;border-radius:18px;background:var(--fill);position:relative;overflow:hidden;margin-bottom:18px}
+.num{font:500 12px "Geist Mono",ui-monospace,monospace;color:var(--soft);letter-spacing:.05em}
+.step h2{font-size:21px;letter-spacing:-.025em;line-height:1.15;margin:6px 0 6px;font-weight:700}
+.step p{margin:0;color:var(--mute);font-size:15px}
+.step code{font:13px "Geist Mono",ui-monospace,monospace;background:var(--fill);padding:1px 6px;border-radius:6px;color:var(--ink)}
+
+/* scene 1: the zip opens into the app */
+.zip,.app{position:absolute;top:50%;left:50%;width:62px;height:62px;border-radius:16px;margin:-31px 0 0 -31px}
+.zip{background:#fff;border:1px solid var(--line);display:grid;place-items:center;font:600 11px "Geist Mono",monospace;color:var(--mute)}
+.zip::before{content:"";position:absolute;top:8px;bottom:22px;left:50%;width:4px;margin-left:-2px;background:repeating-linear-gradient(#ccc 0 3px,transparent 3px 6px)}
+.zip::after{content:".zip";position:absolute;bottom:6px}
+.app{background:#111 url(/assets/aethron-icon.jpg) center/cover;box-shadow:0 14px 28px -14px #000a;opacity:0}
+.in .zip{animation:zipout 4.2s var(--ease) infinite}
+.in .s1 .app{animation:appin 4.2s var(--spring) infinite}
+@keyframes zipout{0%,30%{opacity:1;transform:none}45%,88%{opacity:0;transform:scale(.6)}100%{opacity:1;transform:none}}
+@keyframes appin{0%,35%{opacity:0;transform:scale(.4)}50%,85%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.4)}}
+
+/* scene 2: drag into Applications */
+.folder{position:absolute;right:16%;top:50%;width:74px;height:58px;margin-top:-26px;border-radius:10px;background:#5aa9ff;box-shadow:inset 0 -18px 0 #4a98ee}
+.folder::before{content:"";position:absolute;left:0;top:-9px;width:30px;height:12px;border-radius:6px 6px 0 0;background:#5aa9ff}
+.folder i{position:absolute;inset:auto 0 9px;text-align:center;font:600 9px system-ui;color:#fff;letter-spacing:.02em;font-style:normal}
+.s2 .app{left:24%;opacity:1;width:52px;height:52px;margin:-26px 0 0 -26px}
+.cursor{position:absolute;width:18px;height:18px;left:calc(24% + 10px);top:calc(50% + 8px)}
+.cursor svg{width:18px;height:18px}
+.in .s2 .app{animation:drag 3.6s var(--ease) infinite}
+.in .s2 .cursor{animation:dragc 3.6s var(--ease) infinite}
+@keyframes drag{0%,15%{left:24%;transform:none;opacity:1}55%{left:calc(84% - 37px);transform:scale(.7);opacity:1}62%,100%{left:calc(84% - 37px);transform:scale(.2);opacity:0}}
+@keyframes dragc{0%,15%{left:calc(24% + 10px);opacity:1}55%{left:calc(84% - 27px);opacity:1}62%,100%{left:calc(84% - 27px);opacity:0}}
+.in .folder{animation:gulp 3.6s ease infinite}
+@keyframes gulp{0%,55%{transform:none}60%{transform:scale(1.1)}68%,100%{transform:none}}
+
+/* scene 3: first open, then it is yours */
+.win{position:absolute;inset:20px 22px;border-radius:12px;background:#fff;box-shadow:0 18px 36px -24px #0007;overflow:hidden}
+.win .bar{height:18px;background:#f4f4f4;display:flex;gap:5px;align-items:center;padding:0 8px}
+.win .bar i{width:7px;height:7px;border-radius:50%;background:#ff5f57}.win .bar i+i{background:#febc2e}.win .bar i+i+i{background:#28c840}
+.win .ln{height:7px;border-radius:4px;background:var(--fill);margin:10px 12px 0;transform-origin:left;transform:scaleX(0)}
+.win .ln.g{background:var(--go);width:30%}
+.in .win .ln{animation:type 4s var(--ease) infinite}
+.in .win .ln:nth-child(3){animation-delay:.25s}.in .win .ln:nth-child(4){animation-delay:.5s}.in .win .ln:nth-child(5){animation-delay:.75s}
+@keyframes type{0%,10%{transform:scaleX(0)}40%,90%{transform:scaleX(1)}100%{transform:scaleX(0)}}
+
+.note{margin-top:16px;display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px 16px;color:var(--mute);font-size:14.5px}
+.note svg{flex:none;width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;margin-top:1px}
+.note strong{color:var(--ink);font-weight:500}
+
+.next{margin-top:clamp(48px,8vw,80px);display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:16px}
+@media (max-width:860px){.next{grid-template-columns:1fr}}
+.card{background:var(--ink);color:#fff;border-radius:26px;padding:clamp(22px,3vw,34px);position:relative;overflow:hidden}
+.card h3{font-size:clamp(24px,3vw,32px);letter-spacing:-.035em;line-height:1.05;margin:0 0 10px}
+.card p{color:#bdbdbd;margin:0 0 20px;max-width:28em}
+.card .btn.dark{background:#fff;color:var(--ink)}
+.card::after{content:"";position:absolute;width:260px;height:260px;right:-80px;bottom:-120px;border-radius:50%;background:var(--go);filter:blur(80px);opacity:.25}
+.prompt{background:#1c1c1c;border:1px solid #2a2a2a;border-radius:14px;padding:12px 14px;font:13.5px "Geist Mono",ui-monospace,monospace;color:#e8e8e8;margin-bottom:20px;min-height:46px}
+.prompt .caret{display:inline-block;width:7px;height:15px;background:var(--go);vertical-align:-2px;margin-left:2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.help{background:#fff;border:1px solid var(--line);border-radius:26px;padding:clamp(22px,3vw,34px)}
+.help h3{font-size:22px;letter-spacing:-.025em;margin:0 0 8px}
+.help p{color:var(--mute);margin:0 0 18px}
+.help ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.help li a{display:flex;justify-content:space-between;align-items:center;padding:14px 2px;border-bottom:1px solid var(--line);text-decoration:none;transition:padding .2s var(--ease)}
+.help li a:hover{padding-left:8px}
+
+/* a phone cannot run a Mac app: say so warmly, never drop a zip on it */
+.phone-only{display:none}
+.is-phone .phone-only{display:block}
+.is-phone .desk-only{display:none}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,40px);opacity:0;background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;transition:.35s var(--ease);z-index:9}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px;position:relative;z-index:1}
+
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}
+.step{opacity:1;transform:none}h1 span{opacity:1;transform:none}.app{opacity:1}.win .ln{transform:none}
+.ring .arc{stroke-dashoffset:0}.badge{transform:scale(1)}.badge svg{stroke-dashoffset:0}.icon{animation:none}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="aura" aria-hidden="true"></div>
+<header>
+  <a class="brand" href="/">Aethron</a>
+  <a class="back" href="/"><span aria-hidden="true">←</span> Back to the site</a>
+</header>
+<main id="main">
+  <section class="hero" id="hero">
+    <div class="stage" aria-hidden="true">
+      <svg class="ring" viewBox="0 0 168 168"><circle class="track" cx="84" cy="84" r="80"/><circle class="arc" cx="84" cy="84" r="80"/></svg>
+      <div class="halo"></div>
+      <div class="icon"><img src="/assets/aethron-icon.jpg" alt=""></div>
+      <div class="badge"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    </div>
+
+    <div class="desk-only">
+      <span class="eyebrow" id="status" role="status"><b></b>Aethron 1.1.51 for Mac</span>
+      <h1 id="title"><span>Aethron</span> <span>is</span> <span>on</span> <span>its</span> <span>way.</span></h1>
+      <p class="lede">Your download is starting. In a minute, the templates you bought will be <strong>sites you own</strong>, with every word and picture yours.</p>
+      <div class="actions">
+        <a class="btn dark" id="again" href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>Download again</a>
+        <a class="btn light" href="#steps">How to open it</a>
+      </div>
+      <p class="meta">Free during the beta · for macOS</p>
+    </div>
+
+    <div class="phone-only">
+      <span class="eyebrow"><b></b>Made for the Mac</span>
+      <h1><span>Save</span> <span>it</span> <span>for</span> <span>your</span> <span>Mac.</span></h1>
+      <p class="lede">Aethron runs on a Mac, so we did not drop a file on your phone. Send the link to yourself and open it there; it takes a second.</p>
+      <div class="actions">
+        <button class="btn dark" id="share" type="button"><svg viewBox="0 0 24 24"><path d="M12 15V4m0 0L7.5 8.5M12 4l4.5 4.5M5 13v6h14v-6"/></svg>Send it to my Mac</button>
+        <button class="btn light" id="copy" type="button">Copy the link</button>
+      </div>
+      <p class="meta">Aethron 1.1.51 · free during the beta</p>
+    </div>
+  </section>
+
+  <section class="steps" id="steps" aria-label="How to open Aethron">
+    <article class="step">
+      <div class="scene s1" aria-hidden="true"><div class="zip"></div><div class="app"></div></div>
+      <span class="num">STEP 1</span>
+      <h2>Open the download</h2>
+      <p>Find <code>Aethron-1.1.51-mac.zip</code> in Downloads and double-click it. It turns into the Aethron app.</p>
+    </article>
+    <article class="step">
+      <div class="scene s2" aria-hidden="true"><div class="folder"><i>Applications</i></div><div class="app"></div>
+        <div class="cursor"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.5L10 19z" fill="#111" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg></div></div>
+      <span class="num">STEP 2</span>
+      <h2>Move it to Applications</h2>
+      <p>Drag Aethron into your Applications folder, so it can keep itself up to date.</p>
+    </article>
+    <article class="step">
+      <div class="scene s3" aria-hidden="true"><div class="win"><div class="bar"><i></i><i></i><i></i></div><div class="ln g"></div><div class="ln"></div><div class="ln" style="width:70%"></div><div class="ln" style="width:45%"></div></div></div>
+      <span class="num">STEP 3</span>
+      <h2>Open it, and say hello</h2>
+      <p>Double-click Aethron. Updates arrive on their own from here on.</p>
+    </article>
+  </section>
+  <div class="note desk-only">
+    <svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/><path d="M12 9v4m0 3h.01"/></svg>
+    <span>If macOS says it <strong>cannot check Aethron for malicious software</strong>, that is because the beta is not yet notarised by Apple. Open <strong>System Settings → Privacy &amp; Security</strong>, scroll down and click <strong>Open Anyway</strong>. You only do this once.</span>
+  </div>
+
+  <section class="next" aria-label="What to do next">
+    <div class="card">
+      <h3>Your first five minutes.</h3>
+      <p>Paste the address of a Framer or Webflow template you own and tell Aethron who it is for. It does the rest, and checks its own work in a browser.</p>
+      <div class="prompt" aria-hidden="true"><span id="typed"></span><span class="caret"></span></div>
+      <a class="btn dark" href="/start">Or have us do it for you</a>
+    </div>
+    <div class="help">
+      <h3>We are here if you need us</h3>
+      <p>A person, not a bot, replies within one business day.</p>
+      <ul>
+        <li><a href="/start?type=help">Ask for help with Aethron <span aria-hidden="true">→</span></a></li>
+        <li><a href="/gallery">See sites people migrated <span aria-hidden="true">→</span></a></li>
+        <li><a href="/jomiez">Meet the team behind it <span aria-hidden="true">→</span></a></li>
+      </ul>
+    </div>
+  </section>
+</main>
+<footer>Thank you for trying Aethron. Made with care by Jomiez.</footer>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<noscript><p style="text-align:center"><a href="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip">Start the download</a></p></noscript>
+<script>
+(function(){
+  var URL_="https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip", PAGE='https://aethron.jomiez.com/download';
+  var phone=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent)&&!matchMedia('(pointer:fine)').matches);
+  // An iPad says it is a Mac; a real Mac has a fine pointer. Only a desktop gets the file.
+  if(phone)document.documentElement.classList.add('is-phone');
+  [].forEach.call(document.querySelectorAll('h1 span'),function(s,i){s.style.animationDelay=(.25+i*.08)+'s'});
+  var hero=document.getElementById('hero');
+  function toast(t){var e=document.getElementById('toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(function(){e.classList.remove('on')},2400)}
+  if(!phone){
+    // Ask for the file once the icon has landed, so the moment is seen, then close the ring.
+    setTimeout(function(){
+      var f=document.createElement('iframe');f.hidden=true;f.src=URL_;document.body.appendChild(f);
+      hero.classList.add('started');
+      document.getElementById('status').lastChild.nodeValue='Download started · Aethron 1.1.51';
+    },900);
+  }else{
+    hero.classList.add('started');
+    document.getElementById('share').addEventListener('click',function(){
+      if(navigator.share){navigator.share({title:'Aethron for Mac',text:'Download Aethron on my Mac',url:PAGE}).catch(function(){})}
+      else location.href='mailto:?subject='+encodeURIComponent('Aethron for my Mac')+'&body='+encodeURIComponent(PAGE);
+    });
+    document.getElementById('copy').addEventListener('click',function(){
+      (navigator.clipboard?navigator.clipboard.writeText(PAGE):Promise.reject()).then(function(){toast('Link copied')},function(){toast(PAGE)});
+    });
+  }
+  var io='IntersectionObserver' in window?new IntersectionObserver(function(es){es.forEach(function(e){
+    if(e.isIntersecting){var i=[].indexOf.call(e.target.parentNode.children,e.target);setTimeout(function(){e.target.classList.add('in')},i*120);io.unobserve(e.target)}})},{threshold:.25}):null;
+  [].forEach.call(document.querySelectorAll('.step'),function(s){io?io.observe(s):s.classList.add('in')});
+  var lines=['Migrate kaviyan.framer.website for my studio','Make the hero say what we actually do','Swap every photo for our own work'],li=0,ci=0,el=document.getElementById('typed');
+  if(matchMedia('(prefers-reduced-motion:reduce)').matches){el.textContent=lines[0];return}
+  (function tick(){var l=lines[li];if(ci<=l.length){el.textContent=l.slice(0,ci++);setTimeout(tick,45+Math.random()*50)}
+    else setTimeout(function(){ci=0;li=(li+1)%lines.length;tick()},2200)})();
+})();
+</script>
+</body>
+</html>

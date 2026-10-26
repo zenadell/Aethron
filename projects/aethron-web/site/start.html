@@ -133,8 +133,8 @@ footer a:hover{color:var(--ink)}
   <p class="live"><b></b>Taking new projects · replies within one business day</p>
 
   <div class="grid">
-    <form class="panel" id="brief" name="start-project" method="POST" action="/start/?sent=1" data-netlify="true" netlify-honeypot="company_site" novalidate>
-      <input type="hidden" name="form-name" value="start-project">
+    <form class="panel" id="brief" name="start-project" method="POST" action="https://formsubmit.co/hello@jomiez.com" novalidate>
+      <input type="hidden" name="_next" value="https://aethron.jomiez.com/start/?sent=1">
       <p class="hp"><label>Leave this empty <input name="company_site" tabindex="-1" autocomplete="off"></label></p>
       <input type="hidden" name="kind"><input type="hidden" name="platform"><input type="hidden" name="features">
       <input type="hidden" name="budget"><input type="hidden" name="timeline">
@@ -402,11 +402,18 @@ footer a:hover{color:var(--ink)}
     [].forEach.call(document.querySelectorAll('[data-goto]'),function(b){b.addEventListener('click',function(){show(+b.dataset.goto)})});
   }
 
+  var SEND_TO='https://formsubmit.co/ajax/hello@jomiez.com';
   function send(){
     next.disabled=true;next.firstChild.nodeValue='Sending… ';clear('send');
-    var body=new URLSearchParams(new FormData(form)).toString();
-    fetch('/',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:body})
-      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);done()})
+    // Sent by FormSubmit straight to hello@jomiez.com, so it works on any host
+    // (Render, Netlify, anywhere) with no server of our own.
+    var data={};new FormData(form).forEach(function(v,k){if(k.charAt(0)!=='_'&&k!=='company_site'&&v!=='')data[k]=v});
+    if(form.company_site.value)return done();           // a bot filled the hidden field
+    data._subject='New brief: '+(val('kind')||'Aethron')+' from '+(val('name')||val('email'));
+    data._replyto=val('email');data._template='table';data._captcha='false';
+    fetch(SEND_TO,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(data)})
+      .then(function(r){return r.json().catch(function(){return{}}).then(function(j){
+        if(!r.ok||String(j.success)==='false')throw new Error(j.message||('HTTP '+r.status));done()})})
       .catch(function(){
         next.disabled=false;next.firstChild.nodeValue='Try again ';
         var lines=[].map.call(document.querySelectorAll('#review > div'),function(d){return d.querySelector('dt').textContent+': '+d.querySelector('dd').firstChild.textContent}).join('\n');
