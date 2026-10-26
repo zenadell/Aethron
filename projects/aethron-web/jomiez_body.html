@@ -1,0 +1,191 @@
+<style data-ae-jz>
+/* The Jomiez page: the about page's own navbar, menu, CTA and footer, with
+   these sections in place of the about content. Type and colour follow the
+   rest of the site (Switzer 400, ink #0f0f0f, body at 60%). */
+div:has(> section[data-framer-name="Intro"]) > section{display:none!important}
+#ae-jz{--ink:#0f0f0f;--mute:rgba(15,15,15,.6);--soft:rgba(15,15,15,.4);--line:rgba(15,15,15,.08);--card:#fff;--ease:cubic-bezier(.2,.8,.2,1);
+  font-family:Switzer,"Switzer Placeholder",sans-serif;color:var(--ink);max-width:1200px;margin:0 auto;padding:105px 24px 40px;box-sizing:border-box;width:100%}
+#ae-jz *{box-sizing:border-box}
+#ae-jz a{color:inherit;text-decoration:none}
+#ae-jz img{display:block;max-width:100%}
+#ae-jz .hero{display:flex;flex-direction:column;align-items:center;text-align:center}
+#ae-jz .chip{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:1;text-transform:uppercase;letter-spacing:.02em}
+#ae-jz .chip i{width:32px;height:32px;border-radius:9px;background:var(--ink);display:grid;place-items:center;box-shadow:0 6px 14px -6px rgba(0,0,0,.4)}
+#ae-jz .chip i::after{content:"";width:9px;height:9px;border-radius:50%;background:#4fe02f}
+#ae-jz h1{font-weight:400;font-size:60px;line-height:1;letter-spacing:-1.5px;margin:24px 0 20px;max-width:760px}
+#ae-jz h2{font-weight:400;font-size:44px;line-height:1.05;letter-spacing:-1.1px;margin:0;max-width:720px}
+#ae-jz h3{font-weight:500;font-size:20px;line-height:1.3;letter-spacing:-.1px;margin:0}
+#ae-jz .lede{font-size:20px;line-height:28px;letter-spacing:-.1px;color:var(--mute);max-width:640px;margin:0}
+#ae-jz .ctas{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:32px}
+#ae-jz .btn{display:inline-flex;align-items:center;gap:8px;border-radius:10px;padding:13px 18px;font-size:15px;font-weight:500;line-height:1;transition:transform .25s var(--ease),opacity .25s}
+#ae-jz .btn:hover{transform:translateY(-1px);opacity:.88}
+#ae-jz .dark{background:var(--ink);color:#fafafa}
+#ae-jz .light{background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
+#ae-jz .btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#ae-jz .frame{margin-top:56px;padding:8px;border-radius:28px;background:#efefef;box-shadow:inset 0 0 0 1px var(--line)}
+#ae-jz .frame img{width:100%;height:auto;border-radius:22px}
+#ae-jz .cap{color:var(--soft);font-size:14px;margin:12px 0 0;text-align:center}
+#ae-jz section{margin-top:128px}
+#ae-jz .head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:40px}
+#ae-jz .head p{color:var(--mute);font-size:16px;line-height:24px;max-width:400px;margin:0}
+#ae-jz .label{font-size:12px;text-transform:uppercase;letter-spacing:.02em;color:var(--soft);margin:0 0 14px}
+#ae-jz .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+#ae-jz .stat{background:var(--card);border-radius:20px;padding:28px;box-shadow:inset 0 0 0 1px var(--line)}
+#ae-jz .stat b{display:block;font-weight:400;font-size:56px;letter-spacing:-2px;line-height:1}
+#ae-jz .stat span{display:block;color:var(--mute);font-size:15px;line-height:22px;margin-top:14px}
+#ae-jz .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+#ae-jz .cards.two{grid-template-columns:repeat(2,1fr)}
+#ae-jz .card{display:flex;flex-direction:column;background:var(--card);border-radius:24px;padding:8px;box-shadow:inset 0 0 0 1px var(--line);transition:transform .3s var(--ease),box-shadow .3s}
+#ae-jz .card:hover{transform:translateY(-3px);box-shadow:inset 0 0 0 1px var(--line),0 24px 50px -36px rgba(0,0,0,.45)}
+#ae-jz .card .pic{aspect-ratio:16/10;border-radius:18px;overflow:hidden;background:#111}
+#ae-jz .card .pic img{width:100%;height:100%;object-fit:cover;object-position:0 0}
+#ae-jz .card .txt{padding:18px 14px 16px}
+#ae-jz .tag{font-size:12px;text-transform:uppercase;letter-spacing:.02em;color:var(--soft);display:block;margin-bottom:8px}
+#ae-jz .card p,#ae-jz .row p{color:var(--mute);font-size:15px;line-height:22px;margin:8px 0 0}
+#ae-jz .more{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+#ae-jz .row{display:block;background:var(--card);border-radius:20px;padding:24px;box-shadow:inset 0 0 0 1px var(--line);transition:transform .3s var(--ease)}
+#ae-jz .row:hover{transform:translateY(-2px)}
+#ae-jz .svcs{display:grid;grid-template-columns:repeat(3,1fr);gap:32px}
+#ae-jz .svc{border-top:1px solid var(--ink);padding-top:18px}
+#ae-jz .svc small{display:block;font-size:13px;color:var(--soft);margin-bottom:28px}
+#ae-jz .svc p{color:var(--mute);font-size:15px;line-height:22px;margin:8px 0 0}
+#ae-jz .quote{background:var(--ink);color:#fafafa;border-radius:28px;padding:56px;display:grid;grid-template-columns:1.4fr 1fr;gap:40px;align-items:end}
+#ae-jz .quote blockquote{margin:0;font-size:34px;line-height:1.15;letter-spacing:-.8px}
+#ae-jz .quote cite{display:block;color:rgba(250,250,250,.55);font-style:normal;font-size:15px;margin-top:20px}
+#ae-jz .quote p{color:rgba(250,250,250,.7);font-size:16px;line-height:24px;margin:0 0 20px}
+#ae-jz .quote .ctas{justify-content:flex-start;margin-top:0}
+#ae-jz .quote .light{background:#fafafa;color:var(--ink)}
+#ae-jz .rv{opacity:0;transform:translateY(16px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+#ae-jz .rv.in{opacity:1;transform:none}
+@media (max-width:1199px){#ae-jz h1{font-size:52px}#ae-jz h2{font-size:38px}}
+@media (max-width:809px){#ae-jz{padding-top:96px}#ae-jz h1{font-size:40px;letter-spacing:-1px}#ae-jz h2{font-size:30px}
+  #ae-jz .lede{font-size:17px;line-height:25px}#ae-jz section{margin-top:88px}
+  #ae-jz .stats,#ae-jz .cards,#ae-jz .cards.two,#ae-jz .more,#ae-jz .svcs,#ae-jz .quote{grid-template-columns:1fr}
+  #ae-jz .quote{padding:32px}#ae-jz .quote blockquote{font-size:26px}#ae-jz .stat b{font-size:44px}}
+@media (prefers-reduced-motion:reduce){#ae-jz .rv{opacity:1;transform:none;transition:none}}
+</style>
+<template id="ae-jz-tpl">
+<div id="ae-jz">
+  <div class="hero">
+    <span class="chip"><i></i>Made by Jomiez</span>
+    <h1>The team behind Aethron.</h1>
+    <p class="lede">Jomiez is a software company growing its own AI products and custom software for businesses, rooted deep and built to endure. Aethron is one of the things we grow.</p>
+    <div class="ctas">
+      <a class="btn dark" href="https://jomiez.com" target="_blank" rel="noopener">Visit jomiez.com <svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+      <a class="btn light" href="https://www.jomiez.com/work" target="_blank" rel="noopener">See all our work</a>
+    </div>
+  </div>
+  <a class="frame rv" href="https://jomiez.com" target="_blank" rel="noopener" style="display:block"><img src="/assets/jz-home.jpg" width="1440" height="900" alt="The Jomiez website: Where intelligence takes root"></a>
+  <p class="cap">jomiez.com</p>
+
+  <section>
+    <p class="label">Jomiez in numbers</p>
+    <div class="head"><h2>Engineers and designers, building our own products and the products of those we believe in.</h2></div>
+    <div class="stats">
+      <div class="stat rv"><b>80+</b><span>Projects grown from first sketch to production, for founders, businesses and our own product line.</span></div>
+      <div class="stat rv"><b>7+</b><span>Years of craft, and still growing.</span></div>
+      <div class="stat rv"><b>100%</b><span>Client satisfaction.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">Our products</p>
+    <div class="head"><h2>Three products we build and run ourselves.</h2><p>Aethron is the newest. Chaka AI and Chaka WAP came first.</p></div>
+    <div class="cards">
+      <a class="card rv" href="https://www.jomiez.com/work/chaka-ai" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-chaka-ai.jpg" width="1279" height="742" alt="Chaka AI, the Jomiez voice assistant" loading="lazy"></div>
+        <div class="txt"><span class="tag">AI platform</span><h3>Chaka AI</h3><p>A multimodal AI with real-time voice, deep research and a memory that grows with every conversation.</p></div>
+      </a>
+      <a class="card rv" href="https://www.jomiez.com/work/chaka-wap" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-chaka-wap.jpg" width="1279" height="742" alt="Chaka WAP settings" loading="lazy"></div>
+        <div class="txt"><span class="tag">AI automation</span><h3>Chaka WAP</h3><p>A local-first AI that joins WhatsApp conversations as a human-like participant, learning the style of every chat it's in.</p></div>
+      </a>
+      <a class="card rv" href="/">
+        <div class="pic"><img src="/assets/jz-aethron.jpg" width="1600" height="978" alt="Aethron's Studio" loading="lazy"></div>
+        <div class="txt"><span class="tag">AI tooling</span><h3>Aethron</h3><p>Rebrand any Framer or Webflow template with AI while the design stays pixel-identical. You are on its website.</p></div>
+      </a>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">Selected work</p>
+    <div class="head"><h2>Some of our work for others.</h2><p>Beyond our own products, we lend our craft to founders and studios.</p></div>
+    <div class="cards two">
+      <a class="card rv" href="https://www.jomiez.com/work/zyro" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-zyro.jpg" width="1279" height="742" alt="Zyro, a SaaS landing page" loading="lazy"></div>
+        <div class="txt"><span class="tag">SaaS landing · Framer · 2025</span><h3>Zyro</h3><p>A modern, high-performance SaaS landing page system for startups and digital products, built for NFrame.</p></div>
+      </a>
+      <a class="card rv" href="https://www.jomiez.com/work/renok" target="_blank" rel="noopener">
+        <div class="pic"><img src="/assets/jz-renok.jpg" width="1279" height="742" alt="Renok, a creative studio site" loading="lazy"></div>
+        <div class="txt"><span class="tag">Creative studio · Webflow</span><h3>Renok</h3><p>A digital identity for a creative agency, with bold brand storytelling, a modular grid and high-end motion.</p></div>
+      </a>
+    </div>
+    <div class="more">
+      <a class="row rv" href="https://www.jomiez.com/work/job-foundry-hub" target="_blank" rel="noopener"><span class="tag">Web platform · Django</span><h3>Job Foundry Hub</h3><p>A career blog and job platform built with Django and PostgreSQL, with automated SEO auditing.</p></a>
+      <a class="row rv" href="https://www.jomiez.com/work/morae" target="_blank" rel="noopener"><span class="tag">E-commerce</span><h3>MORAE</h3><p>A minimalist, high-fidelity store for premium audio hardware.</p></a>
+    </div>
+  </section>
+
+  <section>
+    <p class="label">Services</p>
+    <div class="head"><h2>What Jomiez builds for others.</h2><p>Need something built? This is what the team does every day.</p></div>
+    <div class="svcs">
+      <div class="svc rv"><small>001</small><h3>Custom software and AI</h3><p>Cloud platforms and AI systems, precise, secure and made to carry weight for years.</p></div>
+      <div class="svc rv"><small>002</small><h3>Web and mobile apps</h3><p>Websites, web apps and mobile apps that are fast, responsive and ready for real use.</p></div>
+      <div class="svc rv"><small>003</small><h3>APIs and integrations</h3><p>APIs, automations and integrations that let your tools, data and AI models work together.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="quote rv">
+      <div>
+        <blockquote>“We don't chase what's fashionable. We plant ideas, tend them with patience, and build software meant to stand for years.”</blockquote>
+        <cite>Templeton, Founder and Lead Engineer, Jomiez</cite>
+      </div>
+      <div>
+        <p>Want to see more, or have something built? Everything about Jomiez lives on its own site.</p>
+        <div class="ctas">
+          <a class="btn light" href="https://jomiez.com" target="_blank" rel="noopener">Visit jomiez.com <svg viewBox="0 0 24 24"><path d="M7 17 17 7M8 7h9v9"/></svg></a>
+          <a class="btn light" href="https://www.jomiez.com/book-a-call" target="_blank" rel="noopener">Book a call</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</template>
+<script data-ae-jz>
+(function(){
+  var TITLE='Jomiez, the team behind Aethron';
+  var HOME=location.pathname.replace(/\/$/,'')||'/jomiez', left=false;
+  function here(){return (location.pathname.replace(/\/$/,'')||'/')===HOME}
+  function place(){
+    var css=document.querySelector('style[data-ae-jz]');
+    if(!here()){
+      /* the menu opened another page in place: take ours away with it */
+      left=true;if(css)css.disabled=true;
+      var r=document.getElementById('ae-jz');if(r)r.remove();
+      if(document.title===TITLE)document.title='Aethron';
+      return;
+    }
+    if(left){location.reload();return}
+    if(css)css.disabled=false;
+    var tpl=document.getElementById('ae-jz-tpl');if(!tpl)return;
+    var cta=document.querySelector('#main section[data-framer-name="CTA"]');if(!cta)return;
+    var root=document.getElementById('ae-jz');
+    if(!root){root=tpl.content.firstElementChild.cloneNode(true);reveal(root)}
+    if(root.nextElementSibling!==cta)cta.parentNode.insertBefore(root,cta);
+    if(document.title!==TITLE)document.title=TITLE;
+  }
+  function reveal(root){
+    var els=root.querySelectorAll('.rv');
+    if(!('IntersectionObserver' in window)){els.forEach(function(e){e.classList.add('in')});return}
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});
+    els.forEach(function(e){io.observe(e)});
+  }
+  place();
+  document.addEventListener('DOMContentLoaded',place);
+  window.addEventListener('load',place);
+  window.addEventListener('popstate',function(){setTimeout(place,0)});
+  new MutationObserver(function(){place()}).observe(document.documentElement,{childList:true,subtree:true});
+})();
+</script>
