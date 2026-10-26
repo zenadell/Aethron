@@ -801,7 +801,7 @@
    ]
   },
   {
-   "old": "From a single hero edit to thousands of localized cuts, Kaviyan’s agents keep every video on-brand and on schedule, without adding headcount.",
+   "old": "From a single hero edit to thousands of localized cuts, Kaviyan\u2019s agents keep every video on-brand and on schedule, without adding headcount.",
    "new": "From one bought template to a site you own in any framework, Aethron's agents rebrand every page, keep every animation and prove it all in a real browser.",
    "max_bytes": null,
    "scope": "all",
@@ -902,7 +902,7 @@
    ]
   },
   {
-   "old": "Drop in your footage, or let Nova generate the shots you’re missing.",
+   "old": "Drop in your footage, or let Nova generate the shots you\u2019re missing.",
    "new": "Paste a Framer or Webflow link, drop in a screenshot, or describe the site you want.",
    "max_bytes": null,
    "scope": "all",
@@ -1068,8 +1068,8 @@
    ]
   },
   {
-   "old": "Template · Glow Serum Launch",
-   "new": "Template · Halo Studio site",
+   "old": "Template \u00b7 Glow Serum Launch",
+   "new": "Template \u00b7 Halo Studio site",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -1237,8 +1237,8 @@
    ]
   },
   {
-   "old": "3 drafts · ready in 8s",
-   "new": "17 pages · verified clean",
+   "old": "3 drafts \u00b7 ready in 8s",
+   "new": "17 pages \u00b7 verified clean",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -1309,8 +1309,8 @@
    ]
   },
   {
-   "old": "Hue · live preview",
-   "new": "Map · live preview",
+   "old": "Hue \u00b7 live preview",
+   "new": "Map \u00b7 live preview",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -1873,7 +1873,7 @@
    ]
   },
   {
-   "old": "Need something that isn’t on the list?",
+   "old": "Need something that isn\u2019t on the list?",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -1882,7 +1882,7 @@
    ]
   },
   {
-   "old": "Tell us what you’re making. We reply with a fixed scope within two days.",
+   "old": "Tell us what you\u2019re making. We reply with a fixed scope within two days.",
    "new": "Tell us what you want Aethron to do next. A person reads every message.",
    "max_bytes": null,
    "scope": "all",
@@ -2063,8 +2063,8 @@
    ]
   },
   {
-   "old": "Week 6 · Handover complete",
-   "new": "Minute 6 · Your site is ready",
+   "old": "Week 6 \u00b7 Handover complete",
+   "new": "Minute 6 \u00b7 Your site is ready",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -2306,7 +2306,7 @@
    ]
   },
   {
-   "old": "Runner’s legs and teal running shoes in motion blur",
+   "old": "Runner\u2019s legs and teal running shoes in motion blur",
    "new": "The Gravitest home page",
    "max_bytes": 53,
    "scope": "all",
@@ -2446,7 +2446,7 @@
    ]
   },
   {
-   "old": "Soda’s Back, but Better",
+   "old": "Soda\u2019s Back, but Better",
    "new": "Cyntra, on Webflow",
    "max_bytes": 25,
    "scope": "all",
@@ -3026,7 +3026,7 @@
    ]
   },
   {
-   "old": "“Every tool we ship has to save an editor an hour, or it doesn’t ship.”",
+   "old": "\u201cEvery tool we ship has to save an editor an hour, or it doesn\u2019t ship.\u201d",
    "new": "",
    "max_bytes": 77,
    "scope": "all",
@@ -3046,7 +3046,7 @@
    ]
   },
   {
-   "old": "“I still keyframe by hand on weekends. It keeps me honest about what a block should do.”",
+   "old": "\u201cI still keyframe by hand on weekends. It keeps me honest about what a block should do.\u201d",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -3065,7 +3065,7 @@
    ]
   },
   {
-   "old": "“Rendering should feel instant. We get a little closer with every release.”",
+   "old": "\u201cRendering should feel instant. We get a little closer with every release.\u201d",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -3084,7 +3084,7 @@
    ]
   },
   {
-   "old": "“Good defaults beat a hundred settings. That’s the whole job.”",
+   "old": "\u201cGood defaults beat a hundred settings. That\u2019s the whole job.\u201d",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -3102,7 +3102,7 @@
    ]
   },
   {
-   "old": "“If a transition needs explaining, it isn’t finished yet.”",
+   "old": "\u201cIf a transition needs explaining, it isn\u2019t finished yet.\u201d",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -3121,7 +3121,7 @@
    ]
   },
   {
-   "old": "“The best feature request is a frustrated editor on a deadline.”",
+   "old": "\u201cThe best feature request is a frustrated editor on a deadline.\u201d",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -3139,7 +3139,7 @@
    ]
   },
   {
-   "old": "“People ship wilder things with blocks than we ever planned for.”",
+   "old": "\u201cPeople ship wilder things with blocks than we ever planned for.\u201d",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -3214,7 +3214,7 @@
    ]
   },
   {
-   "old": "How Northfold ships 4× more social cuts",
+   "old": "How Northfold ships 4\u00d7 more social cuts",
    "new": "How a Framer template becomes yours",
    "max_bytes": 40,
    "scope": "all",
@@ -3493,7 +3493,7 @@
    ]
   },
   {
-   "old": "I’m not an editor. I described the shot I was missing, Nova generated it in seconds, and I spent my time on the idea instead of the keyframes.",
+   "old": "I\u2019m not an editor. I described the shot I was missing, Nova generated it in seconds, and I spent my time on the idea instead of the keyframes.",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -3719,7 +3719,7 @@
    ]
   },
   {
-   "old": "Whether you’re cutting your first edit or shipping thousands of variants, there’s a plan that fits.",
+   "old": "Whether you\u2019re cutting your first edit or shipping thousands of variants, there\u2019s a plan that fits.",
    "new": "Everything is free during the beta. These are the prices we plan to charge when it ends.",
    "max_bytes": null,
    "scope": "all",
@@ -3784,7 +3784,7 @@
    ]
   },
   {
-   "old": "What’s included:",
+   "old": "What\u2019s included:",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -4049,8 +4049,8 @@
    ]
   },
   {
-   "old": "Can’t find what you’re looking for? Our team replies within a day.",
-   "new": "Can’t find what you’re looking for? Write to us and a person replies.",
+   "old": "Can\u2019t find what you\u2019re looking for? Our team replies within a day.",
+   "new": "Can\u2019t find what you\u2019re looking for? Write to us and a person replies.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -4121,8 +4121,8 @@
    ]
   },
   {
-   "old": "Tell us what you’re making.",
-   "new": "Tell us what you’re building.",
+   "old": "Tell us what you\u2019re making.",
+   "new": "Tell us what you\u2019re building.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -4139,7 +4139,7 @@
    ]
   },
   {
-   "old": "You · 09:12",
+   "old": "You \u00b7 09:12",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -4148,7 +4148,7 @@
    ]
   },
   {
-   "old": "A launch film and forty cut-downs, shipping in March…",
+   "old": "A launch film and forty cut-downs, shipping in March\u2026",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -4166,7 +4166,7 @@
    ]
   },
   {
-   "old": "Ines, studio lead · 4 h later",
+   "old": "Ines, studio lead \u00b7 4 h later",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -4175,7 +4175,7 @@
    ]
   },
   {
-   "old": "Got it. You’ll have a fixed scope by Thursday.",
+   "old": "Got it. You\u2019ll have a fixed scope by Thursday.",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -4184,8 +4184,8 @@
    ]
   },
   {
-   "old": "Studio is open · typical reply in 4 hours",
-   "new": "Inbox is open · a person replies",
+   "old": "Studio is open \u00b7 typical reply in 4 hours",
+   "new": "Inbox is open \u00b7 a person replies",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -4662,8 +4662,8 @@
    ]
   },
   {
-   "old": "© 2026 Kaviyan. All rights reserved.",
-   "new": "© 2026 Aethron. All rights reserved.",
+   "old": "\u00a9 2026 Kaviyan. All rights reserved.",
+   "new": "\u00a9 2026 Aethron. All rights reserved.",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -4779,7 +4779,7 @@
    ]
   },
   {
-   "old": "Every agent we ship has to save an editor an hour. If it doesn’t make the cut faster, it doesn’t make the release.",
+   "old": "Every agent we ship has to save an editor an hour. If it doesn\u2019t make the cut faster, it doesn\u2019t make the release.",
    "new": "Every feature has to leave you owning more of your site. If it ties you to a platform, it does not ship.",
    "max_bytes": null,
    "scope": "all",
@@ -5359,7 +5359,7 @@
    ]
   },
   {
-   "old": "Every feature starts in someone’s timeline. We sit in on real projects, note where editors slow down, and write the problem down before the solution.",
+   "old": "Every feature starts in someone\u2019s timeline. We sit in on real projects, note where editors slow down, and write the problem down before the solution.",
    "new": "Every feature starts with a template that fought back. We run real sites, note where they break, and write the fix down first.",
    "max_bytes": null,
    "scope": "all",
@@ -5440,7 +5440,7 @@
    ]
   },
   {
-   "old": "We release early, watch how it’s used and keep tuning. Changelogs, teardown streams and community feedback close the loop.",
+   "old": "We release early, watch how it\u2019s used and keep tuning. Changelogs, teardown streams and community feedback close the loop.",
    "new": "We release often and keep a written record of every bug and how it was fixed.",
    "max_bytes": null,
    "scope": "all",
@@ -5629,7 +5629,7 @@
    ]
   },
   {
-   "old": "Editors’ Choice",
+   "old": "Editors\u2019 Choice",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -5656,7 +5656,7 @@
    ]
   },
   {
-   "old": "Named one of the year’s breakout tools after Cut opened to the public.",
+   "old": "Named one of the year\u2019s breakout tools after Cut opened to the public.",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -5856,7 +5856,7 @@
    ]
   },
   {
-   "old": "€2,000 equipment budget",
+   "old": "\u20ac2,000 equipment budget",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -5905,7 +5905,7 @@
    ]
   },
   {
-   "old": "Hiring now · updated weekly",
+   "old": "Hiring now \u00b7 updated weekly",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -5934,7 +5934,7 @@
    ]
   },
   {
-   "old": "Remote · Worldwide",
+   "old": "Remote \u00b7 Worldwide",
    "new": "",
    "max_bytes": 19,
    "scope": "all",
@@ -5954,7 +5954,7 @@
    ]
   },
   {
-   "old": "€100k to €125k",
+   "old": "\u20ac100k to \u20ac125k",
    "new": "",
    "max_bytes": 18,
    "scope": "all",
@@ -5994,7 +5994,7 @@
    ]
   },
   {
-   "old": "£60k to £75k",
+   "old": "\u00a360k to \u00a375k",
    "new": "",
    "max_bytes": 14,
    "scope": "all",
@@ -6024,7 +6024,7 @@
    ]
   },
   {
-   "old": "Remote · Americas",
+   "old": "Remote \u00b7 Americas",
    "new": "",
    "max_bytes": 18,
    "scope": "all",
@@ -6064,7 +6064,7 @@
    ]
   },
   {
-   "old": "Remote · Europe",
+   "old": "Remote \u00b7 Europe",
    "new": "",
    "max_bytes": 16,
    "scope": "all",
@@ -6074,7 +6074,7 @@
    ]
   },
   {
-   "old": "€72k to €88k",
+   "old": "\u20ac72k to \u20ac88k",
    "new": "",
    "max_bytes": 16,
    "scope": "all",
@@ -6114,7 +6114,7 @@
    ]
   },
   {
-   "old": "£48k to £58k",
+   "old": "\u00a348k to \u00a358k",
    "new": "",
    "max_bytes": 14,
    "scope": "all",
@@ -6144,7 +6144,7 @@
    ]
   },
   {
-   "old": "€85k to €105k",
+   "old": "\u20ac85k to \u20ac105k",
    "new": "",
    "max_bytes": 17,
    "scope": "all",
@@ -6184,7 +6184,7 @@
    ]
   },
   {
-   "old": "€320 to €420 / day",
+   "old": "\u20ac320 to \u20ac420 / day",
    "new": "",
    "max_bytes": 22,
    "scope": "all",
@@ -6341,7 +6341,7 @@
    ]
   },
   {
-   "old": "A sentence: describe the video in plain words, such as “a 30 second product teaser with fast cuts and bold captions”.",
+   "old": "A sentence: describe the video in plain words, such as \u201ca 30 second product teaser with fast cuts and bold captions\u201d.",
    "new": "Headings: every heading of the original must be in the port.",
    "max_bytes": 121,
    "scope": "all",
@@ -6499,7 +6499,7 @@
    ]
   },
   {
-   "old": "Each market needs its own titles, prices, currency and legal lines. Each channel needs its own aspect ratio. In past seasons Maison Vire’s editors duplicated the master project for every market, replaced the text by hand and exported each version three times. Feedback arrived by email, often about the wrong file.",
+   "old": "Each market needs its own titles, prices, currency and legal lines. Each channel needs its own aspect ratio. In past seasons Maison Vire\u2019s editors duplicated the master project for every market, replaced the text by hand and exported each version three times. Feedback arrived by email, often about the wrong file.",
    "new": "A template stores the same text in more than one place: the page, the code that redraws it, and sometimes a content file. Change one and miss another, and the page quietly puts the old text back when it loads. A file check alone cannot see it.",
    "max_bytes": 316,
    "scope": "all",
@@ -6539,7 +6539,7 @@
    ]
   },
   {
-   "old": "Kaviyan’s agents read that sheet as their brief.",
+   "old": "Kaviyan\u2019s agents read that sheet as their brief.",
    "new": "Mend reads that report as its brief.",
    "max_bytes": 50,
    "scope": "all",
@@ -6559,7 +6559,7 @@
    ]
   },
   {
-   "old": "Flow replaced titles, captions, price cards and legal lines for each market, in the brand’s own motion style.",
+   "old": "Flow replaced titles, captions, price cards and legal lines for each market, in the brand\u2019s own motion style.",
    "new": "Then it looks for the closest real line on the page, and uses it only if it fits the space the template allows.",
    "max_bytes": 111,
    "scope": "all",
@@ -6619,7 +6619,7 @@
    ]
   },
   {
-   "old": "“Nine markets, three aspect ratios, one sprint,” says Lindqvist. “Localization stopped being a quarter-long project and became a checklist.”",
+   "old": "\u201cNine markets, three aspect ratios, one sprint,\u201d says Lindqvist. \u201cLocalization stopped being a quarter-long project and became a checklist.\u201d",
    "new": "If something is still stuck, Aethron says exactly what it tried and what is left, instead of calling it done.",
    "max_bytes": 148,
    "scope": "all",
@@ -6639,7 +6639,7 @@
    ]
   },
   {
-   "old": "Regional teams reviewed their own versions through review links, with each comment pinned to the frame it was about. A corrected price in one market changed one row in the sheet, and Flow updated that market’s edits. Nothing else had to be exported again.",
+   "old": "Regional teams reviewed their own versions through review links, with each comment pinned to the frame it was about. A corrected price in one market changed one row in the sheet, and Flow updated that market\u2019s edits. Nothing else had to be exported again.",
    "new": "Every fix keeps the version before it. If you do not like a change Mend made, one click on Undo puts it back, and nothing is ever thrown away.",
    "max_bytes": 257,
    "scope": "all",
@@ -6719,7 +6719,7 @@
    ]
   },
   {
-   "old": "How Northfold ships 4× more social cuts - Kaviyan Blog",
+   "old": "How Northfold ships 4\u00d7 more social cuts - Kaviyan Blog",
    "new": "How a Framer template becomes yours - Aethron Blog",
    "max_bytes": null,
    "scope": "all",
@@ -6737,7 +6737,7 @@
    ]
   },
   {
-   "old": "Northfold is an entertainment studio with a six-person content team and a release calendar that never slows down. A year ago the team shipped about twelve social cuts a week. Today it ships fifty. Nobody was hired, and nobody works later. What changed is how Northfold handles social media video editing: the repetitive first pass belongs to Kaviyan’s AI agents, and the editors keep the decisions.",
+   "old": "Northfold is an entertainment studio with a six-person content team and a release calendar that never slows down. A year ago the team shipped about twelve social cuts a week. Today it ships fifty. Nobody was hired, and nobody works later. What changed is how Northfold handles social media video editing: the repetitive first pass belongs to Kaviyan\u2019s AI agents, and the editors keep the decisions.",
    "new": "You bought a Framer template because the design is right. Making it yours used to mean days of rewriting text, swapping images and hunting for every mention of the template's name, and the site still lived on Framer. Aethron's migration agent, Map, does that work and gives you plain files you own.",
    "max_bytes": 400,
    "scope": "all",
@@ -6757,7 +6757,7 @@
    ]
   },
   {
-   "old": "Daniel Okafor, Head of Content at Northfold, describes the old routine plainly. Every Monday went to rough cuts. Editors pulled selects from the weekend’s footage, built an assembly for each show, then rebuilt the same intro, lower thirds and end card for every format. A note on one title meant opening five projects instead of one.",
+   "old": "Daniel Okafor, Head of Content at Northfold, describes the old routine plainly. Every Monday went to rough cuts. Editors pulled selects from the weekend\u2019s footage, built an assembly for each show, then rebuilt the same intro, lower thirds and end card for every format. A note on one title meant opening five projects instead of one.",
    "new": "A Framer page is drawn twice: once as the page you load, and again by code that redraws it a moment later. Change only the page and the code puts the old words back. Content lists live in compact files with a fixed size. Aethron writes every change into all of them, the same way, so nothing reverts.",
    "max_bytes": 335,
    "scope": "all",
@@ -6797,7 +6797,7 @@
    ]
   },
   {
-   "old": "“We used to spend Mondays on rough cuts,” says Okafor. “Now Cut has a first assembly waiting, and a full social edit ships in an afternoon.”",
+   "old": "\u201cWe used to spend Mondays on rough cuts,\u201d says Okafor. \u201cNow Cut has a first assembly waiting, and a full social edit ships in an afternoon.\u201d",
    "new": "On the Jomiez agency site that was 63 code files, 6 content files and 559 lines.",
    "max_bytes": 148,
    "scope": "all",
@@ -6967,7 +6967,7 @@
    ]
   },
   {
-   "old": "Okafor’s advice to other content teams is to start with the most repeated task, not the most impressive one. For Northfold that was the rough cut and the lower third. Once those two ran on their own, the rest of the pipeline followed.",
+   "old": "Okafor\u2019s advice to other content teams is to start with the most repeated task, not the most impressive one. For Northfold that was the rough cut and the lower third. Once those two ran on their own, the rest of the pipeline followed.",
    "new": "Start with a template you already own. Aethron is free while it is in beta, so you can migrate your first one today and judge the result yourself.",
    "max_bytes": 236,
    "scope": "all",
@@ -7005,7 +7005,7 @@
    ]
   },
   {
-   "old": "Most teams repeat the same sequence on every video: rough cut, grade, sound, titles, export. As of this release, that sequence can be saved. Workflows chain Kaviyan’s agents into one reusable video editing workflow that runs on any new project from a single brief.",
+   "old": "Most teams repeat the same sequence on every video: rough cut, grade, sound, titles, export. As of this release, that sequence can be saved. Workflows chain Kaviyan\u2019s agents into one reusable video editing workflow that runs on any new project from a single brief.",
    "new": "Most screenshot-to-code tools hand the picture to a model and hope. Models are good at the shape of a page and poor at exact numbers. Aethron reads the numbers itself, and checks every page the model writes against the screenshot.",
    "max_bytes": 266,
    "scope": "all",
@@ -7235,7 +7235,7 @@
    ]
   },
   {
-   "old": "Lena Hartmann, our founder, has one rule for every release: “Every tool we ship has to save an editor an hour, or it doesn’t ship.” Workflows apply that rule to the brief itself.",
+   "old": "Lena Hartmann, our founder, has one rule for every release: \u201cEvery tool we ship has to save an editor an hour, or it doesn\u2019t ship.\u201d Workflows apply that rule to the brief itself.",
    "new": "Every page Aethron builds this way can then be changed by pointing at it and saying the change in plain words.",
    "max_bytes": 184,
    "scope": "all",
@@ -7345,8 +7345,8 @@
    ]
   },
   {
-   "old": "London · GMT",
-   "new": "Lagos · WAT",
+   "old": "London \u00b7 GMT",
+   "new": "Lagos \u00b7 WAT",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -7354,8 +7354,8 @@
    ]
   },
   {
-   "old": "“Every message lands with someone who can actually answer it. Usually me.”",
-   "new": "“Every message lands with someone who can actually answer it.”",
+   "old": "\u201cEvery message lands with someone who can actually answer it. Usually me.\u201d",
+   "new": "\u201cEvery message lands with someone who can actually answer it.\u201d",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -7492,7 +7492,7 @@
    ]
   },
   {
-   "old": "Studio hours · GMT",
+   "old": "Studio hours \u00b7 GMT",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -7601,7 +7601,7 @@
    ]
   },
   {
-   "old": "Shoreditch High St · 5 min",
+   "old": "Shoreditch High St \u00b7 5 min",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -7849,7 +7849,7 @@
    ]
   },
   {
-   "old": "4×",
+   "old": "4\u00d7",
    "new": "",
    "max_bytes": 3,
    "scope": "all",
@@ -8113,7 +8113,7 @@
    ]
   },
   {
-   "old": "Six albums · 23 frames",
+   "old": "Six albums \u00b7 23 frames",
    "new": "Six albums of Aethron",
    "max_bytes": null,
    "scope": "all",
@@ -9427,8 +9427,8 @@
    ]
   },
   {
-   "old": "Do not use Kaviyan to break the law, infringe someone else’s rights or disrupt the service for others. In particular:",
-   "new": "Do not use Aethron to break the law, infringe someone else’s rights or disrupt the service.",
+   "old": "Do not use Kaviyan to break the law, infringe someone else\u2019s rights or disrupt the service for others. In particular:",
+   "new": "Do not use Aethron to break the law, infringe someone else\u2019s rights or disrupt the service.",
    "max_bytes": 119,
    "scope": "all",
    "where": [
@@ -9587,8 +9587,8 @@
    ]
   },
   {
-   "old": "6. Kaviyan’s intellectual property",
-   "new": "6. Aethron’s property",
+   "old": "6. Kaviyan\u2019s intellectual property",
+   "new": "6. Aethron\u2019s property",
    "max_bytes": 36,
    "scope": "all",
    "where": [
@@ -11350,7 +11350,7 @@
    ]
   },
   {
-   "old": "16:9 · 9:16 · 1:1",
+   "old": "16:9 \u00b7 9:16 \u00b7 1:1",
    "new": "Framer",
    "max_bytes": 19,
    "scope": "all",
@@ -11555,7 +11555,7 @@
    ]
   },
   {
-   "old": "1 × 60s",
+   "old": "1 \u00d7 60s",
    "new": "Whole",
    "max_bytes": 8,
    "scope": "all",
@@ -11741,7 +11741,7 @@
    ]
   },
   {
-   "old": "9:16 · 4:5",
+   "old": "9:16 \u00b7 4:5",
    "new": "Framer",
    "max_bytes": 11,
    "scope": "all",
@@ -11821,7 +11821,7 @@
    ]
   },
   {
-   "old": "A scoping call and an audit of Lumen Skin’s last three product launches.",
+   "old": "A scoping call and an audit of Lumen Skin\u2019s last three product launches.",
    "new": "Map read 53 code files, 8 CMS files and 436 lines of copy.",
    "max_bytes": 74,
    "scope": "all",
@@ -11901,7 +11901,7 @@
    ]
   },
   {
-   "old": "1 × 30s",
+   "old": "1 \u00d7 30s",
    "new": "9",
    "max_bytes": 8,
    "scope": "all",
@@ -12029,7 +12029,7 @@
    ]
   },
   {
-   "old": "9:16 · 1:1",
+   "old": "9:16 \u00b7 1:1",
    "new": "Framer",
    "max_bytes": 11,
    "scope": "all",
@@ -12079,7 +12079,7 @@
    ]
   },
   {
-   "old": "Fieldnote’s social team is two people. They needed to publish like a much larger brand without hiring.",
+   "old": "Fieldnote\u2019s social team is two people. They needed to publish like a much larger brand without hiring.",
    "new": "Lewius is an 18-page Framer template. We ran it inside the shipped app, not from source.",
    "max_bytes": 104,
    "scope": "all",
@@ -12139,7 +12139,7 @@
    ]
   },
   {
-   "old": "Three workshops on Fieldnote’s own footage, recorded for the next hire.",
+   "old": "Three workshops on Fieldnote\u2019s own footage, recorded for the next hire.",
    "new": "Verify clean. Zero stray processes.",
    "max_bytes": 73,
    "scope": "all",
@@ -12297,8 +12297,8 @@
    ]
   },
   {
-   "old": "9:16 · 1:1 · 60fps masters",
-   "new": "Framer · run by Gemini",
+   "old": "9:16 \u00b7 1:1 \u00b7 60fps masters",
+   "new": "Framer \u00b7 run by Gemini",
    "max_bytes": 28,
    "scope": "all",
    "where": [
@@ -12357,7 +12357,7 @@
    ]
   },
   {
-   "old": "We designed one drop format with locked motion and open product layers. Cut assembles it, Echo cleans the runner’s dialogue and Flow sets the titles.",
+   "old": "We designed one drop format with locked motion and open product layers. Cut assembles it, Echo cleans the runner\u2019s dialogue and Flow sets the titles.",
    "new": "It used only Aethron's tools: create, fetch, fill, build and verify. The guardrails kept every write safe.",
    "max_bytes": 151,
    "scope": "all",
@@ -12537,7 +12537,7 @@
    ]
   },
   {
-   "old": "Soda’s Back, but Better - Kaviyan Projects",
+   "old": "Soda\u2019s Back, but Better - Kaviyan Projects",
    "new": "Cyntra, on Webflow - Aethron Projects",
    "max_bytes": null,
    "scope": "all",
@@ -12565,7 +12565,7 @@
    ]
   },
   {
-   "old": "9:16 · 16:9",
+   "old": "9:16 \u00b7 16:9",
    "new": "Webflow",
    "max_bytes": 12,
    "scope": "all",
@@ -12635,7 +12635,7 @@
    ]
   },
   {
-   "old": "Eighteen assets, three weeks, and the most-watched post in the brand’s history.",
+   "old": "Eighteen assets, three weeks, and the most-watched post in the brand\u2019s history.",
    "new": "155 assets local, zero links back to Webflow, and no brand left in any file name.",
    "max_bytes": 81,
    "scope": "all",
@@ -12665,7 +12665,7 @@
    ]
   },
   {
-   "old": "Eighteen assets cut inside Oru Coffee’s own editor. Reviewed every Friday.",
+   "old": "Eighteen assets cut inside Oru Coffee\u2019s own editor. Reviewed every Friday.",
    "new": "Every asset downloaded and renamed. Old image sizes removed.",
    "max_bytes": 76,
    "scope": "all",
@@ -12675,7 +12675,7 @@
    ]
   },
   {
-   "old": "Project files, prompts and a recorded walkthrough in the client’s workspace.",
+   "old": "Project files, prompts and a recorded walkthrough in the client\u2019s workspace.",
    "new": "Verify clean. The site runs with no link back to Webflow.",
    "max_bytes": 78,
    "scope": "all",
@@ -12813,7 +12813,7 @@
    ]
   },
   {
-   "old": "9:16 · 4:5 · 16:9",
+   "old": "9:16 \u00b7 4:5 \u00b7 16:9",
    "new": "Framer to Astro",
    "max_bytes": 19,
    "scope": "all",
@@ -13230,7 +13230,7 @@
    ]
   },
   {
-   "old": "What’s included",
+   "old": "What\u2019s included",
    "new": "",
    "max_bytes": null,
    "scope": "all",
@@ -14996,7 +14996,7 @@
    ]
   },
   {
-   "old": "3.2×",
+   "old": "3.2\u00d7",
    "new": "6 min",
    "max_bytes": 5,
    "scope": "all",
@@ -15963,8 +15963,8 @@
    "node": true
   },
   {
-   "old": "Six services · fixed scope · fixed price",
-   "new": "Six features · one Mac app · free in beta",
+   "old": "Six services \u00b7 fixed scope \u00b7 fixed price",
+   "new": "Six features \u00b7 one Mac app \u00b7 free in beta",
    "max_bytes": null,
    "scope": "all",
    "where": [
@@ -16546,7 +16546,7 @@
    ]
   },
   {
-   "old": "[1,[4,\"h2\",{\"dir\":\"auto\"},[5,\"A product relaunch video with no shoot\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"A relaunch, a small budget and three weeks. Oru Coffee wanted its coffee soda to come back loud.\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"We skipped the shoot. Nova generated the pour shots, Flow set the kinetic type and Echo built the sound.\"]],[4,\"h3\",{\"dir\":\"auto\"},[5,\"The outcome\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Eighteen assets, three weeks, and the most-watched post in the brand’s history.\"]]]",
+   "old": "[1,[4,\"h2\",{\"dir\":\"auto\"},[5,\"A product relaunch video with no shoot\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"A relaunch, a small budget and three weeks. Oru Coffee wanted its coffee soda to come back loud.\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"We skipped the shoot. Nova generated the pour shots, Flow set the kinetic type and Echo built the sound.\"]],[4,\"h3\",{\"dir\":\"auto\"},[5,\"The outcome\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Eighteen assets, three weeks, and the most-watched post in the brand\u2019s history.\"]]]",
    "new": "[1,[4,\"h2\",{\"dir\":\"auto\"},[5,\"A Webflow site, every asset brought home\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Cyntra was our first real Webflow template, with its images and files on Webflow's servers.\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Map found all 152 images, kept the CDN files intact, then downloaded every asset under a clean name.\"]],[4,\"h3\",{\"dir\":\"auto\"},[5,\"The outcome\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"155 assets local, zero links back to Webflow, and no brand left in any file name.\"]]]",
    "max_bytes": 485,
    "scope": "all",
@@ -16627,7 +16627,7 @@
    ]
   },
   {
-   "old": "[1,[4,\"h2\",{\"dir\":\"auto\"},[5,\"Social video templates for a team of two\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Fieldnote’s social team is two people. They needed to publish like a much larger brand without hiring.\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"We designed fourteen templates, then ran workshops on briefing all five agents.\"]],[4,\"h3\",{\"dir\":\"auto\"},[5,\"The outcome\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"From two videos a week to one a day, with no weekends worked.\"]]]",
+   "old": "[1,[4,\"h2\",{\"dir\":\"auto\"},[5,\"Social video templates for a team of two\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Fieldnote\u2019s social team is two people. They needed to publish like a much larger brand without hiring.\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"We designed fourteen templates, then ran workshops on briefing all five agents.\"]],[4,\"h3\",{\"dir\":\"auto\"},[5,\"The outcome\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"From two videos a week to one a day, with no weekends worked.\"]]]",
    "new": "[1,[4,\"h2\",{\"dir\":\"auto\"},[5,\"18 pages, migrated in the Mac app\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Lewius is an 18-page Framer template. We ran it inside the shipped app, not from source.\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"The run found a real bug, and now every release is held to it.\"]],[4,\"h3\",{\"dir\":\"auto\"},[5,\"The outcome\"]],[4,\"p\",{\"dir\":\"auto\"},[5,\"Create, fetch, fill, build and verify, all clean.\"]]]",
    "max_bytes": 450,
    "scope": "all",
@@ -16636,7 +16636,7 @@
    ]
   },
   {
-   "old": "Fieldnote’s social team is two people. They needed social video templates that let them publish every day, without hiring or working weekends.",
+   "old": "Fieldnote\u2019s social team is two people. They needed social video templates that let them publish every day, without hiring or working weekends.",
    "new": "An 18-page Framer template migrated inside the shipped Aethron app. The run found a real bug, and every release is now held to it.",
    "max_bytes": 144,
    "scope": "all",
@@ -17329,7 +17329,7 @@
    ]
   },
   {
-   "old": "I’m not an editor, and I shipped five posts last week without breaking a single template.",
+   "old": "I\u2019m not an editor, and I shipped five posts last week without breaking a single template.",
    "new": "I'm not a developer, and I changed the whole homepage by clicking.",
    "max_bytes": 91,
    "scope": "all",
@@ -19120,7 +19120,7 @@
    "max_bytes": null
   },
   {
-   "old": "How Northfold’s studio ships 4× more social cuts every week.",
+   "old": "How Northfold\u2019s studio ships 4\u00d7 more social cuts every week.",
    "new": "How a Framer template became the Jomiez agency site.",
    "scope": "all",
    "where": [
@@ -19129,7 +19129,7 @@
    "max_bytes": null
   },
   {
-   "old": "An AI video gallery of stills, motion frames and edit bay shots, made with Kaviyan’s agents and by Kaviyan Studio.",
+   "old": "An AI video gallery of stills, motion frames and edit bay shots, made with Kaviyan\u2019s agents and by Kaviyan Studio.",
    "new": "Screens from Aethron for Mac: the Studio, point and edit, screenshot to code, ports and the checks behind them.",
    "scope": "all",
    "where": [
@@ -19156,7 +19156,7 @@
    "max_bytes": null
   },
   {
-   "old": "We haven’t published a case study in this industry. Pick another filter, or ask us about it.",
+   "old": "We haven\u2019t published a case study in this industry. Pick another filter, or ask us about it.",
    "new": "No project of this type yet. Pick another filter.",
    "scope": "all",
    "where": [
@@ -19192,7 +19192,7 @@
    "max_bytes": null
   },
   {
-   "old": "Mia designs how you brief the agents, from the first empty prompt to the last export dialog. Her rule is simple: if an editor has to read a tooltip, the interface isn’t finished.",
+   "old": "Mia designs how you brief the agents, from the first empty prompt to the last export dialog. Her rule is simple: if an editor has to read a tooltip, the interface isn\u2019t finished.",
    "new": "",
    "scope": "all",
    "where": [
@@ -19228,7 +19228,7 @@
    "max_bytes": null
   },
   {
-   "old": "Tariq spends his days inside other people’s projects. He onboards new teams, untangles workflows, and brings back the requests that shape what ships next.",
+   "old": "Tariq spends his days inside other people\u2019s projects. He onboards new teams, untangles workflows, and brings back the requests that shape what ships next.",
    "new": "",
    "scope": "all",
    "where": [
@@ -19246,7 +19246,7 @@
    "max_bytes": null
   },
   {
-   "old": "Every feature starts in someone’s timeline. We sit in on real projects, note where editors slow down, and write the problem before the solution.",
+   "old": "Every feature starts in someone\u2019s timeline. We sit in on real projects, note where editors slow down, and write the problem before the solution.",
    "new": "Every feature starts with a real site. We run it, note where it breaks, and write the problem down before the fix.",
    "scope": "all",
    "where": [
@@ -19282,7 +19282,7 @@
    "max_bytes": null
   },
   {
-   "old": "Four principles we wrote down on day one. They still decide what ships and what doesn’t.",
+   "old": "Four principles we wrote down on day one. They still decide what ships and what doesn\u2019t.",
    "new": "Four principles we wrote down early. They still decide what ships and what does not.",
    "scope": "all",
    "where": [
@@ -19354,7 +19354,7 @@
    "max_bytes": null
   },
   {
-   "old": "Awards and recognition for Kaviyan’s AI agents.",
+   "old": "Awards and recognition for Kaviyan\u2019s AI agents.",
    "new": "",
    "scope": "all",
    "where": [
@@ -19372,7 +19372,7 @@
    "max_bytes": null
   },
   {
-   "old": "We’re 34 people in nine countries who care deeply about the work, and know when to step away from the timeline. Some of our best ideas arrive off-screen.",
+   "old": "We\u2019re 34 people in nine countries who care deeply about the work, and know when to step away from the timeline. Some of our best ideas arrive off-screen.",
    "new": "",
    "scope": "all",
    "where": [
@@ -19841,7 +19841,7 @@
   },
   {
    "old": "Book a scoping call or get product support. Every message goes to the people who can act on it.",
-   "new": "",
+   "new": "Get product support, report a bug or tell us what to build next. Every message goes to the people who can act on it.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19850,7 +19850,7 @@
   },
   {
    "old": "Visit our video studio in London.",
-   "new": "",
+   "new": "Made by Jomiez, an AI agency in Lagos.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19858,8 +19858,8 @@
    "max_bytes": null
   },
   {
-   "old": "Five minutes from Shoreditch High Street station. Tell us you’re coming and the coffee is on us.",
-   "new": "",
+   "old": "Five minutes from Shoreditch High Street station. Tell us you\u2019re coming and the coffee is on us.",
+   "new": "We work remotely. Write to hello@jomiez.com and a person replies.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19868,7 +19868,7 @@
   },
   {
    "old": "What you are making, when it has to ship and roughly what you can spend. A link to a recent edit helps more than a long brief.",
-   "new": "",
+   "new": "The template or site link, what you expected and what happened. A screenshot helps more than a long note.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19877,7 +19877,7 @@
   },
   {
    "old": "Yes. The London studio is open for visits on weekdays, by appointment. Scoping calls over video are just as common.",
-   "new": "",
+   "new": "Not yet. Aethron is a Mac app today. Write to us if you need Windows and we will tell you when it is ready.",
    "scope": "all",
    "where": [
     "chunks"
@@ -19886,7 +19886,7 @@
   },
   {
    "old": "Happily. Send yours with the first message, or ask for ours.",
-   "new": "",
+   "new": "Yes, if you bought it or have the designer\u2019s permission. Aethron makes the site yours to edit; the template licence still applies.",
    "scope": "all",
    "where": [
     "chunks"
@@ -20743,7 +20743,7 @@
    "max_bytes": null
   },
   {
-   "old": "€1,500 a year",
+   "old": "\u20ac1,500 a year",
    "new": "",
    "scope": "all",
    "where": [
@@ -20833,7 +20833,7 @@
    "max_bytes": null
   },
   {
-   "old": "Couldn’t send. Try again",
+   "old": "Couldn\u2019t send. Try again",
    "new": "",
    "scope": "all",
    "where": [
@@ -20851,7 +20851,7 @@
    "max_bytes": null
   },
   {
-   "old": "Sending…",
+   "old": "Sending\u2026",
    "new": "",
    "scope": "all",
    "where": [
@@ -21242,11 +21242,11 @@
   },
   {
    "old": "https://framerusercontent.com/images/DnqzP4I3ItDJflthQjN7aowjhhs.jpg",
-   "new": "/assets/g-dispatch.jpg"
+   "new": "/assets/shot-dispatch.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/DnqzP4I3ItDJflthQjN7aowjhhs.jpg?width=2400&amp;height=2400",
-   "new": "/assets/g-dispatch.jpg"
+   "new": "/assets/shot-dispatch.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/DtQBU6DaswtQmfaH2IgaHwV8PRA.jpg",
@@ -21442,7 +21442,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/J356MxFKnUKhhDDyLTly7tCLAIA.jpg",
-   "new": "https://aethron.jomiez.com/assets/og.jpg"
+   "new": "https://aethron.jomiez.com/assets/og-aethron.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/JGaMQVbj6Yq5XKUGmslLRGu5w8s.png",
@@ -22238,7 +22238,7 @@
   },
   {
    "old": "https://framerusercontent.com/images/v7YXBFgD6AjdLHE23ZI5mz5xo.jpg",
-   "new": "/assets/page-dispatch.jpg"
+   "new": "/assets/shot-dispatch-fan.jpg"
   },
   {
    "old": "https://framerusercontent.com/images/v7YXBFgD6AjdLHE23ZI5mz5xo.jpg?width=2400&amp;height=2400",
@@ -22716,7 +22716,7 @@
   },
   {
    "old": "./about#careers",
-   "new": "./about"
+   "new": "/jomiez"
   },
   {
    "old": "./about#step-1",
@@ -23548,7 +23548,7 @@
   },
   {
    "old": "https://www.framer.com",
-   "new": "https://jomiez.com"
+   "new": "/jomiez"
   },
   {
    "old": "https://www.google.com/maps/search/?api=1&amp;query=Holywell+Lane+London",
@@ -23556,11 +23556,11 @@
   },
   {
    "old": "https://www.instagram.com/viyako.design/",
-   "new": "https://jomiez.com"
+   "new": "/jomiez"
   },
   {
    "old": "https://www.linkedin.com/in/viyakodesigns/",
-   "new": "/start"
+   "new": "/jomiez"
   },
   {
    "old": "https://x.com/ViyakoDesigns",
@@ -23656,7 +23656,7 @@
   {
    "item": "fit-for-any-forecast",
    "field": "rc3KGod7o",
-   "old": "4×",
+   "old": "4\u00d7",
    "new": "559"
   },
   {
@@ -23686,7 +23686,7 @@
   {
    "item": "fit-for-any-forecast",
    "field": "iBvCrx94w",
-   "old": "1 × 60s",
+   "old": "1 \u00d7 60s",
    "new": "16"
   },
   {
@@ -23776,7 +23776,7 @@
   {
    "item": "glow-serum-launch",
    "field": "iBvCrx94w",
-   "old": "1 × 30s",
+   "old": "1 \u00d7 30s",
    "new": "9"
   },
   {
