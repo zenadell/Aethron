@@ -1,6 +1,6 @@
-/download https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.50-mac.zip 302
-/download/mac https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.50-mac.zip 302
-/assets/downloads/Aethron-mac.zip https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.50-mac.zip 302
+/download https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip 302
+/download/mac https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip 302
+/assets/downloads/Aethron-mac.zip https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/Aethron-1.1.51-mac.zip 302
 /blog/assets/* /assets/:splat 200
 /gallery/assets/* /assets/:splat 200
 /legal/assets/* /assets/:splat 200
