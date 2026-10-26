@@ -248,6 +248,42 @@ out = F._apply('<p>118 and 1.18 and 18.5 and 18</p>', [pair("18", "40")])
 ck("a number fill never lands inside another number",
    out == '<p>118 and 1.18 and 18.5 and 40</p>', out)
 
+# ── a changed build gets new addresses (2026-10-26, the aethron-web site) ─
+# The build rewrites chunks without renaming them; a browser holding last
+# week's copy kept running the broken one after the fix had shipped.
+import re, tempfile as _tf
+from pathlib import Path as _P
+def _site(body):
+    d = _P(_tf.mkdtemp()); (d / "assets/chunks").mkdir(parents=True)
+    (d / "assets/cms").mkdir()
+    (d / "assets/chunks/a.X1.mjs").write_text(
+        'import"./b.X2.mjs";new URL(`./c-0.framercms`,`${location.origin}/assets/cms/c.js`);' + body)
+    (d / "assets/chunks/b.X2.mjs").write_text("export const b=1")
+    (d / "assets/cms/c-0.framercms").write_bytes(b"data")
+    (d / "index.html").write_text('<script type="module" src="./assets/chunks/a.X1.mjs"></script>'
+                                  '<link rel="modulepreload" href="./assets/chunks/b.X2.mjs">')
+    F._stamp_versions(d); return d
+s1, s2, s3 = _site("1"), _site("1"), _site("2")
+h1 = (s1 / "index.html").read_text(); a1 = (s1 / "assets/chunks/a.X1.mjs").read_text()
+v = re.search(r"\?v=([0-9a-f]+)", h1)
+ck("every module and CMS address carries the build's version",
+   v and h1.count("?v=" + v.group(1)) == 2
+   and a1.count("?v=" + v.group(1)) == 3, h1 + a1)
+ck("an unchanged build keeps its addresses, a changed one gets new ones",
+   h1 == (s2 / "index.html").read_text() and h1 != (s3 / "index.html").read_text())
+for _d in (s1, s2, s3): _sh.rmtree(_d, ignore_errors=True)
+
+# ── a link to the owner's own page is followed, not swallowed (2026-10-26) ─
+# "mailto:" -> "/start": Framer's router took the click and went nowhere.
+_cfg = {"platform": "framer", "routes": {"": "index.html", "projects": "projects.html"}}
+_t = F._inject_link_routes("<head></head>", _cfg, [
+    pair("mailto:a@b.co", "/start#000000"), pair("x", "/projects"),
+    pair("y", "/assets/a.png"), pair("z", "https://jomiez.com")])
+_m = re.search(r"\}\)\((\{.*?\})\);", _t)
+_R = _json.loads(_m.group(1)) if _m else {}
+ck("a link to a page outside the template is loaded, without its padding",
+   _R == {"start": "/start"}, _t[-200:])
+
 bad = [n for n, ok in checks if not ok]
 print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
 sys.exit(1 if bad else 0)

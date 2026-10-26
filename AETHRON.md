@@ -6367,6 +6367,28 @@ and services); `keep_routes` keeps Framer route hrefs as-is on
 multi-route sites. Checked: all 27 pages 0 errors, 0 template words,
 client-nav full width, Menu at 2000/1440/390. engine battery 35 -> 36.
 
+## "STILL SQUEEZED AFTER THE FIX" — THE BROWSER KEPT THE BROKEN CHUNK — 2026-10-26
+temple, the morning after #38: project pages on aethron.jomiez.com still
+one word per line. Headless at 1800px rendered them full width; the site
+was right and temple's Chrome was not. netlify.toml told browsers to keep
+/assets/* for 7 days, and the build rewrites chunks WITHOUT renaming them,
+so the browser kept running the chunk with width:0 from before the fix.
+FIXED IN THE ENGINE: every Framer build stamps each module, CMS module and
+.framercms address with ?v=<hash of the build's chunks + CMS> — the same
+string in every importer, so each module still loads once; a build that
+changed nothing keeps its addresses. Every build also writes _headers and
+vercel.json headers so hosts revalidate /assets/* instead of trusting a
+copy. The site's netlify.toml lost its 7-day rule.
+AND A LINK TO THE OWNER'S OWN PAGE WENT NOWHERE: the copy map pointed the
+template's mailto links at /start, and Framer's router swallowed the click
+(the CMS slot pads it to /start#000…). _inject_link_routes now also carries
+every link a fill points at a root-relative page that is not a template
+route, and loads it without the padding.
+SITE: /start is a hand-written multi-step brief (type → details → budget →
+you → review) sent with Netlify Forms (form "start-project"); a failed
+send offers the same brief by email. Every mailto on the site now opens it;
+"Jomiez" links go to jomiez.com. engine battery 36 -> 39.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6632,3 +6654,5 @@ client-nav full width, Menu at 2000/1440/390. engine battery 35 -> 36.
 - THE ENGINE IS TOLD WHAT EVERY REQUEST COST IN TOKENS. A conversation
   whose size is never reported is never trimmed, and grows until the
   provider refuses it.
+- A CHANGED FILE GETS A NEW ADDRESS. A build that rewrites a file in place
+  stamps its address; nothing it ships may be cached on trust.
