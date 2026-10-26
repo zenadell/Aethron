@@ -2380,6 +2380,45 @@ def cmd_heal(args):
           + (" — rebuild to apply" if changed or dropped else ""))
 
 
+# A built site keeps the template's file names while the build rewrites
+# what is inside them, so a browser that cached last week's chunk keeps
+# running it: a fill fixed in the copy map stays broken for every past
+# visitor (seen live: project pages squeezed to one word per line by a
+# chunk the browser held for 7 days). Every module and CMS address in the
+# build carries ?v=<hash of the build's chunks and CMS>, the same string
+# everywhere so each module is still loaded once. A build that changed
+# nothing keeps its addresses and its cache.
+VERSION_RX = re.compile(r"\.(mjs|framercms)(?=[\"'`])|(/assets/cms/[\w.-]+\.js)(?=[\"'`])")
+
+
+def _stamp_versions(site: Path):
+    dirs = [site / "assets" / "chunks", site / "assets" / "cms"]
+    h = hashlib.sha1()
+    for d in dirs:
+        for f in sorted(d.glob("*")) if d.is_dir() else []:
+            if f.is_file():
+                h.update(f.name.encode() + b"\0" + f.read_bytes())
+    v = "?v=" + h.hexdigest()[:10]
+
+    def stamp(m):
+        return (m.group(0) + v)
+    files = [f for d in dirs if d.is_dir() for f in d.glob("*")
+             if f.suffix in (".mjs", ".js")] + list(site.rglob("*.html"))
+    n = 0
+    for f in files:
+        t = f.read_text(encoding="utf-8", errors="surrogateescape")
+        t2, k = VERSION_RX.subn(stamp, t)
+        if k:
+            f.write_text(t2, encoding="utf-8", errors="surrogateescape")
+            n += k
+    log(f"cache: {n} module/CMS address(es) stamped {v} (a changed build "
+        f"gets new addresses, so no visitor runs a stale chunk)")
+
+
+VERCEL_HEADERS = [{"source": "/assets/(.*)", "headers": [
+    {"key": "Cache-Control", "value": "public, max-age=0, must-revalidate"}]}]
+
+
 def _write_deploy(site: Path, cfg: dict):
     """Every build ships deploy-ready: the output is fully static
     (client-side CMS range slicing, real .js icon names), so the only
@@ -2394,8 +2433,8 @@ def _write_deploy(site: Path, cfg: dict):
         if (site / "index.html").exists():
             shutil.copy(site / "index.html", site / "404.html")
         (site / "vercel.json").write_text(json.dumps({"rewrites": [
-            {"source": "/((?!.*\\.).*)", "destination": "/index.html"}]},
-            indent=1), encoding="utf-8")
+            {"source": "/((?!.*\\.).*)", "destination": "/index.html"}],
+            "headers": VERCEL_HEADERS}, indent=1), encoding="utf-8")
     else:
         # multi-page (Webflow/static): an unmatched path is a genuine
         # 404 -> the styled 404.html with a 404 status, NEVER the home
@@ -2406,8 +2445,13 @@ def _write_deploy(site: Path, cfg: dict):
         if not (site / "404.html").exists() and (site / "index.html").exists():
             shutil.copy(site / "index.html", site / "404.html")
         # Vercel serves 404.html automatically on not-found — no rewrite.
-        (site / "vercel.json").write_text(json.dumps({}, indent=1),
-                                          encoding="utf-8")
+        (site / "vercel.json").write_text(json.dumps(
+            {"headers": VERCEL_HEADERS}, indent=1), encoding="utf-8")
+    # File names stay the same when the build changes what is in them,
+    # so a host or CDN must ask again rather than serve a copy for days.
+    (site / "_headers").write_text(
+        "/assets/*\n  Cache-Control: public, max-age=0, must-revalidate\n",
+        encoding="utf-8")
     (site / "DEPLOY.md").write_text(f"""# Deploy this site
 
 This folder is **fully static** — no server logic needed. The build
@@ -2749,7 +2793,7 @@ def cmd_build(_args):
         t = _apply(t, pairs, escaped=True, stats=stats)
         t = _localize_refs(t, cfg.get("localized", {}))
         t = _inject_runtime_map(t, cfg, pairs)
-        t = _inject_link_routes(t, cfg)
+        t = _inject_link_routes(t, cfg, pairs)
         t, n_regen = _regen_split_runs(t, pairs, stats=stats)
         if held:
             t = re.sub(r"\x00W(\d+)\x00", lambda m: held[int(m.group(1))], t)
@@ -3172,6 +3216,8 @@ def cmd_build(_args):
               "for one-step\ninstructions (Cloudflare Pages, Netlify, "
               "Vercel, GitHub Pages, any\nstatic host or CDN).\n")
     (site / "README.txt").write_text(readme, encoding="utf-8")
+    if cfg.get("platform") == "framer":
+        _stamp_versions(site)
     _write_deploy(site, cfg)
 
     print("Build complete -> site/   (self-hosting: python3 serve.py)"
@@ -3844,7 +3890,7 @@ document.addEventListener('mouseover',go,true);document.addEventListener('focusi
 go,true)})(%s);"""
 
 
-def _inject_link_routes(t: str, cfg: dict) -> str:
+def _inject_link_routes(t: str, cfg: dict, pairs=()) -> str:
     """cfg["link_routes"]: where a template's own page links really go.
 
     Framer re-renders every page link from its route table after
@@ -3854,12 +3900,26 @@ def _inject_link_routes(t: str, cfg: dict) -> str:
     to one page: every nav and footer link opened a Kaviyan page). A click
     listener that runs before the router sends each route where it
     belongs: "#id" scrolls to that section, anything else navigates.
-    Keys are route paths without "./" ("services", "about#careers")."""
-    routes = cfg.get("link_routes") or {}
-    if not routes:
-        return t
+    Keys are route paths without "./" ("services", "about#careers").
+
+    The same listener carries links the copy map points at a page of the
+    owner's own that is NOT a template route ("mailto:..." -> "/start"):
+    Framer's router swallowed those clicks and the visitor went nowhere.
+    It loads the page, without the "#000" a byte-locked slot pads with."""
     clean = {str(k).strip().lstrip("./").rstrip("/"): str(v)
-             for k, v in routes.items()}
+             for k, v in (cfg.get("link_routes") or {}).items()}
+    if cfg.get("platform") == "framer":
+        known = {str(r).strip("/") for r in (cfg.get("routes") or {})}
+        for pr in pairs:
+            dest = re.sub(r"#0+$", "", str(pr.get("new") or "").strip())
+            if not dest.startswith("/") or dest.startswith("//"):
+                continue
+            key = dest.lstrip("/").split("#")[0].split("?")[0].rstrip("/")
+            if (key and key not in known and key not in clean
+                    and not re.search(r"\.[a-z0-9]{2,5}$", key, re.I)):
+                clean[key] = dest
+    if not clean:
+        return t
     tag = ('<script data-aethron-link-routes>' + LINK_ROUTES_JS
            % json.dumps(clean).replace("</", "<\\/") + "</script>")
     m = re.search(r"<head\b[^>]*>", t, re.I)
