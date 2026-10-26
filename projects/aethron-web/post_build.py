@@ -152,6 +152,20 @@ for f in site.glob("*.html"):
         f.write_text(t.replace("</head>", CROP + "</head>", 1)); m += 1
 print(f"screenshots cropped from the top-left on {m} pages")
 
+# The tab icon is Aethron's, not the template's (Framer's head carries the
+# template's favicons, light and dark, and its home-screen icon).
+ICONS = ('<link rel="icon" type="image/png" href="/assets/favicon.png">'
+         '<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">')
+n = 0
+for f in list(site.glob("*.html")) + list(site.glob("*/index.html")) + list(site.glob("*/*/index.html")):
+    t = f.read_text()
+    u = _re.sub(r'<link[^>]*rel="(?:icon|apple-touch-icon|shortcut icon)"[^>]*>', "", t)
+    if "/assets/favicon.png" not in u and "</head>" in u:
+        u = u.replace("</head>", ICONS + "</head>", 1)
+    if u != t:
+        f.write_text(u); n += 1
+print(f"Aethron favicon on {n} pages")
+
 # Link previews (WhatsApp, iMessage, X) only read an absolute image address.
 import re as _re2
 n = 0
