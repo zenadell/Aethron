@@ -414,5 +414,21 @@ setInterval(function(){
 },500);
 scan();
 })();
-</script></body>
+</script><script data-ae-docsnav>(function(){
+function label(a){return a.textContent.replace(/\s+/g,' ').trim()}
+function isGet(a){var t=label(a);return t==='Get the app'||t==='Get the appGet the app'}
+function add(){[].forEach.call(document.querySelectorAll('a'),function(a){
+  if(!isGet(a)||a.hasAttribute('data-ae-docs-link'))return;
+  var item=a.parentElement&&a.parentElement.children.length===1&&a.parentElement.tagName==='DIV'?a.parentElement:a;
+  var prev=item.previousElementSibling;if(prev&&prev.hasAttribute('data-ae-docs-item'))return;
+  var c=item.cloneNode(true);c.setAttribute('data-ae-docs-item','');
+  var link=c.tagName==='A'?c:c.querySelector('a');if(!link)return;
+  link.setAttribute('href','/docs');link.setAttribute('data-ae-docs-link','');
+  link.removeAttribute('data-framer-page-link-current');
+  var w=document.createTreeWalker(c,4),n;while(n=w.nextNode()){if(n.nodeValue.trim()==='Get the app')n.nodeValue=n.nodeValue.replace('Get the app','Docs')}
+  item.parentNode.insertBefore(c,item)})}
+window.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-ae-docs-link]');if(!a)return;
+  e.preventDefault();e.stopImmediatePropagation();location.href='/docs'},true);
+var q=0;new MutationObserver(function(){if(q)return;q=1;requestAnimationFrame(function(){q=0;add()})}).observe(document.documentElement,{childList:true,subtree:true});
+if(document.readyState==='complete')add();else window.addEventListener('load',add)})()</script></body>
 </html>

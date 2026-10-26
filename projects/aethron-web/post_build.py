@@ -64,42 +64,52 @@ start = pathlib.Path("start.html").read_text()
 (site / "start" / "index.html").write_text(start)
 (site / "start.html").write_text(start)
 
-# /docs: how to connect Aethron's MCP to your own coding agent.
-docs = pathlib.Path("docs.html").read_text()
-(site / "docs").mkdir(exist_ok=True)
-(site / "docs" / "index.html").write_text(docs)
-(site / "docs.html").write_text(docs)
-
 # /jomiez: a page about Jomiez, the team that makes Aethron, with a way out
 # to jomiez.com. Every "Jomiez" link on the template points here.
 # It is the about page's own shell (navbar, menu, CTA and footer, so it is
 # part of the site), with the about sections hidden and jomiez_body.html put
 # in their place after the page has loaded.
 import html as _html, re as _re
-jz = (site / "about.html").read_text()
+def shell_page(slug, title, desc, image, body_file, flag, path_var):
+    """A page of our own inside the site's frame: the about page's navbar,
+    menu, CTA and footer, the about sections hidden, and body_file's
+    sections put in their place once the page has loaded (Framer's router
+    is shown /about while it starts, then the address goes back)."""
+    pg = (site / "about.html").read_text()
+    pg = _re.sub(r"<title>[^<]*</title>", f"<title>{_html.escape(title)}</title>", pg, count=1)
+    for attr in ('name="description"', 'property="og:description"', 'name="twitter:description"'):
+        pg = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="{_html.escape(desc)}">', pg, count=1)
+    for attr in ('property="og:title"', 'name="twitter:title"'):
+        pg = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="{_html.escape(title)}">', pg, count=1)
+    for attr in ('property="og:image"', 'name="twitter:image"'):
+        pg = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="https://aethron.jomiez.com/assets/{image}">', pg, count=1)
+    body = pathlib.Path(body_file).read_text()
+    css, rest = body.split("</style>", 1)
+    head = (f"<script data-ae-{flag}-path>if(/^\\/{slug}\\/?$/.test(location.pathname)){{"
+            f"window.{path_var}='/{slug}'+location.search+location.hash;"
+            "history.replaceState(history.state,'','/about'+location.search+location.hash)}</script>")
+    pg = _re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + head, pg, count=1)
+    pg = pg.replace("</head>", css + "</style></head>", 1)
+    pg = pg.replace("</body>", rest + "</body>", 1)
+    assert pg.count(f"ae-{flag}-tpl") == 2 and title in _html.unescape(pg)
+    (site / slug).mkdir(exist_ok=True)
+    (site / slug / "index.html").write_text(pg)
+    (site / f"{slug}.html").write_text(pg)
+
+
 JZ_TITLE = "Jomiez, the team behind Aethron"
-JZ_DESC = ("Aethron is made by Jomiez, a software company growing its own AI "
+shell_page("jomiez", JZ_TITLE,
+           "Aethron is made by Jomiez, a software company growing its own AI "
            "products and custom software for businesses. Meet the products "
-           "and some of the work.")
-jz = _re.sub(r"<title>[^<]*</title>", f"<title>{JZ_TITLE}</title>", jz, count=1)
-for attr in ('name="description"', 'property="og:description"', 'name="twitter:description"'):
-    jz = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="{_html.escape(JZ_DESC)}">', jz, count=1)
-for attr in ('property="og:title"', 'name="twitter:title"'):
-    jz = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="{JZ_TITLE}">', jz, count=1)
-for attr in ('property="og:image"', 'name="twitter:image"'):
-    jz = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="https://aethron.jomiez.com/assets/jz-home.jpg">', jz, count=1)
-body = pathlib.Path("jomiez_body.html").read_text()
-css, rest = body.split("</style>", 1)
-JZ_HEAD = ("<script data-ae-jz-path>if(/^\\/jomiez\\/?$/.test(location.pathname)){"
-           "window.__aeJzPath='/jomiez'+location.search+location.hash;"
-           "history.replaceState(history.state,'','/about'+location.search+location.hash)}</script>")
-jz = _re.sub(r"(<head[^>]*>)", lambda m: m.group(1) + JZ_HEAD, jz, count=1)
-jz = jz.replace("</head>", css + "</style></head>", 1)
-jz = jz.replace("</body>", rest + "</body>", 1)
-assert jz.count("ae-jz-tpl") == 2 and JZ_TITLE in jz
-(site / "jomiez").mkdir(exist_ok=True)
-(site / "jomiez" / "index.html").write_text(jz)
-(site / "jomiez.html").write_text(jz)
+           "and some of the work.", "jz-home.jpg", "jomiez_body.html", "jz", "__aeJzPath")
+
+# /docs: how to connect Aethron's MCP to your own coding agent, inside the
+# same frame as every page.
+shell_page("docs", "Docs · Use Aethron from your coding agent",
+           "Connect Aethron's MCP to Claude Code, Claude Desktop, Codex, Gemini "
+           "CLI, Antigravity, Cursor, Windsurf or VS Code, and let your own agent "
+           "migrate templates, check every page and fix what breaks.",
+           "og-aethron.jpg", "docs_body.html", "docs", "__aeDocsPath")
 
 # The footer credit and socials point at /jomiez through the copy map; the
 # engine carries root-relative links past Framer's router, the same way
@@ -122,19 +132,49 @@ for f in site.glob("*.html"):
         f.write_text(t.replace("</body>", JOMIEZ + "</body>", 1)); n += 1
 print(f"/start and /jomiez written; Jomiez credit sent on, {n} pages")
 
+# A "Docs" link beside "Get the app", in the Menu and in the footer. The
+# template has no slot for it, so once the page has loaded the "Get the app"
+# item is copied, renamed and pointed at /docs (put back if the menu is
+# rebuilt), and a click on it loads /docs past Framer's router.
+DOCSNAV = """<script data-ae-docsnav>(function(){
+function label(a){return a.textContent.replace(/\\s+/g,' ').trim()}
+function isGet(a){var t=label(a);return t==='Get the app'||t==='Get the appGet the app'}
+function add(){[].forEach.call(document.querySelectorAll('a'),function(a){
+  if(!isGet(a)||a.hasAttribute('data-ae-docs-link'))return;
+  var item=a.parentElement&&a.parentElement.children.length===1&&a.parentElement.tagName==='DIV'?a.parentElement:a;
+  var prev=item.previousElementSibling;if(prev&&prev.hasAttribute('data-ae-docs-item'))return;
+  var c=item.cloneNode(true);c.setAttribute('data-ae-docs-item','');
+  var link=c.tagName==='A'?c:c.querySelector('a');if(!link)return;
+  link.setAttribute('href','/docs');link.setAttribute('data-ae-docs-link','');
+  link.removeAttribute('data-framer-page-link-current');
+  var w=document.createTreeWalker(c,4),n;while(n=w.nextNode()){if(n.nodeValue.trim()==='Get the app')n.nodeValue=n.nodeValue.replace('Get the app','Docs')}
+  item.parentNode.insertBefore(c,item)})}
+window.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[data-ae-docs-link]');if(!a)return;
+  e.preventDefault();e.stopImmediatePropagation();location.href='/docs'},true);
+var q=0;new MutationObserver(function(){if(q)return;q=1;requestAnimationFrame(function(){q=0;add()})}).observe(document.documentElement,{childList:true,subtree:true});
+if(document.readyState==='complete')add();else window.addEventListener('load',add)})()</script>"""
+d = 0
+for f in list(site.glob("*.html")) + [site / "jomiez" / "index.html", site / "docs" / "index.html"]:
+    if f.name in ("start.html", "download.html") or not f.exists():
+        continue
+    t2 = f.read_text()
+    if "data-ae-docsnav" not in t2 and "</body>" in t2:
+        f.write_text(t2.replace("</body>", DOCSNAV + "</body>", 1)); d += 1
+print(f"Docs link added to the menu and footer on {d} pages")
+
 # Phones have no hover: project decks spread by themselves while in view,
 # and the album switcher moves on every 7 seconds (mobile_motion.js).
 MM = "<script data-ae-mm>" + pathlib.Path("mobile_motion.js").read_text() + "</script>"
 k = 0
 for f in site.glob("*.html"):
-    if f.name in ("start.html", "download.html", "docs.html"):
+    if f.name in ("start.html", "download.html"):
         continue
     t = f.read_text()
     if "data-ae-mm" not in t and "</body>" in t:
         f.write_text(t.replace("</body>", MM + "</body>", 1)); k += 1
 for f in site.glob("*/index.html"):
     t = f.read_text()
-    if f.parent.name == "jomiez" and "data-ae-mm" not in t:
+    if f.parent.name in ("jomiez", "docs") and "data-ae-mm" not in t:
         f.write_text(t.replace("</body>", MM + "</body>", 1)); k += 1
 print(f"mobile motion on {k} pages")
 
