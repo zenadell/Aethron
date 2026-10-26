@@ -504,7 +504,25 @@ _restore_sessions_once()
 
 # ───────────────────────── forge subprocess plumbing ─────────────────
 
-def start_job(argv, cwd) -> str:
+def _report(kind, step="", project=None, **kw):
+    """A failure the person met is sent to us (aethron_reports): what
+    failed, the template's address, the log. Never raises."""
+    try:
+        import aethron_reports
+        aethron_reports.report(kind, step, project, **kw)
+    except Exception:
+        pass
+
+
+def _report_crash(where=""):
+    try:
+        import aethron_reports
+        aethron_reports.report_exception("crash", where)
+    except Exception:
+        pass
+
+
+def start_job(argv, cwd, step="") -> str:
     jid = f"{time.time():.6f}"
     JOBS[jid] = {"done": False, "ok": None, "log": "$ " + " ".join(argv[1:]) + "\n"}
 
@@ -519,6 +537,8 @@ def start_job(argv, cwd) -> str:
         except Exception as e:
             JOBS[jid]["log"] += f"studio error: {e}\n"
             JOBS[jid].update(done=True, ok=False)
+        if not JOBS[jid]["ok"]:
+            _report("job", step, cwd, log=JOBS[jid]["log"])
 
     threading.Thread(target=run, daemon=True).start()
     return jid
@@ -540,6 +560,9 @@ def start_fn_job(fn, header="") -> str:
         except Exception as e:
             append(f"studio error: {e}")
             JOBS[jid].update(done=True, ok=False)
+        if not JOBS[jid]["ok"]:
+            _report("job", header.strip()[:60] or "task", None,
+                    log=JOBS[jid]["log"])
 
     threading.Thread(target=run, daemon=True).start()
     return jid
@@ -1061,6 +1084,8 @@ def start_ai_job(name: str, st: dict) -> str:
         except Exception as e:
             log(f"ERROR: {e}")
             JOBS[jid].update(done=True, ok=False)
+        if not JOBS[jid]["ok"]:
+            _report("job", "ai-fill", PROJECTS / name, log=JOBS[jid]["log"])
 
     threading.Thread(target=run, daemon=True).start()
     return jid
@@ -1515,6 +1540,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/wallet":
                 import aethron_brain as _brain
                 return self.send_json(_jsonable(_brain.wallet()))
+            if u.path == "/api/reports":
+                import aethron_reports
+                return self.send_json(aethron_reports.status())
             if u.path == "/api/limits":
                 return self.send_json(limits_report())
             if u.path.startswith("/design/"):
@@ -2045,6 +2073,7 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError as e:
             self.fail(e, 404)
         except Exception as e:
+            _report_crash(u.path)
             self.fail(e, 500)
 
     def serve_edit(self, u, q):
@@ -2196,6 +2225,10 @@ class Handler(BaseHTTPRequestHandler):
                           f"{str(body.get('stack') or '')[:400]}")
                 except Exception:
                     pass
+                pj = re.sub(r"[^\w.-]", "", str(body.get("project") or ""))
+                _report("ui", "screen", (PROJECTS / pj) if pj else None,
+                        error=str(body.get("msg", ""))[:1000],
+                        trace=str(body.get("stack") or "")[:4000])
                 return self.send_json({"ok": True})
             if u.path == "/api/auth/session":
                 # OAuth callback landed with an access token in the URL
@@ -2321,7 +2354,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     return self.fail("command not allowed")
                 self._track("run_step", step=cmd)
-                self.send_json({"job": start_job(argv, d)})
+                self.send_json({"job": start_job(argv, d, cmd)})
             elif u.path == "/api/glass":
                 # THE PAGE CANNOT REFRACT, SO IT ASKS THE WINDOW TO.
                 # Measured: `backdrop-filter: url(#svg)` is ignored by
@@ -3436,6 +3469,7 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError as e:
             self.fail(e, 400)      # e.g. AI settings not configured yet
         except Exception as e:
+            _report_crash(u.path)
             self.fail(e, 500)
 
     def api_native(self, which, body):
@@ -14538,8 +14572,20 @@ async function renderSettings(c){
       <h3>${I('compass',14)} Agent runs</h3>
       <div id="runshare"><div class="hint">reading…</div></div>
     </section>
+
+    <section class="card">
+      <h3>${I('eye',14)} Problem reports</h3>
+      <div class="hint">When something fails (a build, a check, an agent step, the app itself),
+        Aethron sends us what failed: the error, the end of the log, the template's address and
+        your app and macOS version, so we can fix it, often before you write to us. It never sends
+        your keys, your copy outside the log, or your name. <a href="/docs#trouble" target="_blank">More</a></div>
+      <div id="repstat" class="hint" style="margin-top:6px"></div>
+    </section>
   </div>`;
   bindAiSettings();
+  api('/api/reports').then(r=>{const b=$('repstat');if(b)b.textContent=
+    (r.on?'On':'Off in this copy (run from source)')+(r.waiting?` · ${r.waiting} waiting to send`:'')+
+    (r.kept?` · ${r.kept} kept on this Mac`:'')}).catch(()=>{});
   showRunShare();
   showAiUse();
   showLimits();

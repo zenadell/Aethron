@@ -282,7 +282,9 @@ def upload_status() -> dict:
 
 
 class _Uploader:
-    def __init__(self):
+    def __init__(self, table="agent_runs", outbox=None):
+        self.table = table
+        self.outbox = outbox or (lambda: runs_dir() / ".outbox.jsonl")
         self.lock = threading.Lock()      # guards the outbox file
         self.sending = threading.Lock()   # ONE flush at a time: two flushers
         self.wake = threading.Event()     # read the same rows and sent each
@@ -301,7 +303,12 @@ class _Uploader:
                "record": dict(rec, session={
                    "client": sess.client, "transport": sess.transport,
                    "session": sess.sid})}
-        out = runs_dir() / ".outbox.jsonl"
+        self.enqueue(row)
+
+    def enqueue(self, row: dict):
+        """Queue one row for this table; the background sender sends it."""
+        out = self.outbox()
+        out.parent.mkdir(parents=True, exist_ok=True)
         with self.lock:
             if out.exists() and out.stat().st_size > OUTBOX_CAP:
                 self.last_error = "outbox full — oldest rows kept, new dropped"
@@ -335,7 +342,7 @@ class _Uploader:
     def _flush(self, timeout) -> bool:
         import urllib.request
         url, key = _cloud()
-        out = runs_dir() / ".outbox.jsonl"
+        out = self.outbox()
         if not (url and key):
             self.last_error = "no Supabase project configured"
             return False
@@ -356,7 +363,7 @@ class _Uploader:
                 except ValueError:
                     pass                    # a torn line: drop it
             req = urllib.request.Request(
-                url + "/rest/v1/agent_runs", method="POST",
+                url + "/rest/v1/" + self.table, method="POST",
                 data=json.dumps(batch).encode(),
                 headers={"apikey": key, "Authorization": f"Bearer {key}",
                          "Content-Type": "application/json",
@@ -371,12 +378,12 @@ class _Uploader:
                 except Exception:
                     pass
                 self.last_error = f"{e} {detail}".strip()[:300]
-                if "PGRST205" in detail or "agent_runs" in detail and \
+                if "PGRST205" in detail or self.table in detail and \
                         "find the table" in detail:
                     self.last_error = (
-                        "the agent_runs table does not exist yet — run the "
-                        "agent_runs part of supabase_schema.sql in Supabase's "
-                        "SQL editor; records wait here until then")
+                        f"the {self.table} table does not exist yet — run the "
+                        f"{self.table} part of supabase_schema.sql in "
+                        "Supabase's SQL editor; rows wait here until then")
                 break
             done = i + len(lines[i:i + 50])
             self.sent += len(batch)

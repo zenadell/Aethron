@@ -6437,6 +6437,29 @@ A refusal is a tool answer telling the agent to sign in or upgrade, never a
 dropped connection. A local lock can be taken apart; the owner plans to
 serve Aethron from our own servers later, which is what makes it hard.
 
+## FAILURE REPORTS — on for everyone, template included — 2026-10-26
+Owner: track what breaks for users so it can be fixed fast (and, later, by
+a Haiku healer); on by default, no off switch for users, the template's
+address included. `aethron_reports.report(kind, step, project, log=,
+error=, trace=)` — never raises — writes <home>/reports/*.json (last 200)
+and queues a row for Supabase `failure_reports` (insert-only with the
+public key; schema in supabase_schema.sql — THE OWNER MUST RUN THAT PART
+ONCE). A report: kind/step, the FAIL/ERROR lines, a normalized category,
+a fingerprint (same fault, other numbers = one problem), the log tail,
+the trace, the template (source_url, platform, pages, lines/filled), app
+version, macOS, arch, the random machine id. Keys hidden, home-folder
+names -> "~". The same fingerprint is sent once per 10 minutes.
+Hooks: studio jobs (fetch/inventory/build/verify/probe/heal/...), the
+healer and AI fill, every HTTP 500 in the studio, screen errors
+(/api/clienterror), MCP tools that raise or answer FAIL, agent turns that
+end in an error. ON in the released app; from source only with
+AETHRON_REPORTS=on; AETHRON_REPORTS=off anywhere (the release workflow
+sets it so its own checks are not reported). Settings shows a notice.
+Reading (service key): `aethron_reports.py --cloud [days]`, `--html f`,
+`--show <fingerprint>`. The owner should say so in the privacy policy.
+NEXT: the Haiku healer reads these groups, reproduces from source_url,
+fixes on a branch, and opens a PR only when the batteries pass.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

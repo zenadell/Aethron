@@ -84,3 +84,30 @@ create policy agent_runs_insert on public.agent_runs
 -- no select/update/delete policy: with RLS on, the public key cannot read,
 -- change or remove any row; the service role bypasses RLS to read.
 revoke select, update, delete on public.agent_runs from anon, authenticated;
+
+
+-- ── failure reports (aethron_reports.py) ─────────────────────────────
+-- Every failure a person meets in the released app: what failed, its
+-- FAIL/ERROR lines, the end of the log, the template's public address,
+-- app and macOS version. The app's PUBLIC key may only add rows; reading
+-- needs the service key (python3 aethron_reports.py --cloud).
+create table if not exists public.failure_reports (
+  id          bigint generated always as identity primary key,
+  received_at timestamptz not null default now(),
+  machine     text not null check (length(machine) <= 64),
+  fingerprint text not null check (length(fingerprint) <= 40),
+  kind        text check (length(kind) <= 40),
+  step        text check (length(step) <= 80),
+  category    text check (length(category) <= 200),
+  app_version text check (length(app_version) <= 40),
+  source_url  text check (length(source_url) <= 400),
+  record      jsonb not null check (pg_column_size(record) <= 131072)
+);
+create index if not exists failure_reports_fp on public.failure_reports (fingerprint, received_at desc);
+create index if not exists failure_reports_received on public.failure_reports (received_at desc);
+
+alter table public.failure_reports enable row level security;
+drop policy if exists failure_reports_insert on public.failure_reports;
+create policy failure_reports_insert on public.failure_reports
+  for insert to anon, authenticated with check (true);
+revoke select, update, delete on public.failure_reports from anon, authenticated;
