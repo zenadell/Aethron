@@ -76,15 +76,18 @@ jz = pathlib.Path("jomiez.html").read_text()
 (site / "jomiez" / "index.html").write_text(jz)
 (site / "jomiez.html").write_text(jz)
 
-# "Jomiez" (footer credit, socials) shares one CMS link value with the
-# template's email links, so the copy map cannot send it elsewhere. Clicks
-# on it open /jomiez (our page about Jomiez); the href is set as soon as the
-# pointer arrives so the status bar shows it.
+# The footer credit and socials point at /jomiez through the copy map; the
+# engine carries root-relative links past Framer's router, the same way
+# /start and /download work. One is left over: "Built by Jomiez." shares a
+# CMS link value with "Email us", which legitimately opens /start, so the
+# copy map cannot send the two different ways. That one is sent on by its
+# label, and only its label (Framer prints the word twice for its hover).
 JOMIEZ = """<script>(function(){function j(e){var a=e.target.closest&&e.target.closest('a');
-if(!a||a.textContent.trim()!=='Jomiez')return null;return a}
+if(!a)return null;var t=a.textContent.trim();if(t!=='Jomiez'&&t!=='JomiezJomiez')return null;
+if((a.getAttribute('href')||'').indexOf('/jomiez')===0)return null;return a}
 window.addEventListener('mouseover',function(e){var a=j(e);if(a)a.setAttribute('href','/jomiez')},true);
-window.addEventListener('click',function(e){var a=j(e);if(!a)return;e.preventDefault();e.stopImmediatePropagation();
-location.href='/jomiez'},true)})()</script>"""
+window.addEventListener('click',function(e){var a=j(e);if(!a)return;e.preventDefault();
+e.stopImmediatePropagation();location.href='/jomiez'},true)})()</script>"""
 n = 0
 for f in site.glob("*.html"):
     if f.name in ("start.html", "download.html", "jomiez.html"):
@@ -92,7 +95,7 @@ for f in site.glob("*.html"):
     t = f.read_text()
     if "</body>" in t and "location.href='/jomiez'" not in t:
         f.write_text(t.replace("</body>", JOMIEZ + "</body>", 1)); n += 1
-print(f"/start and /jomiez written; Jomiez link fixed on {n} pages")
+print(f"/start and /jomiez written; Jomiez credit sent on, {n} pages")
 
 # Screens are shown whole, never zoomed in: every app or site screenshot we
 # own is drawn with object-fit:contain, and the space a frame leaves around
