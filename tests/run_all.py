@@ -61,6 +61,7 @@ SUITES = [
     ("routing battery (the selected model is the one that runs)",
      [PY, "tests/routing_battery.py"], False),
     ("model-use record", [PY, "aethron_usage.py", "--selftest"], False),
+    ("MCP Studio lock", [PY, "aethron_access.py", "--selftest"], False),
     # A tripped guard is said, not retried in silence; the cost shown is
     # the provider's own; a thinking model keeps the stream alive.
     ("guard battery (no silent refusals, honest cost)",

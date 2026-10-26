@@ -64,6 +64,12 @@ start = pathlib.Path("start.html").read_text()
 (site / "start" / "index.html").write_text(start)
 (site / "start.html").write_text(start)
 
+# /docs: how to connect Aethron's MCP to your own coding agent.
+docs = pathlib.Path("docs.html").read_text()
+(site / "docs").mkdir(exist_ok=True)
+(site / "docs" / "index.html").write_text(docs)
+(site / "docs.html").write_text(docs)
+
 # /jomiez: a page about Jomiez, the team that makes Aethron, with a way out
 # to jomiez.com. Every "Jomiez" link on the template points here.
 # It is the about page's own shell (navbar, menu, CTA and footer, so it is
@@ -109,7 +115,7 @@ window.addEventListener('click',function(e){var a=j(e);if(!a)return;e.preventDef
 e.stopImmediatePropagation();location.href='/jomiez'},true)})()</script>"""
 n = 0
 for f in site.glob("*.html"):
-    if f.name in ("start.html", "download.html", "jomiez.html"):
+    if f.name in ("start.html", "download.html", "jomiez.html", "docs.html"):
         continue
     t = f.read_text()
     if "</body>" in t and "location.href='/jomiez'" not in t:
@@ -121,7 +127,7 @@ print(f"/start and /jomiez written; Jomiez credit sent on, {n} pages")
 MM = "<script data-ae-mm>" + pathlib.Path("mobile_motion.js").read_text() + "</script>"
 k = 0
 for f in site.glob("*.html"):
-    if f.name in ("start.html", "download.html"):
+    if f.name in ("start.html", "download.html", "docs.html"):
         continue
     t = f.read_text()
     if "data-ae-mm" not in t and "</body>" in t:
@@ -145,7 +151,7 @@ CROP += "".join(f'img[src*="/assets/{n}."]{{object-position:50% 0!important}}'
 CROP = f'<style data-ae-crop>{CROP}</style>'
 m = 0
 for f in site.glob("*.html"):
-    if f.name in ("start.html", "download.html", "jomiez.html"):
+    if f.name in ("start.html", "download.html", "jomiez.html", "docs.html"):
         continue
     t = f.read_text()
     if "data-ae-crop" not in t and "</head>" in t:

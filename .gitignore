@@ -62,3 +62,7 @@ vendor/metal.js
 preview-build/
 /aethron_ocr
 model_use.jsonl
+
+# per-machine MCP plan check (aethron_access)
+.mcp_internal
+.plan.json

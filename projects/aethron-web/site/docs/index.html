@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Docs · Use Aethron from your coding agent</title>
+<meta name="description" content="Connect Aethron's MCP to Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Antigravity, Windsurf or VS Code, and let your own agent migrate templates, check every page and fix what breaks.">
+<meta property="og:title" content="Aethron Docs · Use Aethron from your coding agent">
+<meta property="og:description" content="Connect Aethron's MCP to the coding agent you already use.">
+<meta property="og:image" content="https://aethron.jomiez.com/assets/og-aethron.jpg">
+<meta name="theme-color" content="#fafafa">
+
+
+<style>
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/BLNB4FAQFNK56DWWNF7PMGTCOTZHOEII/ST3WKSSDMBK2MIQQO3MAVYWLF4FTOLFV/6IN5WOLRCYP4G4MOCOHOMXNON6Q7MDAR.woff2");font-weight:400;font-display:swap}
+@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/HBNTRIISA5MEXGL5WPYI7CV2HIWTDV3Q/YDPDINVT673XLXNSTMLG4JNCZZMVVNPN/Y7SCNZJOT2MW5ADSGOFLDGH4TNL4JCQY.woff2");font-weight:700;font-display:swap}
+:root{--bg:#fafafa;--ink:#0f0f0f;--mute:#6f6f6f;--soft:#9a9a9a;--line:#e7e7e7;--card:#fff;--fill:#f1f1f1;--code:#151515;
+--go:#4fe02f;--ease:cubic-bezier(.2,.8,.2,1);--mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.6 Switzer,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:8px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--ink);color:#fff;padding:8px 14px;border-radius:10px;z-index:30}
+.skip:focus{left:12px}
+header.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;
+padding:14px clamp(16px,3vw,40px);background:#fafafacc;backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-bottom:1px solid #0000000d}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.02em;text-decoration:none}
+.brand span{font:500 12px var(--mono);color:var(--mute);background:#fff;border:1px solid var(--line);padding:2px 8px;border-radius:99px;letter-spacing:0}
+.top nav{display:flex;align-items:center;gap:6px}
+.top nav a{text-decoration:none;font-size:15px;color:var(--mute);padding:8px 12px;border-radius:10px}
+.top nav a:hover{background:var(--fill);color:var(--ink)}
+.top nav a.dark{background:var(--ink);color:#fff}
+@media (max-width:640px){.top nav a.hide-s{display:none}}
+.wrap{max-width:1180px;margin:0 auto;padding:0 clamp(16px,3vw,32px);display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
+@media (max-width:960px){.wrap{grid-template-columns:1fr;gap:0}}
+aside.toc{position:sticky;top:84px;align-self:start;padding:36px 0;max-height:calc(100vh - 84px);overflow:auto}
+@media (max-width:960px){aside.toc{display:none}}
+.toc b{display:block;font:500 12px var(--mono);color:var(--soft);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
+.toc a{display:block;text-decoration:none;color:var(--mute);font-size:14.5px;padding:6px 10px;border-radius:8px;border-left:2px solid transparent;transition:color .2s,background .2s}
+.toc a:hover{color:var(--ink);background:var(--fill)}
+.toc a.on{color:var(--ink);background:#fff;box-shadow:0 1px 0 var(--line),0 0 0 1px var(--line)}
+main{padding:36px 0 96px;min-width:0}
+.hero{padding:28px 0 8px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--mute);background:#fff;border:1px solid var(--line);border-radius:99px;padding:6px 12px 6px 8px}
+.eyebrow i{width:8px;height:8px;border-radius:50%;background:var(--go);box-shadow:0 0 0 4px #4fe02f33}
+h1{font-weight:700;font-size:clamp(36px,5.4vw,64px);line-height:1;letter-spacing:-.045em;margin:18px 0 16px;max-width:15ch;text-wrap:balance}
+.lede{color:var(--mute);font-size:clamp(16px,1.6vw,19px);max-width:36em;margin:0}
+.plan{margin-top:26px;display:flex;gap:16px;align-items:flex-start;background:var(--ink);color:#fff;border-radius:22px;padding:18px 20px;position:relative;overflow:hidden}
+.plan::after{content:"";position:absolute;right:-60px;top:-80px;width:220px;height:220px;border-radius:50%;background:var(--go);filter:blur(70px);opacity:.22}
+.plan .tag{flex:none;font:600 12px var(--mono);background:var(--go);color:#0b2a05;border-radius:8px;padding:4px 8px;margin-top:2px}
+.plan p{margin:0;color:#cfcfcf;font-size:15px;position:relative;z-index:1}
+.plan strong{color:#fff;font-weight:500}
+.plan a{color:#fff}
+section.doc{padding-top:56px}
+h2{font-size:clamp(26px,3vw,34px);letter-spacing:-.035em;line-height:1.1;margin:0 0 10px;font-weight:700}
+h3{font-size:19px;letter-spacing:-.02em;margin:28px 0 8px}
+p.sub{color:var(--mute);margin:0 0 22px;max-width:40em}
+p{max-width:44em}
+code{font:13.5px var(--mono);background:var(--fill);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.cards{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px}
+.card .n{font:500 12px var(--mono);color:var(--soft)}
+.card h4{margin:6px 0 4px;font-size:17px;letter-spacing:-.015em}
+.card p{margin:0;color:var(--mute);font-size:14.5px}
+/* client tabs */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tabs button{font:500 14px Switzer,system-ui,sans-serif;border:1px solid var(--line);background:#fff;color:var(--ink);padding:8px 14px;border-radius:10px;cursor:pointer;transition:background .2s,color .2s,border-color .2s}
+.tabs button:hover{border-color:#cfcfcf}
+.tabs button[aria-selected=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:clamp(16px,2.4vw,24px)}
+.panel[hidden]{display:none}
+.panel ol{margin:0 0 4px;padding-left:20px;color:var(--mute)}
+.panel ol li{margin:6px 0}
+.panel ol li strong{color:var(--ink);font-weight:500}
+.where{font:13px var(--mono);color:var(--soft);margin:12px 0 6px}
+pre{position:relative;margin:8px 0 0;background:var(--code);color:#ececec;border-radius:14px;padding:16px 18px;overflow:auto;font:13.5px/1.6 var(--mono);-webkit-overflow-scrolling:touch}
+pre code{background:none;padding:0;border-radius:0;font:inherit;color:inherit}
+pre .k{color:#8fd3ff}pre .s{color:#b6f19c}pre .c{color:#7a7a7a}
+.copy{position:absolute;top:10px;right:10px;font:500 12px Switzer,system-ui,sans-serif;background:#2a2a2a;color:#ddd;border:1px solid #3a3a3a;border-radius:8px;padding:5px 10px;cursor:pointer;opacity:.85;transition:opacity .2s,background .2s}
+.copy:hover{opacity:1;background:#333}
+.copy.done{background:var(--go);color:#0b2a05;border-color:var(--go)}
+.tip{margin-top:14px;display:flex;gap:10px;align-items:flex-start;color:var(--mute);font-size:14.5px;background:var(--bg);border:1px dashed #dadada;border-radius:14px;padding:10px 12px}
+.tip b{color:var(--ink);font-weight:500}
+/* tool reference */
+.groups{display:grid;gap:14px}
+details.group{background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden}
+details.group summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px;font-weight:700;letter-spacing:-.015em;font-size:17px}
+details.group summary::-webkit-details-marker{display:none}
+details.group summary span{font:500 12px var(--mono);color:var(--soft);font-weight:400}
+details.group summary::after{content:"+";font:400 22px/1 Switzer,system-ui;color:var(--soft);transition:transform .25s var(--ease)}
+details.group[open] summary::after{transform:rotate(45deg)}
+.tool{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;padding:12px 20px;border-top:1px solid var(--line)}
+@media (max-width:640px){.tool{grid-template-columns:1fr;gap:2px}}
+.tool code{background:none;padding:0;font-weight:600;color:var(--ink)}
+.tool p{margin:0;color:var(--mute);font-size:14.5px}
+.flow{counter-reset:f;display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.flow li{counter-increment:f;display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.flow li::before{content:counter(f);width:28px;height:28px;border-radius:9px;background:var(--ink);color:#fff;display:grid;place-items:center;font:600 13px var(--mono)}
+.flow li code{font-weight:600}
+.flow li p{margin:2px 0 0;color:var(--mute);font-size:14.5px}
+.rules{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+.rules li{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;color:var(--mute);font-size:15px}
+.rules li svg{flex:none;width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
+.rules li b{color:var(--ink);font-weight:500}
+.faq details{border-bottom:1px solid var(--line);padding:4px 0}
+.faq summary{cursor:pointer;list-style:none;padding:14px 0;font-weight:500;display:flex;justify-content:space-between;gap:12px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";color:var(--soft);transition:transform .25s var(--ease)}
+.faq details[open] summary::after{transform:rotate(45deg)}
+.faq details p{margin:0 0 14px;color:var(--mute)}
+.end{margin-top:64px;background:var(--ink);color:#fff;border-radius:26px;padding:clamp(22px,3vw,36px);display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between}
+.end h3{margin:0;font-size:clamp(22px,2.6vw,30px);letter-spacing:-.03em}
+.end p{margin:4px 0 0;color:#bdbdbd}
+.btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;border-radius:12px;padding:12px 18px;font:500 15px Switzer,system-ui,sans-serif;background:#fff;color:var(--ink);transition:transform .2s var(--ease)}
+.btn:hover{transform:translateY(-2px)}
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.reveal{opacity:1;transform:none}html{scroll-behavior:auto}}
+</style>
+<link rel="icon" type="image/png" href="/assets/favicon.png"><link rel="apple-touch-icon" href="/assets/apple-touch-icon.png"></head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <a class="brand" href="/">Aethron <span>Docs</span></a>
+  <nav aria-label="Site">
+    <a class="hide-s" href="/">Home</a>
+    <a class="hide-s" href="/pricing">Pricing</a>
+    <a class="dark" href="/download">Download</a>
+  </nav>
+</header>
+
+<div class="wrap">
+  <aside class="toc" aria-label="On this page">
+    <b>On this page</b>
+    <a href="#overview">What it does</a>
+    <a href="#before">Before you start</a>
+    <a href="#connect">Connect your agent</a>
+    <a href="#first">Your first migration</a>
+    <a href="#tools">All the tools</a>
+    <a href="#rules">Rules your agent follows</a>
+    <a href="#trouble">Troubleshooting</a>
+  </aside>
+
+  <main id="main">
+    <section class="hero" id="overview">
+      <span class="eyebrow"><i></i>Aethron MCP</span>
+      <h1>Use Aethron from your own coding agent.</h1>
+      <p class="lede">Aethron's tools plug into the agent you already use (Claude, Codex, Gemini, Cursor, Antigravity and anything else that speaks MCP). Your agent decides what the site should say. Aethron does the delicate work and checks every page in a real browser before it calls anything finished.</p>
+      <div class="plan" role="note">
+        <span class="tag">STUDIO</span>
+        <p><strong>The MCP is part of the Studio plan ($49 a month).</strong> It runs from the Aethron app on your own Mac, signed in with your Studio account. During the beta it is open to everyone. <a href="/pricing">See plans</a></p>
+      </div>
+    </section>
+
+    <section class="doc reveal" id="what">
+      <h2>What your agent can do with it</h2>
+      <p class="sub">Every step goes through Aethron's guarded pipeline, so an agent cannot break a template by editing files by hand.</p>
+      <div class="cards">
+        <div class="card"><span class="n">MIGRATE</span><h4>Own any template</h4><p>Pull a Framer or Webflow template (or any site) from its link, rewrite every word, image and link for your brand, and keep every animation.</p></div>
+        <div class="card"><span class="n">CHECK</span><h4>Proof, not promises</h4><p>Builds are checked file by file and then opened in a real browser. A page that renders blank or shows a broken image fails, by name.</p></div>
+        <div class="card"><span class="n">FIX & SHIP</span><h4>Heal, port, hand over</h4><p>Heal edits that did not land, port the site to Astro, Next or Vite, rebuild a page from a screenshot, and serve a preview.</p></div>
+      </div>
+    </section>
+
+    <section class="doc reveal" id="before">
+      <h2>Before you start</h2>
+      <ul class="rules">
+        <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Install Aethron</b> in your Applications folder. <a href="/download">Download it here</a>. The MCP is the app itself; there is nothing else to install.</span></li>
+        <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Open it once and sign in</b> with your Studio account, so this Mac knows your plan.</span></li>
+        <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>No AI key is needed for migrations.</b> Your agent writes the copy itself. Only a few tools (rebuilding a page from a screenshot, changing a page in plain words) use the AI provider you saved in the Aethron app.</span></li>
+        <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Your projects stay on your Mac.</b> The agent and the Aethron app share the same projects, so anything your agent builds shows up in the app, and the other way round.</span></li>
+      </ul>
+    </section>
+
+    <section class="doc reveal" id="connect">
+      <h2>Connect your agent</h2>
+      <p class="sub">Every agent starts the same command: <code>/Applications/Aethron.app/Contents/MacOS/Aethron --mcp</code>. Pick yours below. Menu names can move between versions of each app; the setting is always "MCP servers".</p>
+      <div class="tabs" role="tablist" aria-label="Coding agent">
+        <button role="tab" aria-selected="true" aria-controls="t-claude-code" id="b-claude-code">Claude Code</button>
+        <button role="tab" aria-selected="false" aria-controls="t-claude-desktop" id="b-claude-desktop">Claude Desktop</button>
+        <button role="tab" aria-selected="false" aria-controls="t-codex" id="b-codex">Codex</button>
+        <button role="tab" aria-selected="false" aria-controls="t-gemini" id="b-gemini">Gemini CLI</button>
+        <button role="tab" aria-selected="false" aria-controls="t-antigravity" id="b-antigravity">Antigravity</button>
+        <button role="tab" aria-selected="false" aria-controls="t-cursor" id="b-cursor">Cursor</button>
+        <button role="tab" aria-selected="false" aria-controls="t-windsurf" id="b-windsurf">Windsurf</button>
+        <button role="tab" aria-selected="false" aria-controls="t-vscode" id="b-vscode">VS Code</button>
+        <button role="tab" aria-selected="false" aria-controls="t-other" id="b-other">Any other</button>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-claude-code" aria-labelledby="b-claude-code">
+        <ol><li>Run this once in Terminal. <strong>--scope user</strong> makes Aethron available in every project.</li><li>Start Claude Code and type <strong>/mcp</strong>: <strong>aethron</strong> should show as connected.</li></ol>
+<pre><code>claude mcp add aethron --scope user -- /Applications/Aethron.app/Contents/MacOS/Aethron --mcp</code></pre>
+        <div class="tip"><span>Long steps (downloading a template, building) can take a few minutes. If a call times out, start Claude Code with <b>MCP_TOOL_TIMEOUT=600000 claude</b>.</span></div>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-claude-desktop" aria-labelledby="b-claude-desktop" hidden>
+        <ol><li>Open <strong>Claude → Settings → Developer → Edit Config</strong>.</li><li>Add the <strong>aethron</strong> entry below inside <strong>mcpServers</strong>, save, and restart Claude.</li></ol>
+        <p class="where">~/Library/Application Support/Claude/claude_desktop_config.json</p>
+<pre><code>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"aethron"</span>: {
+      <span class="k">"command"</span>: <span class="s">"/Applications/Aethron.app/Contents/MacOS/Aethron"</span>,
+      <span class="k">"args"</span>: [<span class="s">"--mcp"</span>]
+    }
+  }
+}</code></pre>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-codex" aria-labelledby="b-codex" hidden>
+        <ol><li>Add it with one command, <strong>or</strong> paste the block into your Codex config.</li><li>Run <strong>codex</strong> and type <strong>/mcp</strong> to see Aethron's tools.</li></ol>
+<pre><code>codex mcp add aethron -- /Applications/Aethron.app/Contents/MacOS/Aethron --mcp</code></pre>
+        <p class="where">~/.codex/config.toml</p>
+<pre><code><span class="k">[mcp_servers.aethron]</span>
+command = <span class="s">"/Applications/Aethron.app/Contents/MacOS/Aethron"</span>
+args = [<span class="s">"--mcp"</span>]
+tool_timeout_sec = 600   <span class="c"># builds can take a few minutes</span></code></pre>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-gemini" aria-labelledby="b-gemini" hidden>
+        <ol><li>Add it with one command, <strong>or</strong> edit your Gemini settings file.</li><li>Run <strong>gemini</strong> and type <strong>/mcp</strong> to check it is connected.</li></ol>
+<pre><code>gemini mcp add aethron /Applications/Aethron.app/Contents/MacOS/Aethron --mcp</code></pre>
+        <p class="where">~/.gemini/settings.json</p>
+<pre><code>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"aethron"</span>: {
+      <span class="k">"command"</span>: <span class="s">"/Applications/Aethron.app/Contents/MacOS/Aethron"</span>,
+      <span class="k">"args"</span>: [<span class="s">"--mcp"</span>],
+      <span class="k">"timeout"</span>: 600000
+    }
+  }
+}</code></pre>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-antigravity" aria-labelledby="b-antigravity" hidden>
+        <ol><li>In the agent panel, open the <strong>…</strong> menu → <strong>MCP Servers</strong> → <strong>Manage MCP Servers</strong> → <strong>View raw config</strong>.</li><li>Add the <strong>aethron</strong> entry, save, then press <strong>Refresh</strong>. Antigravity lists every Aethron tool.</li></ol>
+        <p class="where">mcp_config.json</p>
+<pre><code>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"aethron"</span>: {
+      <span class="k">"command"</span>: <span class="s">"/Applications/Aethron.app/Contents/MacOS/Aethron"</span>,
+      <span class="k">"args"</span>: [<span class="s">"--mcp"</span>]
+    }
+  }
+}</code></pre>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-cursor" aria-labelledby="b-cursor" hidden>
+        <ol><li>Open <strong>Cursor Settings → MCP</strong> → <strong>Add new global MCP server</strong>, or edit the file below.</li><li>Aethron turns green when it is connected. Use it from the agent chat.</li></ol>
+        <p class="where">~/.cursor/mcp.json</p>
+<pre><code>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"aethron"</span>: {
+      <span class="k">"command"</span>: <span class="s">"/Applications/Aethron.app/Contents/MacOS/Aethron"</span>,
+      <span class="k">"args"</span>: [<span class="s">"--mcp"</span>]
+    }
+  }
+}</code></pre>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-windsurf" aria-labelledby="b-windsurf" hidden>
+        <ol><li>Open <strong>Windsurf Settings → Cascade → MCP Servers</strong> → <strong>View raw config</strong>.</li><li>Add the entry, save and refresh.</li></ol>
+        <p class="where">~/.codeium/windsurf/mcp_config.json</p>
+<pre><code>{
+  <span class="k">"mcpServers"</span>: {
+    <span class="k">"aethron"</span>: {
+      <span class="k">"command"</span>: <span class="s">"/Applications/Aethron.app/Contents/MacOS/Aethron"</span>,
+      <span class="k">"args"</span>: [<span class="s">"--mcp"</span>]
+    }
+  }
+}</code></pre>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-vscode" aria-labelledby="b-vscode" hidden>
+        <ol><li>Run <strong>MCP: Add Server</strong> from the command palette, or create the file below in your workspace.</li><li>Open Copilot Chat in <strong>Agent</strong> mode; Aethron's tools appear under the tools button.</li></ol>
+        <p class="where">.vscode/mcp.json</p>
+<pre><code>{
+  <span class="k">"servers"</span>: {
+    <span class="k">"aethron"</span>: {
+      <span class="k">"type"</span>: <span class="s">"stdio"</span>,
+      <span class="k">"command"</span>: <span class="s">"/Applications/Aethron.app/Contents/MacOS/Aethron"</span>,
+      <span class="k">"args"</span>: [<span class="s">"--mcp"</span>]
+    }
+  }
+}</code></pre>
+      </div>
+
+      <div class="panel" role="tabpanel" id="t-other" aria-labelledby="b-other" hidden>
+        <ol><li>Any client that runs a <strong>local (stdio)</strong> MCP server works. Give it this command and argument.</li><li>Set the tool timeout to at least <strong>10 minutes</strong> if your client allows it.</li></ol>
+<pre><code>command: /Applications/Aethron.app/Contents/MacOS/Aethron
+args:    --mcp</code></pre>
+        <div class="tip"><span>The server speaks MCP over standard input and output, one JSON message per line. It needs no network port and no key.</span></div>
+      </div>
+    </section>
+
+    <section class="doc reveal" id="first">
+      <h2>Your first migration</h2>
+      <p class="sub">You can simply tell your agent: <em>"Use Aethron to migrate https://yourtemplate.framer.website for my studio, Northwind. We design kitchens in Lisbon."</em> This is the path it will take.</p>
+      <ol class="flow">
+        <li><div><code>create_project</code><p>Takes the template's link (or an exported file) and reads every page.</p></div></li>
+        <li><div><code>fetch</code> → <code>inventory</code><p>Downloads everything the site needs to run on its own, then lists every line of text, image and link.</p></div></li>
+        <li><div><code>set_plan</code><p>Your brand, tone, contact details and anything to keep or remove. <code>learn_brand</code> can read your current site so the copy uses your real facts.</p></div></li>
+        <li><div><code>get_content</code> → <code>set_content_bulk</code><p>Your agent reads 40 lines at a time and writes the new copy. Aethron refuses a line that would not fit or would break the page, and says why.</p></div></li>
+        <li><div><code>build</code> → <code>verify</code> → <code>probe</code><p>Builds the site, checks the files, then opens every page in a real browser. If something fails, <code>heal</code> fixes what it safely can.</p></div></li>
+        <li><div><code>serve_preview</code><p>Hands you a link to look at. The finished site is a folder you can host anywhere, or port with <code>convert_framework</code>.</p></div></li>
+      </ol>
+    </section>
+
+    <section class="doc reveal" id="tools">
+      <h2>All the tools</h2>
+      <p class="sub">Your agent sees each tool's full instructions when it connects. This is the short version.</p>
+      <div class="groups">
+        <details class="group" open><summary>Projects <span>6 tools</span></summary>
+          <div class="tool"><code>list_projects</code><p>Every project, with its platform, how much is filled and whether it is built.</p></div>
+          <div class="tool"><code>create_project</code><p>Start from a Framer or Webflow link, any website, or an exported file, folder or zip.</p></div>
+          <div class="tool"><code>fetch</code><p>Download everything the site needs to run on its own.</p></div>
+          <div class="tool"><code>inventory</code><p>List every line of text, image and link that can change.</p></div>
+          <div class="tool"><code>figma_import</code><p>Start from a Figma design instead of a live site.</p></div>
+          <div class="tool"><code>delete_project</code><p>Delete a project for good (asks for confirmation).</p></div>
+        </details>
+        <details class="group"><summary>Plan &amp; copy <span>7 tools</span></summary>
+          <div class="tool"><code>get_plan</code> · <code>set_plan</code><p>Read and save the brief: brand, tone, contacts.</p></div>
+          <div class="tool"><code>learn_brand</code><p>Read the brand's own site or documents so copy uses real facts.</p></div>
+          <div class="tool"><code>search_brand</code><p>Ask what the brand material says about something.</p></div>
+          <div class="tool"><code>get_content</code><p>Read the lines to fill, 40 at a time, only the unfilled ones if asked.</p></div>
+          <div class="tool"><code>set_content</code> · <code>set_content_bulk</code><p>Write new copy. Each line is checked before it is taken.</p></div>
+        </details>
+        <details class="group"><summary>Look &amp; structure <span>6 tools</span></summary>
+          <div class="tool"><code>add_style</code><p>Change colours, sizes or motion with CSS written into every page.</p></div>
+          <div class="tool"><code>replace_image_slots</code><p>Give different images to slots that share one picture (logo rows, card grids).</p></div>
+          <div class="tool"><code>generate_logo</code><p>Make a wordmark in the template's own font.</p></div>
+          <div class="tool"><code>remove_element</code><p>Remove a section, card or link from the shipped code.</p></div>
+          <div class="tool"><code>remove_page</code><p>Remove a whole page and the links to it.</p></div>
+          <div class="tool"><code>localize_assets</code><p>Download every image, font and stylesheet so nothing loads from the template's servers.</p></div>
+        </details>
+        <details class="group"><summary>Build &amp; check <span>8 tools</span></summary>
+          <div class="tool"><code>build</code><p>Rebuild the site from the original and your changes.</p></div>
+          <div class="tool"><code>verify</code><p>Check the files: leftover template words, missing pieces, broken links.</p></div>
+          <div class="tool"><code>probe</code><p>Open every page in a real browser and report blank pages, failed requests and errors.</p></div>
+          <div class="tool"><code>heal</code><p>Fix edits that did not land, safely and the same way every time.</p></div>
+          <div class="tool"><code>look</code><p>Render a page and measure it against a target at four widths, with exact fixes.</p></div>
+          <div class="tool"><code>design_review</code><p>Check a page like a designer: type scale, spacing, contrast, tap targets.</p></div>
+          <div class="tool"><code>build_check</code><p>Ask whether a page meets its brief, and be told no if it does not.</p></div>
+          <div class="tool"><code>undo</code><p>Undo the last change and rebuild.</p></div>
+        </details>
+        <details class="group"><summary>Screenshots &amp; pages <span>6 tools</span></summary>
+          <div class="tool"><code>measure_screenshot</code><p>Measure a screenshot: colours, sizes, spacing, text.</p></div>
+          <div class="tool"><code>screenshot_to_page</code><p>Turn a screenshot into a real page in HTML and CSS, checked against it.</p></div>
+          <div class="tool"><code>grade_page</code><p>Check a page made from a screenshot, including phone widths.</p></div>
+          <div class="tool"><code>adopt_page</code><p>Make any page measurable so the other tools can change it.</p></div>
+          <div class="tool"><code>edit_page</code><p>Change words and looks on a page made from a screenshot.</p></div>
+          <div class="tool"><code>change_page</code><p>Any change in plain words, kept only if it measures true and nothing else broke.</p></div>
+        </details>
+        <details class="group"><summary>Ship <span>5 tools</span></summary>
+          <div class="tool"><code>serve_preview</code><p>Serve the built site locally and get its address.</p></div>
+          <div class="tool"><code>convert_framework</code><p>Port the site to Astro, Next (React) or Vite, refused unless it matches.</p></div>
+          <div class="tool"><code>generate_backend</code><p>Add a small backend that edits the site's content safely.</p></div>
+          <div class="tool"><code>list_runs</code> · <code>get_run</code><p>Read the record of what an agent did and what Aethron answered.</p></div>
+        </details>
+        <details class="group"><summary>Previews for clients <span>5 tools</span></summary>
+          <div class="tool"><code>make_preview</code><p>A personalised copy of a template for one client, built from only the pages you choose.</p></div>
+          <div class="tool"><code>preview_pages</code><p>Change which pages a preview includes.</p></div>
+          <div class="tool"><code>preview_ribbon</code><p>Add a bar to the preview with your message and buttons.</p></div>
+          <div class="tool"><code>add_block</code><p>Add a map or reviews the template never had.</p></div>
+          <div class="tool"><code>export_preview</code><p>Write the preview ready to publish, checked at its real address.</p></div>
+        </details>
+        <details class="group"><summary>Design library <span>3 tools</span></summary>
+          <div class="tool"><code>list_library</code><p>Templates you have saved, by palette, fonts, sections and motion.</p></div>
+          <div class="tool"><code>save_to_library</code><p>Save a project's design to the library.</p></div>
+          <div class="tool"><code>create_from_library</code><p>Start a new project from a saved design.</p></div>
+        </details>
+      </div>
+    </section>
+
+    <section class="doc reveal" id="rules">
+      <h2>Rules your agent follows</h2>
+      <p class="sub">Aethron enforces these itself. They are here so you know why your agent sometimes takes the longer road.</p>
+      <ul class="rules">
+        <li><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/></svg><span><b>Never hand-edit the project's files.</b> Template pages are rebuilt by their own code when they load, so a hand edit disappears or breaks the page. Every change goes through the tools.</span></li>
+        <li><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/></svg><span><b>A refusal is information.</b> When Aethron rejects a line (too long for its slot, a character that would break code), it says why. Your agent shortens it and sends it again.</span></li>
+        <li><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/></svg><span><b>The checks decide when it is done, not the agent.</b> A site is finished when <code>verify</code> and <code>probe</code> pass, and their FAIL lines are reported word for word.</span></li>
+        <li><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z"/></svg><span><b>Nothing is lost.</b> Every change keeps a snapshot, and <code>undo</code> keeps what it replaced.</span></li>
+      </ul>
+    </section>
+
+    <section class="doc reveal faq" id="trouble">
+      <h2>Troubleshooting</h2>
+      <details><summary>My agent does not see any Aethron tools</summary><p>Check the path: Aethron must be in <code>/Applications</code>. Restart the agent after changing its config, and use its MCP list (<code>/mcp</code> in Claude Code, Codex and Gemini CLI) to see the error.</p></details>
+      <details><summary>"Aethron's MCP is part of the Studio plan"</summary><p>Open the Aethron app and sign in with your Studio account. If you upgraded recently, opening the app while online confirms the new plan; then ask your agent to try again.</p></details>
+      <details><summary>A step times out</summary><p>Downloading a large template or building it can take a few minutes. Raise your agent's tool timeout to 10 minutes (see your agent's tab above), then ask it to run the step again.</p></details>
+      <details><summary>macOS says it cannot check Aethron</summary><p>Open the app once from Finder first. If macOS blocks it, go to System Settings → Privacy &amp; Security and click Open Anyway. After that, agents can start it.</p></details>
+      <details><summary>Where are my projects?</summary><p>In Aethron's data folder on your Mac (<code>~/Library/Application Support/Aethron</code>), the same place the app uses. Ask your agent to run <code>list_projects</code>.</p></details>
+      <details><summary>Something broke and the checks do not say why</summary><p>Ask your agent to run <code>probe</code> on the project and paste its FAIL lines to us at <a href="/start?type=help">aethron.jomiez.com/start</a>. A person replies within one business day.</p></details>
+    </section>
+
+    <div class="end reveal">
+      <div><h3>Ready when your agent is.</h3><p>Install Aethron, sign in, add one line to your agent.</p></div>
+      <a class="btn" href="/download">Download Aethron</a>
+    </div>
+  </main>
+</div>
+<footer>Aethron is made by <a href="/jomiez">Jomiez</a>.</footer>
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('[role=tab]'));
+  function pick(b,focus){tabs.forEach(function(t){var on=t===b;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;
+    document.getElementById(t.getAttribute('aria-controls')).hidden=!on});if(focus)b.focus();
+    try{localStorage.setItem('ae-docs-agent',b.id)}catch(e){}}
+  tabs.forEach(function(t,i){t.addEventListener('click',function(){pick(t)});
+    t.addEventListener('keydown',function(e){var d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(d){e.preventDefault();pick(tabs[(i+d+tabs.length)%tabs.length],true)}})});
+  try{var saved=localStorage.getItem('ae-docs-agent');var sb=saved&&document.getElementById(saved);if(sb)pick(sb)}catch(e){}
+  [].forEach.call(document.querySelectorAll('pre'),function(p){var b=document.createElement('button');b.className='copy';b.type='button';b.textContent='Copy';
+    b.addEventListener('click',function(){var t=p.querySelector('code').innerText;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){
+      b.textContent='Copied';b.classList.add('done');setTimeout(function(){b.textContent='Copy';b.classList.remove('done')},1600)},function(){b.textContent='Select and copy'})});p.appendChild(b)});
+  var links=[].slice.call(document.querySelectorAll('.toc a'));
+  if('IntersectionObserver' in window){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.08});
+    [].forEach.call(document.querySelectorAll('.reveal'),function(s){io.observe(s)});
+    var spy=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var id=e.target.id;
+      links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+id)})}})},{rootMargin:'-30% 0px -60% 0px'});
+    links.forEach(function(a){var s=document.querySelector(a.getAttribute('href'));if(s)spy.observe(s)});
+  }else [].forEach.call(document.querySelectorAll('.reveal'),function(s){s.classList.add('in')});
+})();
+</script>
+</body>
+</html>

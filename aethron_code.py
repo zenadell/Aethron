@@ -993,9 +993,13 @@ class CodeSession:
                 command, args = sys.executable, ["--mcp"]
             else:
                 command, args = sys.executable, [str(FORGE_MCP)]
+            import aethron_access
             servers["aethron"] = {
                 "command": command, "args": args,
-                "env": {"AETHRON_HOME": str(self.home or ROOT)},
+                "env": {"AETHRON_HOME": str(self.home or ROOT),
+                        # the app's own agent: never asked for a plan
+                        aethron_access.INTERNAL_ENV:
+                            aethron_access.internal_secret(self.home or ROOT)},
             }
         if self._uses_permission_broker():
             if getattr(sys, "frozen", False):
