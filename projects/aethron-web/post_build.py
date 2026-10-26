@@ -71,7 +71,27 @@ start = pathlib.Path("start.html").read_text()
 
 # /jomiez: a page about Jomiez, the team that makes Aethron, with a way out
 # to jomiez.com. Every "Jomiez" link on the template points here.
-jz = pathlib.Path("jomiez.html").read_text()
+# It is the about page's own shell (navbar, menu, CTA and footer, so it is
+# part of the site), with the about sections hidden and jomiez_body.html put
+# in their place after the page has loaded.
+import html as _html, re as _re
+jz = (site / "about.html").read_text()
+JZ_TITLE = "Jomiez, the team behind Aethron"
+JZ_DESC = ("Aethron is made by Jomiez, a software company growing its own AI "
+           "products and custom software for businesses. Meet the products "
+           "and some of the work.")
+jz = _re.sub(r"<title>[^<]*</title>", f"<title>{JZ_TITLE}</title>", jz, count=1)
+for attr in ('name="description"', 'property="og:description"', 'name="twitter:description"'):
+    jz = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="{_html.escape(JZ_DESC)}">', jz, count=1)
+for attr in ('property="og:title"', 'name="twitter:title"'):
+    jz = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="{JZ_TITLE}">', jz, count=1)
+for attr in ('property="og:image"', 'name="twitter:image"'):
+    jz = _re.sub(r'<meta ' + attr + r' content="[^"]*">', f'<meta {attr} content="https://aethron.jomiez.com/assets/jz-home.jpg">', jz, count=1)
+body = pathlib.Path("jomiez_body.html").read_text()
+css, rest = body.split("</style>", 1)
+jz = jz.replace("</head>", css + "</style></head>", 1)
+jz = jz.replace("</body>", rest + "</body>", 1)
+assert jz.count("ae-jz-tpl") == 2 and JZ_TITLE in jz
 (site / "jomiez").mkdir(exist_ok=True)
 (site / "jomiez" / "index.html").write_text(jz)
 (site / "jomiez.html").write_text(jz)
@@ -113,3 +133,14 @@ for f in site.glob("*.html"):
     if "data-ae-crop" not in t and "</head>" in t:
         f.write_text(t.replace("</head>", CROP + "</head>", 1)); m += 1
 print(f"screenshots cropped from the top-left on {m} pages")
+
+# Link previews (WhatsApp, iMessage, X) only read an absolute image address.
+import re as _re2
+n = 0
+for f in list(site.glob("*.html")) + list(site.glob("*/index.html")):
+    t = f.read_text()
+    u = _re2.sub(r'(<meta (?:property="og:image"|name="twitter:image") content=")/(?!/)',
+                 r'\1https://aethron.jomiez.com/', t)
+    if u != t:
+        f.write_text(u); n += 1
+print(f"share images made absolute on {n} pages")
