@@ -1,139 +1,97 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Docs · Use Aethron from your coding agent</title>
-<meta name="description" content="Connect Aethron's MCP to Claude Code, Claude Desktop, Cursor, Codex, Gemini CLI, Antigravity, Windsurf or VS Code, and let your own agent migrate templates, check every page and fix what breaks.">
-<meta property="og:title" content="Aethron Docs · Use Aethron from your coding agent">
-<meta property="og:description" content="Connect Aethron's MCP to the coding agent you already use.">
-<meta property="og:image" content="https://aethron.jomiez.com/assets/og-aethron.jpg">
-<meta name="theme-color" content="#fafafa">
-<link rel="icon" type="image/png" href="/assets/favicon.png">
-<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<style>
-@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/BLNB4FAQFNK56DWWNF7PMGTCOTZHOEII/ST3WKSSDMBK2MIQQO3MAVYWLF4FTOLFV/6IN5WOLRCYP4G4MOCOHOMXNON6Q7MDAR.woff2");font-weight:400;font-display:swap}
-@font-face{font-family:Switzer;src:url("https://framerusercontent.com/third-party-assets/fontshare/wf/HBNTRIISA5MEXGL5WPYI7CV2HIWTDV3Q/YDPDINVT673XLXNSTMLG4JNCZZMVVNPN/Y7SCNZJOT2MW5ADSGOFLDGH4TNL4JCQY.woff2");font-weight:700;font-display:swap}
-:root{--bg:#fafafa;--ink:#0f0f0f;--mute:#6f6f6f;--soft:#9a9a9a;--line:#e7e7e7;--card:#fff;--fill:#f1f1f1;--code:#151515;
---go:#4fe02f;--ease:cubic-bezier(.2,.8,.2,1);--mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
-*{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:84px}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.6 Switzer,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-a{color:inherit}
-:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:8px}
-.skip{position:absolute;left:-999px;top:8px;background:var(--ink);color:#fff;padding:8px 14px;border-radius:10px;z-index:30}
-.skip:focus{left:12px}
-header.top{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;
-padding:14px clamp(16px,3vw,40px);background:#fafafacc;backdrop-filter:saturate(1.6) blur(14px);-webkit-backdrop-filter:saturate(1.6) blur(14px);border-bottom:1px solid #0000000d}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:18px;letter-spacing:-.02em;text-decoration:none}
-.brand span{font:500 12px var(--mono);color:var(--mute);background:#fff;border:1px solid var(--line);padding:2px 8px;border-radius:99px;letter-spacing:0}
-.top nav{display:flex;align-items:center;gap:6px}
-.top nav a{text-decoration:none;font-size:15px;color:var(--mute);padding:8px 12px;border-radius:10px}
-.top nav a:hover{background:var(--fill);color:var(--ink)}
-.top nav a.dark{background:var(--ink);color:#fff}
-@media (max-width:640px){.top nav a.hide-s{display:none}}
-.wrap{max-width:1180px;margin:0 auto;padding:0 clamp(16px,3vw,32px);display:grid;grid-template-columns:220px minmax(0,1fr);gap:56px}
-@media (max-width:960px){.wrap{grid-template-columns:1fr;gap:0}}
-aside.toc{position:sticky;top:84px;align-self:start;padding:36px 0;max-height:calc(100vh - 84px);overflow:auto}
-@media (max-width:960px){aside.toc{display:none}}
-.toc b{display:block;font:500 12px var(--mono);color:var(--soft);text-transform:uppercase;letter-spacing:.05em;margin:0 0 10px}
-.toc a{display:block;text-decoration:none;color:var(--mute);font-size:14.5px;padding:6px 10px;border-radius:8px;border-left:2px solid transparent;transition:color .2s,background .2s}
-.toc a:hover{color:var(--ink);background:var(--fill)}
-.toc a.on{color:var(--ink);background:#fff;box-shadow:0 1px 0 var(--line),0 0 0 1px var(--line)}
-main{padding:36px 0 96px;min-width:0}
-.hero{padding:28px 0 8px}
-.eyebrow{display:inline-flex;align-items:center;gap:8px;font:500 12px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--mute);background:#fff;border:1px solid var(--line);border-radius:99px;padding:6px 12px 6px 8px}
-.eyebrow i{width:8px;height:8px;border-radius:50%;background:var(--go);box-shadow:0 0 0 4px #4fe02f33}
-h1{font-weight:700;font-size:clamp(36px,5.4vw,64px);line-height:1;letter-spacing:-.045em;margin:18px 0 16px;max-width:15ch;text-wrap:balance}
-.lede{color:var(--mute);font-size:clamp(16px,1.6vw,19px);max-width:36em;margin:0}
-.plan{margin-top:26px;display:flex;gap:16px;align-items:flex-start;background:var(--ink);color:#fff;border-radius:22px;padding:18px 20px;position:relative;overflow:hidden}
-.plan::after{content:"";position:absolute;right:-60px;top:-80px;width:220px;height:220px;border-radius:50%;background:var(--go);filter:blur(70px);opacity:.22}
-.plan .tag{flex:none;font:600 12px var(--mono);background:var(--go);color:#0b2a05;border-radius:8px;padding:4px 8px;margin-top:2px}
-.plan p{margin:0;color:#cfcfcf;font-size:15px;position:relative;z-index:1}
-.plan strong{color:#fff;font-weight:500}
-.plan a{color:#fff}
-section.doc{padding-top:56px}
-h2{font-size:clamp(26px,3vw,34px);letter-spacing:-.035em;line-height:1.1;margin:0 0 10px;font-weight:700}
-h3{font-size:19px;letter-spacing:-.02em;margin:28px 0 8px}
-p.sub{color:var(--mute);margin:0 0 22px;max-width:40em}
-p{max-width:44em}
-code{font:13.5px var(--mono);background:var(--fill);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}
-.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-@media (max-width:760px){.cards{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px}
-.card .n{font:500 12px var(--mono);color:var(--soft)}
-.card h4{margin:6px 0 4px;font-size:17px;letter-spacing:-.015em}
-.card p{margin:0;color:var(--mute);font-size:14.5px}
-/* client tabs */
-.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
-.tabs button{font:500 14px Switzer,system-ui,sans-serif;border:1px solid var(--line);background:#fff;color:var(--ink);padding:8px 14px;border-radius:10px;cursor:pointer;transition:background .2s,color .2s,border-color .2s}
-.tabs button:hover{border-color:#cfcfcf}
-.tabs button[aria-selected=true]{background:var(--ink);border-color:var(--ink);color:#fff}
-.panel{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:clamp(16px,2.4vw,24px)}
-.panel[hidden]{display:none}
-.panel ol{margin:0 0 4px;padding-left:20px;color:var(--mute)}
-.panel ol li{margin:6px 0}
-.panel ol li strong{color:var(--ink);font-weight:500}
-.where{font:13px var(--mono);color:var(--soft);margin:12px 0 6px}
-pre{position:relative;margin:8px 0 0;background:var(--code);color:#ececec;border-radius:14px;padding:16px 18px;overflow:auto;font:13.5px/1.6 var(--mono);-webkit-overflow-scrolling:touch}
-pre code{background:none;padding:0;border-radius:0;font:inherit;color:inherit}
-pre .k{color:#8fd3ff}pre .s{color:#b6f19c}pre .c{color:#7a7a7a}
-.copy{position:absolute;top:10px;right:10px;font:500 12px Switzer,system-ui,sans-serif;background:#2a2a2a;color:#ddd;border:1px solid #3a3a3a;border-radius:8px;padding:5px 10px;cursor:pointer;opacity:.85;transition:opacity .2s,background .2s}
-.copy:hover{opacity:1;background:#333}
-.copy.done{background:var(--go);color:#0b2a05;border-color:var(--go)}
-.tip{margin-top:14px;display:flex;gap:10px;align-items:flex-start;color:var(--mute);font-size:14.5px;background:var(--bg);border:1px dashed #dadada;border-radius:14px;padding:10px 12px}
-.tip b{color:var(--ink);font-weight:500}
-/* tool reference */
-.groups{display:grid;gap:14px}
-details.group{background:var(--card);border:1px solid var(--line);border-radius:20px;overflow:hidden}
-details.group summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 20px;font-weight:700;letter-spacing:-.015em;font-size:17px}
-details.group summary::-webkit-details-marker{display:none}
-details.group summary span{font:500 12px var(--mono);color:var(--soft);font-weight:400}
-details.group summary::after{content:"+";font:400 22px/1 Switzer,system-ui;color:var(--soft);transition:transform .25s var(--ease)}
-details.group[open] summary::after{transform:rotate(45deg)}
-.tool{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;padding:12px 20px;border-top:1px solid var(--line)}
-@media (max-width:640px){.tool{grid-template-columns:1fr;gap:2px}}
-.tool code{background:none;padding:0;font-weight:600;color:var(--ink)}
-.tool p{margin:0;color:var(--mute);font-size:14.5px}
-.flow{counter-reset:f;display:grid;gap:10px;margin:0;padding:0;list-style:none}
-.flow li{counter-increment:f;display:grid;grid-template-columns:36px minmax(0,1fr);gap:12px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
-.flow li::before{content:counter(f);width:28px;height:28px;border-radius:9px;background:var(--ink);color:#fff;display:grid;place-items:center;font:600 13px var(--mono)}
-.flow li code{font-weight:600}
-.flow li p{margin:2px 0 0;color:var(--mute);font-size:14.5px}
-.rules{display:grid;gap:10px;margin:0;padding:0;list-style:none}
-.rules li{display:flex;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;color:var(--mute);font-size:15px}
-.rules li svg{flex:none;width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-top:2px}
-.rules li b{color:var(--ink);font-weight:500}
-.faq details{border-bottom:1px solid var(--line);padding:4px 0}
-.faq summary{cursor:pointer;list-style:none;padding:14px 0;font-weight:500;display:flex;justify-content:space-between;gap:12px}
-.faq summary::-webkit-details-marker{display:none}
-.faq summary::after{content:"+";color:var(--soft);transition:transform .25s var(--ease)}
-.faq details[open] summary::after{transform:rotate(45deg)}
-.faq details p{margin:0 0 14px;color:var(--mute)}
-.end{margin-top:64px;background:var(--ink);color:#fff;border-radius:26px;padding:clamp(22px,3vw,36px);display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between}
-.end h3{margin:0;font-size:clamp(22px,2.6vw,30px);letter-spacing:-.03em}
-.end p{margin:4px 0 0;color:#bdbdbd}
-.btn{display:inline-flex;align-items:center;gap:8px;text-decoration:none;border-radius:12px;padding:12px 18px;font:500 15px Switzer,system-ui,sans-serif;background:#fff;color:var(--ink);transition:transform .2s var(--ease)}
-.btn:hover{transform:translateY(-2px)}
-.reveal{opacity:0;transform:translateY(14px);transition:opacity .6s var(--ease),transform .6s var(--ease)}
-.reveal.in{opacity:1;transform:none}
-footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.reveal{opacity:1;transform:none}html{scroll-behavior:auto}}
+<style data-ae-docs>
+/* The docs page: the about page's own navbar, menu, CTA and footer, with
+   the docs in place of the about content. Type and colour follow the rest
+   of the site (Switzer 400 headings, ink #0f0f0f, body at 60%). */
+div:has(> section[data-framer-name="Intro"]) > section{display:none!important}
+#ae-docs{--ink:#0f0f0f;--mute:rgba(15,15,15,.6);--soft:rgba(15,15,15,.4);--line:rgba(15,15,15,.08);--card:#fff;--fill:#f1f1f1;--code:#151515;--go:#4fe02f;
+  --ease:cubic-bezier(.2,.8,.2,1);--mono:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-family:Switzer,"Switzer Placeholder",sans-serif;color:var(--ink);max-width:1200px;margin:0 auto;padding:120px 24px 40px;box-sizing:border-box;width:100%;
+  display:grid;grid-template-columns:200px minmax(0,1fr);gap:64px;font-size:16px;line-height:1.55}
+#ae-docs *{box-sizing:border-box}
+#ae-docs a{color:inherit}
+#ae-docs p{margin:0}
+#ae-docs .toc{position:sticky;top:110px;align-self:start;padding-top:8px}
+#ae-docs .toc b{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.02em;color:var(--soft);font-weight:400;margin:0 0 12px}
+#ae-docs .toc a{display:block;text-decoration:none;color:var(--mute);font-size:15px;padding:7px 12px;border-radius:10px;transition:color .2s,background .2s}
+#ae-docs .toc a:hover{color:var(--ink);background:rgba(15,15,15,.04)}
+#ae-docs .toc a.on{color:var(--ink);background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
+#ae-docs .doc-main{min-width:0}
+#ae-docs .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;line-height:1;text-transform:uppercase;letter-spacing:.02em}
+#ae-docs .eyebrow i{width:32px;height:32px;border-radius:9px;background:var(--ink);display:grid;place-items:center;box-shadow:0 6px 14px -6px rgba(0,0,0,.4)}
+#ae-docs .eyebrow i::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--go)}
+#ae-docs h1{font-weight:400;font-size:60px;line-height:1;letter-spacing:-1.5px;margin:24px 0 20px;max-width:760px}
+#ae-docs h2{font-weight:400;font-size:40px;line-height:1.05;letter-spacing:-1px;margin:0 0 12px}
+#ae-docs h3{font-weight:500;font-size:20px;letter-spacing:-.1px;margin:28px 0 8px}
+#ae-docs .lede{font-size:20px;line-height:28px;letter-spacing:-.1px;color:var(--mute);max-width:640px}
+#ae-docs .sub{color:var(--mute);margin:0 0 28px;max-width:640px}
+#ae-docs .plan{margin-top:32px;display:flex;gap:16px;align-items:flex-start;background:var(--ink);color:#fafafa;border-radius:20px;padding:20px 22px;position:relative;overflow:hidden}
+#ae-docs .plan::after{content:"";position:absolute;right:-60px;top:-80px;width:220px;height:220px;border-radius:50%;background:var(--go);filter:blur(70px);opacity:.2}
+#ae-docs .plan .tag{flex:none;font:600 12px var(--mono);background:var(--go);color:#0b2a05;border-radius:7px;padding:4px 8px;margin-top:2px}
+#ae-docs .plan p{color:rgba(250,250,250,.7);font-size:15px;position:relative;z-index:1}
+#ae-docs .plan strong{color:#fafafa;font-weight:500}
+#ae-docs .plan a{color:#fafafa}
+#ae-docs section.doc{margin-top:112px;scroll-margin-top:110px}
+#ae-docs section.hero{scroll-margin-top:110px}
+#ae-docs code{font:13.5px var(--mono);background:rgba(15,15,15,.06);padding:2px 6px;border-radius:6px;overflow-wrap:anywhere}
+#ae-docs .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+#ae-docs .card{background:var(--card);border-radius:20px;padding:24px;box-shadow:inset 0 0 0 1px var(--line)}
+#ae-docs .card .n{font-size:12px;text-transform:uppercase;letter-spacing:.02em;color:var(--soft)}
+#ae-docs .card h4{margin:10px 0 6px;font-size:20px;font-weight:500;letter-spacing:-.1px}
+#ae-docs .card p{color:var(--mute);font-size:15px;line-height:22px}
+#ae-docs .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+#ae-docs .tabs button{font:500 14px Switzer,sans-serif;border:0;background:var(--card);color:var(--ink);padding:9px 14px;border-radius:10px;cursor:pointer;box-shadow:inset 0 0 0 1px var(--line);transition:background .2s,color .2s}
+#ae-docs .tabs button:hover{background:#f4f4f4}
+#ae-docs .tabs button[aria-selected=true]{background:var(--ink);color:#fafafa;box-shadow:none}
+#ae-docs .panel{background:var(--card);border-radius:20px;padding:24px;box-shadow:inset 0 0 0 1px var(--line)}
+#ae-docs .panel[hidden]{display:none}
+#ae-docs .panel ol{margin:0 0 4px;padding-left:20px;color:var(--mute)}
+#ae-docs .panel ol li{margin:6px 0}
+#ae-docs .panel strong{color:var(--ink);font-weight:500}
+#ae-docs .where{font:13px var(--mono);color:var(--soft);margin:14px 0 6px}
+#ae-docs pre{position:relative;margin:8px 0 0;background:var(--code);color:#ececec;border-radius:14px;padding:16px 18px;overflow:auto;font:13.5px/1.6 var(--mono)}
+#ae-docs pre code{background:none;padding:0;border-radius:0;font:inherit;color:inherit}
+#ae-docs pre .k{color:#8fd3ff}#ae-docs pre .s{color:#b6f19c}#ae-docs pre .c{color:#7a7a7a}
+#ae-docs .copy{position:absolute;top:10px;right:10px;font:500 12px Switzer,sans-serif;background:#2a2a2a;color:#ddd;border:1px solid #3a3a3a;border-radius:8px;padding:5px 10px;cursor:pointer}
+#ae-docs .copy.done{background:var(--go);color:#0b2a05;border-color:var(--go)}
+#ae-docs .tip{margin-top:14px;color:var(--mute);font-size:14.5px;background:rgba(15,15,15,.03);border-radius:14px;padding:12px 14px}
+#ae-docs .tip b{color:var(--ink);font-weight:500}
+#ae-docs .groups{display:grid;gap:10px}
+#ae-docs details.group{background:var(--card);border-radius:20px;box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
+#ae-docs details.group summary{list-style:none;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:18px 22px;font-size:18px;font-weight:500}
+#ae-docs details.group summary::-webkit-details-marker{display:none}
+#ae-docs details.group summary span{font-size:13px;color:var(--soft);font-weight:400;margin-left:auto}
+#ae-docs details.group summary::after{content:"+";font-size:22px;line-height:1;color:var(--soft);transition:transform .25s var(--ease)}
+#ae-docs details.group[open] summary::after{transform:rotate(45deg)}
+#ae-docs .tool{display:grid;grid-template-columns:220px minmax(0,1fr);gap:16px;padding:12px 22px;border-top:1px solid var(--line)}
+#ae-docs .tool code{background:none;padding:0;font-weight:600;color:var(--ink)}
+#ae-docs .tool p{color:var(--mute);font-size:15px}
+#ae-docs .flow,#ae-docs .rules{display:grid;gap:10px;margin:0;padding:0;list-style:none}
+#ae-docs .flow{counter-reset:f}
+#ae-docs .flow li{counter-increment:f;display:grid;grid-template-columns:36px minmax(0,1fr);gap:14px;background:var(--card);border-radius:18px;padding:16px 18px;box-shadow:inset 0 0 0 1px var(--line)}
+#ae-docs .flow li::before{content:counter(f);width:30px;height:30px;border-radius:9px;background:var(--ink);color:#fafafa;display:grid;place-items:center;font:600 13px var(--mono)}
+#ae-docs .flow li code{font-weight:600}
+#ae-docs .flow li p{margin:4px 0 0;color:var(--mute);font-size:15px}
+#ae-docs .rules li{display:flex;gap:12px;background:var(--card);border-radius:18px;padding:16px 18px;box-shadow:inset 0 0 0 1px var(--line);color:var(--mute);font-size:15px}
+#ae-docs .rules li svg{flex:none;width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;margin-top:1px}
+#ae-docs .rules li b{color:var(--ink);font-weight:500}
+#ae-docs .faq details{border-bottom:1px solid var(--line)}
+#ae-docs .faq summary{cursor:pointer;list-style:none;padding:18px 0;font-size:17px;font-weight:500;display:flex;justify-content:space-between;gap:12px}
+#ae-docs .faq summary::-webkit-details-marker{display:none}
+#ae-docs .faq summary::after{content:"+";color:var(--soft);transition:transform .25s var(--ease)}
+#ae-docs .faq details[open] summary::after{transform:rotate(45deg)}
+#ae-docs .faq details p{margin:0 0 18px;color:var(--mute)}
+#ae-docs .rv{opacity:0;transform:translateY(16px);transition:opacity .8s var(--ease),transform .8s var(--ease)}
+#ae-docs .rv.in{opacity:1;transform:none}
+@media (max-width:1199px){#ae-docs h1{font-size:52px}#ae-docs h2{font-size:34px}}
+@media (max-width:959px){#ae-docs{grid-template-columns:1fr;gap:0}#ae-docs .toc{display:none}}
+@media (max-width:809px){#ae-docs{padding-top:104px}#ae-docs h1{font-size:40px;letter-spacing:-1px}#ae-docs h2{font-size:30px}
+  #ae-docs .lede{font-size:17px;line-height:25px}#ae-docs section.doc{margin-top:80px}
+  #ae-docs .cards{grid-template-columns:1fr}#ae-docs .tool{grid-template-columns:1fr;gap:2px}#ae-docs .plan{flex-direction:column}}
+@media (prefers-reduced-motion:reduce){#ae-docs .rv{opacity:1;transform:none;transition:none}}
 </style>
-</head>
-<body>
-<a class="skip" href="#main">Skip to content</a>
-<header class="top">
-  <a class="brand" href="/">Aethron <span>Docs</span></a>
-  <nav aria-label="Site">
-    <a class="hide-s" href="/">Home</a>
-    <a class="hide-s" href="/pricing">Pricing</a>
-    <a class="dark" href="/download">Download</a>
-  </nav>
-</header>
-
-<div class="wrap">
-  <aside class="toc" aria-label="On this page">
+<template id="ae-docs-tpl">
+<div id="ae-docs">
+<aside class="toc" aria-label="On this page">
     <b>On this page</b>
     <a href="#overview">What it does</a>
     <a href="#before">Before you start</a>
@@ -144,7 +102,7 @@ footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px}
     <a href="#trouble">Troubleshooting</a>
   </aside>
 
-  <main id="main">
+  <div class="doc-main">
     <section class="hero" id="overview">
       <span class="eyebrow"><i></i>Aethron MCP</span>
       <h1>Use Aethron from your own coding agent.</h1>
@@ -155,7 +113,7 @@ footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px}
       </div>
     </section>
 
-    <section class="doc reveal" id="what">
+    <section class="doc rv" id="what">
       <h2>What your agent can do with it</h2>
       <p class="sub">Every step goes through Aethron's guarded pipeline, so an agent cannot break a template by editing files by hand.</p>
       <div class="cards">
@@ -165,7 +123,7 @@ footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px}
       </div>
     </section>
 
-    <section class="doc reveal" id="before">
+    <section class="doc rv" id="before">
       <h2>Before you start</h2>
       <ul class="rules">
         <li><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span><b>Install Aethron</b> in your Applications folder. <a href="/download">Download it here</a>. The MCP is the app itself; there is nothing else to install.</span></li>
@@ -175,7 +133,7 @@ footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px}
       </ul>
     </section>
 
-    <section class="doc reveal" id="connect">
+    <section class="doc rv" id="connect">
       <h2>Connect your agent</h2>
       <p class="sub">Every agent starts the same command: <code>/Applications/Aethron.app/Contents/MacOS/Aethron --mcp</code>. Pick yours below. Menu names can move between versions of each app; the setting is always "MCP servers".</p>
       <div class="tabs" role="tablist" aria-label="Coding agent">
@@ -295,7 +253,7 @@ args:    --mcp</code></pre>
       </div>
     </section>
 
-    <section class="doc reveal" id="first">
+    <section class="doc rv" id="first">
       <h2>Your first migration</h2>
       <p class="sub">You can simply tell your agent: <em>"Use Aethron to migrate https://yourtemplate.framer.website for my studio, Northwind. We design kitchens in Lisbon."</em> This is the path it will take.</p>
       <ol class="flow">
@@ -308,7 +266,7 @@ args:    --mcp</code></pre>
       </ol>
     </section>
 
-    <section class="doc reveal" id="tools">
+    <section class="doc rv" id="tools">
       <h2>All the tools</h2>
       <p class="sub">Your agent sees each tool's full instructions when it connects. This is the short version.</p>
       <div class="groups">
@@ -374,7 +332,7 @@ args:    --mcp</code></pre>
       </div>
     </section>
 
-    <section class="doc reveal" id="rules">
+    <section class="doc rv" id="rules">
       <h2>Rules your agent follows</h2>
       <p class="sub">Aethron enforces these itself. They are here so you know why your agent sometimes takes the longer road.</p>
       <ul class="rules">
@@ -385,7 +343,7 @@ args:    --mcp</code></pre>
       </ul>
     </section>
 
-    <section class="doc reveal faq" id="trouble">
+    <section class="doc rv faq" id="trouble">
       <h2>Troubleshooting</h2>
       <details><summary>My agent does not see any Aethron tools</summary><p>Check the path: Aethron must be in <code>/Applications</code>. Restart the agent after changing its config, and use its MCP list (<code>/mcp</code> in Claude Code, Codex and Gemini CLI) to see the error.</p></details>
       <details><summary>"Aethron's MCP is part of the Studio plan"</summary><p>Open the Aethron app and sign in with your Studio account. If you upgraded recently, opening the app while online confirms the new plan; then ask your agent to try again.</p></details>
@@ -395,34 +353,67 @@ args:    --mcp</code></pre>
       <details><summary>Something broke and the checks do not say why</summary><p>Ask your agent to run <code>probe</code> on the project and paste its FAIL lines to us at <a href="/start?type=help">aethron.jomiez.com/start</a>. A person replies within one business day.</p></details>
     </section>
 
-    <div class="end reveal">
-      <div><h3>Ready when your agent is.</h3><p>Install Aethron, sign in, add one line to your agent.</p></div>
-      <a class="btn" href="/download">Download Aethron</a>
     </div>
-  </main>
 </div>
-<footer>Aethron is made by <a href="/jomiez">Jomiez</a>.</footer>
-<script>
+</template>
+<script data-ae-docs>
 (function(){
-  var tabs=[].slice.call(document.querySelectorAll('[role=tab]'));
-  function pick(b,focus){tabs.forEach(function(t){var on=t===b;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;
-    document.getElementById(t.getAttribute('aria-controls')).hidden=!on});if(focus)b.focus();
-    try{localStorage.setItem('ae-docs-agent',b.id)}catch(e){}}
-  tabs.forEach(function(t,i){t.addEventListener('click',function(){pick(t)});
-    t.addEventListener('keydown',function(e){var d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(d){e.preventDefault();pick(tabs[(i+d+tabs.length)%tabs.length],true)}})});
-  try{var saved=localStorage.getItem('ae-docs-agent');var sb=saved&&document.getElementById(saved);if(sb)pick(sb)}catch(e){}
-  [].forEach.call(document.querySelectorAll('pre'),function(p){var b=document.createElement('button');b.className='copy';b.type='button';b.textContent='Copy';
-    b.addEventListener('click',function(){var t=p.querySelector('code').innerText;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){
-      b.textContent='Copied';b.classList.add('done');setTimeout(function(){b.textContent='Copy';b.classList.remove('done')},1600)},function(){b.textContent='Select and copy'})});p.appendChild(b)});
-  var links=[].slice.call(document.querySelectorAll('.toc a'));
-  if('IntersectionObserver' in window){
-    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.08});
-    [].forEach.call(document.querySelectorAll('.reveal'),function(s){io.observe(s)});
-    var spy=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var id=e.target.id;
-      links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+id)})}})},{rootMargin:'-30% 0px -60% 0px'});
-    links.forEach(function(a){var s=document.querySelector(a.getAttribute('href'));if(s)spy.observe(s)});
-  }else [].forEach.call(document.querySelectorAll('.reveal'),function(s){s.classList.add('in')});
+  var TITLE='Docs · Use Aethron from your coding agent';
+  var HOME='/docs', left=false, ready=false;
+  function here(){return (location.pathname.replace(/\/$/,'')||'/')===HOME}
+  function place(){
+    if(!ready)return;
+    var css=document.querySelector('style[data-ae-docs]');
+    if(!here()){
+      left=true;if(css)css.disabled=true;
+      var r=document.getElementById('ae-docs');if(r)r.remove();
+      if(document.title===TITLE)document.title='Aethron';
+      return;
+    }
+    if(left){location.reload();return}
+    if(css)css.disabled=false;
+    var tpl=document.getElementById('ae-docs-tpl');if(!tpl)return;
+    var cta=document.querySelector('#main section[data-framer-name="CTA"]');if(!cta)return;
+    var root=document.getElementById('ae-docs');
+    if(!root){root=tpl.content.firstElementChild.cloneNode(true);wire(root)}
+    if(root.nextElementSibling!==cta)cta.parentNode.insertBefore(root,cta);
+    if(document.title!==TITLE)document.title=TITLE;
+  }
+  function wire(root){
+    var tabs=[].slice.call(root.querySelectorAll('[role=tab]'));
+    function pick(b,focus){tabs.forEach(function(t){var on=t===b;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;
+      var p=root.querySelector('#'+t.getAttribute('aria-controls'));if(p)p.hidden=!on});if(focus)b.focus();
+      try{localStorage.setItem('ae-docs-agent',b.id)}catch(e){}}
+    tabs.forEach(function(t,i){t.addEventListener('click',function(){pick(t)});
+      t.addEventListener('keydown',function(e){var d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(d){e.preventDefault();pick(tabs[(i+d+tabs.length)%tabs.length],true)}})});
+    try{var sv=localStorage.getItem('ae-docs-agent');var sb=sv&&root.querySelector('#'+sv);if(sb)pick(sb)}catch(e){}
+    [].forEach.call(root.querySelectorAll('pre'),function(p){var b=document.createElement('button');b.className='copy';b.type='button';b.textContent='Copy';
+      b.addEventListener('click',function(){var t=p.querySelector('code').innerText;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){
+        b.textContent='Copied';b.classList.add('done');setTimeout(function(){b.textContent='Copy';b.classList.remove('done')},1600)},function(){b.textContent='Select and copy'})});p.appendChild(b)});
+    /* in-page links scroll; Framer's router must not treat #ids as routes */
+    root.addEventListener('click',function(e){var a=e.target.closest('a[href^="#"]');if(!a)return;
+      var t=root.querySelector(a.getAttribute('href'));if(!t)return;e.preventDefault();e.stopPropagation();
+      t.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'auto':'smooth'});
+      history.replaceState(history.state,'',HOME+a.getAttribute('href'))},true);
+    var links=[].slice.call(root.querySelectorAll('.toc a'));
+    if('IntersectionObserver' in window){
+      var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});
+      [].forEach.call(root.querySelectorAll('.rv'),function(s){io.observe(s)});
+      var spy=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){var id=e.target.id;
+        links.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')==='#'+id)})}})},{rootMargin:'-30% 0px -60% 0px'});
+      links.forEach(function(a){var s=root.querySelector(a.getAttribute('href'));if(s)spy.observe(s)});
+    }else [].forEach.call(root.querySelectorAll('.rv'),function(s){s.classList.add('in')});
+    setTimeout(function(){if(location.hash){var t=root.querySelector(location.hash);if(t)t.scrollIntoView()}},50);
+  }
+  function start(){
+    if(ready)return;ready=true;
+    if(window.__aeDocsPath){history.replaceState(history.state,'',window.__aeDocsPath);window.__aeDocsPath=null}
+    place();
+    new MutationObserver(function(){place()}).observe(document.documentElement,{childList:true,subtree:true});
+  }
+  function later(){requestAnimationFrame(function(){setTimeout(start,400)})}
+  if(document.readyState==='complete')later();else window.addEventListener('load',later);
+  setTimeout(start,6000);
+  window.addEventListener('popstate',function(){setTimeout(place,0)});
 })();
 </script>
-</body>
-</html>
