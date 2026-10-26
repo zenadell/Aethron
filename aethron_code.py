@@ -1408,6 +1408,17 @@ class CodeSession:
                 errs = [str(x) for x in (d.get("errors") or []) if x]
                 text = "; ".join(errs) if errs else d.get("subtype", "error")
             self.error = text if err else ""
+            if err:
+                try:                     # the turn the person saw fail
+                    import aethron_reports
+                    aethron_reports.report(
+                        "agent", "turn",
+                        self.workspace if (self.workspace / "forge.json").exists()
+                        else None, error=str(text)[:2000],
+                        extra={"provider": getattr(self, "provider_label", ""),
+                               "turns": d.get("num_turns", 0)})
+                except Exception:
+                    pass
             out.append({"type": "done", "error": err, "text": text,
                         "cost_usd": cost,
                         "timing": self.turn_timing(d),

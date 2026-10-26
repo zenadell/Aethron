@@ -1908,6 +1908,33 @@ def _access():
     return _ACCESS["v"]
 
 
+def _report_tool(name, args, text, exc=None):
+    """A tool that failed for a person is sent to us (aethron_reports):
+    the tool, its FAIL lines, the template's address. Never raises."""
+    try:
+        import aethron_reports
+        import aethron_runlog
+        if exc is None:
+            data = getattr(text, "data", None)
+            text = str(text)
+            failed = aethron_runlog.status_of(text, False, data) in (
+                "failed", "error") or re.search(
+                r"VERDICT:\s*FAIL|^\s*FAIL\b", text, re.M)
+            if not failed:
+                return
+        proj = str((args or {}).get("project") or "")
+        d = PROJECTS / proj if proj and "/" not in proj else None
+        if exc is not None:
+            import traceback
+            aethron_reports.report("mcp", name, d,
+                                   error=f"{type(exc).__name__}: {exc}",
+                                   trace="".join(traceback.format_exception(exc)))
+        else:
+            aethron_reports.report("mcp", name, d, log=text)
+    except Exception:
+        pass
+
+
 def dispatch(msg, run=None):
     """One JSON-RPC message in, its reply out (None for a notification).
     The same answers whether the message came over stdio or HTTP. `run`
@@ -1947,11 +1974,13 @@ def dispatch(msg, run=None):
                 run.call(name, args, str(text), False,
                          (time.time() - t0) * 1000,
                          getattr(text, "data", None))
+            _report_tool(name, args, text)
             return ok(res)
         except Exception as e:
             if run is not None:
                 run.call(name, args, f"ERROR: {e}", True,
                          (time.time() - t0) * 1000)
+            _report_tool(name, args, "", e)
             return ok({"content": [{"type": "text", "text": f"ERROR: {e}"}],
                        "isError": True})
     if method == "ping":

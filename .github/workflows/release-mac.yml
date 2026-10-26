@@ -27,6 +27,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 60
     env:
+      AETHRON_REPORTS: "off"      # the release's own checks are not users' failures
       AETHRON_SUPABASE_URL: ${{ secrets.AETHRON_SUPABASE_URL }}
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       AETHRON_GOOGLE_CLIENT_ID: ${{ secrets.AETHRON_GOOGLE_CLIENT_ID }}
