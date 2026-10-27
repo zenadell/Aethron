@@ -258,6 +258,76 @@ def _sha1(p: Path):
     return h.hexdigest()
 
 
+# ── "Built with Aethron": the badge on a published site ───────────────
+SITE_URL = "https://aethron.jomiez.com/?ref=badge"
+BADGE_MARK = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAFaElEQVR42t2ZSYhcVRSG///crrSdoaveq0qcGkWNqChOGDDOiqAuEhFbCI7RxJV7F7oSXbh0oSKi4oCguHTGcaHgyjHOEdRoxFD9qlKlAVN17+8i98mj7XTdqsSNDy41UPed884537nnnCImuwjAjbnHAxD+bxfH/L0BCPV6/QQzu1cS4z1C5TeqWCoAMJIG4L5Op7OrvEeqwKlJFDSzbWa2TUrzGEl4738CcP+4Co5rQa5fv37FwsLCVwCOi5YadY8AwCR93+12zwIwHCcWbQzlHAC12+2rSJ4Y99aiF5ZbKwCYmZ2W5/nlUTn3Xyio6K47q58TrwAAIYTt/xUkBiCsW7fuxMFg8CWA6TH3CwAl/WFmpxZF8WtqLNo4lh4OhzeSPCLmNI5pCG9mqyVtGUd2qoIewIoQws2RXDuElHZrjEF/uBR0AJRl2ZVmdkpJ5QQKmqQA4MxGo3FRKizJgiTdUQ34Ca9AEiS3HS5IDEDI83wuhPANyVWJuW9ZWADsrdVqp+zZs+f3UbBYioUlbTGzVRPAsSQsJOv79++fT9HBEuCYknTbhCfPcl67I8r3kyroAKher19qZmfEALfDoKBJCiTPybLs/FGwjBRIcvthgGMpWCjp9kkhMQCh1WodPRwOvyW55hDhOBgshff+5F6vV8TPSrWgxbNz3szWJMDhSQLAoySfiO99Aiy5c+76Skglu9gDcJXcxxRPkHzEzB4bByhJ20uFUxV0ANRoNC4EcHYCHIGkSfq0KIqv2+325yGEbxKKASdJJDc0m83zDgaLLQPH7dFVISGeQPKZ+H5A8pnEvZ4kQwi3pVJMAH716tUtAJtjYeBGKOdCCD0ze7Hy/fOS/iy9McKKAHBDvV5vLBXrtoR7UavV5knmqXCQfLndbv8W97tOp7NL0ms8YMYUWNaRvHYpWGwJOKwCR1KxEUJ48t8RwqfGKUgOlm9tMRx5nm8geZ4O2N6NgiOEsGPv3r0fxP6kbDlds9l8T9L3qbAA2NhoNM5aXM796+lCCFsTXPPPk5J8DsAgrhDXcOfOnX+RfH4MWByArYv1YuVVs7OzuXPuWwCtESeHYg7bF3uM3xuNxt0AriE5lPRSt9t9ZHZ29iTn3I6EHqZsTXc7505dWFjolzpZNTCnpqauI9lKhIMAXiuK4pcsy15wzj1gZheSvNQ593CWZQ/3er0fJL2bYEWLPcsxIYRNVZ2qFkSj0fjAzC6Q5FPibzAYbDSzv5xzH0saREGl5R3JOQCnA3gzIeF7kk7SO51O58p/phiVsupckuenwBHdsbPf739kZhsqFnflOOVAsaIzi6J4S9LPY8BySZ7np5VyrLSemW2NQ56RcJCEpKcBwHv/YyUhh3LMFgdLu+L3z40BS03SLaXrDcCw2WyukTSf0FIqPumfJJ8FwF6v914I4Q0zq5E0ks7MpiQ93ul0dsR++llJ+xO6OIs63Dg3NzcDwJeJdpOZHVUm6lEnh6TXK6O0wfT09HwI4UFJn0n6xHt/T7fbvat0e7/f/64Cix8FC8nj+/3+1VU43jazK2IgL/eUA5K1EMKmbrf7SmIDPgVgmOf5PICXIky1EUYwSa90Op3NlmXZ6SQ3RnIVBS61hjE+vmi1Wm8tquEWj4RdJUN4AFy5cuWrkr4jWYsjuIPJkSQv6bK1a9eudzMzMw+Z2bnlJHS5JelTADft3r37t0pKWVzGLzX5sl6vN5ienv6Q5MUkjxwly8ymvfermGXZFgCzJAeSXJki4knhAIikB7CrKIr345HGCQbiBKC5ubmZffv2Xey9P9Y5V/bdJBmq94yy/5iobTyUlnPSvxNS+ocyzx3qXwmMiibJ/Bs0j5h/mPcEDgAAAABJRU5ErkJggg=="
+# A closed shadow root, so the site's own CSS can neither restyle it nor
+# be restyled by it. Bottom-right, like Framer's; when the host draws its
+# own badge there (Netlify's free plan does, in an iframe titled "Powered
+# by Netlify") it moves to the bottom-left so neither covers the other.
+BADGE_TAG = """<script data-aethron-badge>(function(){
+if(window.__aeBadge||!document.body||!document.body.attachShadow)return;window.__aeBadge=1;
+var host=document.createElement('div');host.setAttribute('data-aethron-badge','');
+host.style.cssText='position:fixed;z-index:2147483000;bottom:16px;right:16px;left:auto';
+var r=host.attachShadow({mode:'closed'});
+r.innerHTML='<style>'+
+':host{all:initial}'+
+'a{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px 0 9px;border-radius:10px;'+
+'background:#fff;color:#111;text-decoration:none;font:500 12px/1 -apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif;'+
+'letter-spacing:-.01em;box-shadow:0 0 0 1px rgba(0,0,0,.07),0 2px 4px rgba(0,0,0,.06),0 8px 22px -6px rgba(0,0,0,.18);'+
+'opacity:0;transform:translateY(6px);transition:opacity .4s ease,transform .4s cubic-bezier(.23,1,.32,1),box-shadow .2s}'+
+'a.on{opacity:1;transform:none}'+
+'a:hover{box-shadow:0 0 0 1px rgba(0,0,0,.1),0 2px 4px rgba(0,0,0,.08),0 12px 28px -6px rgba(0,0,0,.24)}'+
+'a:focus-visible{outline:2px solid #d97757;outline-offset:2px}'+
+'img{width:16px;height:16px;display:block}'+
+'.t{color:#555}.t b{color:#111;font-weight:600}'+
+'.s{width:1px;height:14px;background:rgba(0,0,0,.12)}'+
+'.c{color:#c4593a;font-weight:600;display:flex;align-items:center;gap:4px}'+
+'.c i{font-style:normal;transition:transform .2s}a:hover .c i{transform:translateX(2px)}'+
+'@media (max-width:480px){a{height:28px;font-size:11px;padding:0 10px 0 8px;gap:6px}img{width:14px;height:14px}}'+
+'@media (prefers-reduced-motion:reduce){a{transition:none;transform:none}}'+
+'@media print{a{display:none}}'+
+'</style><a href="__URL__" target="_blank" rel="noopener" aria-label="Built with Aethron. Try Aethron">'+
+'<img src="__IMG__" alt=""><span class="t">Built with <b>Aethron</b></span><span class="s"></span>'+
+'<span class="c">Try Aethron<i>&rarr;</i></span></a>';
+document.body.appendChild(host);
+var a=r.querySelector('a');setTimeout(function(){a.classList.add('on')},900);
+function other(){var f=document.querySelector('#nl-badge-frame,#nl-hud-frame,iframe[title="Powered by Netlify"],iframe[title="Netlify"]');
+if(!f)return null;var b=f.getBoundingClientRect();return b.width>0&&b.right>innerWidth/2?b:null}
+function place(){var b=other(),me=a.getBoundingClientRect().width||240,s=host.style;
+s.left='auto';s.right='16px';s.bottom='16px';if(!b)return;
+if(innerWidth-b.width-32>=me){s.left='16px';s.right='auto'}
+else s.bottom=Math.round(innerHeight-b.top+8)+'px'}
+place();var n=0,t=setInterval(function(){place();if(++n>20)clearInterval(t)},500);
+addEventListener('resize',place);
+})();</script>""".replace("__URL__", SITE_URL).replace("__IMG__", BADGE_MARK)
+
+
+def badge_choice():
+    """(can_hide, why). The badge is shown on every published site; it
+    can be switched off on Pro and Studio. During the beta, when billing
+    is not enforced, everyone may switch it off."""
+    try:
+        import aethron_access as A
+        if not A.enforced():
+            return True, ""
+        plan = A._recorded()[0] or "free"
+        if plan in ("pro", "studio"):
+            return True, ""
+        return False, "Removing the badge is part of Pro and Studio."
+    except Exception:
+        return True, ""
+
+
+def with_badge(html: bytes) -> bytes:
+    """The page with the badge before its closing body tag (once)."""
+    if b"data-aethron-badge" in html:
+        return html
+    tag = BADGE_TAG.encode()
+    i = html.lower().rfind(b"</body>")
+    return html[:i] + tag + html[i:] if i >= 0 else html + tag
+
+
 # ── a site, published ─────────────────────────────────────────────────
 def records():
     return _read("published.json", {})
@@ -309,7 +379,7 @@ def _site_or_none(site_id):
         raise
 
 
-def publish(key, files, name="", log=print, title=""):
+def publish(key, files, name="", log=print, title="", badge=True):
     """Upload `files` ({"/path": Path}) as a new version of the site kept
     under `key`, creating the site the first time. Returns the record."""
     if not _token():
@@ -327,8 +397,15 @@ def publish(key, files, name="", log=print, title=""):
     if not site:
         site = _create_site(name or rec.get("name") or key.split(":")[-1], log)
 
+    if not badge and not badge_choice()[0]:
+        log(badge_choice()[1] + " The badge stays on.")
+        badge = True
+    # pages carry the badge; their bytes are what is hashed and uploaded
+    blobs = {k: with_badge(p.read_bytes()) for k, p in files.items()
+             if badge and k.lower().endswith((".html", ".htm"))}
     log(f"checking {len(files)} files …")
-    digests = {k: _sha1(p) for k, p in files.items()}
+    digests = {k: (hashlib.sha1(blobs[k]).hexdigest() if k in blobs else _sha1(p))
+               for k, p in files.items()}
     by_sha = {}
     for k, s in digests.items():
         by_sha.setdefault(s, k)
@@ -352,7 +429,8 @@ def publish(key, files, name="", log=print, title=""):
     def put(path):
         _req("PUT", f"/deploys/{dep['id']}/files/"
              + urllib.parse.quote(path.lstrip("/"), safe="/"),
-             raw=files[path].read_bytes(), timeout=300)
+             raw=blobs[path] if path in blobs else files[path].read_bytes(),
+             timeout=300)
         with LOCK:
             done[0] += 1
             n = done[0]
@@ -384,7 +462,8 @@ def publish(key, files, name="", log=print, title=""):
            "admin_url": site.get("admin_url", ""),
            "custom_domain": site.get("custom_domain") or "",
            "deploy_id": dep["id"], "published_at": time.time(),
-           "files": len(files), "title": title or rec.get("title", "")}
+           "files": len(files), "title": title or rec.get("title", ""),
+           "badge": bool(badge)}
     _save_record(key, rec)
     log(f"published: {url}")
     return rec
@@ -763,6 +842,13 @@ def selftest():
                   dep["state"] == "ready")
             check("a file with a space in its name arrived intact",
                   st["blobs"][dep["files"]["/assets/a b.css"]] == b"body{}")
+            idx = st["blobs"][dep["files"]["/index.html"]]
+            check("every page carries the Built with Aethron badge, once",
+                  idx.count(b"<script data-aethron-badge>") == 1)
+            check("the badge links to Aethron's site",
+                  SITE_URL.encode() in idx)
+            check("the badge goes into the page, never into the source file",
+                  b"aethron-badge" not in (site / "index.html").read_bytes())
 
             first = rec["deploy_id"]
             (site / "about.html").write_text("<h1>about us</h1>")
@@ -778,6 +864,26 @@ def selftest():
             check("rollback makes the old version live",
                   st["sites"][rec["site_id"]]["live"] == first)
 
+            nob = publish("project:my-site", folder_files(site), badge=False,
+                          log=lambda m: None)
+            check("during the beta the badge can be switched off",
+                  b"aethron-badge" not in st["blobs"][st["deploys"][nob["deploy_id"]]["files"]["/index.html"]]
+                  and nob["badge"] is False)
+            import aethron_cloud as _C, aethron_access as _A
+            _was = _C.ENFORCE_BILLING
+            try:
+                _C.ENFORCE_BILLING = True
+                _A.record_plan("free", "u")
+                forced = publish("project:my-site", folder_files(site), badge=False,
+                                 log=lambda m: None)
+                check("on the free plan, once billing is on, the badge stays",
+                      forced["badge"] is True and b"aethron-badge" in
+                      st["blobs"][st["deploys"][forced["deploy_id"]]["files"]["/index.html"]])
+                _A.record_plan("pro", "u")
+                check("on Pro it can be switched off", badge_choice()[0])
+            finally:
+                _C.ENFORCE_BILLING = _was
+            rollback("project:my-site", first)
             r = rename("project:my-site", "Bakery Shop")
             check("rename moves the address",
                   r["url"] == "https://bakery-shop.netlify.app")

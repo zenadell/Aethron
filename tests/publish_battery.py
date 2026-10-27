@@ -123,6 +123,41 @@ try:
                       for k in dep["files"]))
         check("Open site and Copy link are offered",
               pg.locator("text=Open site").count() == 1 and pg.locator("text=Copy link").count() == 1)
+        idx = st["blobs"][dep["files"]["/index.html"]]
+        check("the published page carries the Built with Aethron badge",
+              idx.count(b"<script data-aethron-badge>") == 1 and P.SITE_URL.encode() in idx)
+        check("the dialog shows the badge switch, on",
+              pg.locator("#pubbadge").is_checked())
+        # the badge on the real published page, in a browser, beside Netlify's own
+        bp = b.new_page(viewport={"width": 1400, "height": 900})
+        nf = (b'<iframe id="nl-badge-frame" title="Powered by Netlify" style="position:fixed;'
+              b'right:0;bottom:0;width:216px;height:92px;border:0"></iframe></body>')
+        for name_, html_, vw in (("alone", idx, 1400),
+                                 ("beside Netlify's", idx.replace(b"</body>", nf), 1400),
+                                 ("beside Netlify's at 500px", idx.replace(b"</body>", nf), 500),
+                                 ("beside Netlify's on a 390px phone", idx.replace(b"</body>", nf), 390)):
+            f_ = SP / "badge.html"; f_.write_bytes(html_)
+            if vw < 500:   # headless Chrome will not lay out below 500px: use a true viewport
+                (SP / "frame.html").write_text(
+                    f'<iframe src="badge.html" style="width:{vw}px;height:860px;border:0"></iframe>')
+                bp.set_viewport_size({"width": 600, "height": 900})
+                bp.goto((SP / "frame.html").as_uri()); bp.wait_for_timeout(1800)
+                fr = bp.frames[1]
+            else:
+                bp.set_viewport_size({"width": vw, "height": 900})
+                bp.goto(f_.as_uri()); bp.wait_for_timeout(1800)
+                fr = bp.main_frame
+            box = fr.evaluate("""()=>{const h=document.querySelector('div[data-aethron-badge]');
+              const n=document.querySelector('#nl-badge-frame');if(!h)return null;
+              const r=h.getBoundingClientRect(),q=n?n.getBoundingClientRect():null;
+              const over=q?!(r.right<=q.left||r.left>=q.right||r.bottom<=q.top||r.top>=q.bottom):false;
+              return {w:r.width,over,inside:r.left>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,
+                      right:innerWidth-r.right}}""")
+            ok_ = bool(box) and box["w"] > 150 and box["inside"] and not box["over"]
+            if ok_ and name_ == "alone":
+                ok_ = box["right"] <= 20      # bottom-right, like Framer's
+            check(f"the badge shows {name_} without overlapping it", ok_ or print(name_, box))
+        bp.close()
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(2500)
         check("closed, the rail says the site is Live", "Live" in pg.inner_text("#pubrail"))
@@ -171,6 +206,14 @@ try:
               "sweet-bakery.netlify.app" in pg.inner_text(".publive .url")
               and st["sites"][site_id]["name"] == "sweet-bakery")
 
+        pg.uncheck("#pubbadge")
+        pg.click("text=Publish changes")
+        pg.wait_for_selector("text=Your site is live", timeout=120000)
+        pg.wait_for_timeout(500)
+        r2 = json.loads((HOME / "published.json").read_text())[f"project:{NAME}"]
+        idx2 = st["blobs"][st["deploys"][r2["deploy_id"]]["files"]["/index.html"]]
+        check("switching the badge off publishes the pages without it (beta)",
+              b"aethron-badge" not in idx2 and r2["badge"] is False)
         pg.click("summary:has-text('Unpublish')")
         pg.click("text=Unpublish site")
         pg.wait_for_selector("#pubname", timeout=8000)
