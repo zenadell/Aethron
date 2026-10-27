@@ -450,6 +450,7 @@ def _session_touch(user):
 PENDING = {}
 
 JOBS = {}       # job id -> {"done": bool, "ok": bool|None, "log": str}
+UPDATE_JOBS = set()   # jobs started by /api/update/apply
 PREVIEWS = {}   # project -> (port, Popen)
 RUN_CMDS = {"fetch", "inventory", "build", "verify", "probe",
             "localize"}
@@ -1559,6 +1560,11 @@ class Handler(BaseHTTPRequestHandler):
                       "/api/auth/google", "/api/auth/google/start",
                       "/api/auth/google/poll", "/auth/callback",
                       "/api/auth/session",
+                      # A person who cannot sign in must still be able to
+                      # take the update that fixes signing in. Updates come
+                      # only from our own feed and are signature-checked.
+                      "/api/update/check", "/api/update/apply",
+                      "/api/update/status",
                       # An error on the LOGIN page is still an error we
                       # need to see; gating the report would hide
                       # exactly the failures nobody can work around.
@@ -2019,6 +2025,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json({"news": aethron_news.unseen(HOME)})
                 except Exception as e:
                     self.send_json({"news": [], "why": str(e)})
+            elif u.path == "/api/update/status":
+                # The update job's progress, readable from the sign-in
+                # page (which cannot read other jobs).
+                jid = (q.get("id") or [""])[0]
+                if jid not in UPDATE_JOBS or jid not in JOBS:
+                    return self.send_json({"done": True, "ok": False, "log": "no such update"})
+                j = JOBS[jid]
+                self.send_json({"done": j.get("done"), "ok": j.get("ok"), "log": j.get("log", "")[-2000:]})
             elif u.path == "/api/update/check":
                 # Never blocks the UI on a network call it cannot
                 # control: a failed check reports why and the app
@@ -2549,7 +2563,9 @@ class Handler(BaseHTTPRequestHandler):
                         os._exit(0))).start()
                     return True
 
-                return self.send_json({"job": start_fn_job(run_update, "")})
+                jid = start_fn_job(run_update, "")
+                UPDATE_JOBS.add(jid)
+                return self.send_json({"job": jid})
             if u.path == "/api/auth/logout":
                 s = self.headers.get("Cookie", "")
                 m = re.search(r"aethron_sess=([A-Za-z0-9_-]+)", s)
@@ -9420,6 +9436,11 @@ display:flex;align-items:center;justify-content:center;gap:10px;transition:backg
 .toggle a{color:var(--ink);font-weight:700;cursor:pointer;text-decoration:none}
 .toggle a:hover{color:var(--acc)}
 .err{color:#c0483f;font-size:13px;margin-top:14px;min-height:18px;text-align:center}
+.upd{display:none;align-items:center;gap:10px;margin:0 0 22px;padding:10px 12px 10px 14px;
+border:1px solid var(--line);border-radius:12px;background:var(--card);font-size:13.5px}
+.upd.on{display:flex}.upd span{flex:1;color:var(--ink)}.upd small{display:block;color:var(--dim)}
+.upd button{border:0;border-radius:9px;background:var(--ink);color:#fff;font:600 13px Inter,system-ui,sans-serif;
+padding:8px 12px;cursor:pointer;white-space:nowrap}.upd button:disabled{opacity:.6;cursor:default}
 /* ── hero carousel (the dots actually drive these now) ───────────── */
 .slides{position:relative;min-height:196px}
 .slide{position:absolute;left:0;right:0;bottom:0;opacity:0;transform:translateY(16px);
@@ -9758,6 +9779,34 @@ async function submit(){
   finally{$('go').disabled=false;}
 }
 $('pw').addEventListener('keydown',e=>{if(e.key==='Enter')submit();});
+// An update can be the fix for a sign-in that fails, so it is offered here
+// too — the app's own update chip only exists after sign-in.
+(async function(){
+  let u; try{u=await (await fetch('/api/update/check')).json()}catch(e){return}
+  if(!u||!u.available)return;
+  const box=document.createElement('div');box.className='upd on';box.id='upd';
+  box.innerHTML='<span>Aethron '+String(u.version||'').replace(/[<>&]/g,'')+' is available'
+    +'<small>Update before signing in — it may fix what is failing.</small></span>'
+    +'<button id="updgo">Update and restart</button>';
+  const f=document.querySelector('.form')||$('err').parentNode;
+  f.insertBefore(box,f.firstChild);
+  $('updgo').onclick=async()=>{
+    const b=$('updgo');b.disabled=true;b.textContent='Starting…';
+    let id;try{id=(await (await fetch('/api/update/apply',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:'{}'})).json()).job}catch(e){}
+    if(!id){b.disabled=false;b.textContent='Try again';return}
+    for(;;){
+      await new Promise(r=>setTimeout(r,800));
+      let j;try{j=await (await fetch('/api/update/status?id='+id)).json()}
+      catch(e){b.textContent='Restarting…';setTimeout(()=>location.reload(),4000);return}
+      const line=(j.log||'').trim().split('\n').pop()||'';
+      b.textContent=line.slice(0,40)||'Working…';
+      if(j.done){ if(!j.ok){b.disabled=false;b.textContent='Try again';
+        const why=(j.log||'').split('\n').filter(l=>/failed/.test(l)).pop()||line;
+        $('err').style.color='#e5695e';$('err').textContent=why;} return }
+    }
+  };
+})();
 if(new URLSearchParams(location.search).get('locked')){
   $('err').style.color='#e5695e';
   $('err').textContent='Your free beta access has ended — upgrade to '
