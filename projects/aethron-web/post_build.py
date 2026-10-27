@@ -222,3 +222,21 @@ for f in list(site.glob("*.html")) + list(site.glob("*/index.html")):
     if u != t:
         f.write_text(u); n += 1
 print(f"share images made absolute on {n} pages")
+
+# /admin: the team's console (admin_ui/console.html). A static page: it holds
+# no key of any kind and only talks to the `aethron` edge function, which
+# decides what each admin may do. The function's address and the PUBLIC
+# Supabase key come from the app's own release_config.json.
+_root = pathlib.Path(__file__).resolve().parent.parent.parent
+_rc = _json.loads((_root / "release_config.json").read_text())
+_sb = _rc.get("supabase_url", "").rstrip("/")
+_cfg = {"fn": _sb + "/functions/v1/aethron" if _sb else "", "supabase": _sb,
+        "anon": _rc.get("supabase_anon_key", "")}
+_console = (_root / "admin_ui" / "console.html").read_text()
+assert "/*__AE_CONFIG__*/{}" in _console
+_console = _console.replace("/*__AE_CONFIG__*/{}", _json.dumps(_cfg).replace("</", "<\\/"))
+(site / "admin").mkdir(exist_ok=True)
+(site / "admin" / "index.html").write_text(_console)
+_rd = site / "_redirects"
+_rd.write_text("/admin /admin/index.html 200\n" + _rd.read_text())
+print("admin console at /admin")

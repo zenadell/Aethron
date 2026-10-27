@@ -50,6 +50,8 @@ SUITES = [
                 "aethron_fit.py", "aethron_pictures.py", "tests/pictures_fit_battery.py",
                 "aethron_native.py", "tests/drop_battery.py",
                 "aethron_publish.py", "tests/publish_battery.py",
+                "aethron_control.py", "tests/control_battery.py",
+                "tests/admin_console_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
@@ -68,6 +70,14 @@ SUITES = [
     ("publish to Netlify", [PY, "aethron_publish.py", "--selftest"], False),
     ("publish battery (the dialog, end to end, against a fake Netlify)",
      [PY, "tests/publish_battery.py"], False),
+    # The admin: the edge function (bun), the app obeying its switches, and
+    # the console in a browser — all against a stand-in Supabase.
+    ("admin edge function (bun test)", [os.path.expanduser("~/.bun/bin/bun") if os.path.exists(
+        os.path.expanduser("~/.bun/bin/bun")) else "bun", "test", "tests/cloud"], False),
+    ("control battery (kill switch, holds, sign-out, managed AI, offline)",
+     [PY, "tests/control_battery.py"], False),
+    ("admin console battery (real browser, real function)",
+     [PY, "tests/admin_console_battery.py"], False),
     # A tripped guard is said, not retried in silence; the cost shown is
     # the provider's own; a thinking model keeps the stream alive.
     ("guard battery (no silent refusals, honest cost)",

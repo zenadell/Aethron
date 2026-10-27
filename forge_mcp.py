@@ -2114,6 +2114,20 @@ def _report_tool(name, args, text, exc=None):
         pass
 
 
+def _control_why():
+    """The Aethron team's switches (aethron_control): "" when a tool may
+    run. Outside agents obey the MCP switch; Aethron's own agent obeys the
+    agent switch. The kill switch and holds stop both. Never raises."""
+    try:
+        import aethron_access
+        import aethron_control
+        aethron_control.refresh()
+        internal = aethron_access._is_internal(os.environ)
+        return aethron_control.why("agent" if internal else "mcp")
+    except Exception:
+        return ""
+
+
 def dispatch(msg, run=None):
     """One JSON-RPC message in, its reply out (None for a notification).
     The same answers whether the message came over stdio or HTTP. `run`
@@ -2137,6 +2151,10 @@ def dispatch(msg, run=None):
         name = params.get("name", "")
         args = params.get("arguments") or {}
         t0 = time.time()
+        stop = _control_why()
+        if stop:
+            return ok({"content": [{"type": "text", "text": "STOPPED by the "
+                                    "Aethron team: " + stop}], "isError": True})
         if GATED:
             allowed, why = _access()
             if not allowed:

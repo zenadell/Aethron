@@ -1,0 +1,115 @@
+# Ships the admin & control layer to Supabase: the database tables
+# (supabase_schema.sql, then supabase/admin_schema.sql — both safe to run
+# again) and the `aethron` edge function. Runs on every push to main that
+# touches them, and by hand from the Actions tab.
+#
+# Repository secrets (GitHub → Settings → Secrets and variables → Actions):
+#   AETHRON_SUPABASE_URL      already set (https://<ref>.supabase.co)
+#   SUPABASE_ACCESS_TOKEN     a personal access token from
+#                             supabase.com/dashboard/account/tokens — this
+#                             is what lets this job change the project
+#   AETHRON_ADMIN_EMAILS      who may sign in to the admin as owner,
+#                             comma-separated (e.g. you@jomiez.com)
+#   AETHRON_ADMIN_MASTER_KEY  optional: a long random string that signs in
+#                             as owner from anywhere (the console's "Admin
+#                             API key" box, or an agent). 24+ characters.
+# Without SUPABASE_ACCESS_TOKEN the job says so and changes nothing.
+name: Deploy Aethron cloud (admin & control)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "supabase_schema.sql"
+      - "tests/cloud/**"
+      - ".github/workflows/deploy-cloud.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-cloud
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Test the function first
+        run: bun test tests/cloud
+
+      - name: Check the secrets
+        id: have
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          URL: ${{ secrets.AETHRON_SUPABASE_URL }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$URL" ]; then
+            echo "::notice::SUPABASE_ACCESS_TOKEN (or AETHRON_SUPABASE_URL) is not set — nothing was deployed. Add it to deploy the admin."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          REF=$(echo "$URL" | sed -E 's#https://([^.]+)\.supabase\.co.*#\1#')
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+
+      - name: Apply the database tables
+        if: steps.have.outputs.ok == 'true'
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF: ${{ steps.have.outputs.ref }}
+        run: |
+          for f in supabase_schema.sql supabase/admin_schema.sql; do
+            body=$(python3 -c 'import json,sys; print(json.dumps({"query": open(sys.argv[1]).read()}))' "$f")
+            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X POST \
+              "https://api.supabase.com/v1/projects/$REF/database/query" \
+              -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$body")
+            echo "$f -> $code"
+            if [ "$code" -ge 300 ]; then cat /tmp/out.json; exit 1; fi
+          done
+
+      - uses: supabase/setup-cli@v1
+        if: steps.have.outputs.ok == 'true'
+        with:
+          version: latest
+
+      - name: Set the function's secrets
+        if: steps.have.outputs.ok == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF: ${{ steps.have.outputs.ref }}
+          ADMIN_EMAILS: ${{ secrets.AETHRON_ADMIN_EMAILS }}
+          MASTER: ${{ secrets.AETHRON_ADMIN_MASTER_KEY }}
+        run: |
+          args=()
+          [ -n "$ADMIN_EMAILS" ] && args+=("ADMIN_EMAILS=$ADMIN_EMAILS")
+          [ -n "$MASTER" ] && args+=("ADMIN_MASTER_KEY=$MASTER")
+          if [ ${#args[@]} -gt 0 ]; then
+            supabase secrets set --project-ref "$REF" "${args[@]}"
+          else
+            echo "::warning::AETHRON_ADMIN_EMAILS is not set — nobody can sign in to the admin yet."
+          fi
+
+      - name: Deploy the function
+        if: steps.have.outputs.ok == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF: ${{ steps.have.outputs.ref }}
+        run: supabase functions deploy aethron --project-ref "$REF" --no-verify-jwt
+
+      - name: It answers
+        if: steps.have.outputs.ok == 'true'
+        env:
+          URL: ${{ secrets.AETHRON_SUPABASE_URL }}
+        run: |
+          for i in 1 2 3 4 5 6; do
+            out=$(curl -sS "$URL/functions/v1/aethron/control" || true)
+            echo "$out"
+            echo "$out" | grep -q '"ai_mode"' && exit 0
+            sleep 10
+          done
+          echo "::error::the function did not answer /control"; exit 1

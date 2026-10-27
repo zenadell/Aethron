@@ -1,0 +1,6 @@
+# Supabase CLI config for Aethron's edge function. The function checks every
+# caller itself (a device token, an access token, an admin API key or the
+# master key), so the platform's own JWT gate is off: an admin API key is
+# not a Supabase JWT, and the MCP clients that send one could not get in.
+[functions.aethron]
+verify_jwt = false

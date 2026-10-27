@@ -656,6 +656,16 @@ def _budget_check(body: dict) -> str:
     return ""
 
 
+def _control_why() -> str:
+    """The Aethron team's kill switch and holds, checked on EVERY request,
+    so an agent that is already running stops at its next model call."""
+    try:
+        import aethron_control
+        return aethron_control.why("agent")
+    except Exception:
+        return ""
+
+
 def _session_why() -> str:
     # only where the app's settings are loaded: a bare bridge (a test, a
     # script) has no person's window to keep
@@ -1288,7 +1298,7 @@ def _handler(cfg: BridgeConfig, log=None):
                 body = json.loads(raw or b"{}")
             except ValueError:
                 return self._error(400, "bad JSON")
-            stop = _budget_check(body)
+            stop = _control_why() or _budget_check(body)
             if stop:
                 # A GUARD'S NO MUST BE HEARD. It was a 429, and the agent
                 # engine treats 429 as "busy, ask again" — measured: it

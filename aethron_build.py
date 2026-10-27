@@ -820,7 +820,7 @@ def gemini_text(prompt, ledger, budget_usd, model=None, max_tokens=4000,
                 continue
             # AND THE WALLET, which the per-run budget cannot see: twenty runs of $0.20 empty a
             # card exactly as fast as one run of $4, and nothing in a per-run cap notices.
-            left = _B.wallet()["left_usd"]
+            left = float("inf") if _B.managed() else _B.wallet()["left_usd"]
             if worst > left:
                 tried.append(f"{tier} key {fp}: not tried — its next call could cost up to ${worst:.4f} "
                              f"and the wallet has ${left:.4f} left (raise it with the wallet "

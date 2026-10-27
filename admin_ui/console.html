@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Aethron Admin</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d97757'/%3E%3C/svg%3E">
+<style>
+:root{--bg:#0b0b0c;--panel:#141316;--panel2:#1b1a1e;--field:#0f0e10;--line:#26252a;--line2:#35333a;
+--tx:#eceaf0;--dim:#a5a2ad;--lo:#76737d;--acc:#d97757;--acc2:#e89a7c;--ok:#7ec699;--warn:#e8b04b;--err:#e5695e;
+--blue:#7aa7ff;--r:12px;--ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,system-ui,sans-serif;
+--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f4f1;--panel:#fff;--panel2:#f2efea;
+--field:#fff;--line:#e5e0d8;--line2:#d6cfc4;--tx:#1b1916;--dim:#5f5a53;--lo:#8b857c}}
+:root[data-theme="light"]{--bg:#f6f4f1;--panel:#fff;--panel2:#f2efea;--field:#fff;--line:#e5e0d8;--line2:#d6cfc4;
+--tx:#1b1916;--dim:#5f5a53;--lo:#8b857c}
+*{box-sizing:border-box;margin:0}
+html,body{background:var(--bg);color:var(--tx);font:14px/1.45 var(--ui)}
+a{color:var(--acc2)}
+button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;
+  padding:7px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+button:hover{border-color:var(--lo)}
+button.primary{background:var(--acc);border-color:var(--acc);color:#1c0f09;font-weight:600}
+button.danger{border-color:#7a2f2a;color:var(--err)}
+button.danger.solid{background:var(--err);color:#200a08;border-color:var(--err);font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+input,select,textarea{font:inherit;color:var(--tx);background:var(--field);border:1px solid var(--line2);
+  border-radius:10px;padding:8px 10px;width:100%}
+textarea{resize:vertical;min-height:70px}
+input:focus,select:focus,textarea:focus{outline:2px solid rgba(217,119,87,.45);outline-offset:1px}
+label{display:block;font-size:12px;color:var(--dim);margin:0 0 4px}
+.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
+nav{border-right:1px solid var(--line);padding:16px 10px;position:sticky;top:0;height:100vh;overflow:auto;
+  display:flex;flex-direction:column;gap:2px;background:var(--panel)}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 16px;font-weight:700;letter-spacing:.2px}
+.brand .mk{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,#e89a7c,#b9553a)}
+.brand small{display:block;font-weight:500;color:var(--lo);font-size:11px}
+nav a{display:flex;align-items:center;gap:9px;color:var(--dim);text-decoration:none;padding:8px 10px;border-radius:9px}
+nav a:hover{background:var(--panel2);color:var(--tx)}
+nav a.on{background:var(--panel2);color:var(--tx);box-shadow:inset 2px 0 0 var(--acc)}
+nav .sep{height:1px;background:var(--line);margin:10px 6px}
+nav .me{margin-top:auto;padding:10px;font-size:12px;color:var(--lo);border-top:1px solid var(--line)}
+main{padding:22px 26px 60px;min-width:0}
+.top{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
+.top h1{font-size:22px;font-weight:650;letter-spacing:-.2px;flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;
+  border:1px solid var(--line2);color:var(--dim)}
+.pill.ok{color:var(--ok);border-color:rgba(126,198,153,.35)}.pill.err{color:var(--err);border-color:rgba(229,105,94,.45)}
+.pill.warn{color:var(--warn);border-color:rgba(232,176,75,.4)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--lo);display:inline-block}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(126,198,153,.18)}
+.grid{display:grid;gap:14px}
+.k4{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.k2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.card h3{font-size:13px;font-weight:600;color:var(--dim);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.kpi .n{font-size:28px;font-weight:650;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+.kpi .s{color:var(--lo);font-size:12px;margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--lo);font-weight:500;font-size:12px;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.click{cursor:pointer}tr.click:hover td{background:var(--panel2)}
+.tw{overflow:auto;max-width:100%}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.mono{font-family:var(--mono);font-size:12px}
+.lo{color:var(--lo)}.dim{color:var(--dim)}.err{color:var(--err)}.okc{color:var(--ok)}
+.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}.row>*{flex:1;min-width:150px}
+.row .tight{flex:0 0 auto;min-width:0}
+.stack{display:flex;flex-direction:column;gap:12px}
+.bar{height:8px;border-radius:5px;background:var(--panel2);overflow:hidden}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
+.bars{display:flex;align-items:flex-end;gap:3px;height:120px;padding-top:6px}
+.bars>div{flex:1;background:linear-gradient(180deg,var(--acc2),var(--acc));border-radius:4px 4px 0 0;min-height:2px;position:relative}
+.bars>div:hover::after{content:attr(data-t);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);
+  background:var(--panel2);border:1px solid var(--line2);padding:3px 7px;border-radius:6px;font-size:11px;white-space:nowrap}
+.kill{display:flex;align-items:center;gap:16px;padding:18px;border-radius:14px;border:1px solid var(--line2);background:var(--panel2)}
+.kill.on{border-color:#7a2f2a;background:linear-gradient(180deg,rgba(229,105,94,.10),transparent)}
+.kill .big{font-size:17px;font-weight:650}
+.switch{position:relative;width:42px;height:24px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:var(--line2);border-radius:99px;transition:.2s;cursor:pointer}
+.switch span::before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+.switch input:checked+span{background:var(--ok)}.switch input:checked+span::before{transform:translateX(18px)}
+.feat{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.feat:last-child{border-bottom:0}
+.drawer{position:fixed;inset:0 0 0 auto;width:min(860px,100vw);background:var(--bg);border-left:1px solid var(--line2);
+  z-index:50;overflow:auto;padding:22px;box-shadow:-20px 0 60px rgba(0,0,0,.4)}
+.shade{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:14px 0}
+.tabs button{border:0;background:transparent;border-radius:8px 8px 0 0;color:var(--dim)}
+.tabs button.on{color:var(--tx);box-shadow:inset 0 -2px 0 var(--acc)}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--field);border:1px solid var(--line);border-radius:10px;
+  padding:10px;font:12px/1.5 var(--mono);max-height:420px;overflow:auto}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);
+  padding:10px 16px;border-radius:12px;z-index:99;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.toast.err{border-color:#7a2f2a;color:var(--err)}
+.chat{display:grid;grid-template-columns:230px 1fr;gap:14px;height:calc(100vh - 120px)}
+.threads{overflow:auto;display:flex;flex-direction:column;gap:4px}
+.threads button{justify-content:flex-start;text-align:left;white-space:normal;font-size:12px}
+.convo{display:flex;flex-direction:column;min-height:0}
+.msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:4px}
+.msg{max-width:84%;padding:10px 14px;border-radius:14px;white-space:pre-wrap;word-break:break-word}
+.msg.user{align-self:flex-end;background:var(--acc);color:#1c0f09}
+.msg.ai{align-self:flex-start;background:var(--panel2);border:1px solid var(--line)}
+.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.act{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line2);color:var(--dim)}
+.act.bad{color:var(--err);border-color:rgba(229,105,94,.4)}
+.composer{display:flex;gap:8px;margin-top:10px}
+.composer textarea{min-height:52px}
+.center{min-height:100vh;display:grid;place-items:center;padding:20px}
+.login{width:min(420px,100%)}
+.login .card{padding:24px}
+.login h1{font-size:20px;margin-bottom:4px}
+.or{display:flex;align-items:center;gap:10px;color:var(--lo);font-size:12px;margin:14px 0}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.keybox{font-family:var(--mono);font-size:13px;background:var(--field);border:1px dashed var(--acc);border-radius:10px;padding:12px;word-break:break-all}
+.empty{color:var(--lo);padding:24px;text-align:center}
+.spin{width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:static;height:auto;flex-direction:row;flex-wrap:wrap}
+  nav .me,nav .sep{display:none}main{padding:16px}.chat{grid-template-columns:1fr;height:auto}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+/* Aethron's admin console. It talks to ONE address — the `aethron` edge
+   function — and to Supabase sign-in. No privileged key lives here: the
+   function decides what each admin may do, and records every action. */
+const CFG = (function(){
+  const baked = /*__AE_CONFIG__*/{};
+  let saved = {};
+  try{ saved = JSON.parse(localStorage.ae_admin_cfg||'{}') }catch(e){}
+  return Object.assign({fn:'',supabase:'',anon:''}, saved, baked);
+})();
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const jsq = s => esc(JSON.stringify(String(s==null?'':s)));
+const money = v => '$'+(+v||0).toFixed((+v||0)<1?4:2);
+const n = v => (+v||0).toLocaleString();
+function ago(t){ if(!t)return '—'; const s=(Date.now()-new Date(t).getTime())/1000;
+  if(s<60)return Math.max(0,s|0)+'s ago'; if(s<3600)return (s/60|0)+'m ago'; if(s<86400)return (s/3600|0)+'h ago';
+  return (s/86400|0)+'d ago'; }
+function when(t){ return t? new Date(t).toLocaleString():'—' }
+function flag(cc){ cc=String(cc||'').toUpperCase(); if(!/^[A-Z]{2}$/.test(cc))return '🌐';
+  return String.fromCodePoint(...[...cc].map(c=>0x1F1E6+c.charCodeAt(0)-65)); }
+function toast(msg,bad){ const t=document.createElement('div'); t.className='toast'+(bad?' err':''); t.textContent=msg;
+  document.body.appendChild(t); setTimeout(()=>t.remove(), bad?6000:2600); }
+
+/* ── sign-in ───────────────────────────────────────────────────── */
+const AUTH = {
+  get token(){ return sessionStorage.ae_tok||localStorage.ae_tok||'' },
+  get refresh(){ return localStorage.ae_ref||'' },
+  set(tok, ref, remember){ sessionStorage.ae_tok=tok; if(remember!==false)localStorage.ae_tok=tok;
+    if(ref)localStorage.ae_ref=ref; },
+  clear(){ delete sessionStorage.ae_tok; delete localStorage.ae_tok; delete localStorage.ae_ref; }
+};
+async function gotrue(path, body){
+  const r = await fetch(CFG.supabase.replace(/\/+$/,'')+'/auth/v1/'+path,{method:'POST',
+    headers:{'Content-Type':'application/json',apikey:CFG.anon},body:JSON.stringify(body)});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.msg||j.error_description||j.error||('sign-in failed ('+r.status+')'));
+  return j;
+}
+async function tryRefresh(){
+  if(!AUTH.refresh||!CFG.supabase)return false;
+  try{ const j=await gotrue('token?grant_type=refresh_token',{refresh_token:AUTH.refresh});
+    AUTH.set(j.access_token,j.refresh_token); return true; }catch(e){ return false }
+}
+async function req(path, opts={}){
+  const go = () => fetch(CFG.fn.replace(/\/+$/,'')+path,{method:opts.method||(opts.body?'POST':'GET'),
+    headers:{'Content-Type':'application/json',Authorization:'Bearer '+AUTH.token},
+    body:opts.body?JSON.stringify(opts.body):undefined});
+  let r = await go();
+  if(r.status===401 && await tryRefresh()) r = await go();
+  if(r.status===401){ AUTH.clear(); render(); throw new Error('signed out') }
+  if(opts.raw) return r;
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error((j.error&&j.error.message)||r.statusText);
+  return j;
+}
+async function T(tool, args={}){ return (await req('/admin/call',{body:{tool,args}})).result }
+async function act(tool,args,okMsg){ try{ const r=await T(tool,args); toast(okMsg||'Done'); return r }
+  catch(e){ toast(e.message,true); throw e } }
+
+/* links from sign-in emails / Google land with the session in the hash */
+(function(){
+  const h = new URLSearchParams(location.hash.slice(1));
+  if(h.get('access_token')){ AUTH.set(h.get('access_token'),h.get('refresh_token')); history.replaceState(null,'',location.pathname); }
+})();
+
+function loginView(){
+  const needCfg = !CFG.fn;
+  return `<div class="center"><div class="login"><div class="card stack">
+    <div class="brand" style="padding:0"><span class="mk"></span><div>Aethron Admin<small>the team console</small></div></div>
+    ${needCfg?`<div class="stack"><div class="dim">Point the console at your Aethron function.</div>
+      <div><label>Function address</label><input id="cfn" placeholder="https://xxxx.supabase.co/functions/v1/aethron"></div>
+      <div><label>Supabase address</label><input id="csb" placeholder="https://xxxx.supabase.co"></div>
+      <div><label>Supabase public (anon) key</label><input id="can" placeholder="eyJ…"></div>
+      <button class="primary" onclick="saveCfg()">Save</button></div>`:`
+    <div><label>Email</label><input id="lem" type="email" autocomplete="username"></div>
+    <div><label>Password</label><input id="lpw" type="password" autocomplete="current-password"
+      onkeydown="if(event.key==='Enter')signIn()"></div>
+    <div class="row"><button class="primary" onclick="signIn()">Sign in</button>
+      <button class="tight" onclick="magic()">Email me a link</button></div>
+    <button onclick="google()">Continue with Google</button>
+    <div class="or">or</div>
+    <div><label>Admin API key</label><input id="lkey" type="password" placeholder="ak_… or the master key"
+      onkeydown="if(event.key==='Enter')keyIn()"></div>
+    <button onclick="keyIn()">Use key</button>
+    <div class="lo" style="font-size:12px">Only accounts the team allows can sign in. Every action is recorded.</div>`}
+  </div></div></div>`;
+}
+function saveCfg(){ const c={fn:$('cfn').value.trim(),supabase:$('csb').value.trim(),anon:$('can').value.trim()};
+  localStorage.ae_admin_cfg=JSON.stringify(c); Object.assign(CFG,c); render(); }
+async function signIn(){ try{ const j=await gotrue('token?grant_type=password',{email:$('lem').value.trim(),password:$('lpw').value});
+  AUTH.set(j.access_token,j.refresh_token); await boot(); }catch(e){ toast(e.message,true) } }
+async function magic(){ try{ await gotrue('otp',{email:$('lem').value.trim(),create_user:false,
+  options:{email_redirect_to:location.origin+location.pathname}}); toast('Check your email for the sign-in link'); }catch(e){ toast(e.message,true) } }
+function google(){ location.href=CFG.supabase.replace(/\/+$/,'')+'/auth/v1/authorize?provider=google&redirect_to='+
+  encodeURIComponent(location.origin+location.pathname); }
+async function keyIn(){ AUTH.set($('lkey').value.trim(),'',false); await boot(); }
+function signOut(){ AUTH.clear(); ME=null; render(); }
+
+/* ── shell ─────────────────────────────────────────────────────── */
+let ME=null, VIEW=(location.hash.slice(1)||'overview'), TICK=null;
+const NAV = [
+  ['overview','Overview'],['live','Live now'],['users','Users'],['sep'],
+  ['controls','Switches'],['ai','AI & models'],['usage','Usage & spend'],['sep'],
+  ['errors','Errors'],['activity','Activity'],['runs','Agent runs'],['audit','Audit log'],['sep'],
+  ['assistant','Admin AI'],['access','API keys & MCP'],['exports','Exports'],
+];
+function can(s){ return ME && ME.scopes.includes(s) }
+function shell(inner){
+  return `<div class="app"><nav>
+    <div class="brand"><span class="mk"></span><div>Aethron<small>Admin console</small></div></div>
+    ${NAV.map(([k,l])=>k==='sep'?'<div class="sep"></div>':`<a href="#${k}" class="${VIEW===k?'on':''}" onclick="go('${k}');return false">${l}</a>`).join('')}
+    <div class="me">${esc(ME.actor)}<br>${esc(ME.role)} · ${esc(ME.scopes.join(', '))}<br>
+      <a href="#" onclick="signOut();return false">Sign out</a> · <a href="#" onclick="theme();return false">theme</a></div>
+  </nav><main id="main">${inner}</main></div>`;
+}
+function theme(){ const r=document.documentElement; r.dataset.theme=r.dataset.theme==='light'?'dark':'light';
+  localStorage.ae_theme=r.dataset.theme; }
+if(localStorage.ae_theme)document.documentElement.dataset.theme=localStorage.ae_theme;
+function go(v){ VIEW=v; location.hash=v; render(); }
+async function boot(){ try{ ME=await req('/admin/me') }catch(e){ if(AUTH.token)toast(e.message,true); ME=null } render(); }
+async function render(){
+  clearInterval(TICK); TICK=null;
+  const root=$('root');
+  if(!AUTH.token||!ME){ root.innerHTML=loginView(); return }
+  root.innerHTML=shell('<div class="empty"><span class="spin"></span></div>');
+  try{ $('main').innerHTML = await (VIEWS[VIEW]||VIEWS.overview)() }
+  catch(e){ $('main').innerHTML=`<div class="card err">${esc(e.message)}</div>` }
+}
+async function refreshView(){ try{ $('main').innerHTML = await (VIEWS[VIEW]||VIEWS.overview)() }catch(e){} }
+function head(title, extra=''){ return `<div class="top"><h1>${esc(title)}</h1>${extra}<button onclick="refreshView()">Refresh</button></div>` }
+function tile(label, val, sub=''){ return `<div class="card kpi"><h3>${esc(label)}</h3><div class="n">${val}</div><div class="s">${sub}</div></div>` }
+function barList(rows, key='key', val='count'){
+  const max=Math.max(1,...rows.map(r=>+r[val]||0));
+  return rows.length?`<div class="stack">${rows.map(r=>`<div><div style="display:flex;justify-content:space-between;font-size:13px">
+    <span>${esc(r[key])}</span><span class="lo num">${n(r[val])}</span></div><div class="bar"><i style="width:${(+r[val]||0)/max*100}%"></i></div></div>`).join('')}</div>`
+    :'<div class="empty">nothing yet</div>';
+}
+
+/* ── views ─────────────────────────────────────────────────────── */
+const VIEWS = {};
+
+VIEWS.overview = async () => {
+  const o = await T('overview');
+  const c = o.control;
+  TICK = setInterval(()=>{ if(VIEW==='overview')refreshView() }, 30000);
+  return head('Overview', `<span class="pill ${c.paused?'err':'ok'}"><span class="dot ${c.paused?'':'on'}"></span>${c.paused?'PAUSED':'Running'}</span>
+      <span class="pill">AI: ${esc(c.ai_mode)}${o.managed.model?' · '+esc(o.managed.model):''}</span>`)+`
+  ${c.paused?`<div class="kill on" style="margin-bottom:14px"><div style="flex:1"><div class="big">Aethron is paused for everyone</div>
+    <div class="dim">${esc(c.pause_message)}</div></div>${can('write')?'<button class="primary" onclick="resumeAll()">Resume</button>':''}</div>`:''}
+  <div class="grid k4">
+    ${tile('People',n(o.users.total),`+${o.users.new_24h} today · +${o.users.new_7d} this week`)}
+    ${tile('Online now',n(o.online_users),`${n(o.online_now)} copies open`)}
+    ${tile('Active in 24h',n(o.active_24h),'people or copies')}
+    ${tile('AI spend today',money(o.spend.today),`${n(o.spend.requests_today)} requests · ${o.spend.errors_today} failed`)}
+    ${tile('AI spend 30 days',money(o.spend.d30),`7 days: ${money(o.spend.d7)}`)}
+    ${tile('Errors in 24h',`<span class="${o.errors_24h?'err':''}">${n(o.errors_24h)}</span>`,`${o.top_errors.length} kinds`)}
+    ${tile('Agent runs 24h',n(o.agent_runs_24h),'MCP calls recorded')}
+  </div>
+  <div class="grid k2" style="margin-top:14px">
+    <div class="card"><h3>Where people are (7 days)</h3>${barList(o.countries.map(x=>({key:flag(x.key)+' '+(x.key||'unknown'),count:x.count})))}</div>
+    <div class="card"><h3>Top errors (24h)</h3>${o.top_errors.length?`<table>${o.top_errors.map(e=>`<tr class="click" onclick="errDetail(${jsq(e.fingerprint)})">
+      <td><b>${esc(e.kind||'?')}</b> <span class="lo">${esc(e.step||'')}</span><div class="dim">${esc((e.category||'').slice(0,90))}</div></td>
+      <td class="num">${e.count}×<div class="lo">${e.machines} copies</div></td></tr>`).join('')}</table>`:'<div class="empty">No errors in 24 hours.</div>'}</div>
+    <div class="card"><h3>Versions in use</h3>${barList(o.versions.map(x=>({key:x.key||'unknown',count:x.count})))}</div>
+    <div class="card"><h3>Quick switches</h3><div class="stack">
+      <div class="kill ${c.paused?'on':''}"><div style="flex:1"><div class="big">Kill switch</div><div class="dim">Stops every copy, every agent and the MCP.</div></div>
+        ${can('write')?(c.paused?'<button class="primary" onclick="resumeAll()">Resume</button>':'<button class="danger solid" onclick="pauseAll()">Pause everything</button>'):''}</div>
+      <div class="dim">Banner: ${c.banner?esc(c.banner):'<span class="lo">none</span>'}</div>
+      <div class="dim">Minimum version: ${esc(c.min_version||'none')}</div>
+      <div class="dim">Allowance: ${money(o.managed.default_daily_usd)}/person/day · ${o.managed.global_daily_usd?money(o.managed.global_daily_usd)+' for everyone':'no global limit'}</div>
+    </div></div>
+  </div>`;
+};
+
+async function pauseAll(){ const m=prompt('What should people see while Aethron is paused?','Aethron is paused for a moment while we fix something. Back soon.');
+  if(m===null)return; await act('pause_all',{message:m},'Aethron is paused for everyone'); refreshView(); }
+async function resumeAll(){ await act('resume_all',{},'Aethron is running again'); refreshView(); }
+
+VIEWS.live = async () => {
+  const rows = await T('online_users');
+  TICK = setInterval(()=>{ if(VIEW==='live')refreshView() }, 10000);
+  return head('Live now', `<span class="pill ok"><span class="dot on"></span>${rows.length} open</span>`)+`
+  <div class="card tw">${rows.length?`<table><tr><th>Person</th><th>Where</th><th>Doing</th><th>Version</th><th>System</th><th>Seen</th></tr>
+  ${rows.map(d=>{const a=d.activity||{};const doing=[a.agent?'agent working'+(a.agent_in?' in '+a.agent_in:''):'',a.job?a.job+(a.project?' · '+a.project:''):'',
+    a.jobs?a.jobs+' job(s)':'',a.projects!==undefined?a.projects+' projects':''].filter(Boolean).join(' — ')||'<span class="lo">idle</span>';
+    return `<tr class="${d.user_id?'click':''}" ${d.user_id?`onclick="userDrawer(${jsq(d.user_id)})"`:''}>
+    <td>${d.email?esc(d.email):'<span class="lo">not signed in</span>'}<div class="lo mono">${esc(d.machine)}</div></td>
+    <td>${flag(d.country)} ${esc(d.country||'?')}<div class="lo">${esc(d.region||'')}</div></td>
+    <td>${doing}</td><td>${esc(d.version)}</td><td class="lo">${esc(d.os)} ${esc(d.arch)}</td><td class="lo">${ago(d.last_seen)}</td></tr>`}).join('')}</table>`
+    :'<div class="empty">Nobody has Aethron open right now.</div>'}</div>`;
+};
+
+let USERQ='';
+VIEWS.users = async () => {
+  const r = await T('list_users',{q:USERQ,limit:300});
+  return head('Users', `<span class="pill">${n(r.total)} accounts</span>`)+`
+  <div class="card"><div class="row" style="margin-bottom:12px"><input id="uq" placeholder="Search email, country, plan…" value="${esc(USERQ)}"
+    onkeydown="if(event.key==='Enter'){USERQ=this.value;refreshView()}"></div>
+  <div class="tw"><table><tr><th></th><th>Email</th><th>Country</th><th>Plan</th><th>Version</th><th>Joined</th><th>Last seen</th><th class="num">AI 30d</th><th>Status</th></tr>
+  ${r.users.map(u=>`<tr class="click" onclick="userDrawer(${jsq(u.id)})"><td><span class="dot ${u.online?'on':''}"></span></td>
+    <td>${esc(u.email)}</td><td>${flag(u.country)} ${esc(u.country||'—')}</td><td>${esc(u.plan)}</td><td class="lo">${esc(u.version||'—')}</td>
+    <td class="lo">${ago(u.created_at)}</td><td class="lo">${ago(u.last_seen)}</td><td class="num">${money(u.spend_30d)}</td>
+    <td>${u.blocked?'<span class="pill err">on hold</span>':''}${u.ai_mode?`<span class="pill">${esc(u.ai_mode)}</span>`:''}</td></tr>`).join('')}
+  </table></div></div>`;
+};
+
+async function userDrawer(id){
+  const close = ()=>{ document.querySelectorAll('.drawer,.shade').forEach(x=>x.remove()) };
+  close();
+  const sh=document.createElement('div'); sh.className='shade'; sh.onclick=close; document.body.appendChild(sh);
+  const d=document.createElement('div'); d.className='drawer'; d.innerHTML='<div class="empty"><span class="spin"></span></div>'; document.body.appendChild(d);
+  let u; try{ u = await T('get_user',{user:id}) }catch(e){ d.innerHTML=`<div class="card err">${esc(e.message)}</div>`; return }
+  const c=u.controls||{}, A=u.account;
+  const tab=(k)=>{ d.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+    d.querySelector('#utab').innerHTML=({
+      devices:`<table><tr><th>Copy</th><th>Where</th><th>Version</th><th>Doing</th><th>Seen</th><th></th></tr>${u.devices.map(x=>`<tr>
+        <td class="mono">${esc(x.machine)}${x.revoked_at?' <span class="pill err">cut off</span>':''}</td><td>${flag(x.country)} ${esc(x.country)} <span class="lo">${esc(x.region)}</span></td>
+        <td>${esc(x.version)} <span class="lo">${esc(x.os)}</span></td><td class="lo mono">${esc(JSON.stringify(x.activity||{}))}</td>
+        <td class="lo">${ago(x.last_seen)}</td><td>${can('write')&&!x.revoked_at?`<button class="danger" onclick="revokeDev(${jsq(x.machine)})">Cut off</button>`:''}</td></tr>`).join('')}</table>`,
+      usage:`<div class="grid k4" style="margin-bottom:12px">${tile('Today',money(u.spend.today))}${tile('7 days',money(u.spend.d7))}${tile('30 days',money(u.spend.d30))}${tile('Requests 90d',n(u.spend.requests_90d))}</div>
+        <table><tr><th>When</th><th>Model</th><th>Purpose</th><th class="num">In</th><th class="num">Out</th><th class="num">Cost</th><th>Status</th></tr>${u.usage.map(r=>`<tr>
+        <td class="lo">${when(r.at)}</td><td>${esc(r.model)}</td><td>${esc(r.purpose)}</td><td class="num">${n(r.input_tokens)}</td><td class="num">${n(r.output_tokens)}</td>
+        <td class="num">${money(r.cost_usd)}${r.estimated?' <span class="lo">est.</span>':''}</td><td>${r.status==='ok'?'':'<span class="err">'+esc(r.status)+'</span>'}</td></tr>`).join('')}</table>`,
+      events:u.events.length?`<table>${u.events.map(e=>`<tr><td class="lo" style="white-space:nowrap">${when(e.created_at)}</td><td><b>${esc(e.event)}</b></td><td class="mono lo">${esc(JSON.stringify(e.props||{}))}</td></tr>`).join('')}</table>`:'<div class="empty">No events.</div>',
+      errors:u.failures.length?`<table>${u.failures.map(f=>`<tr class="click" onclick="errDetail(${jsq(f.fingerprint)})"><td class="lo">${when(f.received_at)}</td>
+        <td><b>${esc(f.kind)}</b> ${esc(f.step||'')}<div class="dim">${esc(f.category||'')}</div></td><td class="lo">${esc(f.app_version||'')}</td></tr>`).join('')}</table>`:'<div class="empty">No errors from this person.</div>',
+      runs:u.agent_runs.length?`<table>${u.agent_runs.map(r=>`<tr><td class="lo">${when(r.received_at)}</td><td>${esc(r.caller)}</td><td><b>${esc(r.tool)}</b></td><td>${esc(r.project||'')}</td><td>${esc(r.status)}</td><td class="num lo">${r.ms}ms</td></tr>`).join('')}</table>`:'<div class="empty">No agent runs.</div>',
+    })[k]; };
+  d.innerHTML = `<div class="top"><h1>${esc(A.email)}</h1><span class="pill ${u.online?'ok':''}"><span class="dot ${u.online?'on':''}"></span>${u.online?'online':'offline'}</span>
+    ${c.blocked?'<span class="pill err">on hold</span>':''}<button onclick="this.closest('.drawer').remove();document.querySelector('.shade')?.remove()">Close</button></div>
+  <div class="grid k2">
+    <div class="card stack"><h3>Account</h3>
+      <div class="dim">Joined ${when(A.created_at)} · last sign-in ${when(A.last_sign_in_at)}</div>
+      <div class="dim">Signs in with ${esc((A.providers||[]).join(', ')||'email')} · plan <b>${esc(u.plan)}</b></div>
+      <div class="lo mono">${esc(A.id)}</div>
+      ${c.block_reason?`<div class="err">Hold: ${esc(c.block_reason)}</div>`:''}
+      ${c.notice?`<div class="dim">Notice shown to them: ${esc(c.notice)}</div>`:''}
+    </div>
+    <div class="card stack"><h3>Actions</h3>${can('write')?`
+      <div class="row">${c.blocked?`<button onclick="uAct('unblock_user',{user:${jsq(A.id)}})">Lift hold</button>`
+        :`<button class="danger" onclick="blockU(${jsq(A.id)})">Put on hold</button>`}
+        <button onclick="uAct('sign_out_user',{user:${jsq(A.id)}},'Signed out of every copy')">Sign out everywhere</button></div>
+      <div class="row"><div><label>Daily AI allowance ($, empty = default, 0 = unlimited)</label>
+        <input id="ulim" value="${c.daily_usd??''}"></div><button class="tight" onclick="setLim(${jsq(A.id)})">Set</button></div>
+      <div class="row"><div><label>Who powers their AI</label><select id="umode"><option value="">follow everyone</option>
+        ${['byok','managed','off'].map(m=>`<option ${c.ai_mode===m?'selected':''}>${m}</option>`).join('')}</select></div>
+        <button class="tight" onclick="uAct('set_user_ai_mode',{user:${jsq(A.id)},mode:$('umode').value})">Set</button></div>
+      <div class="row"><div><label>Plan</label><select id="uplan">${['free','pro','studio'].map(p=>`<option ${u.plan===p?'selected':''}>${p}</option>`).join('')}</select></div>
+        <button class="tight" onclick="uAct('set_user_plan',{user:${jsq(A.id)},plan:$('uplan').value})">Set</button></div>
+      <div><label>Message in their app</label><div class="row"><input id="unote" value="${esc(c.notice||'')}">
+        <button class="tight" onclick="uAct('notify_user',{user:${jsq(A.id)},notice:$('unote').value})">Send</button></div></div>
+      <div><label>Private admin note</label><div class="row"><input id="upriv" value="${esc(u.note||'')}">
+        <button class="tight" onclick="uAct('note_user',{user:${jsq(A.id)},note:$('upriv').value})">Save</button></div></div>
+      ${can('owner')?`<button class="danger" onclick="delU(${jsq(A.id)},${jsq(A.email)})">Delete account…</button>`:''}`:'<div class="lo">Read-only access.</div>'}
+    </div>
+  </div>
+  <div class="tabs">${[['devices','Copies & where'],['usage','AI usage'],['events','Activity'],['errors','Errors'],['runs','Agent runs']].map(([k,l])=>
+    `<button data-k="${k}">${l}</button>`).join('')}</div><div id="utab" class="card tw"></div>`;
+  d.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.k));
+  tab('devices');
+  window._uReload=()=>userDrawer(id);
+}
+async function uAct(tool,args,msg){ await act(tool,args,msg); window._uReload&&window._uReload(); }
+function blockU(id){ const r=prompt('Reason (shown to them):',''); if(r===null)return; uAct('block_user',{user:id,reason:r},'On hold'); }
+function setLim(id){ const v=$('ulim').value.trim(); uAct('set_user_limit',{user:id,daily_usd:v===''?null:+v},'Allowance set'); }
+function revokeDev(m){ if(!confirm('Cut off this copy? It must sign in again.'))return; uAct('revoke_device',{machine:m},'Copy cut off'); }
+async function delU(id,email){ const c=prompt(`This deletes ${email} for good. Type their email to confirm:`); if(!c)return;
+  await act('delete_user',{user:id,confirm:c},'Account deleted'); document.querySelectorAll('.drawer,.shade').forEach(x=>x.remove()); refreshView(); }
+
+VIEWS.controls = async () => {
+  const c = await T('get_control');
+  const F = c.features||{};
+  const labels={agent:['The coding agent','Chat and the agent inside the app'],mcp:["Aethron's MCP",'Outside coding agents (Claude Code, Cursor…) driving Aethron'],
+    migrate:['Migrating & building','Templates, builds, edits, heals'],screenshot:['Screenshot to code','Pages rebuilt from images'],
+    publish:['Publishing','One-click publish to Netlify'],signup:['New sign-ups','Creating new accounts in the app']};
+  const w=can('write');
+  return head('Switches')+`<div class="stack">
+  <div class="kill ${c.paused?'on':''}"><div style="flex:1"><div class="big">${c.paused?'Aethron is PAUSED for everyone':'Kill switch'}</div>
+    <div class="dim">Stops every copy of Aethron: no messages, no agent turns, no MCP tools, no AI answers. Running agents stop at their next step.</div></div>
+    ${w?(c.paused?'<button class="primary" onclick="resumeAll()">Resume everything</button>':'<button class="danger solid" onclick="pauseAll()">Pause everything</button>'):''}</div>
+  <div class="grid k2">
+    <div class="card stack"><h3>Message while paused</h3><textarea id="cpm">${esc(c.pause_message)}</textarea>
+      ${w?`<button onclick="setC({pause_message:$('cpm').value})">Save message</button>`:''}</div>
+    <div class="card stack"><h3>Announcement banner (every copy)</h3><textarea id="cbn" placeholder="e.g. Maintenance at 18:00 UTC">${esc(c.banner)}</textarea>
+      <div class="row"><select id="cbl">${['info','warn','critical'].map(l=>`<option ${c.banner_level===l?'selected':''}>${l}</option>`).join('')}</select>
+      ${w?`<button class="tight" onclick="act('set_banner',{text:$('cbn').value,level:$('cbl').value},'Banner updated')">Publish banner</button>
+      <button class="tight" onclick="act('set_banner',{text:''},'Banner removed').then(refreshView)">Remove</button>`:''}</div></div>
+  </div>
+  <div class="card"><h3>Parts of Aethron</h3>${Object.keys(labels).map(k=>`<div class="feat"><div><b>${labels[k][0]}</b><div class="lo">${labels[k][1]}</div></div>
+    <label class="switch"><input type="checkbox" ${F[k]!==false?'checked':''} ${w?'':'disabled'} onchange="act('set_feature',{feature:'${k}',on:this.checked},'${labels[k][0]} '+(this.checked?'on':'off'))"><span></span></label></div>`).join('')}</div>
+  <div class="card stack"><h3>Minimum version</h3><div class="dim">Copies older than this must update before they work. Empty = no minimum.</div>
+    <div class="row"><input id="cmv" value="${esc(c.min_version)}" placeholder="e.g. 1.1.60">${w?`<button class="tight" onclick="act('set_min_version',{version:$('cmv').value.trim()},'Saved')">Save</button>`:''}</div></div>
+  <div class="lo" style="font-size:12px">Last changed ${when(c.updated_at)} by ${esc(c.updated_by||'—')}. Copies pick changes up within a minute; the managed AI obeys at once.</div>
+  </div>`;
+};
+async function setC(patch){ await act('set_control',{patch},'Saved'); }
+
+VIEWS.ai = async () => {
+  const [m, c] = await Promise.all([T('list_models'), T('get_control')]);
+  const w=can('write'), o=can('owner');
+  const provs = m.providers;
+  return head('AI & models')+`<div class="stack">
+  <div class="card stack"><h3>Who powers Aethron's AI</h3>
+    <div class="grid k4">${[['byok','People’s own keys','Each person brings a key in Settings (today).'],
+      ['managed','Aethron’s AI','Every copy runs on your key and model below. People’s keys are not used; each person’s spend is metered.'],
+      ['off','Off','No AI anywhere in Aethron.']].map(([k,l,d])=>`<label class="card" style="cursor:${w?'pointer':'default'};${c.ai_mode===k?'border-color:var(--acc)':''}">
+      <div style="display:flex;gap:8px;align-items:center"><input type="radio" name="aim" value="${k}" ${c.ai_mode===k?'checked':''} ${w?'':'disabled'} style="width:auto">
+      <b>${l}</b></div><div class="lo" style="margin-top:6px">${d}</div></label>`).join('')}</div>
+    <div class="row"><div><label>Provider</label><select id="mprov">${provs.map(p=>`<option value="${p.id}" ${c.managed_provider===p.id?'selected':''}>${esc(p.label)}${p.keys.length?' · key set':''}</option>`).join('')}</select></div>
+      <div><label>Model (empty = the provider's default)</label><input id="mmod" value="${esc(c.managed_model)}" placeholder="e.g. gemini-3.6-flash"></div>
+      ${w?`<button class="primary tight" onclick="saveMode()">Apply</button>`:''}</div>
+  </div>
+  <div class="card stack"><h3>Spending limits (managed AI)</h3>
+    <div class="row"><div><label>Each person, per day ($, 0 = unlimited)</label><input id="ldef" value="${c.default_daily_usd}"></div>
+      <div><label>Everyone together, per day ($, 0 = unlimited)</label><input id="lglob" value="${c.global_daily_usd}"></div>
+      ${w?`<button class="tight" onclick="act('set_limits',{default_daily_usd:+$('ldef').value,global_daily_usd:+$('lglob').value},'Limits saved')">Save</button>`:''}</div>
+    <div class="lo">Refused requests say why (allowance used, resets at 00:00 UTC). Per-person allowances are set on each user's page.</div></div>
+  <div class="card"><h3>Provider keys ${o?'':'<span class="lo">(owner only)</span>'}</h3><div class="tw"><table><tr><th>Provider</th><th>Keys</th><th>Address</th><th></th></tr>
+    ${provs.map(p=>`<tr><td><b>${esc(p.label)}</b><div class="lo">${esc(p.id)} · default ${esc(p.default_model||'—')}</div></td>
+      <td class="mono">${p.keys.length?p.keys.map(esc).join('<br>'):'<span class="lo">none</span>'}</td><td class="lo mono">${esc(p.base)}</td>
+      <td>${o?`<button onclick="setKey('${p.id}')">${p.keys.length?'Replace':'Add key'}</button>${p.keys.length?` <button class="danger" onclick="rmKey('${p.id}')">Remove</button>`:''}`:''}</td></tr>`).join('')}
+  </table></div><div class="lo" style="margin-top:8px">Keys are stored server-side and never shown again — only a fingerprint. Several keys (one per line) are used in turn when one is busy.</div></div>
+  <div class="card stack"><h3>The admin AI (separate from users' AI)</h3>
+    <div class="dim">Now: ${esc(m.admin_ai.provider||'not set')} ${esc(m.admin_ai.model||'')} ${m.admin_ai.key?'· key '+esc(m.admin_ai.key):''}</div>
+    ${o?`<div class="row"><div><label>Provider</label><select id="aap"><option value="">—</option>${provs.map(p=>`<option value="${p.id}" ${m.admin_ai.provider===p.id?'selected':''}>${esc(p.label)}</option>`).join('')}</select></div>
+      <div><label>Model</label><input id="aam" value="${esc(m.admin_ai.model)}"></div>
+      <div><label>Its own key (optional)</label><input id="aak" type="password" placeholder="empty = use the provider key"></div>
+      <button class="tight" onclick="saveAdminAi()">Save</button></div>`:''}</div>
+  </div>`;
+};
+async function saveMode(){ const mode=(document.querySelector('input[name=aim]:checked')||{}).value;
+  if(mode==='managed'&&!confirm('Switch every copy of Aethron to your AI? People’s own keys will not be used, and you pay for every request.'))return;
+  await act('set_ai_mode',{mode,provider:$('mprov').value,model:$('mmod').value.trim()},'AI mode: '+mode); refreshView(); }
+async function setKey(p){ const k=prompt('Paste the key (several: one per line or comma-separated). It is not shown again.'); if(!k)return;
+  await act('set_provider_key',{provider:p,keys:k},'Key saved'); refreshView(); }
+async function rmKey(p){ if(!confirm('Remove every '+p+' key?'))return; await act('set_provider_key',{provider:p,keys:''},'Removed'); refreshView(); }
+async function saveAdminAi(){ const a={provider:$('aap').value,model:$('aam').value.trim()}; const k=$('aak').value.trim(); if(k)a.key=k;
+  await act('set_admin_ai',a,'Admin AI saved'); refreshView(); }
+
+let UDAYS=30;
+VIEWS.usage = async () => {
+  const u = await T('usage_report',{days:UDAYS});
+  const max=Math.max(0.0001,...u.by_day.map(d=>d.cost_usd));
+  return head('Usage & spend',`<select style="width:auto" onchange="UDAYS=+this.value;refreshView()">${[1,7,30,90,365].map(d=>`<option value="${d}" ${d===UDAYS?'selected':''}>${d} day${d>1?'s':''}</option>`).join('')}</select>`)+`
+  <div class="grid k4">${tile('Spent',money(u.total_usd),UDAYS+' days')}${tile('Requests',n(u.requests))}${tile('People',n(u.by_user.length))}${tile('Models',n(u.by_model.length))}</div>
+  <div class="card" style="margin-top:14px"><h3>Spend per day</h3><div class="bars">${u.by_day.map(d=>`<div style="height:${d.cost_usd/max*100}%" data-t="${esc(d.key)} · ${money(d.cost_usd)} · ${d.requests} req"></div>`).join('')||'<div class="empty" style="background:none">nothing yet</div>'}</div></div>
+  <div class="grid k2" style="margin-top:14px">
+   <div class="card tw"><h3>By person</h3><table><tr><th>Person</th><th class="num">Requests</th><th class="num">Tokens</th><th class="num">Cost</th></tr>
+     ${u.by_user.map(r=>`<tr><td>${esc(r.key)}</td><td class="num">${n(r.requests)}</td><td class="num">${n(r.input_tokens+r.output_tokens)}</td><td class="num">${money(r.cost_usd)}</td></tr>`).join('')}</table></div>
+   <div class="card tw"><h3>By model</h3><table><tr><th>Model</th><th class="num">Requests</th><th class="num">Errors</th><th class="num">Cost</th></tr>
+     ${u.by_model.map(r=>`<tr><td>${esc(r.key)}</td><td class="num">${n(r.requests)}</td><td class="num">${r.errors}</td><td class="num">${money(r.cost_usd)}</td></tr>`).join('')}</table>
+     <h3 style="margin-top:16px">By purpose</h3>${barList(u.by_purpose.map(x=>({key:x.key,count:x.requests})))}</div>
+  </div>`;
+};
+
+let EDAYS=7;
+VIEWS.errors = async () => {
+  const g = await T('errors',{days:EDAYS,limit:100});
+  return head('Errors',`<select style="width:auto" onchange="EDAYS=+this.value;refreshView()">${[1,7,30,90].map(d=>`<option value="${d}" ${d===EDAYS?'selected':''}>${d} day${d>1?'s':''}</option>`).join('')}</select>
+    <button onclick="download('errors','md',EDAYS)">Download .md</button>`)+`
+  <div class="card tw">${g.length?`<table><tr><th>What failed</th><th class="num">Times</th><th class="num">Copies</th><th>Versions</th><th>Last</th></tr>
+  ${g.map(e=>`<tr class="click" onclick="errDetail(${jsq(e.fingerprint)})"><td><b>${esc(e.kind||'?')}</b> <span class="lo">${esc(e.step||'')}</span>
+    <div class="dim">${esc(e.category||'')}</div>${(e.source_urls||[]).length?`<div class="lo mono">${esc(e.source_urls[0])}</div>`:''}</td>
+    <td class="num">${e.count}</td><td class="num">${e.machines}</td><td class="lo">${esc((e.versions||[]).join(', '))}</td><td class="lo">${ago(e.last)}</td></tr>`).join('')}</table>`
+    :'<div class="empty">No errors in this window. 🎉</div>'}</div>`;
+};
+async function errDetail(fp){
+  const rows = await T('error_detail',{fingerprint:fp});
+  const sh=document.createElement('div'); sh.className='shade'; document.body.appendChild(sh);
+  const d=document.createElement('div'); d.className='drawer'; document.body.appendChild(d);
+  sh.onclick=()=>{d.remove();sh.remove()};
+  d.innerHTML=`<div class="top"><h1>Error ${esc(fp)}</h1><button onclick="askAiAbout(${jsq(fp)})">Ask the admin AI</button>
+    <button onclick="this.closest('.drawer').remove();document.querySelector('.shade')?.remove()">Close</button></div>
+    ${rows.map(r=>{const rec=r.record||{};return `<div class="card stack" style="margin-bottom:12px">
+      <div><b>${esc(r.kind)}</b> · ${esc(r.step||'')} · <span class="lo">${when(r.received_at)} · app ${esc(r.app_version||'?')} · copy ${esc(r.machine)}</span></div>
+      <div class="dim">${esc(r.category||'')}</div>${r.source_url?`<div class="lo mono">${esc(r.source_url)}</div>`:''}
+      ${rec.lines&&rec.lines.length?`<pre>${esc(rec.lines.join('\n'))}</pre>`:''}${rec.error?`<pre>${esc(rec.error)}</pre>`:''}
+      ${rec.trace?`<details><summary>trace</summary><pre>${esc(rec.trace)}</pre></details>`:''}
+      ${rec.log?`<details><summary>log</summary><pre>${esc(rec.log)}</pre></details>`:''}
+      <details><summary class="lo">everything</summary><pre>${esc(JSON.stringify(rec,null,1))}</pre></details></div>`}).join('')}`;
+}
+function askAiAbout(fp){ document.querySelectorAll('.drawer,.shade').forEach(x=>x.remove()); PENDING_ASK='Look at error '+fp+
+  ': what failed, who it hits, which version, and what you think the fix is.'; go('assistant'); }
+
+let EVQ={user:'',event:'',days:7};
+VIEWS.activity = async () => {
+  const rows = await T('events',{...EVQ,limit:400});
+  return head('Activity')+`<div class="card"><div class="row" style="margin-bottom:12px">
+    <div><label>Person (email or id)</label><input id="eu" value="${esc(EVQ.user)}"></div>
+    <div><label>Event</label><input id="ee" value="${esc(EVQ.event)}" placeholder="login, project_created, run_step…"></div>
+    <div><label>Days</label><input id="ed" value="${EVQ.days}"></div>
+    <button class="tight" onclick="EVQ={user:$('eu').value.trim(),event:$('ee').value.trim(),days:+$('ed').value||7};refreshView()">Filter</button></div>
+    <div class="tw">${rows.length?`<table><tr><th>When</th><th>Event</th><th>Person</th><th>Details</th></tr>${rows.map(e=>`<tr><td class="lo" style="white-space:nowrap">${when(e.created_at)}</td>
+      <td><b>${esc(e.event)}</b></td><td class="lo mono">${esc(String(e.user_id||'').slice(0,8))}</td><td class="lo mono">${esc(JSON.stringify(e.props||{}))}</td></tr>`).join('')}</table>`
+      :'<div class="empty">No events match.</div>'}</div></div>`;
+};
+
+VIEWS.runs = async () => {
+  const rows = await T('agent_runs',{days:7,limit:400});
+  return head('Agent runs')+`<div class="card tw">${rows.length?`<table><tr><th>When</th><th>Agent</th><th>Tool</th><th>Project</th><th>Status</th><th class="num">Time</th></tr>
+    ${rows.map(r=>`<tr><td class="lo">${when(r.received_at)}</td><td>${esc(r.caller)}<div class="lo mono">${esc(r.machine)}</div></td><td><b>${esc(r.tool)}</b></td>
+    <td>${esc(r.project||'')}</td><td class="${r.status==='ok'?'okc':'err'}">${esc(r.status)}</td><td class="num lo">${n(r.ms)}ms</td></tr>`).join('')}</table>`
+    :'<div class="empty">No agent runs uploaded. (Copies upload runs only when “Agent runs” upload is switched on.)</div>'}</div>`;
+};
+
+VIEWS.audit = async () => {
+  const rows = await T('audit_log',{limit:500});
+  return head('Audit log',`<button onclick="download('audit','md',90)">Download .md</button>`)+`<div class="card tw"><table><tr><th>When</th><th>Who</th><th>How</th><th>Action</th><th>On</th><th>Details</th></tr>
+    ${rows.map(r=>`<tr><td class="lo" style="white-space:nowrap">${when(r.at)}</td><td>${esc(r.actor)}</td><td><span class="pill">${esc(r.via)}</span></td>
+    <td><b>${esc(r.action)}</b></td><td>${esc(r.target)}</td><td class="lo mono">${esc(JSON.stringify(r.details||{}))}</td></tr>`).join('')}</table></div>`;
+};
+
+let THREAD='', PENDING_ASK='';
+VIEWS.assistant = async () => {
+  let threads=[]; try{ threads=await req('/admin/ai/threads') }catch(e){}
+  let msgs=[]; if(THREAD){ try{ msgs=await req('/admin/ai/thread?id='+encodeURIComponent(THREAD)) }catch(e){} }
+  setTimeout(()=>{ if(PENDING_ASK&&$('aiin')){ $('aiin').value=PENDING_ASK; PENDING_ASK=''; } const m=$('msgs'); if(m)m.scrollTop=m.scrollHeight; },0);
+  return head('Admin AI',`<span class="pill">acts with your permissions · every change audited</span>`)+`<div class="chat">
+    <div class="card threads"><button class="primary" onclick="THREAD='';refreshView()">New conversation</button>
+      ${threads.map(t=>`<button class="${t.thread===THREAD?'on':''}" onclick="THREAD=${jsq(t.thread)};refreshView()">${esc(t.first)}<br><span class="lo">${ago(t.at)}</span></button>`).join('')}</div>
+    <div class="card convo"><div class="msgs" id="msgs">${msgs.filter(m=>m.role==='user'||(m.role==='assistant'&&m.content)).map(m=>
+      `<div class="msg ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`).join('')||
+      `<div class="empty">Ask it to read the logs, explain an error, find who is online, pause Aethron, change a model, write a report…<br><br>
+       <span class="lo">“What broke today and for whom?” · “Who used the most AI this week?” · “Switch everyone to managed gemini-3.6-flash with a $0.30 daily allowance.”</span></div>`}</div>
+      <div class="composer"><textarea id="aiin" placeholder="Ask the admin AI…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askAi()}"></textarea>
+      <button class="primary" id="aisend" onclick="askAi()">Send</button></div></div></div>`;
+};
+async function askAi(){
+  const t=$('aiin'), m=t.value.trim(); if(!m)return;
+  const box=$('msgs'); box.insertAdjacentHTML('beforeend',`<div class="msg user">${esc(m)}</div><div class="msg ai" id="aiwait"><span class="spin"></span></div>`);
+  box.scrollTop=box.scrollHeight; t.value=''; $('aisend').disabled=true;
+  try{ const r=await req('/admin/ai',{body:{message:m,thread:THREAD}}); THREAD=r.thread;
+    $('aiwait').outerHTML=`<div class="msg ai">${esc(r.reply)}${r.actions.length?`<div class="acts">${r.actions.map(a=>`<span class="act ${a.ok?'':'bad'}" title="${esc(JSON.stringify(a.args))}">${a.ok?'✓':'✗'} ${esc(a.tool)}</span>`).join('')}</div>`:''}
+      <div class="lo" style="font-size:11px;margin-top:6px">${r.steps} step(s) · ${money(r.cost_usd)}</div></div>`;
+  }catch(e){ $('aiwait').outerHTML=`<div class="msg ai err">${esc(e.message)}</div>` }
+  $('aisend').disabled=false; box.scrollTop=box.scrollHeight;
+}
+
+VIEWS.access = async () => {
+  const [keys, admins] = await Promise.all([T('list_api_keys'), T('list_admins')]);
+  const o=can('owner');
+  const mcpUrl=CFG.fn.replace(/\/+$/,'')+'/mcp';
+  return head('API keys & MCP')+`<div class="stack">
+  <div class="card stack"><h3>Connect a coding agent</h3><div class="dim">Any agent can read the logs, run every admin tool and talk to the admin AI through the admin MCP server — with an API key below.</div>
+    <div><label>MCP address (Streamable HTTP)</label><pre>${esc(mcpUrl)}</pre></div>
+    <div><label>Claude Code</label><pre>claude mcp add --transport http aethron-admin ${esc(mcpUrl)} --header "Authorization: Bearer ak_YOUR_KEY"</pre></div>
+    <div><label>Any MCP client (JSON)</label><pre>${esc(JSON.stringify({mcpServers:{'aethron-admin':{type:'http',url:mcpUrl,headers:{Authorization:'Bearer ak_YOUR_KEY'}}}},null,1))}</pre></div>
+    <div><label>Plain HTTP</label><pre>curl -X POST ${esc(CFG.fn.replace(/\/+$/,''))}/admin/call -H "Authorization: Bearer ak_YOUR_KEY" -H "Content-Type: application/json" -d '{"tool":"overview","args":{}}'</pre></div></div>
+  <div class="card stack"><h3>API keys</h3>
+    ${o?`<div class="row"><div><label>Label (who it is for)</label><input id="kl" placeholder="claude-code on my Mac"></div>
+      <div><label>Permissions</label><select id="ks"><option value="read">read — logs and reports only</option><option value="read,write">read + write — switches and people</option>
+      <option value="read,write,owner">owner — everything, incl. keys</option></select></div><button class="primary tight" onclick="newKey()">Create key</button></div><div id="newkey"></div>`:''}
+    <div class="tw"><table><tr><th>Label</th><th>Key</th><th>Permissions</th><th>Created</th><th>Last used</th><th></th></tr>
+    ${keys.map(k=>`<tr><td>${esc(k.label)}</td><td class="mono">${esc(k.prefix)}…</td><td>${esc((k.scopes||[]).join(', '))}</td><td class="lo">${ago(k.created_at)} · ${esc(k.created_by)}</td>
+      <td class="lo">${ago(k.last_used)}</td><td>${k.revoked_at?'<span class="pill err">revoked</span>':o?`<button class="danger" onclick="rvKey(${jsq(k.id)})">Revoke</button>`:''}</td></tr>`).join('')}</table></div></div>
+  <div class="card stack"><h3>Who can sign in to the admin</h3>
+    <table>${admins.map(a=>`<tr><td>${esc(a.email)}</td><td><span class="pill">${esc(a.role)}</span></td><td class="lo">${a.source==='ADMIN_EMAILS'?'set on the server':esc(a.added_by||'')}</td>
+      <td>${o&&a.source!=='ADMIN_EMAILS'?`<button class="danger" onclick="rmAdmin(${jsq(a.email)})">Remove</button>`:''}</td></tr>`).join('')}</table>
+    ${o?`<div class="row"><div><label>Email</label><input id="nae"></div><div><label>Role</label><select id="nar"><option>admin</option><option>viewer</option><option>owner</option></select></div>
+      <button class="tight" onclick="addAdmin()">Add</button></div>`:''}</div>
+  </div>`;
+};
+async function newKey(){ const r=await act('create_api_key',{label:$('kl').value.trim(),scopes:$('ks').value.split(',')},'Key created');
+  $('newkey').innerHTML=`<div class="stack"><div class="dim">Copy it now — it is not shown again.</div><div class="keybox">${esc(r.key)}</div>
+    <button class="tight" onclick="navigator.clipboard.writeText(${jsq(r.key)});toast('Copied')">Copy</button></div>`; }
+async function rvKey(id){ if(!confirm('Revoke this key? Agents using it lose access at once.'))return; await act('revoke_api_key',{id},'Revoked'); refreshView(); }
+async function addAdmin(){ await act('add_admin',{email:$('nae').value.trim(),role:$('nar').value},'Added'); refreshView(); }
+async function rmAdmin(e){ if(!confirm('Remove '+e+' from the admin?'))return; await act('remove_admin',{email:e},'Removed'); refreshView(); }
+
+VIEWS.exports = async () => {
+  const kinds=[['all','Everything','overview, errors with logs, usage, users, admin actions'],['errors','Errors','grouped, with failing lines, logs and traces'],
+    ['usage','AI usage','by person, model, day, purpose'],['users','Users','every account with country, version, spend'],
+    ['events','Activity','the event stream'],['runs','Agent runs','what MCP agents did'],['audit','Admin actions','the audit log']];
+  return head('Exports')+`<div class="card stack"><div class="row" style="max-width:320px"><div><label>Window (days)</label><input id="xd" value="7"></div></div>
+    <table>${kinds.map(([k,l,d])=>`<tr><td><b>${l}</b><div class="lo">${d}</div></td><td style="text-align:right">
+      <button onclick="download('${k}','md',+$('xd').value||7)">.md</button> <button onclick="download('${k}','json',+$('xd').value||7)">.json</button>
+      <button onclick="download('${k}','csv',+$('xd').value||7)">.csv</button></td></tr>`).join('')}</table>
+    <div class="lo">Markdown files are written to be handed to a person or a coding agent as they are.</div></div>`;
+};
+async function download(kind,format,days){
+  try{ const r=await req(`/admin/export?kind=${kind}&format=${format}&days=${days}`,{raw:true});
+    if(!r.ok)throw new Error('export failed ('+r.status+')');
+    const cd=r.headers.get('content-disposition')||''; const name=(cd.match(/filename="([^"]+)"/)||[])[1]||`aethron-${kind}.${format}`;
+    const url=URL.createObjectURL(await r.blob()); const a=document.createElement('a'); a.href=url; a.download=name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+  }catch(e){ toast(e.message,true) }
+}
+
+window.addEventListener('hashchange',()=>{ const v=location.hash.slice(1); if(v&&v!==VIEW&&VIEWS[v]){VIEW=v;render()} });
+if(AUTH.token) boot(); else render();
+</script>
+</body>
+</html>

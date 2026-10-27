@@ -295,6 +295,19 @@ def track(event: str, token: str = "", **props):
         return
 
     def _send():
+        # THROUGH THE ADMIN FUNCTION, ON THIS COPY'S DEVICE TOKEN, when it
+        # has one. An access token lasts an hour and the app never renewed
+        # it, so every event after the first hour of a session was refused
+        # and dropped in silence. The device token does not expire.
+        try:
+            import aethron_control
+            if aethron_control.device_token():
+                code, _j = aethron_control._request(
+                    "POST", "/event", {"events": [rec]}, aethron_control.device_token())
+                if code == 200:
+                    return
+        except Exception:
+            pass
         try:
             _post("/rest/v1/events",
                   {"event": rec["event"], "props": rec["props"]},

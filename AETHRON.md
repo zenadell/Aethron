@@ -6552,6 +6552,68 @@ and do not even NAME that tag in a merge message: GitHub matches the
 literal text anywhere, so a note explaining it cancelled the next
 release too. Pass merge_pull_request an explicit commit_message.
 
+## THE ADMIN — every switch, every person, one function — 2026-10-27
+Owner, before the public beta: an admin that sees everything and controls
+all of Aethron — a kill switch that stops every copy (even outside agents
+driving it over MCP), the AI switched from people's own keys to OUR key
+and model with each person's spend metered, users' sign-up/online/country/
+activity/errors, an admin AI with full control, downloadable logs, and an
+API key + MCP so coding agents can run it too. Built as:
+- `supabase/functions/aethron` — ONE edge function (Deno; plain web APIs so
+  Bun runs the same code in tests). Routes: GET /control (public), POST
+  /ping (heartbeat), POST /event, POST /v1/chat/completions (the managed AI
+  gateway), /admin/* (me, tools, call, export, ai), POST /mcp.
+- `supabase/admin_schema.sql` — control (singleton, public read),
+  user_controls (own-row read), user_notes, devices, usage_ledger,
+  secrets, admins, admin_keys (hash only), audit_log, admin_ai_messages.
+  Proven on a real Postgres 16, twice in a row (idempotent).
+- ONE TOOL LIST (admin.ts, ~40 tools) is the whole admin: the console, the
+  admin AI, API keys and MCP all call `runTool`, which checks the scope
+  (read/write/owner) and audits. No surface can do what another cannot.
+- Admins: ADMIN_EMAILS (owners, a function secret), the admins table
+  (owner/admin/viewer), ak_ API keys with scopes, or ADMIN_MASTER_KEY.
+- `aethron_control.py` — the app's side. Every copy pings once a minute
+  (device token, version, os, what it is doing), keeps the answer in
+  HOME/control.json (0600), and EVERY process obeys it: the studio refuses
+  switched-off work with 423 and the team's words (reads still answer),
+  the bridge refuses each model request (a running agent stops at its next
+  call), forge_mcp refuses outside agents (MCP switch) and Aethron's own
+  agent (agent switch). Sign-out ends the studio's sessions and drops the
+  device token; logins issued before the sign-out are refused.
+- MANAGED AI: one switch and `brain.load()` resolves to provider "aethron"
+  (base = gateway, key = device token). The gateway checks pause, hold,
+  sign-out, allowance and the global limit BEFORE the provider is asked
+  (403, never 429 — the engine retries 429 in silence), swaps in the
+  admin's model and key (several keys rotate on 401/402/403/429), streams
+  through untouched while reading usage, and writes the person's ledger
+  (estimated, and marked so, when a provider reports no usage). Saving a
+  key of one's own is refused while it is on; the saved keys come back
+  untouched when it is turned off. Local spend windows step aside.
+- LOCATION: country/region from platform headers, else one ipapi lookup
+  per new address; the IP is salted-hashed and never stored.
+- TELEMETRY WAS BROKEN: events used the login token, which lasts an hour
+  and was never renewed, so almost every event was dropped. They now go
+  through /event on the device token.
+- Console: `admin_ui/console.html` -> website /admin (post_build injects
+  the public function address). Sign in by password, email link, Google or
+  an API/master key; overview, live, users + drawer, switches, AI & models,
+  usage, errors (+detail, "ask the AI"), activity, agent runs, audit, admin
+  AI chat, API keys & MCP, exports.
+- Deploy: .github/workflows/deploy-cloud.yml (tests, SQL via the management
+  API, secrets, function, a live check) — needs SUPABASE_ACCESS_TOKEN and
+  AETHRON_ADMIN_EMAILS. docs/ADMIN.md is the owner's guide.
+TESTS: bun test tests/cloud 29/29 (fake PostgREST/GoTrue/provider/geo;
+the admin's key proven absent from every response), control battery 35/35
+(the app against the real function), console battery 22/22 (Chromium).
+Bugs the tests caught: a 30s user cache hid new sign-ups from block/
+sign-out; "" (no minimum version) refused as missing; my own test helper
+minted a future-dated login and "proved" a sign-out failed; and a check I
+wrote ended in `or True`.
+HONEST LIMITS (also in docs/ADMIN.md): with people's own keys, a stop is
+the copy obeying — a copy kept offline keeps its last answer, and one that
+never checked in is not stopped. With the managed AI the server refuses
+regardless.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6819,6 +6881,13 @@ release too. Pass merge_pull_request an explicit commit_message.
   provider refuses it.
 - A CHANGED FILE GETS A NEW ADDRESS. A build that rewrites a file in place
   stamps its address; nothing it ships may be cached on trust.
+- ONE LIST OF ADMIN TOOLS. Console, admin AI, API keys and MCP call the
+  same tools through one permission check and one audit; a surface that
+  could do more than the others is a hole.
+- A REFUSAL FROM THE TEAM IS SAID, NEVER RETRIED. 403 or 423 with the
+  team's words; never a 429 the engine retries in silence.
+- THE TEAM'S KEY NEVER LEAVES THE FUNCTION. A copy proves itself with its
+  own revocable device token; no key reaches a copy, a log or a listing.
 - A RETRY CONTINUES, IT NEVER RESTARTS. The same request works on the
   same page, from the best attempt on disk, inside one budget.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not

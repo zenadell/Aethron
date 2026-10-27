@@ -73,6 +73,12 @@ KEYSTATE = HOME / "aethron_keys.json"
 #   anthropic     -> /v1/messages
 #   anthropic-cli -> no key at all: the Claude Code CLI's own login
 PROVIDERS = {
+    # Not a choice a person makes: when the Aethron team turns on the managed
+    # AI (aethron_control), every call goes to Aethron's gateway with this
+    # copy's device token, and the team's own key does the work.
+    "aethron": {"label": "Aethron AI (provided by the Aethron team)", "wire": "openai",
+                "base": "", "model": "", "keys": "sign in to Aethron",
+                "managed": True},
     "deepseek": {"label": "DeepSeek", "wire": "openai",
                  "base": "https://api.deepseek.com/v1",
                  "model": "deepseek-v4-pro",
@@ -206,7 +212,28 @@ def load() -> dict:
                      ("base_url", "AETHRON_AI_BASE_URL")):
         if env.get(var):
             cfg[key] = env[var]
+    return _managed_over(cfg)
+
+
+def _managed_over(cfg: dict) -> dict:
+    """The team's switch wins over every saved provider: when the managed AI
+    is on, this copy runs on Aethron's gateway, not on a key it was given."""
+    try:
+        import aethron_control
+        m = aethron_control.managed()
+    except Exception:
+        m = {}
+    if not m:
+        return cfg
+    cfg.update(provider="aethron", wire="openai", base_url=m["base_url"],
+               model=m.get("model") or "aethron", api_key=m.get("api_key") or "",
+               api_keys=[], managed=True, managed_why=m.get("why") or "")
     return cfg
+
+
+def managed() -> bool:
+    """True when the Aethron team's own AI powers this copy."""
+    return bool(load().get("managed"))
 
 
 def _write(ai: dict) -> dict:
@@ -649,6 +676,8 @@ def _clock(t: float) -> str:
 def session_check(now: float = None) -> str:
     """"" when a request may start, else the sentence that says why not."""
     import time as _t
+    if managed():               # the gateway holds the limits for the managed AI
+        return ""
     now = now or _t.time()
     s = session(now)
     if not s["reached"]:
@@ -732,7 +761,10 @@ def resolve(cfg: dict = None) -> dict:
     key = cfg.get("api_key") or ""
     wire = cfg.get("wire") or p["wire"]
     why = ""
-    if wire == "anthropic-cli":
+    if cfg.get("managed"):
+        ready = bool(key)
+        why = cfg.get("managed_why") or ("" if key else "sign in to Aethron to use its AI")
+    elif wire == "anthropic-cli":
         ready = True
         why = "uses the Claude Code CLI's own login"
     elif not base:
