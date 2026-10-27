@@ -6541,6 +6541,13 @@ own text said to call it again until PASS. Fixed:
   twice. The tool and the attachment note say: call ONCE.
 tests/page_resume_battery.py (in run_all) drives the real tool with a
 fake model and counts folders and calls.
+Two side lessons: (1) in this Linux container Chromium with a FRESH
+profile hung until timeout (the proxy drops Google's background
+connections), so every grade said "no browser could render the page" —
+--disable-field-trial-config is now in the launcher; (2) a squash merge
+copies every commit message into the main commit, so ONE "[skip ci]" on
+any branch commit silently cancels the Mac release, and this repo's
+integration cannot dispatch it by hand. Keep [skip ci] off branches.
 
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
