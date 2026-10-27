@@ -162,6 +162,7 @@ def main():
     # bind FIRST, then present the UI — never a "connection refused"
     # window, even on a slow cold start
     server = studio.ThreadingHTTPServer(("127.0.0.1", port), studio.Handler)
+    studio.start_heartbeat()           # the Aethron team's switches
     print(f"{APP_NAME} → {url}")
     print(f"your data: {home}")
 

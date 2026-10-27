@@ -497,10 +497,129 @@ def mint_session(auth_result):
     user["_seen"] = time.time()
     SESSIONS[tok] = user
     _sessions_save()
+    _checkin_now(user.get("token") or "")
     return tok, None
 
 
 _restore_sessions_once()
+
+
+# ───────────────────── the Aethron team's switches ────────────────────
+# aethron_control holds what the admin decided (kill switch, banner,
+# features, holds, sign-outs, managed AI). The studio checks in once a
+# minute with what it is doing, and refuses — out loud, with the team's
+# own words — every action that is switched off. The agent's bridge and
+# the MCP server read the same answer, so a running agent stops too.
+import aethron_control as _control                  # noqa: E402
+
+CONTROL_ACTIONS = {
+    "/api/code/send": "agent", "/api/code/start": "agent",
+    "/api/ai/fill": "ai", "/api/ai/plan": "ai", "/api/ai/match": "ai",
+    "/api/ai/edit": "ai", "/api/ai/merge": "ai",
+    "/api/run": "migrate", "/api/heal": "migrate", "/api/projects": "migrate",
+    "/api/export": "migrate", "/api/entry/set": "migrate",
+    "/api/entry/remove": "migrate", "/api/style": "migrate",
+    "/api/copymap": "migrate", "/api/library/start": "migrate",
+    "/api/design/new": "screenshot", "/api/design/change": "screenshot",
+    "/api/publish": "publish",
+    "/api/auth/signup": "signup",
+}
+# looking is never stopped: only what does work, spends or changes things
+MANAGED_NOTE = ("Aethron's own AI powers this app right now (the Aethron team "
+                "turned it on), so your own keys are not used. They are kept, "
+                "and come back when the team turns it off.")
+_PUBLISH_READS = {"status", "versions", "signin_poll", "disconnect", "domain_status"}
+
+
+def control_refusal(path: str, body: dict) -> str:
+    action = CONTROL_ACTIONS.get(path)
+    if not action:
+        return ""
+    if path == "/api/publish" and str((body or {}).get("action") or "") in _PUBLISH_READS:
+        return ""
+    if action == "signup":          # nobody is signed in yet: only the switches apply
+        c = _control.control()
+        if c.get("paused"):
+            return c.get("pause_message") or "Aethron is paused by its team for a moment."
+        if (c.get("features") or {}).get("signup") is False:
+            return "New sign-ups are closed for now. If you already have an account, sign in."
+        return ""
+    return _control.why(action)
+
+
+def _latest_token() -> str:
+    """The newest signed-in person's access token (the app is one person's)."""
+    best = None
+    for u in SESSIONS.values():
+        if best is None or float(u.get("_seen") or 0) > float(best.get("_seen") or 0):
+            best = u
+    return (best or {}).get("token") or ""
+
+
+def _activity() -> dict:
+    """What Aethron is doing right now, for the team's live view: job kinds,
+    projects and whether the agent is mid-turn — never the copy itself."""
+    running = [j for j in list(JOBS.values()) if not j.get("done")]
+    agents = []
+    for key, sess in list(CODE_SESSIONS.items()):
+        try:
+            if getattr(sess, "busy", False) is True:
+                agents.append(Path(str(key)).name)
+        except Exception:
+            pass
+    out = {"jobs": len(running), "agent": bool(agents), "sessions": len(CODE_SESSIONS)}
+    if running:
+        j = max(running, key=lambda x: float(x.get("t0") or 0))
+        out["job"] = str(j.get("step") or "")[:40]
+        out["project"] = str(j.get("project") or "")[:80]
+    if agents:
+        out["agent_in"] = agents[0][:80]
+    try:
+        out["projects"] = sum(1 for p in PROJECTS.iterdir() if (p / "forge.json").is_file())
+    except OSError:
+        pass
+    return out
+
+
+def _on_control_change(s: dict) -> None:
+    """An admin signed this person out: end every session on this copy, and
+    stop any agent that is still running."""
+    if (s.get("me") or {}).get("signed_out") and SESSIONS:
+        SESSIONS.clear()
+        _sessions_save()
+        try:
+            end_code_sessions()
+        except Exception:
+            pass
+    if (s.get("control") or {}).get("paused"):
+        try:
+            end_code_sessions()
+        except Exception:
+            pass
+
+
+HEARTBEAT = None
+
+
+def start_heartbeat():
+    """Check in now and once a minute. Called by whoever serves the studio
+    (desktop.py, or this file's __main__), never on import."""
+    global HEARTBEAT
+    if HEARTBEAT is None:
+        HEARTBEAT = _control.Heartbeat(token=_latest_token, activity=_activity,
+                                       on_change=_on_control_change).start()
+    return HEARTBEAT
+
+
+def _checkin_now(token: str = "") -> None:
+    """Right after a sign-in: get this copy its device token without waiting
+    a minute (the managed AI needs it)."""
+    def run():
+        try:
+            _control.ping(token, _activity())
+        except Exception:
+            pass
+    threading.Thread(target=run, daemon=True).start()
 
 # ───────────────────────── forge subprocess plumbing ─────────────────
 
@@ -524,7 +643,9 @@ def _report_crash(where=""):
 
 def start_job(argv, cwd, step="") -> str:
     jid = f"{time.time():.6f}"
-    JOBS[jid] = {"done": False, "ok": None, "log": "$ " + " ".join(argv[1:]) + "\n"}
+    JOBS[jid] = {"done": False, "ok": None, "log": "$ " + " ".join(argv[1:]) + "\n",
+                 "step": step or (argv[2] if len(argv) > 2 else ""), "project": Path(cwd).name,
+                 "t0": time.time()}
 
     def run():
         try:
@@ -548,7 +669,8 @@ def start_fn_job(fn, header="") -> str:
     """Same job contract as start_job, for work that runs in-process and
     streams its own events (the agentic healer)."""
     jid = f"{time.time():.6f}"
-    JOBS[jid] = {"done": False, "ok": None, "log": header}
+    JOBS[jid] = {"done": False, "ok": None, "log": header, "step": "heal",
+                 "project": "", "t0": time.time()}
 
     def append(text):
         JOBS[jid]["log"] += text.rstrip() + "\n"
@@ -1626,6 +1748,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 return self.wfile.write(body)
+            if u.path == "/api/control":
+                return self.send_json(_control.summary())
             if u.path == "/api/auth/me":
                 s = self._session()
                 return self.send_json({"email": s["email"]} if s else {}, 200)
@@ -2016,6 +2140,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"available": False})
                 st = brain.status()
                 st["available"] = True
+                st["control"] = _control.summary()
                 self.send_json(st)
             # ---- code layer (IDE + coding agent) --------------------
             elif u.path == "/api/code/status":
@@ -2257,6 +2382,9 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return self.fail("bad JSON body")
         try:
+            stop = control_refusal(u.path, body)
+            if stop:
+                return self.send_json({"error": stop, "stopped_by_team": True}, 423)
             if u.path == "/api/code/permission/request":
                 session = code_session_by_id(body.get("session_id"))
                 token = str(body.get("token") or "")
@@ -2414,6 +2542,8 @@ class Handler(BaseHTTPRequestHandler):
                 if m:
                     SESSIONS.pop(m.group(1), None)
                     _sessions_save()
+                if not SESSIONS:
+                    _control.forget_device()
                 # AND CLEAR THE COOKIE. Popping the server session alone
                 # left the browser holding a token forever now that both
                 # sides persist — logout has to expire it too.
@@ -2469,6 +2599,9 @@ class Handler(BaseHTTPRequestHandler):
                 GLASS_RECT.clear()
                 GLASS_RECT.update(body or {})
                 self.send_json({"ok": True})
+            elif u.path in ("/api/ai/switch", "/api/ai/profile/delete") \
+                    and brain and brain.managed():
+                return self.fail(MANAGED_NOTE, 423)
             elif u.path in ("/api/ai/switch", "/api/ai/profile/delete"):
                 # ONE CLICK BETWEEN SAVED PROVIDERS. Every saved provider
                 # keeps its own keys and model; switching changes which one
@@ -2499,6 +2632,8 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/ai/settings":
                 if not brain:
                     return self.fail("AI settings unavailable")
+                if brain.managed():
+                    return self.fail(MANAGED_NOTE, 423)
                 saved = brain.save(body.get("ai") or {})
                 # THE BUG THIS FIXES, AND IT COST DAYS:
                 # a session's endpoint is baked into its child process
@@ -9630,6 +9765,19 @@ INDEX_HTML = r"""<!doctype html>
 <script defer src="__METAL__"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+#teambar{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9000;
+  display:flex;flex-direction:column;gap:6px;max-width:min(720px,calc(100vw - 32px))}
+.teamline{display:flex;align-items:center;gap:10px;padding:9px 12px 9px 14px;border-radius:999px;
+  background:rgba(28,27,31,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border:1px solid #35333a;color:#eceaf0;font:500 13px/1.35 var(--ui);box-shadow:0 8px 30px rgba(0,0,0,.35)}
+.teamline .teamdot{width:8px;height:8px;border-radius:50%;background:#7aa7ff;flex:none}
+.teamline.warn .teamdot{background:#e8b04b}.teamline.critical{border-color:#7a2f2a;background:rgba(48,20,18,.94)}
+.teamline.critical .teamdot{background:#e5695e;box-shadow:0 0 0 4px rgba(229,105,94,.18)}
+.teamtxt{flex:1;min-width:0}
+.teamx{border:0;background:transparent;color:#a5a2ad;font-size:18px;line-height:1;padding:0 4px;cursor:pointer}
+.teamai{border:1px solid var(--line2,#35333a);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
+.teamai-h{font-weight:600;display:flex;align-items:center;gap:6px}
+.teamai .err{color:var(--err,#e5695e)}
 :root{
 /* ── THE SYSTEM FACE ────────────────────────────────────────────────
    On macOS `-apple-system` resolves to SF Pro — the actual typeface
@@ -14751,6 +14899,8 @@ async function renderSettings(c){
       <div class="kv"><span>Signed in as</span><b>${esc(acc||'not signed in')}</b></div>
       <div class="kv"><span>Plan</span><b>${esc(plan)}</b></div>
       <div class="kv"><span>Projects</span><b>${(S.projects||[]).length}</b></div>
+      ${TEAM.me&&TEAM.me.is_admin?`<div class="kv"><span>Admin</span><b>you run Aethron's admin</b></div>
+        <div class="rowbtns"><button class="primary" onclick="openAdmin()">${I('ext',13)} Open the admin console</button></div>`:''}
       ${acc?`<div class="rowbtns"><button onclick="signOut()">Sign out</button></div>`
            :`<div class="hint">This copy is running without the cloud layer,
               so nothing about you leaves this machine.</div>`}
@@ -18230,7 +18380,7 @@ async function loadAi(){
   try{
     const r=await api('/api/ai/settings');
     if(r.available){AI={settings:r.settings,providers:r.providers,
-      resolved:r.resolved,profiles:r.profiles||[]};}
+      resolved:r.resolved,profiles:r.profiles||[],control:r.control||{}};}
     // one-time migration from the old browser-only settings
     if(!AI.settings.api_key&&localStorage.forge_ai){
       try{const old=JSON.parse(localStorage.forge_ai);
@@ -18334,6 +18484,19 @@ function rerenderAi(){
   bindAiSettings();
 }
 function aiSettingsHtml(compact){
+  const T=(AI.control)||{};
+  if(T.managed){
+    const m=T.me||{},c=T.control||{};
+    const lim=+m.daily_usd||0, spent=+m.spent_today||0;
+    return `<div class="teamai">
+      <div class="teamai-h">${I('sparkles',14)} Aethron AI</div>
+      <div class="hint">The Aethron team powers this app's AI right now${c.managed_model?
+        ` (<b>${esc(c.managed_model)}</b>)`:''}. Your own keys are not used; they are kept,
+        and come back when the team turns this off.</div>
+      <div class="kv"><span>Used today</span><b>$${spent.toFixed(2)}${lim>0?` of $${lim.toFixed(2)}`:''}</b></div>
+      ${AI.resolved&&!AI.resolved.ready?`<div class="hint err">${esc(AI.resolved.why||'')}</div>`:''}
+    </div>`;
+  }
   const a=AI.settings||{},P=AI.providers||{};
   const cur=a.provider||'deepseek',p=P[cur]||{};
   const saved=(AI.profiles||[]).find(x=>x.provider===cur);
@@ -19621,6 +19784,46 @@ function updMaybeCheck(){
   if(Date.now()-updLastCheck<2*60*1000)return;
   updLastCheck=Date.now(); checkUpdate();
 }
+/* ── THE AETHRON TEAM'S SWITCHES ──────────────────────────────────
+   The studio checks in with the admin once a minute (server side); this
+   reads the answer it saved. A banner is the team's announcement; a stop
+   is the kill switch, a hold, a sign-out or a switched-off part, said in
+   the team's own words. The server refuses the work regardless — this is
+   only so a person is told before they press anything. */
+let TEAM={};
+async function teamCheck(){
+  let t;try{t=await api('/api/control');}catch(e){return}
+  const was=JSON.stringify([TEAM.control&&TEAM.control.banner,TEAM.blocked_why,TEAM.me&&TEAM.me.notice,TEAM.managed]);
+  TEAM=t||{};
+  const now=JSON.stringify([TEAM.control&&TEAM.control.banner,TEAM.blocked_why,TEAM.me&&TEAM.me.notice,TEAM.managed]);
+  if(was!==now){teamRender(); if(AI&&AI.control!==undefined){loadAi().then(()=>{try{rerenderAi&&rerenderAi()}catch(e){}});}}
+}
+function teamRender(){
+  let el=$('teambar');
+  const c=TEAM.control||{},m=TEAM.me||{};
+  const items=[];
+  if(TEAM.blocked_why)items.push({lvl:'critical',txt:TEAM.blocked_why,lock:1});
+  else if(c.banner)items.push({lvl:c.banner_level||'info',txt:c.banner});
+  if(m.notice)items.push({lvl:'info',txt:m.notice,key:'n:'+m.notice});
+  const hidden=(()=>{try{return JSON.parse(localStorage.ae_team_hidden||'[]')}catch(e){return[]}})();
+  const show=items.filter(x=>x.lock||!hidden.includes(x.key||('b:'+x.txt)));
+  if(!show.length){if(el)el.remove();return}
+  if(!el){el=document.createElement('div');el.id='teambar';document.body.appendChild(el);}
+  el.innerHTML=show.map(x=>`<div class="teamline ${esc(x.lvl)}">
+    <span class="teamdot"></span><span class="teamtxt">${esc(x.txt)}</span>
+    ${x.lock?'':`<button class="teamx" title="Hide" onclick="teamHide('${esc((x.key||('b:'+x.txt)).replace(/'/g,''))}')">×</button>`}
+  </div>`).join('');
+}
+function teamHide(k){
+  try{const h=JSON.parse(localStorage.ae_team_hidden||'[]');h.push(k);localStorage.ae_team_hidden=JSON.stringify(h.slice(-30));}catch(e){}
+  teamRender();
+}
+function openAdmin(){
+  const url=(TEAM.admin_url)||'https://aethron.jomiez.com/admin/';
+  api('/api/open',{url}).catch(()=>window.open(url,'_blank'));
+}
+teamCheck(); setInterval(teamCheck,30*1000);
+window.addEventListener('focus',teamCheck);
 window.addEventListener('focus',updMaybeCheck);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden)updMaybeCheck(); });
 setInterval(()=>{ updLastCheck=Date.now(); checkUpdate(); },10*60*1000);
@@ -19679,4 +19882,5 @@ if __name__ == "__main__":
               "who finds the URL controls this instance.")
     print(f"Aethron Studio → http://{'127.0.0.1' if host != '0.0.0.0' else host}:{port}/")
     print(f"projects dir: {PROJECTS}")
+    start_heartbeat()
     ThreadingHTTPServer((host, port), Handler).serve_forever()

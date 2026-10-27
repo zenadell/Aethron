@@ -41,6 +41,9 @@ services:
         source: /docs
         destination: /docs/index.html
       - type: rewrite
+        source: /admin
+        destination: /admin/index.html
+      - type: rewrite
         source: /blog/assets/*
         destination: /assets/*
       - type: rewrite

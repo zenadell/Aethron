@@ -178,7 +178,7 @@ else:
 
 src = (ROOT / "studio.py").read_text()
 check("B: the screen's send starts a new run in the bridge",
-      "br.reset_usage()" in src.split('"/api/code/send"', 1)[1][:3000])
+      "br.reset_usage()" in src.split('u.path == "/api/code/send"', 1)[1][:3000])
 bsrv.shutdown()
 up.shutdown()
 print("ALL PASS" if ok else "SOME FAILED")
