@@ -8,6 +8,9 @@
 #   SUPABASE_ACCESS_TOKEN     a personal access token from
 #                             supabase.com/dashboard/account/tokens — this
 #                             is what lets this job change the project
+#                             (project-scoped tokens need: Project read,
+#                             Database read+write, Edge Functions and
+#                             Secrets read+write; a legacy token also works)
 #   AETHRON_ADMIN_EMAILS      who may sign in to the admin as owner,
 #                             comma-separated (e.g. you@jomiez.com)
 #   AETHRON_ADMIN_MASTER_KEY  optional: a long random string that signs in
