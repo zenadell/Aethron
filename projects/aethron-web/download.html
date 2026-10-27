@@ -244,7 +244,18 @@ footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px;po
 <noscript><p style="text-align:center"><a href="{{URL}}">Start the download</a></p></noscript>
 <script>
 (function(){
-  var URL_={{URL_JSON}}, PAGE='https://aethron.jomiez.com/download';
+  var URL_={{URL_JSON}}, VER_='{{VER}}', PAGE='https://aethron.jomiez.com/download';
+  // The site is built only when the site changes, so the newest release is
+  // read again here: the button always gets the build the app would update to.
+  var fresh=fetch('https://bnmiretrggdnoaskasxj.supabase.co/storage/v1/object/public/releases/mac.json',{cache:'no-store'})
+    .then(function(r){return r.json()}).then(function(f){
+      if(!f||!f.url||!/^https:\/\//.test(f.url)||f.url===URL_)return;
+      var old=VER_;URL_=f.url;VER_=String(f.version||VER_);
+      [].forEach.call(document.querySelectorAll('a[href]'),function(a){if(a.getAttribute('href').indexOf('.zip')>0)a.href=URL_});
+      var w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT),n;
+      while((n=w.nextNode()))if(n.nodeValue.indexOf(old)>=0)n.nodeValue=n.nodeValue.split(old).join(VER_);
+    }).catch(function(){});
+  var waited=new Promise(function(r){setTimeout(r,2500)});
   var phone=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent)&&!matchMedia('(pointer:fine)').matches);
   // An iPad says it is a Mac; a real Mac has a fine pointer. Only a desktop gets the file.
   if(phone)document.documentElement.classList.add('is-phone');
@@ -253,11 +264,11 @@ footer{text-align:center;color:var(--soft);font-size:13px;padding:0 16px 40px;po
   function toast(t){var e=document.getElementById('toast');e.textContent=t;e.classList.add('on');clearTimeout(e._t);e._t=setTimeout(function(){e.classList.remove('on')},2400)}
   if(!phone){
     // Ask for the file once the icon has landed, so the moment is seen, then close the ring.
-    setTimeout(function(){
+    Promise.all([new Promise(function(r){setTimeout(r,900)}),Promise.race([fresh,waited])]).then(function(){
       var f=document.createElement('iframe');f.hidden=true;f.src=URL_;document.body.appendChild(f);
       hero.classList.add('started');
-      document.getElementById('status').lastChild.nodeValue='Download started · Aethron {{VER}}';
-    },900);
+      document.getElementById('status').lastChild.nodeValue='Download started · Aethron '+VER_;
+    });
   }else{
     hero.classList.add('started');
     document.getElementById('share').addEventListener('click',function(){
