@@ -355,6 +355,10 @@ import secrets  # noqa: E402
 import aethron_cloud as cloud  # noqa: E402
 try:
     import aethron_update as updater
+    # A downloaded, unsigned app is run by macOS from a read-only copy
+    # until its "downloaded" mark is cleared; clear it on the real bundle
+    # so the next launch runs in place (and can update itself).
+    threading.Thread(target=updater.unquarantine, daemon=True).start()
 except Exception:
     updater = None
 

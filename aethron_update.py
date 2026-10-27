@@ -115,6 +115,74 @@ def app_bundle() -> Path | None:
     return None
 
 
+def _translocated(p: Path) -> bool:
+    return "/AppTranslocation/" in str(p)
+
+
+def _original_of(p: Path) -> Path | None:
+    """Where macOS says a translocated bundle really lives."""
+    try:
+        import ctypes
+        cf = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        sec = ctypes.cdll.LoadLibrary(
+            "/System/Library/Frameworks/Security.framework/Security")
+        cf.CFURLCreateFromFileSystemRepresentation.restype = ctypes.c_void_p
+        cf.CFURLCreateFromFileSystemRepresentation.argtypes = [
+            ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_bool]
+        cf.CFURLGetFileSystemRepresentation.argtypes = [
+            ctypes.c_void_p, ctypes.c_bool, ctypes.c_char_p, ctypes.c_long]
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        sec.SecTranslocateCreateOriginalPathForURL.restype = ctypes.c_void_p
+        sec.SecTranslocateCreateOriginalPathForURL.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        raw = str(p).encode()
+        url = cf.CFURLCreateFromFileSystemRepresentation(None, raw, len(raw), True)
+        orig = sec.SecTranslocateCreateOriginalPathForURL(url, None)
+        cf.CFRelease(url)
+        if not orig:
+            return None
+        buf = ctypes.create_string_buffer(4096)
+        ok = cf.CFURLGetFileSystemRepresentation(orig, True, buf, 4096)
+        cf.CFRelease(orig)
+        return Path(buf.value.decode()) if ok and buf.value else None
+    except Exception:
+        return None
+
+
+def install_target() -> Path | None:
+    """The bundle an update must replace.
+
+    macOS runs an unsigned app it downloaded from a RANDOM, READ-ONLY copy
+    ("App Translocation"): /private/var/folders/…/AppTranslocation/…/d/
+    Aethron.app. Replacing that copy fails with "Read-only file system"
+    and would change nothing a person opens anyway. The update goes to
+    the real bundle instead — where macOS says it came from, else the
+    one in Applications.
+    """
+    cur = app_bundle()
+    if not cur or not _translocated(cur):
+        return cur
+    orig = _original_of(cur)
+    if orig and orig.suffix == ".app" and orig.exists():
+        return orig
+    for cand in (Path("/Applications") / cur.name,
+                 Path.home() / "Applications" / cur.name):
+        if cand.exists():
+            return cand
+    return Path("/Applications") / cur.name
+
+
+def unquarantine(app: Path | None = None):
+    """Clear the 'downloaded from the internet' mark on the real bundle,
+    so the next launch runs it in place and it can update itself."""
+    if sys.platform != "darwin":
+        return
+    app = app or install_target()
+    if app and not _translocated(app) and app.exists():
+        subprocess.run(["xattr", "-dr", "com.apple.quarantine", str(app)],
+                       capture_output=True)
+
+
 def platform_key() -> str:
     if sys.platform == "darwin":
         return "mac"
@@ -333,7 +401,7 @@ def apply(new_app: Path, current: Path | None = None) -> Path:
     one is in position, so an interrupted update still leaves a working
     app where the user expects it.
     """
-    current = current or app_bundle()
+    current = current or install_target()
     if not current:
         raise RuntimeError("not running as a packaged app — nothing to "
                            "update (use build_desktop.sh in dev)")
@@ -343,15 +411,19 @@ def apply(new_app: Path, current: Path | None = None) -> Path:
     backup = current.with_name(current.name + ".old")
     if backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
-    os.rename(current, backup)             # same volume, atomic
+    had = current.exists()     # a translocated run may have no installed copy yet
+    if had:
+        os.rename(current, backup)         # same volume, atomic
     try:
         shutil.move(str(new_app), str(current))
     except Exception:
-        os.rename(backup, current)         # put it back, untouched
+        if had:
+            os.rename(backup, current)     # put it back, untouched
         raise
     if not _verify_bundle(current):
         shutil.rmtree(current, ignore_errors=True)
-        os.rename(backup, current)
+        if had:
+            os.rename(backup, current)
         raise ValueError("installed bundle failed verification — "
                          "the original has been restored")
     shutil.rmtree(backup, ignore_errors=True)
@@ -387,9 +459,11 @@ def update(progress=None, note=None) -> dict:
     info = check()
     if not info.get("available"):
         return {"ok": False, "why": info.get("why", "no update available")}
-    cur = app_bundle()
+    cur = install_target()
     if not cur:
         return {"ok": False, "why": "not running as a packaged app"}
+    if cur != app_bundle():
+        say(f"installing into {cur} (macOS was running a read-only copy)")
     tmp = Path(tempfile.mkdtemp(prefix="aethron-update-"))
     try:
         newapp = stage(info["url"], tmp, progress=progress, note=note)
@@ -462,6 +536,30 @@ def _selftest() -> int:
            len(list((tmp / "installed").iterdir())) == 1)
     check_("backup removed after success",
            not live.with_name(live.name + ".old").exists())
+
+    print("── a run from macOS's read-only copy updates the real app")
+    g = globals()
+    keep = (g["app_bundle"], g["_original_of"])
+    real = tmp / "Applications" / "Aethron.app"
+    (real / "Contents" / "MacOS").mkdir(parents=True)
+    (real / "Contents" / "MacOS" / "Aethron").write_text("OLD")
+    trans = Path("/private/var/folders/xx/T/AppTranslocation/ABC/d/Aethron.app")
+    try:
+        g["app_bundle"] = lambda: trans
+        g["_original_of"] = lambda p: real
+        check_("the target is where macOS says it came from", install_target() == real)
+        g["_original_of"] = lambda p: None
+        check_("never the read-only copy itself", not _translocated(install_target()))
+    finally:
+        g["app_bundle"], g["_original_of"] = keep
+    fresh = tmp / "fresh" / "Aethron.app"
+    staged2 = tmp / "staged2" / "Aethron.app"
+    (staged2 / "Contents" / "MacOS").mkdir(parents=True)
+    (staged2 / "Contents" / "MacOS" / "Aethron").write_text("NEW")
+    fresh.parent.mkdir()
+    check_("installs where no copy was yet installed",
+           apply(staged2, fresh) == fresh and
+           (fresh / "Contents" / "MacOS" / "Aethron").read_text() == "NEW")
 
     print("── a bad download never replaces a working app")
     (live / "Contents" / "MacOS" / "Aethron").write_text("STILL WORKING")
