@@ -1355,8 +1355,27 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
     work = out / ".work"
     work.mkdir(exist_ok=True)
     src = _as_png(image)
+    whole = G.read_png(src)[:2]
+    # BUILD THE DESIGN, NOT THE SCREENSHOT: a card set on a photo is the
+    # card, and a red pen circle is a note, not a shape. Measured, never
+    # guessed; anything it cannot decide it leaves as it was.
+    framing = {}
+    try:
+        import aethron_frame as FR
+
+        def _ocr():
+            import aethron_vision as V
+            return V.ocr(str(src))
+        src, framing = FR.frame(src, work, ocr_lines=_ocr)
+        if FR.describe(framing):
+            log("framing: " + FR.describe(framing))
+        elif framing.get("kept_whole"):
+            log("framing: kept the whole screenshot — " + framing["kept_whole"])
+    except Exception as e:
+        framing = {"note": f"not framed ({e})"}
     full = Img.read(src)
-    W, H, scale = css_size(full.w, full.h)
+    scale = css_size(*whole)[2]            # a Retina crop is still Retina
+    W, H = round(full.w / scale), round(full.h / scale)
     if scale != 1:
         gw, gh, cells = full.grid(W, H)
         rgb = bytearray()
@@ -1371,7 +1390,15 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
     lines, slots, fonts = _read_design(src, ref, W, H, scale, work, f, log)
     if writer is None:
         writer = model_writer(budget_usd)
-    report = {"image": str(image), "canvas": [W, H], "rounds": [], "verdict": "FAIL"}
+    report = {"image": str(image), "canvas": [W, H], "rounds": [], "verdict": "FAIL",
+              "framing": framing}
+    try:
+        import aethron_frame as FR
+        if FR.describe(framing):
+            f["framing"] = FR.describe(framing) + (
+                ". Build only that design, edge to edge — no backdrop, no frame around it")
+    except Exception:
+        pass
     best = None
     html = None
     prev = None
