@@ -155,9 +155,9 @@ else:
                       "pick=1" in pg.locator("#pvwframe").get_attribute("src")
                       and pg.frame_locator("#pvwframe")
                         .locator("script[data-forge-editor]").count() == 1)
-                check("with Undo, Show code and Open in Finder beside it",
+                check("with Undo, Open in browser, Show code and Open in Finder beside it",
                       all(pg.locator(f".pvw-bar button[title='{t}']").count() == 1
-                          for t in ("Show code", "Open in Finder"))
+                          for t in ("Show code", "Open in Finder", "Open in your browser"))
                       and pg.locator("#pgundo").count() == 1)
                 fr = pg.frame_locator("#pvwframe")
                 fr.locator("[data-ae-id='t05']").click(force=True)

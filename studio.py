@@ -3192,7 +3192,8 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("reset_session"):
                     _brain.session_reset()
                 return self.send_json(limits_report())
-            elif u.path in ("/api/design/reveal", "/api/design/snapshot",
+            elif u.path in ("/api/design/reveal", "/api/design/browser",
+                            "/api/design/snapshot",
                             "/api/design/undo", "/api/design/remove",
                             "/api/design/delete"):
                 page = design_page(body.get("name"))
@@ -3201,6 +3202,14 @@ class Handler(BaseHTTPRequestHandler):
                 act = u.path.rsplit("/", 1)[1]
                 if act == "reveal":
                     reveal(page)
+                    return self.send_json({"ok": True, "path": str(page)})
+                if act == "browser":
+                    # the page is one self-contained file: the default
+                    # browser opens it as it is, nothing to serve
+                    import webbrowser
+                    threading.Thread(target=webbrowser.open,
+                                     args=(page.resolve().as_uri(),),
+                                     daemon=True).start()
                     return self.send_json({"ok": True, "path": str(page)})
                 if act == "snapshot":
                     design_snapshot(page)
@@ -11368,9 +11377,20 @@ body.pvwopen .pshot iframe{transform:scale(.28)}
 @media (prefers-reduced-motion:reduce){
   .pvw,body main,body.pvwopen main{transition:none}}
 .pvw-bar{display:flex;align-items:center;gap:10px;flex:none;
-  padding:9px 12px;border-radius:14px}
+  padding:9px 12px;border-radius:14px;container-type:inline-size;min-width:0}
 .pvw-name{font-size:13.5px;font-weight:590;letter-spacing:-.01em;
-  color:var(--tx)}
+  color:var(--tx);min-width:0;flex:0 1 auto;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.pvw-bar>*{flex-shrink:0}.pvw-bar>.pvw-name{flex-shrink:1}
+.pvw-bar .cpill.ic{padding:0 9px}
+/* a narrow sheet keeps every button, it drops their words instead */
+@container (max-width:880px){.pvw-bar .cpill .lb,.pvw-name span{display:none}
+  .pvw-bar .cpill{padding:0 9px}}
+/* DESKTOP IS A DESKTOP: the page lays out at its real width and the
+   picture is scaled to fit, instead of reflowing into its tablet layout
+   because the sheet is narrower than a screen. */
+.pvw-stage.fit{overflow:hidden}
+.pvw-stage.fit iframe{transform-origin:0 0;position:absolute;left:0;top:0}
 .pvw-name span{color:var(--lo);font-weight:400;margin-left:8px;
   font-size:11.5px}
 .pvw-seg{display:flex;gap:3px;padding:3px;border-radius:11px;
@@ -15522,7 +15542,7 @@ function openSheet(o){
       ${o.bar||''}
       <span class="sp"></span>
       ${o.actions||''}
-      <button class="cpill" onclick="closePvw()">${I('x',13)}Close</button>
+      <button class="cpill" onclick="closePvw()" title="Close (Esc)">${I('x',13)}<span class="lb">Close</span></button>
     </div>
     <div class="pvw-stage${o.dark?' dark':''}" id="pvwstage">${o.body||''}</div>`;
   document.body.appendChild(d);
@@ -15549,13 +15569,13 @@ function openPreviewPane(edit){
         ['tablet','tablet','Tablet (820px)'],['phone','phone','Phone (390px)']]
         .map(([k,ic,t])=>`<button data-dev="${k}" title="${t}"
           onclick="pvwDevice('${k}')">${I(ic,14)}</button>`).join('')}</div>`,
-    actions:`<button class="cpill opt" onclick="openInBrowser()">${
-        I('compass',13)}Open in browser</button>`,
+    actions:`<button class="cpill opt" onclick="openInBrowser()" title="Open in your browser">${
+        I('compass',13)}<span class="lb">Open in browser</span></button>`,
     body:`<iframe id="pvwframe" src="/edit/${encodeURIComponent(S.cur)}/"></iframe>
       <div class="selring" id="selring"></div>
       <div class="pvw-hint" id="pvwhint"></div>`});
   const f=$('pvwframe');
-  if(f)f.onload=()=>pvwMode(PVW.edit);
+  if(f)f.onload=()=>{pvwMode(PVW.edit);pvwFit();};
   pvwDevice(pvwDevSaved());
 }
 function pvwDevSaved(){ try{ return localStorage.forge_dev||'desktop'; }catch(e){ return 'desktop'; } }
@@ -15563,12 +15583,37 @@ function pvwDevice(k){
   if(!['desktop','tablet','phone'].includes(k))k='desktop';
   try{ localStorage.forge_dev=k; }catch(e){}
   const st=$('pvwstage'); if(!st)return;
-  st.classList.remove('dev','dev-tablet','dev-phone');
+  st.classList.remove('dev','dev-tablet','dev-phone','fit');
   if(k!=='desktop')st.classList.add('dev','dev-'+k);
+  PVW.dev=k; pvwFit();
   const g=$('pvwdev');
   if(g)[...g.children].forEach(b=>b.classList.toggle('on',b.dataset.dev===k));
   closeSel(); const r=$('selring'); if(r)r.classList.remove('on');
 }
+/* The width a page was designed at: a rebuilt page says so in its own
+   scale rule (100vw/W); a template is a desktop site, 1440 wide. */
+function pvwDesignW(){
+  const f=$('pvwframe');
+  try{const d=f&&f.contentDocument;
+    if(d){const t=[...d.querySelectorAll('style')].map(x=>x.textContent).join('');
+      const m=t.match(/100vw\s*\/\s*(\d{3,4})/); if(m)return Math.max(800,+m[1]);
+      const c=d.querySelector('meta[name="ae-canvas"]');
+      if(c){const w=parseInt(c.content);if(w>=800)return w;}}}catch(e){}
+  return 1440;
+}
+function pvwFit(){
+  const st=$('pvwstage'), f=$('pvwframe'); if(!st||!f)return;
+  f.style.transform=f.style.width=f.style.height='';
+  PVW.scale=1;
+  if((PVW.dev||'desktop')!=='desktop')return;
+  const W=pvwDesignW(), sw=st.clientWidth, sh=st.clientHeight;
+  if(!sw||sw>=W){st.classList.remove('fit');return;}
+  const k=sw/W; PVW.scale=k;
+  st.classList.add('fit');
+  f.style.width=W+'px'; f.style.height=Math.ceil(sh/k)+'px';
+  f.style.transform='scale('+k+')';
+}
+new ResizeObserver(()=>{ if($('pvwstage'))pvwFit(); }).observe(document.body);
 /* THE CODE WORKSPACE IS A SHEET NOW, NOT A PLACE YOU GO. It used to
    replace the whole view, so opening it meant leaving the conversation
    — the same fault the preview had. The files open beside the chat and
@@ -15630,11 +15675,11 @@ window.addEventListener('message',ev=>{
   if(m&&m.forge==='hover'&&$('selring')){
     const ring=$('selring'), st=$('pvw').querySelector('.pvw-stage');
     if(!m.rect){ring.classList.remove('on');return;}
-    const b=st.getBoundingClientRect(), R=m.rect;
+    const b=st.getBoundingClientRect(), R=m.rect, k=PVW.scale||1;
     const fr=($('pvwframe')||st).getBoundingClientRect();
     const ox=fr.left-b.left, oy=fr.top-b.top;   // the frame is centred on phone/tablet
-    ring.style.left=(R.l+ox)+'px'; ring.style.top=(R.t+oy)+'px';
-    ring.style.width=(R.r-R.l)+'px'; ring.style.height=(R.b-R.t)+'px';
+    ring.style.left=(R.l*k+ox)+'px'; ring.style.top=(R.t*k+oy)+'px';
+    ring.style.width=((R.r-R.l)*k)+'px'; ring.style.height=((R.b-R.t)*k)+'px';
     ring.classList.add('on');
     return;
   }
@@ -15656,9 +15701,10 @@ window.addEventListener('message',ev=>{
      thing it must never cover. Sit under the element's own box when
      there is room, above it when there is not. */
   const st=$('pvw').querySelector('.pvw-stage').getBoundingClientRect();
-  const R=m.rect, H=200;
-  const x=st.left+(R?(R.l+R.r)/2:(m.x||st.width/2));
-  let y=R?st.top+R.b+12:st.top+(m.y||st.height/2)+14;
+  const k=PVW.scale||1, R0=m.rect, H=200;
+  const R=R0&&{l:R0.l*k,r:R0.r*k,t:R0.t*k,b:R0.b*k};
+  const x=st.left+(R?(R.l+R.r)/2:((m.x||0)*k||st.width/2));
+  let y=R?st.top+R.b+12:st.top+((m.y||0)*k||st.height/2)+14;
   if(y+H>innerHeight-12&&R)y=st.top+R.t-H-4;
   b.style.left=Math.max(12,Math.min(innerWidth-352,x-170))+'px';
   b.style.top=Math.max(12,Math.min(innerHeight-H+10,y))+'px';
@@ -16000,16 +16046,17 @@ function openPage(name,edit){
         ['tablet','tablet','Tablet (820px)'],['phone','phone','Phone (390px)']]
         .map(([k,ic,t])=>`<button data-dev="${k}" title="${t}"
           onclick="pvwDevice('${k}')">${I(ic,14)}</button>`).join('')}</div>`,
-    actions:`<button class="cpill opt" id="pgundo" onclick="pageUndo()" ${p.undo?'':'disabled'}>${
-        I('undo',13)}Undo${p.undo?' ('+p.undo+')':''}</button>
-      <button class="cpill opt" onclick="pageCode('${name}')" title="Show code">${I('terminal',13)}Code</button>
-      <button class="cpill opt" onclick="pageReveal('${name}')" title="Open in Finder">${I('file',13)}Finder</button>`,
+    actions:`<button class="cpill opt" id="pgundo" onclick="pageUndo()" title="Undo the last change" ${p.undo?'':'disabled'}>${
+        I('undo',13)}<span class="lb">Undo${p.undo?' ('+p.undo+')':''}</span></button>
+      <button class="cpill opt" onclick="pageBrowser('${name}')" title="Open in your browser">${I('compass',13)}<span class="lb">Open in browser</span></button>
+      <button class="cpill opt" onclick="pageCode('${name}')" title="Show code">${I('terminal',13)}<span class="lb">Code</span></button>
+      <button class="cpill opt" onclick="pageReveal('${name}')" title="Open in Finder">${I('file',13)}<span class="lb">Finder</span></button>`,
     body:`<iframe id="pvwframe" src="/design/${encodeURIComponent(name)}/site.html?pick=1&t=${Date.now()}"></iframe>
       <div class="selring" id="selring"></div>
       <div class="pvw-hint" id="pvwhint"></div>`});
   PVW.page=name; PVW.edit=!!edit;
   const f=$('pvwframe');
-  if(f)f.onload=()=>pvwMode(PVW.edit);
+  if(f)f.onload=()=>{pvwMode(PVW.edit);pvwFit();};
   pvwDevice(pvwDevSaved());
   return d;
 }
@@ -16019,7 +16066,7 @@ async function pageReload(){
   const f=$('pvwframe');
   if(f)f.src='/design/'+encodeURIComponent(name)+'/site.html?pick=1&t='+Date.now();
   const b=$('pgundo'), n=pageInfo(name).undo||0;
-  if(b){b.disabled=!n; b.innerHTML=I('undo',13)+'Undo'+(n?' ('+n+')':'');}
+  if(b){b.disabled=!n; b.innerHTML=I('undo',13)+'<span class="lb">Undo'+(n?' ('+n+')':'')+'</span>';}
 }
 async function pageUndo(){
   if(!PVW.page)return;
@@ -16046,6 +16093,10 @@ async function pageAsk(what){
   const box=$('npurl');
   if(box){box.value=`On the page "${name}" (the file ${p.path||name+'/site.html'}), ${what}`; growTa(box);}
   consoleSend();
+}
+async function pageBrowser(name){
+  try{await api('/api/design/browser',{name}); toast('Opened in your browser');}
+  catch(e){toast(e.message,'bad');}
 }
 async function pageReveal(name){
   try{await api('/api/design/reveal',{name}); toast('Shown in Finder');}
