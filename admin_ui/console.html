@@ -4,127 +4,281 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
+<meta name="color-scheme" content="dark light">
 <title>Aethron Admin</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23d97757'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23d97757'/%3E%3Cpath d='M16 7l8 18h-4.2l-1.6-3.8h-4.4L12.2 25H8z' fill='%23fff7f2'/%3E%3C/svg%3E">
 <style>
-:root{--bg:#0b0b0c;--panel:#141316;--panel2:#1b1a1e;--field:#0f0e10;--line:#26252a;--line2:#35333a;
---tx:#eceaf0;--dim:#a5a2ad;--lo:#76737d;--acc:#d97757;--acc2:#e89a7c;--ok:#7ec699;--warn:#e8b04b;--err:#e5695e;
---blue:#7aa7ff;--r:12px;--ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Inter,system-ui,sans-serif;
---mono:ui-monospace,SFMono-Regular,Menlo,monospace}
-@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#f6f4f1;--panel:#fff;--panel2:#f2efea;
---field:#fff;--line:#e5e0d8;--line2:#d6cfc4;--tx:#1b1916;--dim:#5f5a53;--lo:#8b857c}}
-:root[data-theme="light"]{--bg:#f6f4f1;--panel:#fff;--panel2:#f2efea;--field:#fff;--line:#e5e0d8;--line2:#d6cfc4;
---tx:#1b1916;--dim:#5f5a53;--lo:#8b857c}
+:root{
+  --bg:#0a0a0b;--side:#0e0e10;--s1:#131316;--s2:#18181c;--s3:#1f1f24;--field:#0f0f12;
+  --line:rgba(255,255,255,.07);--line2:rgba(255,255,255,.11);--line3:rgba(255,255,255,.18);
+  --tx:#f2f1f4;--t2:#b4b2bb;--t3:#7c7a84;
+  --acc:#d97757;--acc2:#f0a07f;--acc-bg:rgba(217,119,87,.12);--acc-ln:rgba(217,119,87,.35);
+  --ok:#5fc48c;--ok-bg:rgba(95,196,140,.12);--warn:#e8b04b;--warn-bg:rgba(232,176,75,.12);
+  --bad:#ef6a5e;--bad-bg:rgba(239,106,94,.12);--info:#7aa7ff;--info-bg:rgba(122,167,255,.12);
+  --r:14px;--r2:10px;--sh:0 1px 0 rgba(255,255,255,.03) inset,0 10px 30px -18px rgba(0,0,0,.6);
+  --ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  --eo:cubic-bezier(.2,.8,.2,1)}
+:root[data-theme="light"]{--bg:#f7f6f3;--side:#fbfaf8;--s1:#ffffff;--s2:#f6f4f0;--s3:#efece6;--field:#ffffff;
+  --line:rgba(20,16,10,.08);--line2:rgba(20,16,10,.12);--line3:rgba(20,16,10,.2);--tx:#18161a;--t2:#57535c;--t3:#8a8690;
+  --sh:0 1px 2px rgba(20,16,10,.04),0 8px 24px -16px rgba(20,16,10,.18)}
 *{box-sizing:border-box;margin:0}
-html,body{background:var(--bg);color:var(--tx);font:14px/1.45 var(--ui)}
-a{color:var(--acc2)}
-button{font:inherit;color:inherit;background:var(--panel2);border:1px solid var(--line2);border-radius:10px;
-  padding:7px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-button:hover{border-color:var(--lo)}
-button.primary{background:var(--acc);border-color:var(--acc);color:#1c0f09;font-weight:600}
-button.danger{border-color:#7a2f2a;color:var(--err)}
-button.danger.solid{background:var(--err);color:#200a08;border-color:var(--err);font-weight:600}
-button:disabled{opacity:.5;cursor:default}
-input,select,textarea{font:inherit;color:var(--tx);background:var(--field);border:1px solid var(--line2);
-  border-radius:10px;padding:8px 10px;width:100%}
-textarea{resize:vertical;min-height:70px}
-input:focus,select:focus,textarea:focus{outline:2px solid rgba(217,119,87,.45);outline-offset:1px}
-label{display:block;font-size:12px;color:var(--dim);margin:0 0 4px}
-.app{display:grid;grid-template-columns:232px 1fr;min-height:100vh}
-nav{border-right:1px solid var(--line);padding:16px 10px;position:sticky;top:0;height:100vh;overflow:auto;
-  display:flex;flex-direction:column;gap:2px;background:var(--panel)}
-.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 16px;font-weight:700;letter-spacing:.2px}
-.brand .mk{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,#e89a7c,#b9553a)}
-.brand small{display:block;font-weight:500;color:var(--lo);font-size:11px}
-nav a{display:flex;align-items:center;gap:9px;color:var(--dim);text-decoration:none;padding:8px 10px;border-radius:9px}
-nav a:hover{background:var(--panel2);color:var(--tx)}
-nav a.on{background:var(--panel2);color:var(--tx);box-shadow:inset 2px 0 0 var(--acc)}
-nav .sep{height:1px;background:var(--line);margin:10px 6px}
-nav .me{margin-top:auto;padding:10px;font-size:12px;color:var(--lo);border-top:1px solid var(--line)}
-main{padding:22px 26px 60px;min-width:0}
-.top{display:flex;align-items:center;gap:12px;margin-bottom:18px;flex-wrap:wrap}
-.top h1{font-size:22px;font-weight:650;letter-spacing:-.2px;flex:1}
-.pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 10px;font-size:12px;
-  border:1px solid var(--line2);color:var(--dim)}
-.pill.ok{color:var(--ok);border-color:rgba(126,198,153,.35)}.pill.err{color:var(--err);border-color:rgba(229,105,94,.45)}
-.pill.warn{color:var(--warn);border-color:rgba(232,176,75,.4)}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--lo);display:inline-block}
-.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(126,198,153,.18)}
+html,body{background:var(--bg);color:var(--tx);font:13.5px/1.5 var(--ui);-webkit-font-smoothing:antialiased}
+a{color:var(--acc2);text-decoration:none}a:hover{text-decoration:underline}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+::selection{background:var(--acc-bg)}
+
+/* controls */
+.btn{font:inherit;font-weight:520;color:var(--tx);background:var(--s2);border:1px solid var(--line2);border-radius:9px;
+  padding:7px 12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;white-space:nowrap;
+  transition:background .15s,border-color .15s,transform .1s}
+.btn:hover{background:var(--s3);border-color:var(--line3)}.btn:active{transform:translateY(1px)}
+.btn.primary{background:var(--acc);border-color:transparent;color:#fff9f5;box-shadow:0 1px 0 rgba(255,255,255,.2) inset}
+.btn.primary:hover{background:#e0825f}
+.btn.danger{color:var(--bad);border-color:rgba(239,106,94,.35);background:transparent}
+.btn.danger:hover{background:var(--bad-bg)}
+.btn.danger.solid{background:var(--bad);color:#fff;border-color:transparent}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--t2)}.btn.ghost:hover{background:var(--s2);color:var(--tx)}
+.btn.sm{padding:4px 9px;font-size:12.5px;border-radius:8px}
+.btn:disabled{opacity:.5;cursor:default;transform:none}
+input,select,textarea{font:inherit;color:var(--tx);background:var(--field);border:1px solid var(--line2);border-radius:9px;
+  padding:8px 11px;width:100%;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc-ln);box-shadow:0 0 0 3px var(--acc-bg)}
+textarea{resize:vertical;min-height:76px;line-height:1.5}
+label.f{display:block;font-size:12px;font-weight:550;color:var(--t2);margin:0 0 6px}
+.hint{font-size:12px;color:var(--t3);margin-top:5px}
+.seg{display:inline-flex;background:var(--s2);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px}
+.seg button{font:inherit;font-size:12.5px;font-weight:540;border:0;background:transparent;color:var(--t2);padding:5px 12px;
+  border-radius:7px;cursor:pointer}
+.seg button.on{background:var(--s1);color:var(--tx);box-shadow:0 1px 2px rgba(0,0,0,.25),inset 0 0 0 1px var(--line)}
+.sw{position:relative;width:38px;height:22px;flex:none;display:inline-block}
+.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw span{position:absolute;inset:0;background:var(--s3);border:1px solid var(--line2);border-radius:99px;transition:.2s;cursor:pointer}
+.sw span::before{content:"";position:absolute;width:16px;height:16px;left:2px;top:2px;background:#fff;border-radius:50%;
+  transition:.2s var(--eo);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.sw input:checked+span{background:var(--ok);border-color:transparent}.sw input:checked+span::before{transform:translateX(16px)}
+.sw input:disabled+span{opacity:.5;cursor:default}
+
+/* layout */
+.app{display:grid;grid-template-columns:252px minmax(0,1fr);min-height:100vh}
+aside{background:var(--side);border-right:1px solid var(--line);position:sticky;top:0;height:100vh;
+  display:flex;flex-direction:column;padding:16px 12px 12px;overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 6px 14px}
+.mk{width:30px;height:30px;border-radius:9px;background:linear-gradient(150deg,#f0a07f,#c0603f);display:grid;place-items:center;
+  box-shadow:0 6px 16px -6px rgba(217,119,87,.7),inset 0 1px 0 rgba(255,255,255,.3);flex:none}
+.mk svg{width:16px;height:16px}
+.brand b{display:block;font-size:14.5px;font-weight:650;letter-spacing:-.01em}
+.brand small{display:block;color:var(--t3);font-size:11.5px;margin-top:-1px}
+.status{display:flex;align-items:center;gap:9px;padding:9px 11px;margin:0 2px 14px;border-radius:11px;border:1px solid var(--line);
+  background:var(--s1);font-size:12.5px;cursor:pointer}
+.status:hover{border-color:var(--line2)}
+.status .lbl{flex:1;min-width:0}.status .lbl b{display:block;font-weight:600}.status .lbl span{color:var(--t3);font-size:11.5px}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--ok);flex:none;box-shadow:0 0 0 0 rgba(95,196,140,.5);animation:pl 2.4s infinite}
+.pulse.bad{background:var(--bad);animation-name:plb}.pulse.off{background:var(--t3);animation:none}
+@keyframes pl{0%{box-shadow:0 0 0 0 rgba(95,196,140,.5)}70%,100%{box-shadow:0 0 0 7px rgba(95,196,140,0)}}
+@keyframes plb{0%{box-shadow:0 0 0 0 rgba(239,106,94,.55)}70%,100%{box-shadow:0 0 0 7px rgba(239,106,94,0)}}
+.grp{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--t3);padding:12px 10px 5px}
+.nv{display:flex;align-items:center;gap:10px;color:var(--t2);padding:7px 10px;border-radius:9px;font-weight:510;cursor:pointer;
+  position:relative;text-decoration:none!important}
+.nv:hover{background:var(--s2);color:var(--tx)}
+.nv.on{background:var(--s2);color:var(--tx)}
+.nv.on::before{content:"";position:absolute;left:-12px;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--acc)}
+.nv .badge{margin-left:auto;font-size:11px;font-weight:600;padding:1px 7px;border-radius:99px;background:var(--bad-bg);color:var(--bad)}
+.nv .badge.ok{background:var(--ok-bg);color:var(--ok)}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:10px 8px 2px;border-top:1px solid var(--line)}
+.av{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:12px;font-weight:650;color:#fff;
+  background:linear-gradient(150deg,var(--a1,#7aa7ff),var(--a2,#4c6fd6))}
+.me .who{flex:1;min-width:0;font-size:12.5px}.me .who b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.me .who span{color:var(--t3);font-size:11.5px}
+main{min-width:0;padding:26px 34px 70px;max-width:1440px}
+.top{display:flex;align-items:flex-end;gap:12px;margin-bottom:22px;flex-wrap:wrap}
+.top .tt{flex:1;min-width:240px}
+.top h1{font-size:23px;font-weight:660;letter-spacing:-.025em;line-height:1.2}
+.top p{color:var(--t2);margin-top:3px;font-size:13.5px}
 .grid{display:grid;gap:14px}
-.k4{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
-.k2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px}
-.card h3{font-size:13px;font-weight:600;color:var(--dim);margin-bottom:10px;display:flex;align-items:center;gap:8px}
-.kpi .n{font-size:28px;font-weight:650;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
-.kpi .s{color:var(--lo);font-size:12px;margin-top:2px}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;color:var(--lo);font-weight:500;font-size:12px;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
-tr.click{cursor:pointer}tr.click:hover td{background:var(--panel2)}
+.g4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.g2{grid-template-columns:repeat(auto-fit,minmax(380px,1fr));align-items:start}
+.g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+.card{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--sh);min-width:0}
+.card.flush{padding:0;overflow:hidden}
+.ch{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.ch h3{font-size:14px;font-weight:620;letter-spacing:-.01em;flex:1}
+.ch .sub{color:var(--t3);font-size:12px;font-weight:450}
+.card.flush .ch{padding:16px 18px 0}
+.kpi{position:relative;overflow:hidden}
+.kpi .kl{display:flex;align-items:center;gap:8px;color:var(--t2);font-size:12.5px;font-weight:540}
+.kpi .ki{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--s2);color:var(--t2)}
+.kpi .ki svg{width:14px;height:14px}
+.kpi .n{font-size:28px;font-weight:660;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:10px;line-height:1.1}
+.kpi .s{color:var(--t3);font-size:12px;margin-top:4px}
+.kpi .spark{position:absolute;right:14px;bottom:14px;width:92px;height:34px;opacity:.9}
+.kpi.kbad .n{color:var(--bad)}
+.tag{display:inline-flex;align-items:center;gap:5px;border-radius:99px;padding:2px 9px;font-size:11.5px;font-weight:560;
+  background:var(--s2);color:var(--t2);border:1px solid var(--line);white-space:nowrap}
+.tag.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.tag.bad{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+.tag.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+.tag.info{background:var(--info-bg);color:var(--info);border-color:transparent}
+.tag.acc{background:var(--acc-bg);color:var(--acc2);border-color:transparent}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--t3);display:inline-block;flex:none}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(95,196,140,.16)}
+table{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+th{text-align:left;color:var(--t3);font-weight:550;font-size:11.5px;letter-spacing:.02em;padding:10px 12px;
+  border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;background:var(--s1);z-index:1}
+td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tr.click{cursor:pointer}tr.click:hover td{background:var(--s2)}
 .tw{overflow:auto;max-width:100%}
 .num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .mono{font-family:var(--mono);font-size:12px}
-.lo{color:var(--lo)}.dim{color:var(--dim)}.err{color:var(--err)}.okc{color:var(--ok)}
-.row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}.row>*{flex:1;min-width:150px}
-.row .tight{flex:0 0 auto;min-width:0}
-.stack{display:flex;flex-direction:column;gap:12px}
-.bar{height:8px;border-radius:5px;background:var(--panel2);overflow:hidden}
-.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),var(--acc2))}
-.bars{display:flex;align-items:flex-end;gap:3px;height:120px;padding-top:6px}
-.bars>div{flex:1;background:linear-gradient(180deg,var(--acc2),var(--acc));border-radius:4px 4px 0 0;min-height:2px;position:relative}
-.bars>div:hover::after{content:attr(data-t);position:absolute;bottom:100%;left:50%;transform:translateX(-50%);
-  background:var(--panel2);border:1px solid var(--line2);padding:3px 7px;border-radius:6px;font-size:11px;white-space:nowrap}
-.kill{display:flex;align-items:center;gap:16px;padding:18px;border-radius:14px;border:1px solid var(--line2);background:var(--panel2)}
-.kill.on{border-color:#7a2f2a;background:linear-gradient(180deg,rgba(229,105,94,.10),transparent)}
-.kill .big{font-size:17px;font-weight:650}
-.switch{position:relative;width:42px;height:24px;flex:none}
-.switch input{opacity:0;width:0;height:0}
-.switch span{position:absolute;inset:0;background:var(--line2);border-radius:99px;transition:.2s;cursor:pointer}
-.switch span::before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
-.switch input:checked+span{background:var(--ok)}.switch input:checked+span::before{transform:translateX(18px)}
-.feat{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
-.feat:last-child{border-bottom:0}
-.drawer{position:fixed;inset:0 0 0 auto;width:min(860px,100vw);background:var(--bg);border-left:1px solid var(--line2);
-  z-index:50;overflow:auto;padding:22px;box-shadow:-20px 0 60px rgba(0,0,0,.4)}
-.shade{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:40}
-.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:14px 0}
-.tabs button{border:0;background:transparent;border-radius:8px 8px 0 0;color:var(--dim)}
-.tabs button.on{color:var(--tx);box-shadow:inset 0 -2px 0 var(--acc)}
-pre{white-space:pre-wrap;word-break:break-word;background:var(--field);border:1px solid var(--line);border-radius:10px;
-  padding:10px;font:12px/1.5 var(--mono);max-height:420px;overflow:auto}
-.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line2);
-  padding:10px 16px;border-radius:12px;z-index:99;box-shadow:0 10px 30px rgba(0,0,0,.4)}
-.toast.err{border-color:#7a2f2a;color:var(--err)}
-.chat{display:grid;grid-template-columns:230px 1fr;gap:14px;height:calc(100vh - 120px)}
-.threads{overflow:auto;display:flex;flex-direction:column;gap:4px}
-.threads button{justify-content:flex-start;text-align:left;white-space:normal;font-size:12px}
-.convo{display:flex;flex-direction:column;min-height:0}
-.msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:4px}
-.msg{max-width:84%;padding:10px 14px;border-radius:14px;white-space:pre-wrap;word-break:break-word}
-.msg.user{align-self:flex-end;background:var(--acc);color:#1c0f09}
-.msg.ai{align-self:flex-start;background:var(--panel2);border:1px solid var(--line)}
-.acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.act{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line2);color:var(--dim)}
-.act.bad{color:var(--err);border-color:rgba(229,105,94,.4)}
-.composer{display:flex;gap:8px;margin-top:10px}
-.composer textarea{min-height:52px}
-.center{min-height:100vh;display:grid;place-items:center;padding:20px}
-.login{width:min(420px,100%)}
-.login .card{padding:24px}
-.login h1{font-size:20px;margin-bottom:4px}
-.or{display:flex;align-items:center;gap:10px;color:var(--lo);font-size:12px;margin:14px 0}
-.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
-.keybox{font-family:var(--mono);font-size:13px;background:var(--field);border:1px dashed var(--acc);border-radius:10px;padding:12px;word-break:break-all}
-.empty{color:var(--lo);padding:24px;text-align:center}
-.spin{width:14px;height:14px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite}
+.t2{color:var(--t2)}.t3{color:var(--t3)}.bad{color:var(--bad)}.okc{color:var(--ok)}
+.person{display:flex;align-items:center;gap:10px;min-width:0}
+.person .av{width:28px;height:28px;font-size:11px}
+.person b{font-weight:560;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.person span{color:var(--t3);font-size:12px}
+.row{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap}.row>*{flex:1;min-width:160px}
+.row>.tight,.row>.seg{flex:0 0 auto;min-width:0}
+.stack{display:flex;flex-direction:column;gap:14px}
+.meter{height:6px;border-radius:5px;background:var(--s3);overflow:hidden}
+.meter>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--acc),var(--acc2))}
+.bl{display:flex;flex-direction:column;gap:12px}
+.bl .r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;font-size:13px}
+.bl .r .meter{grid-column:1/-1}
+.bars{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:8px}
+.bars>div{flex:1;background:linear-gradient(180deg,var(--acc2),var(--acc));border-radius:4px 4px 1px 1px;min-height:2px;
+  position:relative;opacity:.9;transition:opacity .15s}
+.bars>div:hover{opacity:1}
+.bars>div:hover::after{content:attr(data-t);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
+  background:var(--s3);border:1px solid var(--line2);padding:4px 8px;border-radius:7px;font-size:11.5px;white-space:nowrap;z-index:3}
+.feat{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 0;border-bottom:1px solid var(--line)}
+.feat:last-child{border-bottom:0;padding-bottom:0}.feat:first-child{padding-top:0}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--line)}
+.kv:last-of-type{border-bottom:0}
+.where{white-space:nowrap}
+.feat b{font-weight:580}.feat .t3{font-size:12.5px}
+.kill{display:flex;align-items:center;gap:18px;padding:20px 22px;border-radius:var(--r);border:1px solid var(--line);background:var(--s1);box-shadow:var(--sh)}
+.kill .kic{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;background:var(--s2);color:var(--t2);flex:none}
+.kill .kic svg{width:20px;height:20px}
+.kill.on{border-color:rgba(239,106,94,.35);background:linear-gradient(180deg,rgba(239,106,94,.10),rgba(239,106,94,.02))}
+.kill.on .kic{background:var(--bad-bg);color:var(--bad)}
+.kill .big{font-size:16px;font-weight:640;letter-spacing:-.01em}
+.choice{display:block;cursor:pointer;border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--s1);transition:border-color .15s}
+.choice:hover{border-color:var(--line3)}
+.choice.on{border-color:var(--acc-ln);background:linear-gradient(180deg,var(--acc-bg),transparent)}
+.choice input{position:absolute;opacity:0}
+.choice b{display:flex;align-items:center;gap:8px}
+.empty{color:var(--t3);padding:36px 20px;text-align:center}
+.empty svg.i{width:26px;height:26px;opacity:.6;margin-bottom:8px}
+.spin{width:16px;height:16px;border:2px solid var(--line2);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite;display:inline-block}
 @keyframes sp{to{transform:rotate(360deg)}}
-@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:static;height:auto;flex-direction:row;flex-wrap:wrap}
-  nav .me,nav .sep{display:none}main{padding:16px}.chat{grid-template-columns:1fr;height:auto}}
+.skel{height:14px;border-radius:6px;background:linear-gradient(90deg,var(--s2),var(--s3),var(--s2));background-size:200% 100%;animation:sk 1.2s infinite}
+@keyframes sk{to{background-position:-200% 0}}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--field);border:1px solid var(--line);border-radius:10px;
+  padding:12px;font:12px/1.55 var(--mono);max-height:420px;overflow:auto;color:var(--t2)}
+details summary{cursor:pointer;color:var(--t2);font-size:12.5px}
+.code{position:relative}.code .btn{position:absolute;top:8px;right:8px}
+
+/* drawers, dialogs, toasts */
+.shade{position:fixed;inset:0;background:rgba(5,5,7,.55);backdrop-filter:blur(3px);z-index:40;animation:fd .2s}
+@keyframes fd{from{opacity:0}}
+.drawer{position:fixed;inset:0 0 0 auto;width:min(900px,100vw);background:var(--bg);border-left:1px solid var(--line2);
+  z-index:50;overflow:auto;padding:26px 30px;box-shadow:-30px 0 80px rgba(0,0,0,.45);animation:dr .32s var(--eo)}
+@keyframes dr{from{transform:translateX(40px);opacity:0}}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:18px 0 14px}
+.tabs button{font:inherit;font-weight:540;border:0;background:transparent;color:var(--t2);padding:9px 12px;cursor:pointer;
+  border-bottom:2px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--tx);border-bottom-color:var(--acc)}
+.dlg{position:fixed;inset:0;display:grid;place-items:center;z-index:70;padding:20px}
+.dlg>.shade{z-index:0}
+.dlg .box{z-index:1;width:min(460px,100%);background:var(--s1);border:1px solid var(--line2);border-radius:16px;padding:22px;
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.7);animation:pop .25s var(--eo)}
+@keyframes pop{from{transform:translateY(8px) scale(.98);opacity:0}}
+.dlg h3{font-size:16px;font-weight:640;letter-spacing:-.01em;margin-bottom:6px}
+.dlg p{color:var(--t2);margin-bottom:14px}
+.dlg .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.toasts{position:fixed;bottom:22px;right:22px;display:flex;flex-direction:column;gap:8px;z-index:99}
+.toast{display:flex;align-items:center;gap:10px;background:var(--s2);border:1px solid var(--line2);padding:11px 15px;border-radius:12px;
+  box-shadow:0 14px 40px -12px rgba(0,0,0,.6);animation:pop .25s var(--eo);max-width:420px}
+.toast svg.i{color:var(--ok)}.toast.err svg.i{color:var(--bad)}.toast.err{border-color:rgba(239,106,94,.4)}
+.keybox{font-family:var(--mono);font-size:13px;background:var(--field);border:1px dashed var(--acc-ln);border-radius:10px;padding:12px;word-break:break-all}
+
+/* admin AI */
+.chat{display:grid;grid-template-columns:240px minmax(0,1fr);gap:14px;height:calc(100vh - 150px);min-height:520px}
+.threads{overflow:auto;display:flex;flex-direction:column;gap:3px;padding:10px}
+.thr{font:inherit;text-align:left;border:0;background:transparent;color:var(--t2);padding:9px 10px;border-radius:9px;cursor:pointer;font-size:12.5px}
+.thr:hover,.thr.on{background:var(--s2);color:var(--tx)}
+.thr span{display:block;color:var(--t3);font-size:11px;margin-top:2px}
+.convo{display:flex;flex-direction:column;min-height:0;padding:0}
+.msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:14px;padding:20px}
+.msg{max-width:82%;padding:11px 15px;border-radius:15px;white-space:pre-wrap;word-break:break-word;line-height:1.55}
+.msg.user{align-self:flex-end;background:var(--acc);color:#fff9f5;border-bottom-right-radius:5px}
+.msg.ai{align-self:flex-start;background:var(--s2);border:1px solid var(--line);border-bottom-left-radius:5px}
+.msg .meta{font-size:11px;color:var(--t3);margin-top:8px}
+.acts2{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.act{font-size:11px;padding:2px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--t2);background:var(--s1)}
+.act.bad{color:var(--bad);border-color:rgba(239,106,94,.4)}
+.composer{display:flex;gap:10px;padding:14px;border-top:1px solid var(--line);align-items:flex-end}
+.composer textarea{min-height:46px;max-height:180px}
+.sugg{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+.sugg button{font:inherit;font-size:12.5px;border:1px solid var(--line2);background:var(--s1);color:var(--t2);padding:7px 12px;border-radius:99px;cursor:pointer}
+.sugg button:hover{color:var(--tx);border-color:var(--line3)}
+
+/* announcements */
+.ann{display:grid;grid-template-columns:minmax(0,1fr) 440px;gap:18px;align-items:start}
+.preview{position:sticky;top:20px}
+.pv{background:#151417;border:1px solid #2c2a30;border-radius:22px;overflow:hidden;box-shadow:0 30px 70px -26px rgba(0,0,0,.75);color:#eceaf0}
+.pv .art{aspect-ratio:400/206;background:#0f0e10;border-bottom:1px solid #26252a;display:grid;place-items:center;position:relative}
+.pv .art img{display:block;width:100%;height:100%}
+.pv .art .ph{color:#76737d;font-size:12.5px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.pv .art .busy{position:absolute;inset:0;display:grid;place-items:center;background:rgba(10,10,11,.55);backdrop-filter:blur(2px)}
+.pv .bd{padding:18px 22px 20px}
+.pv .kick{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;letter-spacing:.03em;color:#f0a07f;margin-bottom:8px}
+.pv.warn .kick{color:#e8b04b}.pv.critical .kick{color:#f08a7e}
+.pv h4{font-size:18px;font-weight:620;margin-bottom:6px;letter-spacing:-.01em}
+.pv p{font-size:13.5px;color:#b4b2bb;line-height:1.55;min-height:3em;margin:0}
+.pv .ft{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+.pv .ft span{font-size:12.5px;padding:7px 13px;border-radius:9px;background:#1f1d22;border:1px solid #35333a}
+.pv .ft span.p{background:#d97757;border-color:transparent;color:#fff9f5;font-weight:560}
+.artnote{font-size:12px;color:var(--t3);margin-top:10px;display:flex;gap:6px;align-items:flex-start}
+
+/* sign-in */
+.login{min-height:100vh;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
+.lart{position:relative;overflow:hidden;background:radial-gradient(80% 70% at 30% 20%,rgba(217,119,87,.28),transparent 60%),
+  radial-gradient(60% 60% at 80% 90%,rgba(122,167,255,.12),transparent 60%),#0c0b0d;border-right:1px solid var(--line);
+  display:flex;flex-direction:column;justify-content:space-between;padding:40px 44px;color:#f2f1f4}
+.lart h2{font-size:34px;line-height:1.12;letter-spacing:-.03em;font-weight:650;max-width:440px}
+.lart p{color:#b4b2bb;max-width:420px;margin-top:12px;font-size:14.5px}
+.lart .grid-bg{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.035) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.035) 1px,transparent 1px);background-size:44px 44px;
+  mask-image:radial-gradient(70% 60% at 40% 40%,#000,transparent);-webkit-mask-image:radial-gradient(70% 60% at 40% 40%,#000,transparent)}
+.lart .feats{display:flex;flex-direction:column;gap:10px;position:relative}
+.lart .feats div{display:flex;gap:10px;align-items:center;color:#cfcdd4;font-size:13.5px}
+.lart .feats svg.i{color:#f0a07f}
+.lform{display:grid;place-items:center;padding:30px 24px}
+.lform .box{width:min(380px,100%)}
+.lform h1{font-size:22px;font-weight:650;letter-spacing:-.02em}
+.lform .sub{color:var(--t2);margin:4px 0 22px}
+.gbtn{width:100%;background:#fff;color:#1f1f1f;border-color:#dadce0;font-weight:560;padding:10px 12px}
+.gbtn:hover{background:#f6f6f6;border-color:#c8c8c8}
+.or{display:flex;align-items:center;gap:10px;color:var(--t3);font-size:12px;margin:18px 0}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line2)}
+.alert{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border-radius:11px;background:var(--bad-bg);color:var(--tx);
+  border:1px solid rgba(239,106,94,.3);font-size:13px;margin-bottom:16px}
+.alert svg.i{color:var(--bad);margin-top:1px}
+.alert.info{background:var(--info-bg);border-color:rgba(122,167,255,.3)}.alert.info svg.i{color:var(--info)}
+.lfoot{color:var(--t3);font-size:12px;margin-top:22px;display:flex;gap:6px;align-items:center}
+
+@media (max-width:1100px){.ann{grid-template-columns:1fr}.preview{position:static}}
+@media (max-width:860px){.app{grid-template-columns:1fr}aside{position:static;height:auto}
+  .navs{display:flex;flex-wrap:wrap;gap:2px}.grp,.me{display:none}main{padding:18px 16px 60px}
+  .chat{grid-template-columns:1fr;height:auto}.login{grid-template-columns:1fr}.lart{display:none}
+  .g2{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 <div id="root"></div>
+<div class="toasts" id="toasts"></div>
 <script>
 /* Aethron's admin console. It talks to ONE address — the `aethron` edge
    function — and to Supabase sign-in. No privileged key lives here: the
@@ -138,16 +292,83 @@ const CFG = (function(){
 const $ = id => document.getElementById(id);
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const jsq = s => esc(JSON.stringify(String(s==null?'':s)));
-const money = v => '$'+(+v||0).toFixed((+v||0)<1?4:2);
+const money = v => { const x=+v||0; return '$'+x.toFixed(x>0&&x<0.01?4:2) };
 const n = v => (+v||0).toLocaleString();
 function ago(t){ if(!t)return '—'; const s=(Date.now()-new Date(t).getTime())/1000;
-  if(s<60)return Math.max(0,s|0)+'s ago'; if(s<3600)return (s/60|0)+'m ago'; if(s<86400)return (s/3600|0)+'h ago';
-  return (s/86400|0)+'d ago'; }
-function when(t){ return t? new Date(t).toLocaleString():'—' }
+  if(s<45)return 'just now'; if(s<3600)return Math.round(s/60)+' min ago'; if(s<86400)return Math.round(s/3600)+' h ago';
+  if(s<86400*30)return Math.round(s/86400)+' d ago'; return new Date(t).toLocaleDateString(); }
+function when(t){ return t? new Date(t).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'—' }
 function flag(cc){ cc=String(cc||'').toUpperCase(); if(!/^[A-Z]{2}$/.test(cc))return '🌐';
   return String.fromCodePoint(...[...cc].map(c=>0x1F1E6+c.charCodeAt(0)-65)); }
-function toast(msg,bad){ const t=document.createElement('div'); t.className='toast'+(bad?' err':''); t.textContent=msg;
-  document.body.appendChild(t); setTimeout(()=>t.remove(), bad?6000:2600); }
+let REGION; try{ REGION=new Intl.DisplayNames(['en'],{type:'region'}) }catch(e){}
+function country(cc){ if(!cc)return 'Unknown'; try{ return REGION?REGION.of(String(cc).toUpperCase()):cc }catch(e){ return cc } }
+const PALS=[['#f0a07f','#c0603f'],['#7aa7ff','#4c6fd6'],['#5fc48c','#2f8f5f'],['#c79bff','#8a5cd6'],['#e8b04b','#b57f1c'],['#6fd3d3','#2e9b9b']];
+function avatar(email){ const e=String(email||'?'); let h=0; for(const c of e)h=(h*31+c.charCodeAt(0))|0;
+  const [a,b]=PALS[Math.abs(h)%PALS.length]; return `<span class="av" style="--a1:${a};--a2:${b}">${esc(e.slice(0,1).toUpperCase())}</span>`; }
+function person(email, sub){ return email?`<div class="person">${avatar(email)}<div style="min-width:0"><b>${esc(email)}</b>${sub?`<span>${sub}</span>`:''}</div></div>`
+  :'<span class="t3">Not signed in</span>'; }
+
+/* icons — one stroke set, drawn inline */
+const IC={
+  overview:'<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  live:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  usage:'<circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18M7 6h1v4M16.71 13.88l.7.71-2.82 2.82"/>',
+  errors:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>',
+  activity:'<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  runs:'<rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4M8 16h.01M16 16h.01"/>',
+  controls:'<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  announce:'<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  ai:'<rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/>',
+  sparkles:'<path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9L12 3z"/><path d="M19 3v4M21 5h-4"/>',
+  key:'<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
+  audit:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>',
+  exports:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  pause:'<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+  play:'<path d="m6 3 14 9-14 9V3z"/>',
+  power:'<path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
+  refresh:'<path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>', check:'<path d="M20 6 9 17l-5-5"/>',
+  logout:'<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  globe:'<circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/>',
+  coin:'<circle cx="12" cy="12" r="9"/><path d="M14.5 9a2.5 2.5 0 0 0-2.5-1.5c-1.4 0-2.5.8-2.5 2s1.1 1.6 2.5 2 2.5.8 2.5 2-1.1 2-2.5 2A2.5 2.5 0 0 1 9.5 15M12 6v1.5M12 16.5V18"/>',
+  user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  copy:'<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>', ext:'<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  wand:'<path d="m15 4 5 5L9 20l-5-5L15 4zM14 9l1 1M19 3v2M18 4h2M5 3v2M4 4h2"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>', send:'<path d="m22 2-7 20-4-9-9-4 20-7z"/>',
+  device:'<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',
+};
+const ic = (k, extra='') => `<svg class="i" viewBox="0 0 24 24" ${extra}>${IC[k]||''}</svg>`;
+const MARK = '<svg viewBox="0 0 16 16"><path d="M8 2.2l4.6 11.6h-2.5l-.95-2.5H6.85l-.95 2.5H3.4L8 2.2zm0 4.3-1 3h2z" fill="#fff8f3"/></svg>';
+
+function toast(msg,bad){ const t=document.createElement('div'); t.className='toast'+(bad?' err':'');
+  t.innerHTML=ic(bad?'errors':'check')+'<span>'+esc(msg)+'</span>'; $('toasts').appendChild(t);
+  setTimeout(()=>t.remove(), bad?6500:2800); }
+
+/* a real dialog instead of prompt()/confirm() */
+function dialog({title, body='', fields=[], ok='Confirm', danger=false, cancel='Cancel'}){
+  return new Promise(res=>{
+    const d=document.createElement('div'); d.className='dlg';
+    d.innerHTML=`<div class="shade" style="position:absolute"></div><div class="box" style="position:relative" role="dialog" aria-modal="true">
+      <h3>${esc(title)}</h3>${body?`<p>${body}</p>`:''}
+      <div class="stack">${fields.map((f,i)=>`<div><label class="f">${esc(f.label)}</label>${f.area?
+        `<textarea id="dlf${i}" placeholder="${esc(f.placeholder||'')}">${esc(f.value||'')}</textarea>`:
+        `<input id="dlf${i}" type="${f.type||'text'}" value="${esc(f.value||'')}" placeholder="${esc(f.placeholder||'')}">`}
+        ${f.hint?`<div class="hint">${esc(f.hint)}</div>`:''}</div>`).join('')}</div>
+      <div class="acts"><button class="btn ghost" data-x>${esc(cancel)}</button><button class="btn ${danger?'danger solid':'primary'}" data-ok>${esc(ok)}</button></div></div>`;
+    document.body.appendChild(d);
+    const done=v=>{ d.remove(); document.removeEventListener('keydown',key); res(v); };
+    const key=e=>{ if(e.key==='Escape')done(null); if(e.key==='Enter'&&!e.shiftKey&&e.target.tagName!=='TEXTAREA'){ e.preventDefault(); d.querySelector('[data-ok]').click(); } };
+    document.addEventListener('keydown',key);
+    d.querySelector('[data-x]').onclick=()=>done(null); d.querySelector('.shade').onclick=()=>done(null);
+    d.querySelector('[data-ok]').onclick=()=>done(fields.length?fields.map((_,i)=>$('dlf'+i).value):true);
+    setTimeout(()=>{ const f=$('dlf0')||d.querySelector('[data-ok]'); f.focus(); },30);
+  });
+}
 
 /* ── sign-in ───────────────────────────────────────────────────── */
 const AUTH = {
@@ -157,6 +378,7 @@ const AUTH = {
     if(ref)localStorage.ae_ref=ref; },
   clear(){ delete sessionStorage.ae_tok; delete localStorage.ae_tok; delete localStorage.ae_ref; }
 };
+let LOGIN_MSG=null;   // {kind:'error'|'info', text}
 async function gotrue(path, body){
   const r = await fetch(CFG.supabase.replace(/\/+$/,'')+'/auth/v1/'+path,{method:'POST',
     headers:{'Content-Type':'application/json',apikey:CFG.anon},body:JSON.stringify(body)});
@@ -175,293 +397,423 @@ async function req(path, opts={}){
     body:opts.body?JSON.stringify(opts.body):undefined});
   let r = await go();
   if(r.status===401 && await tryRefresh()) r = await go();
-  if(r.status===401){ AUTH.clear(); render(); throw new Error('signed out') }
+  if(r.status===401){ const who=tokenEmail(); AUTH.clear(); ME=null;
+    if(who&&!opts.quiet)LOGIN_MSG={kind:'error',text:`${who} is signed in, but it is not an Aethron admin. Ask an owner to add it under “Access”, or sign in with an allowed account.`};
+    render(); throw new Error('signed out') }
   if(opts.raw) return r;
   const j = await r.json().catch(()=>({}));
-  if(!r.ok) throw new Error((j.error&&j.error.message)||r.statusText);
+  if(!r.ok) throw new Error((j.error&&j.error.message)||j.error||r.statusText);
   return j;
 }
+function tokenEmail(){ try{ const t=AUTH.token; if(!t||!t.includes('.'))return '';
+  const p=t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'); return JSON.parse(atob(p+'='.repeat((4-p.length%4)%4))).email||'' }catch(e){ return '' } }
 async function T(tool, args={}){ return (await req('/admin/call',{body:{tool,args}})).result }
 async function act(tool,args,okMsg){ try{ const r=await T(tool,args); toast(okMsg||'Done'); return r }
   catch(e){ toast(e.message,true); throw e } }
 
-/* links from sign-in emails / Google land with the session in the hash */
+/* Google and email links come back here with the session — or an error — in
+   the address. Read both, then clean the address. */
 (function(){
-  const h = new URLSearchParams(location.hash.slice(1));
+  const h=new URLSearchParams(location.hash.slice(1)), q=new URLSearchParams(location.search);
+  const err=h.get('error_description')||q.get('error_description')||h.get('error')||q.get('error');
   if(h.get('access_token')){ AUTH.set(h.get('access_token'),h.get('refresh_token')); history.replaceState(null,'',location.pathname); }
+  else if(err){ LOGIN_MSG={kind:'error',text:'Sign-in did not finish: '+decodeURIComponent(err).replace(/\+/g,' ')};
+    history.replaceState(null,'',location.pathname); }
+  else if(q.get('code')){ LOGIN_MSG={kind:'error',text:'Sign-in came back in a form this console does not read. In Supabase → Authentication → Providers, make sure Google uses the default (implicit) flow for this site.'};
+    history.replaceState(null,'',location.pathname); }
 })();
 
 function loginView(){
   const needCfg = !CFG.fn;
-  return `<div class="center"><div class="login"><div class="card stack">
-    <div class="brand" style="padding:0"><span class="mk"></span><div>Aethron Admin<small>the team console</small></div></div>
-    ${needCfg?`<div class="stack"><div class="dim">Point the console at your Aethron function.</div>
-      <div><label>Function address</label><input id="cfn" placeholder="https://xxxx.supabase.co/functions/v1/aethron"></div>
-      <div><label>Supabase address</label><input id="csb" placeholder="https://xxxx.supabase.co"></div>
-      <div><label>Supabase public (anon) key</label><input id="can" placeholder="eyJ…"></div>
-      <button class="primary" onclick="saveCfg()">Save</button></div>`:`
-    <div><label>Email</label><input id="lem" type="email" autocomplete="username"></div>
-    <div><label>Password</label><input id="lpw" type="password" autocomplete="current-password"
-      onkeydown="if(event.key==='Enter')signIn()"></div>
-    <div class="row"><button class="primary" onclick="signIn()">Sign in</button>
-      <button class="tight" onclick="magic()">Email me a link</button></div>
-    <button onclick="google()">Continue with Google</button>
-    <div class="or">or</div>
-    <div><label>Admin API key</label><input id="lkey" type="password" placeholder="ak_… or the master key"
-      onkeydown="if(event.key==='Enter')keyIn()"></div>
-    <button onclick="keyIn()">Use key</button>
-    <div class="lo" style="font-size:12px">Only accounts the team allows can sign in. Every action is recorded.</div>`}
-  </div></div></div>`;
+  const msg = LOGIN_MSG?`<div class="alert ${LOGIN_MSG.kind==='info'?'info':''}">${ic(LOGIN_MSG.kind==='info'?'info':'errors')}<div>${esc(LOGIN_MSG.text)}</div></div>`:'';
+  return `<div class="login">
+    <div class="lart"><div class="grid-bg"></div>
+      <div class="brand" style="position:relative;padding:0"><span class="mk">${MARK}</span><div><b>Aethron</b><small style="color:#8d8995">Admin console</small></div></div>
+      <div style="position:relative"><h2>Every person, every copy, every switch.</h2>
+        <p>See who is using Aethron and what it is doing, fix what breaks, and steer it — for everyone at once or one person at a time.</p></div>
+      <div class="feats">
+        <div>${ic('live')}Live view of every open copy</div>
+        <div>${ic('power')}Kill switch, holds and per-part switches</div>
+        <div>${ic('announce')}Announcements with illustrations drawn by the admin AI</div>
+        <div>${ic('audit')}Every action recorded, by whom and how</div></div></div>
+    <div class="lform"><div class="box">
+      ${needCfg?`<h1>Connect the console</h1><div class="sub">Point it at your Aethron admin function.</div>${msg}
+        <div class="stack"><div><label class="f">Function address</label><input id="cfn" placeholder="https://xxxx.supabase.co/functions/v1/aethron"></div>
+        <div><label class="f">Supabase address</label><input id="csb" placeholder="https://xxxx.supabase.co"></div>
+        <div><label class="f">Supabase public (anon) key</label><input id="can" placeholder="eyJ…"></div>
+        <button class="btn primary" onclick="saveCfg()">Save</button></div>`:`
+      <h1>Sign in to the admin</h1><div class="sub">Only accounts the team allows can get in.</div>${msg}
+      <button class="btn gbtn" onclick="google()"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.6-.4-3.9z"/><path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z"/></svg>Continue with Google</button>
+      <div class="or">or with email</div>
+      <div class="stack">
+        <div><label class="f">Email</label><input id="lem" type="email" autocomplete="username" placeholder="you@company.com"></div>
+        <div><label class="f">Password</label><input id="lpw" type="password" autocomplete="current-password" onkeydown="if(event.key==='Enter')signIn()"></div>
+        <div class="row"><button class="btn primary" onclick="signIn()">Sign in</button><button class="btn tight" onclick="magic()">Email me a link</button></div>
+      </div>
+      <div class="or">or with a key</div>
+      <div class="row"><div><label class="f">Admin API key</label><input id="lkey" type="password" placeholder="ak_… or the master key" onkeydown="if(event.key==='Enter')keyIn()"></div>
+        <button class="btn tight" onclick="keyIn()">Use key</button></div>
+      <div class="lfoot">${ic('lock')}Every action is recorded with who did it.</div>`}
+    </div></div></div>`;
 }
 function saveCfg(){ const c={fn:$('cfn').value.trim(),supabase:$('csb').value.trim(),anon:$('can').value.trim()};
   localStorage.ae_admin_cfg=JSON.stringify(c); Object.assign(CFG,c); render(); }
-async function signIn(){ try{ const j=await gotrue('token?grant_type=password',{email:$('lem').value.trim(),password:$('lpw').value});
-  AUTH.set(j.access_token,j.refresh_token); await boot(); }catch(e){ toast(e.message,true) } }
-async function magic(){ try{ await gotrue('otp',{email:$('lem').value.trim(),create_user:false,
-  options:{email_redirect_to:location.origin+location.pathname}}); toast('Check your email for the sign-in link'); }catch(e){ toast(e.message,true) } }
+async function signIn(){ LOGIN_MSG=null; try{ const j=await gotrue('token?grant_type=password',{email:$('lem').value.trim(),password:$('lpw').value});
+  AUTH.set(j.access_token,j.refresh_token); await boot(); }catch(e){ LOGIN_MSG={kind:'error',text:e.message}; render(); } }
+async function magic(){ const em=$('lem').value.trim(); if(!em){ toast('Enter your email first',true); return }
+  try{ await gotrue('otp',{email:em,create_user:false,options:{email_redirect_to:location.origin+location.pathname}});
+  LOGIN_MSG={kind:'info',text:'Check '+em+' for a sign-in link.'}; render(); }catch(e){ LOGIN_MSG={kind:'error',text:e.message}; render(); } }
 function google(){ location.href=CFG.supabase.replace(/\/+$/,'')+'/auth/v1/authorize?provider=google&redirect_to='+
   encodeURIComponent(location.origin+location.pathname); }
-async function keyIn(){ AUTH.set($('lkey').value.trim(),'',false); await boot(); }
-function signOut(){ AUTH.clear(); ME=null; render(); }
+async function keyIn(){ LOGIN_MSG=null; AUTH.set($('lkey').value.trim(),'',false); await boot(true); }
+function signOut(){ AUTH.clear(); ME=null; LOGIN_MSG=null; render(); }
 
 /* ── shell ─────────────────────────────────────────────────────── */
-let ME=null, VIEW=(location.hash.slice(1)||'overview'), TICK=null;
+let ME=null, VIEW=(location.hash.slice(1)||'overview'), TICK=null, SNAP=null;
 const NAV = [
-  ['overview','Overview'],['live','Live now'],['users','Users'],['sep'],
-  ['controls','Switches'],['ai','AI & models'],['usage','Usage & spend'],['sep'],
-  ['errors','Errors'],['activity','Activity'],['runs','Agent runs'],['audit','Audit log'],['sep'],
-  ['assistant','Admin AI'],['access','API keys & MCP'],['exports','Exports'],
+  ['Monitor'],['overview','Overview','overview'],['live','Live now','live'],['users','People','users'],['usage','Usage & spend','usage'],
+  ['Health'],['errors','Errors','errors'],['activity','Activity','activity'],['runs','Agent runs','runs'],
+  ['Control'],['controls','Controls','controls'],['announce','Announcements','announce'],['ai','AI & models','ai'],
+  ['Team'],['assistant','Admin AI','sparkles'],['access','Access & API keys','key'],['audit','Audit log','audit'],['exports','Exports','exports'],
 ];
 function can(s){ return ME && ME.scopes.includes(s) }
 function shell(inner){
-  return `<div class="app"><nav>
-    <div class="brand"><span class="mk"></span><div>Aethron<small>Admin console</small></div></div>
-    ${NAV.map(([k,l])=>k==='sep'?'<div class="sep"></div>':`<a href="#${k}" class="${VIEW===k?'on':''}" onclick="go('${k}');return false">${l}</a>`).join('')}
-    <div class="me">${esc(ME.actor)}<br>${esc(ME.role)} · ${esc(ME.scopes.join(', '))}<br>
-      <a href="#" onclick="signOut();return false">Sign out</a> · <a href="#" onclick="theme();return false">theme</a></div>
-  </nav><main id="main">${inner}</main></div>`;
+  const c=(SNAP&&SNAP.control)||{};
+  const st=c.paused?['bad','Aethron is paused','Everyone is stopped']:['','Aethron is running',SNAP?`${n(SNAP.online_now)} open now · ${n(SNAP.users&&SNAP.users.total)} people`:'…'];
+  const role={owner:'Owner',admin:'Admin',viewer:'Viewer'}[ME.role]||ME.role;
+  return `<div class="app"><aside>
+    <div class="brand"><span class="mk">${MARK}</span><div><b>Aethron</b><small>Admin console</small></div></div>
+    <div class="status" onclick="go('controls')" title="Open controls"><span class="pulse ${st[0]}"></span><div class="lbl"><b>${st[1]}</b><span>${st[2]}</span></div></div>
+    <div class="navs">${NAV.map(x=>x.length===1?`<div class="grp">${x[0]}</div>`:
+      `<a href="#${x[0]}" class="nv ${VIEW===x[0]?'on':''}" onclick="go('${x[0]}');return false">${ic(x[2])}<span>${x[1]}</span>${
+        x[0]==='errors'&&SNAP&&SNAP.errors_24h?`<span class="badge">${n(SNAP.errors_24h)}</span>`:
+        x[0]==='live'&&SNAP&&SNAP.online_now?`<span class="badge ok">${n(SNAP.online_now)}</span>`:''}</a>`).join('')}</div>
+    <div class="me">${avatar(ME.email||ME.actor)}<div class="who"><b>${esc(ME.email||ME.actor)}</b><span>${esc(role)} · ${esc(ME.actor==='master key'?'master key':ME.via==='key'?'API key':'signed in')}</span></div>
+      <button class="btn ghost sm" title="Light / dark" onclick="theme()">${ic('sun')}</button>
+      <button class="btn ghost sm" title="Sign out" onclick="signOut()">${ic('logout')}</button></div>
+  </aside><main id="main">${inner}</main></div>`;
 }
 function theme(){ const r=document.documentElement; r.dataset.theme=r.dataset.theme==='light'?'dark':'light';
   localStorage.ae_theme=r.dataset.theme; }
 if(localStorage.ae_theme)document.documentElement.dataset.theme=localStorage.ae_theme;
 function go(v){ VIEW=v; location.hash=v; render(); }
-async function boot(){ try{ ME=await req('/admin/me') }catch(e){ if(AUTH.token)toast(e.message,true); ME=null } render(); }
+async function boot(viaKey){ try{ ME=await req('/admin/me',{quiet:!!viaKey}); LOGIN_MSG=null }
+  catch(e){ if(viaKey&&!ME)LOGIN_MSG={kind:'error',text:'That key was not accepted. Check it and try again.'}; ME=null }
+  if(ME){ try{ SNAP=await T('overview') }catch(e){} } render(); }
 async function render(){
   clearInterval(TICK); TICK=null;
   const root=$('root');
   if(!AUTH.token||!ME){ root.innerHTML=loginView(); return }
-  root.innerHTML=shell('<div class="empty"><span class="spin"></span></div>');
+  root.innerHTML=shell(`<div class="top"><div class="tt"><div class="skel" style="width:180px;height:24px"></div></div></div>
+    <div class="grid g4">${'<div class="card"><div class="skel" style="width:60%"></div><div class="skel" style="width:40%;height:26px;margin-top:14px"></div></div>'.repeat(4)}</div>`);
   try{ $('main').innerHTML = await (VIEWS[VIEW]||VIEWS.overview)() }
-  catch(e){ $('main').innerHTML=`<div class="card err">${esc(e.message)}</div>` }
+  catch(e){ if(e.message!=='signed out')$('main').innerHTML=`<div class="card bad">${esc(e.message)}</div>` }
 }
-async function refreshView(){ try{ $('main').innerHTML = await (VIEWS[VIEW]||VIEWS.overview)() }catch(e){} }
-function head(title, extra=''){ return `<div class="top"><h1>${esc(title)}</h1>${extra}<button onclick="refreshView()">Refresh</button></div>` }
-function tile(label, val, sub=''){ return `<div class="card kpi"><h3>${esc(label)}</h3><div class="n">${val}</div><div class="s">${sub}</div></div>` }
-function barList(rows, key='key', val='count'){
-  const max=Math.max(1,...rows.map(r=>+r[val]||0));
-  return rows.length?`<div class="stack">${rows.map(r=>`<div><div style="display:flex;justify-content:space-between;font-size:13px">
-    <span>${esc(r[key])}</span><span class="lo num">${n(r[val])}</span></div><div class="bar"><i style="width:${(+r[val]||0)/max*100}%"></i></div></div>`).join('')}</div>`
-    :'<div class="empty">nothing yet</div>';
-}
+async function refreshView(){ try{ const h=await (VIEWS[VIEW]||VIEWS.overview)(); if($('main'))$('main').innerHTML=h }catch(e){} }
+function head(title, sub='', extra=''){ return `<div class="top"><div class="tt"><h1>${esc(title)}</h1>${sub?`<p>${sub}</p>`:''}</div>${extra}
+  <button class="btn ghost" title="Refresh" onclick="refreshView()">${ic('refresh')}</button></div>` }
+function spark(vals, color='var(--acc)'){ const v=vals||[]; if(!v.length)return '';
+  const max=Math.max(...v,0.000001), w=92, h=34, st=w/(v.length-1||1);
+  const pts=v.map((x,i)=>`${(i*st).toFixed(1)},${(h-2-(x/max)*(h-6)).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>`; }
+function tile(label, val, sub='', icon='overview', sp='', cls=''){ return `<div class="card kpi ${cls}"><div class="kl"><span class="ki">${ic(icon)}</span>${esc(label)}</div>
+  <div class="n">${val}</div><div class="s">${sub}</div>${sp}</div>` }
+function barList(rows){ const max=Math.max(1,...rows.map(r=>+r.count||0));
+  return rows.length?`<div class="bl">${rows.map(r=>`<div class="r"><span>${r.label}</span><span class="t3 num">${n(r.count)}</span>
+    <div class="meter"><i style="width:${(+r.count||0)/max*100}%"></i></div></div>`).join('')}</div>`:empty('Nothing yet','overview'); }
+function empty(t, icon='info'){ return `<div class="empty">${ic(icon)}<div>${t}</div></div>` }
+const AIMODE={byok:'People’s own keys',managed:'Aethron’s AI',off:'Off'};
+function doing(a){ a=a||{}; return [a.agent?'Agent working'+(a.agent_in?' in '+esc(a.agent_in):''):'',a.job?esc(a.job)+(a.project?' · '+esc(a.project):''):'',
+  a.jobs?a.jobs+' job(s)':'',a.projects!==undefined?a.projects+' projects':''].filter(Boolean).join(' — ')||'<span class="t3">Idle</span>'; }
 
 /* ── views ─────────────────────────────────────────────────────── */
 const VIEWS = {};
 
 VIEWS.overview = async () => {
-  const o = await T('overview');
-  const c = o.control;
+  const o = await T('overview'); SNAP=o;
+  const c = o.control, tr=o.trend||{};
   TICK = setInterval(()=>{ if(VIEW==='overview')refreshView() }, 30000);
-  return head('Overview', `<span class="pill ${c.paused?'err':'ok'}"><span class="dot ${c.paused?'':'on'}"></span>${c.paused?'PAUSED':'Running'}</span>
-      <span class="pill">AI: ${esc(c.ai_mode)}${o.managed.model?' · '+esc(o.managed.model):''}</span>`)+`
-  ${c.paused?`<div class="kill on" style="margin-bottom:14px"><div style="flex:1"><div class="big">Aethron is paused for everyone</div>
-    <div class="dim">${esc(c.pause_message)}</div></div>${can('write')?'<button class="primary" onclick="resumeAll()">Resume</button>':''}</div>`:''}
-  <div class="grid k4">
-    ${tile('People',n(o.users.total),`+${o.users.new_24h} today · +${o.users.new_7d} this week`)}
-    ${tile('Online now',n(o.online_users),`${n(o.online_now)} copies open`)}
-    ${tile('Active in 24h',n(o.active_24h),'people or copies')}
-    ${tile('AI spend today',money(o.spend.today),`${n(o.spend.requests_today)} requests · ${o.spend.errors_today} failed`)}
-    ${tile('AI spend 30 days',money(o.spend.d30),`7 days: ${money(o.spend.d7)}`)}
-    ${tile('Errors in 24h',`<span class="${o.errors_24h?'err':''}">${n(o.errors_24h)}</span>`,`${o.top_errors.length} kinds`)}
-    ${tile('Agent runs 24h',n(o.agent_runs_24h),'MCP calls recorded')}
+  const hello=(ME.email||'').split('@')[0];
+  return head('Overview', `${hello?'Welcome back, '+esc(hello)+'. ':''}Updated ${ago(o.at)} · refreshes every 30 seconds.`,
+      `<span class="tag ${c.paused?'bad':'ok'}"><span class="dot ${c.paused?'':'on'}"></span>${c.paused?'Paused':'Running'}</span>
+       <span class="tag">${ic('ai')}${esc(AIMODE[c.ai_mode]||c.ai_mode)}${o.managed.model&&c.ai_mode==='managed'?' · '+esc(o.managed.model):''}</span>`)+`
+  ${c.paused?`<div class="kill on" style="margin-bottom:16px"><div class="kic">${ic('pause')}</div><div style="flex:1"><div class="big">Aethron is paused for everyone</div>
+    <div class="t2">People see: “${esc(c.pause_message)}”</div></div>${can('write')?`<button class="btn primary" onclick="resumeAll()">${ic('play')}Resume</button>`:''}</div>`:''}
+  <div class="grid g4">
+    ${tile('People',n(o.users.total),`+${n(o.users.new_24h)} today · +${n(o.users.new_7d)} this week`,'users',spark(tr.signups))}
+    ${tile('Online now',n(o.online_users),`${n(o.online_now)} copies open`,'live')}
+    ${tile('AI spend today',money(o.spend.today),`${n(o.spend.requests_today)} requests${o.spend.errors_today?' · '+o.spend.errors_today+' failed':''}`,'coin',spark(tr.spend))}
+    ${tile('Errors in 24h',n(o.errors_24h),o.top_errors.length?`${o.top_errors.length} kind${o.top_errors.length>1?'s':''} of problem`:'All clear','errors','',o.errors_24h?'kbad':'')}
   </div>
-  <div class="grid k2" style="margin-top:14px">
-    <div class="card"><h3>Where people are (7 days)</h3>${barList(o.countries.map(x=>({key:flag(x.key)+' '+(x.key||'unknown'),count:x.count})))}</div>
-    <div class="card"><h3>Top errors (24h)</h3>${o.top_errors.length?`<table>${o.top_errors.map(e=>`<tr class="click" onclick="errDetail(${jsq(e.fingerprint)})">
-      <td><b>${esc(e.kind||'?')}</b> <span class="lo">${esc(e.step||'')}</span><div class="dim">${esc((e.category||'').slice(0,90))}</div></td>
-      <td class="num">${e.count}×<div class="lo">${e.machines} copies</div></td></tr>`).join('')}</table>`:'<div class="empty">No errors in 24 hours.</div>'}</div>
-    <div class="card"><h3>Versions in use</h3>${barList(o.versions.map(x=>({key:x.key||'unknown',count:x.count})))}</div>
-    <div class="card"><h3>Quick switches</h3><div class="stack">
-      <div class="kill ${c.paused?'on':''}"><div style="flex:1"><div class="big">Kill switch</div><div class="dim">Stops every copy, every agent and the MCP.</div></div>
-        ${can('write')?(c.paused?'<button class="primary" onclick="resumeAll()">Resume</button>':'<button class="danger solid" onclick="pauseAll()">Pause everything</button>'):''}</div>
-      <div class="dim">Banner: ${c.banner?esc(c.banner):'<span class="lo">none</span>'}</div>
-      <div class="dim">Minimum version: ${esc(c.min_version||'none')}</div>
-      <div class="dim">Allowance: ${money(o.managed.default_daily_usd)}/person/day · ${o.managed.global_daily_usd?money(o.managed.global_daily_usd)+' for everyone':'no global limit'}</div>
+  <div class="grid g4" style="margin-top:14px">
+    ${tile('Active in 24h',n(o.active_24h),'people or copies','activity')}
+    ${tile('AI spend · 30 days',money(o.spend.d30),`7 days: ${money(o.spend.d7)}`,'usage')}
+    ${tile('Agent runs · 24h',n(o.agent_runs_24h),'outside agents over MCP','runs')}
+    ${tile('Daily allowance',money(o.managed.default_daily_usd),o.managed.global_daily_usd?money(o.managed.global_daily_usd)+' for everyone':'No global limit','controls')}
+  </div>
+  <div class="grid g2" style="margin-top:14px">
+    <div class="card"><div class="ch"><h3>Top problems</h3><span class="sub">last 24 hours</span>${o.top_errors.length?`<a href="#errors" onclick="go('errors');return false">View all</a>`:''}</div>
+      ${o.top_errors.length?`<div class="tw"><table>${o.top_errors.map(e=>`<tr class="click" onclick="errDetail(${jsq(e.fingerprint)})">
+      <td><b>${esc(e.category||e.kind||'Unknown')}</b><div class="t3">${esc(e.kind||'')}${e.step?' · '+esc(e.step):''}</div></td>
+      <td class="num"><b>${n(e.count)}×</b><div class="t3">${n(e.machines)} ${e.machines===1?'copy':'copies'}</div></td></tr>`).join('')}</table></div>`:empty('No errors in the last 24 hours.','check')}</div>
+    <div class="card"><div class="ch"><h3>Where people are</h3><span class="sub">last 7 days</span></div>
+      ${barList(o.countries.map(x=>({label:flag(x.key)+' '+esc(country(x.key))+` <span class="t3">${esc(x.key||'')}</span>`,count:x.count})))}</div>
+    <div class="card"><div class="ch"><h3>Versions in use</h3></div>${barList(o.versions.map(x=>({label:esc(x.key?'Aethron '+x.key:'Unknown'),count:x.count})))}</div>
+    <div class="card"><div class="ch"><h3>At a glance</h3></div><div class="stack">
+      <div class="feat"><div><b>Kill switch</b><div class="t3">${c.paused?'On — everyone is stopped':'Off — Aethron is running'}</div></div>
+        ${can('write')?(c.paused?`<button class="btn primary sm" onclick="resumeAll()">Resume</button>`:`<button class="btn danger sm" onclick="pauseAll()">${ic('pause')}Pause everything</button>`):''}</div>
+      <div class="feat"><div><b>Announcement</b><div class="t3">${c.announcement?esc(c.announcement.title):'None live'}</div></div><button class="btn sm" onclick="go('announce')">${c.announcement?'Manage':'New'}</button></div>
+      <div class="feat"><div><b>Top banner</b><div class="t3">${c.banner?esc(c.banner):'None'}</div></div><button class="btn sm" onclick="go('controls')">Edit</button></div>
+      <div class="feat"><div><b>Minimum version</b><div class="t3">${esc(c.min_version||'None')}</div></div><button class="btn sm" onclick="go('controls')">Edit</button></div>
     </div></div>
   </div>`;
 };
 
-async function pauseAll(){ const m=prompt('What should people see while Aethron is paused?','Aethron is paused for a moment while we fix something. Back soon.');
-  if(m===null)return; await act('pause_all',{message:m},'Aethron is paused for everyone'); refreshView(); }
-async function resumeAll(){ await act('resume_all',{},'Aethron is running again'); refreshView(); }
+async function pauseAll(){ const r=await dialog({title:'Pause Aethron for everyone?',
+  body:'Every copy stops: no messages, no agent turns, no MCP tools, no AI answers. Running agents stop at their next step. People see your message.',
+  fields:[{label:'What people will see',area:true,value:'Aethron is paused for a moment while we fix something. Back soon.'}],ok:'Pause everything',danger:true});
+  if(!r)return; await act('pause_all',{message:r[0]},'Aethron is paused for everyone'); SNAP=null; render(); }
+async function resumeAll(){ await act('resume_all',{},'Aethron is running again'); SNAP=null; render(); }
 
 VIEWS.live = async () => {
   const rows = await T('online_users');
   TICK = setInterval(()=>{ if(VIEW==='live')refreshView() }, 10000);
-  return head('Live now', `<span class="pill ok"><span class="dot on"></span>${rows.length} open</span>`)+`
-  <div class="card tw">${rows.length?`<table><tr><th>Person</th><th>Where</th><th>Doing</th><th>Version</th><th>System</th><th>Seen</th></tr>
-  ${rows.map(d=>{const a=d.activity||{};const doing=[a.agent?'agent working'+(a.agent_in?' in '+a.agent_in:''):'',a.job?a.job+(a.project?' · '+a.project:''):'',
-    a.jobs?a.jobs+' job(s)':'',a.projects!==undefined?a.projects+' projects':''].filter(Boolean).join(' — ')||'<span class="lo">idle</span>';
-    return `<tr class="${d.user_id?'click':''}" ${d.user_id?`onclick="userDrawer(${jsq(d.user_id)})"`:''}>
-    <td>${d.email?esc(d.email):'<span class="lo">not signed in</span>'}<div class="lo mono">${esc(d.machine)}</div></td>
-    <td>${flag(d.country)} ${esc(d.country||'?')}<div class="lo">${esc(d.region||'')}</div></td>
-    <td>${doing}</td><td>${esc(d.version)}</td><td class="lo">${esc(d.os)} ${esc(d.arch)}</td><td class="lo">${ago(d.last_seen)}</td></tr>`}).join('')}</table>`
-    :'<div class="empty">Nobody has Aethron open right now.</div>'}</div>`;
+  return head('Live now', 'Every copy of Aethron that checked in during the last 2½ minutes. Refreshes every 10 seconds.',
+    `<span class="tag ok"><span class="dot on"></span>${rows.length} open</span>`)+`
+  <div class="card flush"><div class="tw">${rows.length?`<table><tr><th>Person</th><th>Where</th><th>What it is doing</th><th>Version</th><th>Device</th><th>Last check-in</th></tr>
+  ${rows.map(d=>`<tr class="${d.user_id?'click':''}" ${d.user_id?`onclick="userDrawer(${jsq(d.user_id)})"`:''}>
+    <td>${person(d.email,`<span class="mono">${esc(d.machine)}</span>`)}</td>
+    <td class="where">${flag(d.country)} ${esc(country(d.country))}<div class="t3">${esc(d.region||'')}</div></td>
+    <td>${doing(d.activity)}</td><td>${esc(d.version||'—')}</td><td class="t3">${esc(d.os)} ${esc(d.arch)}</td><td class="t3">${ago(d.last_seen)}</td></tr>`).join('')}</table>`
+    :empty('Nobody has Aethron open right now.','live')}</div></div>`;
 };
 
 let USERQ='';
 VIEWS.users = async () => {
   const r = await T('list_users',{q:USERQ,limit:300});
-  return head('Users', `<span class="pill">${n(r.total)} accounts</span>`)+`
-  <div class="card"><div class="row" style="margin-bottom:12px"><input id="uq" placeholder="Search email, country, plan…" value="${esc(USERQ)}"
-    onkeydown="if(event.key==='Enter'){USERQ=this.value;refreshView()}"></div>
-  <div class="tw"><table><tr><th></th><th>Email</th><th>Country</th><th>Plan</th><th>Version</th><th>Joined</th><th>Last seen</th><th class="num">AI 30d</th><th>Status</th></tr>
-  ${r.users.map(u=>`<tr class="click" onclick="userDrawer(${jsq(u.id)})"><td><span class="dot ${u.online?'on':''}"></span></td>
-    <td>${esc(u.email)}</td><td>${flag(u.country)} ${esc(u.country||'—')}</td><td>${esc(u.plan)}</td><td class="lo">${esc(u.version||'—')}</td>
-    <td class="lo">${ago(u.created_at)}</td><td class="lo">${ago(u.last_seen)}</td><td class="num">${money(u.spend_30d)}</td>
-    <td>${u.blocked?'<span class="pill err">on hold</span>':''}${u.ai_mode?`<span class="pill">${esc(u.ai_mode)}</span>`:''}</td></tr>`).join('')}
-  </table></div></div>`;
+  return head('People', `${n(r.total)} accounts${USERQ?' matching “'+esc(USERQ)+'”':''}. Click anyone for their full record.`)+`
+  <div class="card flush"><div style="padding:14px 16px;border-bottom:1px solid var(--line)"><div style="position:relative">
+    <span style="position:absolute;left:11px;top:9px;color:var(--t3)">${ic('search')}</span>
+    <input id="uq" style="padding-left:36px" placeholder="Search by email, country or plan — press Enter" value="${esc(USERQ)}"
+    onkeydown="if(event.key==='Enter'){USERQ=this.value;refreshView()}"></div></div>
+  <div class="tw">${r.users.length?`<table><tr><th>Person</th><th>Country</th><th>Plan</th><th>Version</th><th>Joined</th><th>Last seen</th><th class="num">AI · 30 days</th><th>Status</th></tr>
+  ${r.users.map(u=>`<tr class="click" onclick="userDrawer(${jsq(u.id)})">
+    <td>${person(u.email,u.online?'<span class="okc">● online</span>':'')}</td><td>${flag(u.country)} ${esc(u.country?country(u.country):'—')}</td>
+    <td><span class="tag ${u.plan==='free'?'':'acc'}">${esc(u.plan)}</span></td><td class="t3">${esc(u.version||'—')}</td>
+    <td class="t3">${ago(u.created_at)}</td><td class="t3">${ago(u.last_seen)}</td><td class="num">${money(u.spend_30d)}</td>
+    <td>${u.blocked?'<span class="tag bad">On hold</span>':'<span class="tag ok">Active</span>'}${u.ai_mode?` <span class="tag">${esc(AIMODE[u.ai_mode]||u.ai_mode)}</span>`:''}</td></tr>`).join('')}
+  </table>`:empty('No one matches.','search')}</div></div>`;
 };
 
+function closeDrawer(){ document.querySelectorAll('.drawer,.shade').forEach(x=>x.remove()) }
 async function userDrawer(id){
-  const close = ()=>{ document.querySelectorAll('.drawer,.shade').forEach(x=>x.remove()) };
-  close();
-  const sh=document.createElement('div'); sh.className='shade'; sh.onclick=close; document.body.appendChild(sh);
+  closeDrawer();
+  const sh=document.createElement('div'); sh.className='shade'; sh.onclick=closeDrawer; document.body.appendChild(sh);
   const d=document.createElement('div'); d.className='drawer'; d.innerHTML='<div class="empty"><span class="spin"></span></div>'; document.body.appendChild(d);
-  let u; try{ u = await T('get_user',{user:id}) }catch(e){ d.innerHTML=`<div class="card err">${esc(e.message)}</div>`; return }
+  let u; try{ u = await T('get_user',{user:id}) }catch(e){ d.innerHTML=`<div class="card bad">${esc(e.message)}</div>`; return }
   const c=u.controls||{}, A=u.account;
   const tab=(k)=>{ d.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
     d.querySelector('#utab').innerHTML=({
-      devices:`<table><tr><th>Copy</th><th>Where</th><th>Version</th><th>Doing</th><th>Seen</th><th></th></tr>${u.devices.map(x=>`<tr>
-        <td class="mono">${esc(x.machine)}${x.revoked_at?' <span class="pill err">cut off</span>':''}</td><td>${flag(x.country)} ${esc(x.country)} <span class="lo">${esc(x.region)}</span></td>
-        <td>${esc(x.version)} <span class="lo">${esc(x.os)}</span></td><td class="lo mono">${esc(JSON.stringify(x.activity||{}))}</td>
-        <td class="lo">${ago(x.last_seen)}</td><td>${can('write')&&!x.revoked_at?`<button class="danger" onclick="revokeDev(${jsq(x.machine)})">Cut off</button>`:''}</td></tr>`).join('')}</table>`,
-      usage:`<div class="grid k4" style="margin-bottom:12px">${tile('Today',money(u.spend.today))}${tile('7 days',money(u.spend.d7))}${tile('30 days',money(u.spend.d30))}${tile('Requests 90d',n(u.spend.requests_90d))}</div>
-        <table><tr><th>When</th><th>Model</th><th>Purpose</th><th class="num">In</th><th class="num">Out</th><th class="num">Cost</th><th>Status</th></tr>${u.usage.map(r=>`<tr>
-        <td class="lo">${when(r.at)}</td><td>${esc(r.model)}</td><td>${esc(r.purpose)}</td><td class="num">${n(r.input_tokens)}</td><td class="num">${n(r.output_tokens)}</td>
-        <td class="num">${money(r.cost_usd)}${r.estimated?' <span class="lo">est.</span>':''}</td><td>${r.status==='ok'?'':'<span class="err">'+esc(r.status)+'</span>'}</td></tr>`).join('')}</table>`,
-      events:u.events.length?`<table>${u.events.map(e=>`<tr><td class="lo" style="white-space:nowrap">${when(e.created_at)}</td><td><b>${esc(e.event)}</b></td><td class="mono lo">${esc(JSON.stringify(e.props||{}))}</td></tr>`).join('')}</table>`:'<div class="empty">No events.</div>',
-      errors:u.failures.length?`<table>${u.failures.map(f=>`<tr class="click" onclick="errDetail(${jsq(f.fingerprint)})"><td class="lo">${when(f.received_at)}</td>
-        <td><b>${esc(f.kind)}</b> ${esc(f.step||'')}<div class="dim">${esc(f.category||'')}</div></td><td class="lo">${esc(f.app_version||'')}</td></tr>`).join('')}</table>`:'<div class="empty">No errors from this person.</div>',
-      runs:u.agent_runs.length?`<table>${u.agent_runs.map(r=>`<tr><td class="lo">${when(r.received_at)}</td><td>${esc(r.caller)}</td><td><b>${esc(r.tool)}</b></td><td>${esc(r.project||'')}</td><td>${esc(r.status)}</td><td class="num lo">${r.ms}ms</td></tr>`).join('')}</table>`:'<div class="empty">No agent runs.</div>',
+      devices:u.devices.length?`<table><tr><th>Device</th><th>Where</th><th>Version</th><th>What it is doing</th><th>Last check-in</th><th></th></tr>${u.devices.map(x=>`<tr>
+        <td><span class="mono">${esc(x.machine)}</span>${x.revoked_at?' <span class="tag bad">Disconnected</span>':''}<div class="t3">${esc(x.os)}</div></td>
+        <td class="where">${flag(x.country)} ${esc(country(x.country))}<div class="t3">${esc(x.region)}</div></td>
+        <td>${esc(x.version)}</td><td>${doing(x.activity)}</td>
+        <td class="t3">${ago(x.last_seen)}</td><td>${can('write')&&!x.revoked_at?`<button class="btn danger sm" onclick="revokeDev(${jsq(x.machine)})">Disconnect</button>`:''}</td></tr>`).join('')}</table>`:empty('No devices yet.','device'),
+      usage:`<div class="grid g4" style="padding:14px">${tile('Today',money(u.spend.today),'','coin')}${tile('7 days',money(u.spend.d7),'','coin')}${tile('30 days',money(u.spend.d30),'','coin')}${tile('Requests · 90 days',n(u.spend.requests_90d),'','activity')}</div>
+        ${u.usage.length?`<table><tr><th>When</th><th>Model</th><th>Purpose</th><th class="num">Tokens in</th><th class="num">Tokens out</th><th class="num">Cost</th><th>Result</th></tr>${u.usage.map(r=>`<tr>
+        <td class="t3">${when(r.at)}</td><td>${esc(r.model)}</td><td>${esc(r.purpose)}</td><td class="num">${n(r.input_tokens)}</td><td class="num">${n(r.output_tokens)}</td>
+        <td class="num">${money(r.cost_usd)}${r.estimated?' <span class="t3">est.</span>':''}</td><td>${r.status==='ok'?'<span class="tag ok">OK</span>':'<span class="tag bad">'+esc(r.status)+'</span>'}</td></tr>`).join('')}</table>`:empty('No AI requests on Aethron’s AI.','coin')}`,
+      events:u.events.length?`<table><tr><th>When</th><th>What</th><th>Details</th></tr>${u.events.map(e=>`<tr><td class="t3" style="white-space:nowrap">${when(e.created_at)}</td><td><b>${esc(e.event)}</b></td><td class="mono t3">${esc(JSON.stringify(e.props||{}))}</td></tr>`).join('')}</table>`:empty('No activity recorded.','activity'),
+      errors:u.failures.length?`<table><tr><th>When</th><th>What failed</th><th>Version</th></tr>${u.failures.map(f=>`<tr class="click" onclick="errDetail(${jsq(f.fingerprint)})"><td class="t3">${when(f.received_at)}</td>
+        <td><b>${esc(f.category||f.kind)}</b><div class="t3">${esc(f.kind)}${f.step?' · '+esc(f.step):''}</div></td><td class="t3">${esc(f.app_version||'')}</td></tr>`).join('')}</table>`:empty('No errors from this person.','check'),
+      runs:u.agent_runs.length?`<table><tr><th>When</th><th>Agent</th><th>Tool</th><th>Project</th><th>Result</th><th class="num">Time</th></tr>${u.agent_runs.map(r=>`<tr><td class="t3">${when(r.received_at)}</td><td>${esc(r.caller)}</td><td><b>${esc(r.tool)}</b></td><td>${esc(r.project||'')}</td><td>${esc(r.status)}</td><td class="num t3">${r.ms}ms</td></tr>`).join('')}</table>`:empty('No agent runs.','runs'),
     })[k]; };
-  d.innerHTML = `<div class="top"><h1>${esc(A.email)}</h1><span class="pill ${u.online?'ok':''}"><span class="dot ${u.online?'on':''}"></span>${u.online?'online':'offline'}</span>
-    ${c.blocked?'<span class="pill err">on hold</span>':''}<button onclick="this.closest('.drawer').remove();document.querySelector('.shade')?.remove()">Close</button></div>
-  <div class="grid k2">
-    <div class="card stack"><h3>Account</h3>
-      <div class="dim">Joined ${when(A.created_at)} · last sign-in ${when(A.last_sign_in_at)}</div>
-      <div class="dim">Signs in with ${esc((A.providers||[]).join(', ')||'email')} · plan <b>${esc(u.plan)}</b></div>
-      <div class="lo mono">${esc(A.id)}</div>
-      ${c.block_reason?`<div class="err">Hold: ${esc(c.block_reason)}</div>`:''}
-      ${c.notice?`<div class="dim">Notice shown to them: ${esc(c.notice)}</div>`:''}
-    </div>
-    <div class="card stack"><h3>Actions</h3>${can('write')?`
-      <div class="row">${c.blocked?`<button onclick="uAct('unblock_user',{user:${jsq(A.id)}})">Lift hold</button>`
-        :`<button class="danger" onclick="blockU(${jsq(A.id)})">Put on hold</button>`}
-        <button onclick="uAct('sign_out_user',{user:${jsq(A.id)}},'Signed out of every copy')">Sign out everywhere</button></div>
-      <div class="row"><div><label>Daily AI allowance ($, empty = default, 0 = unlimited)</label>
-        <input id="ulim" value="${c.daily_usd??''}"></div><button class="tight" onclick="setLim(${jsq(A.id)})">Set</button></div>
-      <div class="row"><div><label>Who powers their AI</label><select id="umode"><option value="">follow everyone</option>
-        ${['byok','managed','off'].map(m=>`<option ${c.ai_mode===m?'selected':''}>${m}</option>`).join('')}</select></div>
-        <button class="tight" onclick="uAct('set_user_ai_mode',{user:${jsq(A.id)},mode:$('umode').value})">Set</button></div>
-      <div class="row"><div><label>Plan</label><select id="uplan">${['free','pro','studio'].map(p=>`<option ${u.plan===p?'selected':''}>${p}</option>`).join('')}</select></div>
-        <button class="tight" onclick="uAct('set_user_plan',{user:${jsq(A.id)},plan:$('uplan').value})">Set</button></div>
-      <div><label>Message in their app</label><div class="row"><input id="unote" value="${esc(c.notice||'')}">
-        <button class="tight" onclick="uAct('notify_user',{user:${jsq(A.id)},notice:$('unote').value})">Send</button></div></div>
-      <div><label>Private admin note</label><div class="row"><input id="upriv" value="${esc(u.note||'')}">
-        <button class="tight" onclick="uAct('note_user',{user:${jsq(A.id)},note:$('upriv').value})">Save</button></div></div>
-      ${can('owner')?`<button class="danger" onclick="delU(${jsq(A.id)},${jsq(A.email)})">Delete account…</button>`:''}`:'<div class="lo">Read-only access.</div>'}
+  const w=can('write');
+  d.innerHTML = `<div class="top"><div class="tt" style="display:flex;align-items:center;gap:14px">${avatar(A.email).replace('class="av"','class="av" style="width:46px;height:46px;font-size:18px"')}
+    <div><h1>${esc(A.email)}</h1><p><span class="tag ${u.online?'ok':''}"><span class="dot ${u.online?'on':''}"></span>${u.online?'Online now':'Offline'}</span>
+    <span class="tag acc">${esc(u.plan)}</span>${c.blocked?' <span class="tag bad">On hold</span>':''}</p></div></div>
+    <button class="btn" onclick="closeDrawer()">${ic('x')}Close</button></div>
+  <div class="grid g2">
+    <div class="card"><div class="ch"><h3>Account</h3></div><div>
+      <div class="kv"><span class="t2">Joined</span><span>${when(A.created_at)}</span></div>
+      <div class="kv"><span class="t2">Last sign-in</span><span>${when(A.last_sign_in_at)}</span></div>
+      <div class="kv"><span class="t2">Signs in with</span><span>${esc((A.providers||[]).join(', ')||'email')}</span></div>
+      <div class="kv"><span class="t2">AI spend · 30 days</span><span>${money(u.spend.d30)}</span></div>
+      ${c.block_reason?`<div class="alert" style="margin-top:12px">${ic('lock')}<div>On hold: ${esc(c.block_reason)}</div></div>`:''}
+      ${c.notice?`<div class="alert info" style="margin-top:12px">${ic('info')}<div>Message showing in their app: ${esc(c.notice)}</div></div>`:''}
+      <div class="t3 mono" style="margin-top:12px">${esc(A.id)}</div></div></div>
+    <div class="card"><div class="ch"><h3>Actions</h3></div>${w?`<div class="stack">
+      <div class="row"><button class="btn ${c.blocked?'':'danger'}" onclick="${c.blocked?`uAct('unblock_user',{user:${jsq(A.id)}},'Hold lifted')`:`blockU(${jsq(A.id)})`}">${ic('lock')}${c.blocked?'Lift hold':'Put on hold'}</button>
+        <button class="btn" onclick="signOutU(${jsq(A.id)})">${ic('logout')}Sign out everywhere</button></div>
+      <div class="row"><div><label class="f">Daily AI allowance</label><input id="ulim" value="${c.daily_usd??''}" placeholder="Default"><div class="hint">Dollars per day. Empty = the default. 0 = unlimited.</div></div>
+        <button class="btn tight" onclick="setLim(${jsq(A.id)})">Save</button></div>
+      <div class="row"><div><label class="f">Who powers their AI</label><select id="umode"><option value="">Same as everyone</option>
+        ${['byok','managed','off'].map(m=>`<option value="${m}" ${c.ai_mode===m?'selected':''}>${AIMODE[m]}</option>`).join('')}</select></div>
+        <div><label class="f">Plan</label><select id="uplan">${['free','pro','studio'].map(p=>`<option ${u.plan===p?'selected':''}>${p}</option>`).join('')}</select></div>
+        <button class="btn tight" onclick="uAct('set_user_ai_mode',{user:${jsq(A.id)},mode:$('umode').value},'Saved').then(()=>uAct('set_user_plan',{user:${jsq(A.id)},plan:$('uplan').value},'Plan saved'))">Save</button></div>
+      <div><label class="f">Message in their app</label><div class="row"><input id="unote" value="${esc(c.notice||'')}" placeholder="Shown only to this person">
+        <button class="btn tight" onclick="uAct('notify_user',{user:${jsq(A.id)},notice:$('unote').value},'Message sent')">Send</button></div></div>
+      <div><label class="f">Private note (admins only)</label><div class="row"><input id="upriv" value="${esc(u.note||'')}">
+        <button class="btn tight" onclick="uAct('note_user',{user:${jsq(A.id)},note:$('upriv').value},'Note saved')">Save</button></div></div>
+      ${can('owner')?`<div><button class="btn danger" onclick="delU(${jsq(A.id)},${jsq(A.email)})">Delete account…</button></div>`:''}</div>`:'<div class="t3">You have read-only access.</div>'}
     </div>
   </div>
-  <div class="tabs">${[['devices','Copies & where'],['usage','AI usage'],['events','Activity'],['errors','Errors'],['runs','Agent runs']].map(([k,l])=>
-    `<button data-k="${k}">${l}</button>`).join('')}</div><div id="utab" class="card tw"></div>`;
+  <div class="tabs">${[['devices','Devices & location'],['usage','AI usage'],['events','Activity'],['errors','Errors'],['runs','Agent runs']].map(([k,l])=>
+    `<button data-k="${k}">${l}</button>`).join('')}</div><div id="utab" class="card flush tw"></div>`;
   d.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.k));
   tab('devices');
   window._uReload=()=>userDrawer(id);
 }
 async function uAct(tool,args,msg){ await act(tool,args,msg); window._uReload&&window._uReload(); }
-function blockU(id){ const r=prompt('Reason (shown to them):',''); if(r===null)return; uAct('block_user',{user:id,reason:r},'On hold'); }
-function setLim(id){ const v=$('ulim').value.trim(); uAct('set_user_limit',{user:id,daily_usd:v===''?null:+v},'Allowance set'); }
-function revokeDev(m){ if(!confirm('Cut off this copy? It must sign in again.'))return; uAct('revoke_device',{machine:m},'Copy cut off'); }
-async function delU(id,email){ const c=prompt(`This deletes ${email} for good. Type their email to confirm:`); if(!c)return;
-  await act('delete_user',{user:id,confirm:c},'Account deleted'); document.querySelectorAll('.drawer,.shade').forEach(x=>x.remove()); refreshView(); }
+async function blockU(id){ const r=await dialog({title:'Put this person on hold?',body:'Their copies of Aethron stop until you lift it. They see your reason.',
+  fields:[{label:'Reason (shown to them)',placeholder:'e.g. Payment failed — update your card to continue'}],ok:'Put on hold',danger:true});
+  if(r)uAct('block_user',{user:id,reason:r[0]},'On hold'); }
+async function signOutU(id){ if(await dialog({title:'Sign them out everywhere?',body:'Every copy they use signs out and they must sign in again.',ok:'Sign out'}))
+  uAct('sign_out_user',{user:id},'Signed out of every copy'); }
+function setLim(id){ const v=$('ulim').value.trim(); uAct('set_user_limit',{user:id,daily_usd:v===''?null:+v},'Allowance saved'); }
+async function revokeDev(m){ if(!await dialog({title:'Disconnect this device?',body:'It is signed out and must sign in again.',ok:'Disconnect',danger:true}))return;
+  uAct('revoke_device',{machine:m},'Device disconnected'); }
+async function delU(id,email){ const r=await dialog({title:'Delete this account for good?',body:`This removes <b>${esc(email)}</b> and everything linked to it. It cannot be undone.`,
+  fields:[{label:'Type their email to confirm',placeholder:email}],ok:'Delete account',danger:true}); if(!r)return;
+  await act('delete_user',{user:id,confirm:r[0]},'Account deleted'); closeDrawer(); refreshView(); }
 
 VIEWS.controls = async () => {
   const c = await T('get_control');
   const F = c.features||{};
-  const labels={agent:['The coding agent','Chat and the agent inside the app'],mcp:["Aethron's MCP",'Outside coding agents (Claude Code, Cursor…) driving Aethron'],
-    migrate:['Migrating & building','Templates, builds, edits, heals'],screenshot:['Screenshot to code','Pages rebuilt from images'],
-    publish:['Publishing','One-click publish to Netlify'],signup:['New sign-ups','Creating new accounts in the app']};
+  const labels={agent:['The coding agent','Chat and the agent inside the app','sparkles'],mcp:['MCP for outside agents','Claude Code, Cursor and other agents driving Aethron','runs'],
+    migrate:['Migrating & building','Templates, builds, edits and self-heal','wand'],screenshot:['Screenshot to code','Pages rebuilt from images','overview'],
+    publish:['Publishing','One-click publish to Netlify','globe'],signup:['New sign-ups','Creating new accounts in the app','user']};
   const w=can('write');
-  return head('Switches')+`<div class="stack">
-  <div class="kill ${c.paused?'on':''}"><div style="flex:1"><div class="big">${c.paused?'Aethron is PAUSED for everyone':'Kill switch'}</div>
-    <div class="dim">Stops every copy of Aethron: no messages, no agent turns, no MCP tools, no AI answers. Running agents stop at their next step.</div></div>
-    ${w?(c.paused?'<button class="primary" onclick="resumeAll()">Resume everything</button>':'<button class="danger solid" onclick="pauseAll()">Pause everything</button>'):''}</div>
-  <div class="grid k2">
-    <div class="card stack"><h3>Message while paused</h3><textarea id="cpm">${esc(c.pause_message)}</textarea>
-      ${w?`<button onclick="setC({pause_message:$('cpm').value})">Save message</button>`:''}</div>
-    <div class="card stack"><h3>Announcement banner (every copy)</h3><textarea id="cbn" placeholder="e.g. Maintenance at 18:00 UTC">${esc(c.banner)}</textarea>
-      <div class="row"><select id="cbl">${['info','warn','critical'].map(l=>`<option ${c.banner_level===l?'selected':''}>${l}</option>`).join('')}</select>
-      ${w?`<button class="tight" onclick="act('set_banner',{text:$('cbn').value,level:$('cbl').value},'Banner updated')">Publish banner</button>
-      <button class="tight" onclick="act('set_banner',{text:''},'Banner removed').then(refreshView)">Remove</button>`:''}</div></div>
+  return head('Controls','What every copy of Aethron obeys. Copies pick changes up within a minute; Aethron’s AI obeys at once.')+`<div class="stack">
+  <div class="kill ${c.paused?'on':''}"><div class="kic">${ic(c.paused?'pause':'power')}</div><div style="flex:1"><div class="big">${c.paused?'Aethron is paused for everyone':'Kill switch'}</div>
+    <div class="t2">${c.paused?'People see: “'+esc(c.pause_message)+'”':'Stops every copy at once: no messages, no agent turns, no MCP tools, no AI answers. Running agents stop at their next step.'}</div></div>
+    ${w?(c.paused?`<button class="btn primary" onclick="resumeAll()">${ic('play')}Resume everything</button>`:`<button class="btn danger solid" onclick="pauseAll()">${ic('pause')}Pause everything</button>`):''}</div>
+  <div class="grid g2">
+    <div class="card"><div class="ch"><h3>Parts of Aethron</h3><span class="sub">switch one part off for everyone</span></div>
+      ${Object.keys(labels).map(k=>`<div class="feat"><div style="display:flex;gap:12px;align-items:center"><span class="kpi"><span class="ki">${ic(labels[k][2])}</span></span><div><b>${labels[k][0]}</b><div class="t3">${labels[k][1]}</div></div></div>
+      <label class="sw"><input type="checkbox" ${F[k]!==false?'checked':''} ${w?'':'disabled'} onchange="act('set_feature',{feature:'${k}',on:this.checked},'${labels[k][0]} '+(this.checked?'on':'off'))"><span></span></label></div>`).join('')}</div>
+    <div class="stack">
+      <div class="card"><div class="ch"><h3>Top banner</h3><span class="sub">a one-line notice on every copy</span></div><div class="stack">
+        <textarea id="cbn" placeholder="e.g. Maintenance tonight at 22:00 UTC — about ten minutes.">${esc(c.banner)}</textarea>
+        <div class="row" style="align-items:center"><div class="seg" id="cbl">${['info','warn','critical'].map(l=>`<button class="${(c.banner_level||'info')===l?'on':''}" onclick="segPick(this)" data-v="${l}">${{info:'Info',warn:'Warning',critical:'Critical'}[l]}</button>`).join('')}</div>
+        ${w?`<span style="flex:1"></span><button class="btn tight ghost" onclick="act('set_banner',{text:''},'Banner removed').then(refreshView)">Remove</button>
+        <button class="btn primary tight" onclick="act('set_banner',{text:$('cbn').value,level:segVal('cbl')},'Banner published')">Publish</button>`:''}</div>
+        <div class="hint">For news people should see once, with an illustration, use <a href="#announce" onclick="go('announce');return false">Announcements</a>.</div></div></div>
+      <div class="card"><div class="ch"><h3>Message while paused</h3></div><div class="stack"><textarea id="cpm">${esc(c.pause_message)}</textarea>
+        ${w?`<div><button class="btn" onclick="act('set_control',{patch:{pause_message:$('cpm').value}},'Saved')">Save message</button></div>`:''}</div></div>
+      <div class="card"><div class="ch"><h3>Minimum version</h3></div><div class="row"><div><input id="cmv" value="${esc(c.min_version)}" placeholder="e.g. 1.1.60">
+        <div class="hint">Older copies must update before they work. Empty = no minimum.</div></div>${w?`<button class="btn tight" onclick="act('set_min_version',{version:$('cmv').value.trim()},'Saved')">Save</button>`:''}</div></div>
+    </div>
   </div>
-  <div class="card"><h3>Parts of Aethron</h3>${Object.keys(labels).map(k=>`<div class="feat"><div><b>${labels[k][0]}</b><div class="lo">${labels[k][1]}</div></div>
-    <label class="switch"><input type="checkbox" ${F[k]!==false?'checked':''} ${w?'':'disabled'} onchange="act('set_feature',{feature:'${k}',on:this.checked},'${labels[k][0]} '+(this.checked?'on':'off'))"><span></span></label></div>`).join('')}</div>
-  <div class="card stack"><h3>Minimum version</h3><div class="dim">Copies older than this must update before they work. Empty = no minimum.</div>
-    <div class="row"><input id="cmv" value="${esc(c.min_version)}" placeholder="e.g. 1.1.60">${w?`<button class="tight" onclick="act('set_min_version',{version:$('cmv').value.trim()},'Saved')">Save</button>`:''}</div></div>
-  <div class="lo" style="font-size:12px">Last changed ${when(c.updated_at)} by ${esc(c.updated_by||'—')}. Copies pick changes up within a minute; the managed AI obeys at once.</div>
+  <div class="t3" style="font-size:12px">Last changed ${when(c.updated_at)} by ${esc(c.updated_by||'—')}.</div>
   </div>`;
 };
-async function setC(patch){ await act('set_control',{patch},'Saved'); }
+function segPick(b){ b.parentNode.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b)); }
+function segVal(id){ const b=$(id)&&$(id).querySelector('button.on'); return b?b.dataset.v:'' }
+
+/* ── announcements ───────────────────────────────────────────────── */
+let ANN={title:'',body:'',level:'info',cta_label:'',cta_url:'',brief:'',banner:false,svg:'',note:'',busy:false};
+VIEWS.announce = async () => {
+  const [list, c] = await Promise.all([T('list_announcements',{limit:30}), T('get_control')]);
+  const live=list.find(a=>a.live), w=can('write');
+  setTimeout(annPreview,0);
+  return head('Announcements','A card every copy of Aethron shows once — with an animated illustration the admin AI draws for it.')+`
+  ${live?`<div class="kill" style="margin-bottom:16px"><div class="kic" style="background:var(--acc-bg);color:var(--acc2)">${ic('announce')}</div><div style="flex:1">
+    <div class="big">Live: ${esc(live.title)}</div><div class="t2">Published ${ago(live.created_at)} by ${esc(live.created_by)} · people see it once, on their next check-in.</div></div>
+    ${w?`<button class="btn" onclick="endAnn()">End it</button>`:''}</div>`:''}
+  <div class="ann">
+    <div class="card"><div class="ch"><h3>New announcement</h3></div><div class="stack">
+      <div><label class="f">Headline</label><input id="at" maxlength="120" placeholder="e.g. Screenshots now build whole sites" value="${esc(ANN.title)}" oninput="annSync()"></div>
+      <div><label class="f">What to tell people</label><textarea id="ab" maxlength="600" placeholder="One or two plain sentences." oninput="annSync()">${esc(ANN.body)}</textarea></div>
+      <div class="row" style="align-items:flex-end"><div style="flex:0 0 auto"><label class="f">Tone</label><div class="seg" id="al">${['info','warn','critical'].map(l=>`<button class="${ANN.level===l?'on':''}" data-v="${l}" onclick="segPick(this);annSync()">${{info:'News',warn:'Heads-up',critical:'Urgent'}[l]}</button>`).join('')}</div></div>
+        <label style="display:flex;gap:10px;align-items:center;flex:0 0 auto;padding-bottom:6px"><span class="sw"><input type="checkbox" id="abn" ${ANN.banner?'checked':''} onchange="annSync()"><span></span></span><span class="t2">Also pin as top banner</span></label></div>
+      <div class="row"><div><label class="f">Button label <span class="t3">(optional)</span></label><input id="acl" placeholder="Learn more" value="${esc(ANN.cta_label)}" oninput="annSync()"></div>
+        <div><label class="f">Button opens <span class="t3">(optional)</span></label><input id="acu" placeholder="https://…" value="${esc(ANN.cta_url)}" oninput="annSync()"></div></div>
+      <div><label class="f">Illustration direction <span class="t3">(optional)</span></label><input id="abr" placeholder="e.g. a rocket leaving a launch pad, a calendar with tonight circled" value="${esc(ANN.brief)}" oninput="annSync()">
+        <div class="hint">The admin AI draws an animated illustration in Aethron’s house style. Without an admin AI, a matching house illustration is used.</div></div>
+      ${w?`<div class="row"><button class="btn tight" id="adraw" onclick="annDraw()">${ic('wand')}${ANN.svg?'Redraw illustration':'Draw illustration'}</button>
+        <span style="flex:1"></span><button class="btn primary tight" id="apub" onclick="annPublish()">${ic('send')}Publish to everyone</button></div>`:'<div class="t3">Read-only access.</div>'}
+    </div></div>
+    <div class="preview"><div class="t3" style="font-size:12px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px">How it looks in Aethron</div>
+      <div id="apv"></div><div id="anote"></div></div>
+  </div>
+  <div class="card flush" style="margin-top:18px"><div class="ch"><h3>History</h3></div><div class="tw">${list.length?`<table><tr><th>Announcement</th><th>Tone</th><th>Illustration</th><th>By</th><th>When</th><th></th></tr>
+    ${list.map(a=>`<tr><td><b>${esc(a.title)}</b><div class="t3">${esc((a.body||'').slice(0,110))}</div></td><td><span class="tag ${a.level==='critical'?'bad':a.level==='warn'?'warn':'info'}">${{info:'News',warn:'Heads-up',critical:'Urgent'}[a.level]||esc(a.level)}</span></td>
+    <td class="t3">${{ai:'Drawn by AI',template:'House style',given:'Provided',none:'None'}[a.art_source]||esc(a.art_source)}</td><td class="t3">${esc(a.created_by)}</td><td class="t3">${ago(a.created_at)}</td>
+    <td>${a.live?'<span class="tag ok"><span class="dot on"></span>Live</span>':''}</td></tr>`).join('')}</table>`:empty('Nothing announced yet.','announce')}</div></div>`;
+};
+function annSync(){ if(!$('at'))return; ANN={...ANN,title:$('at').value,body:$('ab').value,level:segVal('al')||'info',cta_label:$('acl').value,
+  cta_url:$('acu').value,brief:$('abr').value,banner:$('abn').checked}; annPreview(); }
+function annPreview(){
+  const pv=$('apv'); if(!pv)return;
+  const lvl=ANN.level, kick={info:'From the Aethron team',warn:'Heads-up from the Aethron team',critical:'Important — from the Aethron team'}[lvl];
+  pv.innerHTML=`<div class="pv ${lvl}"><div class="art">${ANN.svg?`<img alt="" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(ANN.svg)}">`
+    :`<div class="ph">${ic('wand')}<span>Draw an illustration to see it here</span></div>`}${ANN.busy?'<div class="busy"><span class="spin"></span></div>':''}</div>
+    <div class="bd"><div class="kick">${ic(lvl==='info'?'sparkles':'errors')}${esc(kick)}</div><h4>${esc(ANN.title||'Your headline')}</h4>
+    <p>${esc(ANN.body||'What you tell people appears here.')}</p>
+    <div class="ft">${ANN.cta_url?`<span>Not now</span><span class="p">${esc(ANN.cta_label||'Learn more')}</span>`:'<span class="p">Got it</span>'}</div></div></div>`;
+  $('anote').innerHTML=ANN.note?`<div class="artnote">${ic('info')}<span>${esc(ANN.note)}</span></div>`:'';
+}
+async function annDraw(){
+  annSync(); if(!ANN.title&&!ANN.body){ toast('Write a headline first',true); return }
+  ANN.busy=true; annPreview(); const b=$('adraw'); if(b)b.disabled=true;
+  try{ const r=await T('preview_illustration',{title:ANN.title,body:ANN.body,level:ANN.level,brief:ANN.brief});
+    ANN.svg=r.svg; ANN.note=r.source==='ai'?`Drawn by ${r.model}${r.cost_usd?' · '+money(r.cost_usd):''}. Redraw for another take.`:(r.note||'House illustration');
+  }catch(e){ toast(e.message,true) }
+  ANN.busy=false; if(b){b.disabled=false; b.innerHTML=ic('wand')+'Redraw illustration';} annPreview();
+}
+async function annPublish(){
+  annSync(); if(!ANN.title){ toast('A headline is needed',true); return }
+  if(ANN.cta_url&&!/^https:\/\//.test(ANN.cta_url)){ toast('The button address must start with https://',true); return }
+  if(!await dialog({title:'Publish to everyone?',body:`Every copy of Aethron shows <b>${esc(ANN.title)}</b> once, on its next check-in (within a minute).`+
+    (ANN.svg?'':' The admin AI draws the illustration now.'),ok:'Publish'}))return;
+  const b=$('apub'); if(b){b.disabled=true;b.innerHTML='<span class="spin"></span>Publishing…';}
+  try{ const r=await act('publish_announcement',{title:ANN.title,body:ANN.body,level:ANN.level,cta_label:ANN.cta_label,cta_url:ANN.cta_url,
+      brief:ANN.brief,banner:ANN.banner,art:ANN.svg||'auto'},'Announcement published');
+    ANN={title:'',body:'',level:'info',cta_label:'',cta_url:'',brief:'',banner:false,svg:'',note:r.note||'',busy:false}; refreshView();
+  }catch(e){ if(b){b.disabled=false;b.innerHTML=ic('send')+'Publish to everyone';} }
+}
+async function endAnn(){ if(!await dialog({title:'End this announcement?',body:'People who have not seen it yet will not be shown it.',ok:'End it'}))return;
+  await act('end_announcement',{},'Announcement ended'); refreshView(); }
 
 VIEWS.ai = async () => {
   const [m, c] = await Promise.all([T('list_models'), T('get_control')]);
   const w=can('write'), o=can('owner');
   const provs = m.providers;
-  return head('AI & models')+`<div class="stack">
-  <div class="card stack"><h3>Who powers Aethron's AI</h3>
-    <div class="grid k4">${[['byok','People’s own keys','Each person brings a key in Settings (today).'],
-      ['managed','Aethron’s AI','Every copy runs on your key and model below. People’s keys are not used; each person’s spend is metered.'],
-      ['off','Off','No AI anywhere in Aethron.']].map(([k,l,d])=>`<label class="card" style="cursor:${w?'pointer':'default'};${c.ai_mode===k?'border-color:var(--acc)':''}">
-      <div style="display:flex;gap:8px;align-items:center"><input type="radio" name="aim" value="${k}" ${c.ai_mode===k?'checked':''} ${w?'':'disabled'} style="width:auto">
-      <b>${l}</b></div><div class="lo" style="margin-top:6px">${d}</div></label>`).join('')}</div>
-    <div class="row"><div><label>Provider</label><select id="mprov">${provs.map(p=>`<option value="${p.id}" ${c.managed_provider===p.id?'selected':''}>${esc(p.label)}${p.keys.length?' · key set':''}</option>`).join('')}</select></div>
-      <div><label>Model (empty = the provider's default)</label><input id="mmod" value="${esc(c.managed_model)}" placeholder="e.g. gemini-3.6-flash"></div>
-      ${w?`<button class="primary tight" onclick="saveMode()">Apply</button>`:''}</div>
-  </div>
-  <div class="card stack"><h3>Spending limits (managed AI)</h3>
-    <div class="row"><div><label>Each person, per day ($, 0 = unlimited)</label><input id="ldef" value="${c.default_daily_usd}"></div>
-      <div><label>Everyone together, per day ($, 0 = unlimited)</label><input id="lglob" value="${c.global_daily_usd}"></div>
-      ${w?`<button class="tight" onclick="act('set_limits',{default_daily_usd:+$('ldef').value,global_daily_usd:+$('lglob').value},'Limits saved')">Save</button>`:''}</div>
-    <div class="lo">Refused requests say why (allowance used, resets at 00:00 UTC). Per-person allowances are set on each user's page.</div></div>
-  <div class="card"><h3>Provider keys ${o?'':'<span class="lo">(owner only)</span>'}</h3><div class="tw"><table><tr><th>Provider</th><th>Keys</th><th>Address</th><th></th></tr>
-    ${provs.map(p=>`<tr><td><b>${esc(p.label)}</b><div class="lo">${esc(p.id)} · default ${esc(p.default_model||'—')}</div></td>
-      <td class="mono">${p.keys.length?p.keys.map(esc).join('<br>'):'<span class="lo">none</span>'}</td><td class="lo mono">${esc(p.base)}</td>
-      <td>${o?`<button onclick="setKey('${p.id}')">${p.keys.length?'Replace':'Add key'}</button>${p.keys.length?` <button class="danger" onclick="rmKey('${p.id}')">Remove</button>`:''}`:''}</td></tr>`).join('')}
-  </table></div><div class="lo" style="margin-top:8px">Keys are stored server-side and never shown again — only a fingerprint. Several keys (one per line) are used in turn when one is busy.</div></div>
-  <div class="card stack"><h3>The admin AI (separate from users' AI)</h3>
-    <div class="dim">Now: ${esc(m.admin_ai.provider||'not set')} ${esc(m.admin_ai.model||'')} ${m.admin_ai.key?'· key '+esc(m.admin_ai.key):''}</div>
-    ${o?`<div class="row"><div><label>Provider</label><select id="aap"><option value="">—</option>${provs.map(p=>`<option value="${p.id}" ${m.admin_ai.provider===p.id?'selected':''}>${esc(p.label)}</option>`).join('')}</select></div>
-      <div><label>Model</label><input id="aam" value="${esc(m.admin_ai.model)}"></div>
-      <div><label>Its own key (optional)</label><input id="aak" type="password" placeholder="empty = use the provider key"></div>
-      <button class="tight" onclick="saveAdminAi()">Save</button></div>`:''}</div>
+  return head('AI & models','Who powers the AI inside Aethron, what it may spend, and the separate AI that helps you run this admin.')+`<div class="stack">
+  <div class="card"><div class="ch"><h3>Who powers Aethron’s AI</h3></div>
+    <div class="grid g3">${[['byok','People’s own keys','Each person adds their own key in Settings. You pay nothing.','key'],
+      ['managed','Aethron’s AI','Every copy runs on your key and model. People’s keys are not used; each person’s spend is metered.','sparkles'],
+      ['off','Off','No AI anywhere in Aethron.','power']].map(([k,l,d,i])=>`<label class="choice ${c.ai_mode===k?'on':''}" onclick="${w?`this.parentNode.querySelectorAll('.choice').forEach(x=>x.classList.remove('on'));this.classList.add('on')`:''}">
+      <input type="radio" name="aim" value="${k}" ${c.ai_mode===k?'checked':''} ${w?'':'disabled'}><b>${ic(i)}${l}</b><div class="t3" style="margin-top:6px;font-size:12.5px">${d}</div></label>`).join('')}</div>
+    <div class="row" style="margin-top:16px"><div><label class="f">Provider</label><select id="mprov">${provs.map(p=>`<option value="${p.id}" ${c.managed_provider===p.id?'selected':''}>${esc(p.label)}${p.keys.length?' — key set':''}</option>`).join('')}</select></div>
+      <div><label class="f">Model</label><input id="mmod" value="${esc(c.managed_model)}" placeholder="Empty = the provider’s default"></div>
+      ${w?`<button class="btn primary tight" onclick="saveMode()">Apply</button>`:''}</div></div>
+  <div class="card"><div class="ch"><h3>Spending limits</h3><span class="sub">for Aethron’s AI</span></div>
+    <div class="row"><div><label class="f">Each person, per day</label><input id="ldef" value="${c.default_daily_usd}"><div class="hint">Dollars. 0 = unlimited.</div></div>
+      <div><label class="f">Everyone together, per day</label><input id="lglob" value="${c.global_daily_usd}"><div class="hint">Dollars. 0 = unlimited.</div></div>
+      ${w?`<button class="btn tight" onclick="act('set_limits',{default_daily_usd:+$('ldef').value,global_daily_usd:+$('lglob').value},'Limits saved')">Save</button>`:''}</div>
+    <div class="hint">A refused request tells the person why and when it resets (00:00 UTC). Per-person allowances are on each person’s page.</div></div>
+  <div class="card flush"><div class="ch"><h3>Provider keys</h3><span class="sub">${o?'stored on the server, shown only as a fingerprint':'owners only'}</span></div><div class="tw"><table><tr><th>Provider</th><th>Keys</th><th>Address</th><th></th></tr>
+    ${provs.map(p=>`<tr><td><b>${esc(p.label)}</b><div class="t3">default model ${esc(p.default_model||'—')}</div></td>
+      <td class="mono">${p.keys.length?p.keys.map(esc).join('<br>'):'<span class="t3">None</span>'}</td><td class="t3 mono">${esc(p.base)}</td>
+      <td style="text-align:right;white-space:nowrap">${o?`<button class="btn sm" onclick="setKey('${p.id}',${jsq(p.label)})">${p.keys.length?'Replace':'Add key'}</button>${p.keys.length?` <button class="btn danger sm" onclick="rmKey('${p.id}',${jsq(p.label)})">Remove</button>`:''}`:''}</td></tr>`).join('')}
+  </table></div></div>
+  <div class="card"><div class="ch"><h3>The admin AI</h3><span class="sub">separate from people’s AI · it also draws announcement illustrations</span></div>
+    <div class="t2" style="margin-bottom:12px">${m.admin_ai.provider?`Now: <b>${esc(m.admin_ai.provider)}</b> ${esc(m.admin_ai.model||'')} ${m.admin_ai.key?'· own key '+esc(m.admin_ai.key):'· uses the provider key'}`:'Not set up yet.'}</div>
+    ${o?`<div class="row"><div><label class="f">Provider</label><select id="aap"><option value="">—</option>${provs.map(p=>`<option value="${p.id}" ${m.admin_ai.provider===p.id?'selected':''}>${esc(p.label)}</option>`).join('')}</select></div>
+      <div><label class="f">Model</label><input id="aam" value="${esc(m.admin_ai.model)}"></div>
+      <div><label class="f">Its own key <span class="t3">(optional)</span></label><input id="aak" type="password" placeholder="Empty = the provider key"></div>
+      <button class="btn tight" onclick="saveAdminAi()">Save</button></div>`:''}</div>
   </div>`;
 };
-async function saveMode(){ const mode=(document.querySelector('input[name=aim]:checked')||{}).value;
-  if(mode==='managed'&&!confirm('Switch every copy of Aethron to your AI? People’s own keys will not be used, and you pay for every request.'))return;
-  await act('set_ai_mode',{mode,provider:$('mprov').value,model:$('mmod').value.trim()},'AI mode: '+mode); refreshView(); }
-async function setKey(p){ const k=prompt('Paste the key (several: one per line or comma-separated). It is not shown again.'); if(!k)return;
-  await act('set_provider_key',{provider:p,keys:k},'Key saved'); refreshView(); }
-async function rmKey(p){ if(!confirm('Remove every '+p+' key?'))return; await act('set_provider_key',{provider:p,keys:''},'Removed'); refreshView(); }
+async function saveMode(){ const mode=(document.querySelector('input[name=aim]:checked')||{}).value||(document.querySelector('.choice.on input')||{}).value;
+  if(mode==='managed'&&!await dialog({title:'Switch everyone to Aethron’s AI?',body:'People’s own keys will not be used, and you pay for every request (within the limits you set).',ok:'Switch'}))return;
+  await act('set_ai_mode',{mode,provider:$('mprov').value,model:$('mmod').value.trim()},'Now: '+(AIMODE[mode]||mode)); refreshView(); }
+async function setKey(p,label){ const r=await dialog({title:'Add a '+label+' key',body:'Several keys: one per line. A busy key gives way to the next. Keys are never shown again.',
+  fields:[{label:'Key(s)',area:true,placeholder:'Paste here'}],ok:'Save key'}); if(!r||!r[0].trim())return;
+  await act('set_provider_key',{provider:p,keys:r[0]},'Key saved'); refreshView(); }
+async function rmKey(p,label){ if(!await dialog({title:'Remove every '+label+' key?',ok:'Remove',danger:true}))return; await act('set_provider_key',{provider:p,keys:''},'Removed'); refreshView(); }
 async function saveAdminAi(){ const a={provider:$('aap').value,model:$('aam').value.trim()}; const k=$('aak').value.trim(); if(k)a.key=k;
   await act('set_admin_ai',a,'Admin AI saved'); refreshView(); }
 
@@ -469,73 +821,74 @@ let UDAYS=30;
 VIEWS.usage = async () => {
   const u = await T('usage_report',{days:UDAYS});
   const max=Math.max(0.0001,...u.by_day.map(d=>d.cost_usd));
-  return head('Usage & spend',`<select style="width:auto" onchange="UDAYS=+this.value;refreshView()">${[1,7,30,90,365].map(d=>`<option value="${d}" ${d===UDAYS?'selected':''}>${d} day${d>1?'s':''}</option>`).join('')}</select>`)+`
-  <div class="grid k4">${tile('Spent',money(u.total_usd),UDAYS+' days')}${tile('Requests',n(u.requests))}${tile('People',n(u.by_user.length))}${tile('Models',n(u.by_model.length))}</div>
-  <div class="card" style="margin-top:14px"><h3>Spend per day</h3><div class="bars">${u.by_day.map(d=>`<div style="height:${d.cost_usd/max*100}%" data-t="${esc(d.key)} · ${money(d.cost_usd)} · ${d.requests} req"></div>`).join('')||'<div class="empty" style="background:none">nothing yet</div>'}</div></div>
-  <div class="grid k2" style="margin-top:14px">
-   <div class="card tw"><h3>By person</h3><table><tr><th>Person</th><th class="num">Requests</th><th class="num">Tokens</th><th class="num">Cost</th></tr>
-     ${u.by_user.map(r=>`<tr><td>${esc(r.key)}</td><td class="num">${n(r.requests)}</td><td class="num">${n(r.input_tokens+r.output_tokens)}</td><td class="num">${money(r.cost_usd)}</td></tr>`).join('')}</table></div>
-   <div class="card tw"><h3>By model</h3><table><tr><th>Model</th><th class="num">Requests</th><th class="num">Errors</th><th class="num">Cost</th></tr>
-     ${u.by_model.map(r=>`<tr><td>${esc(r.key)}</td><td class="num">${n(r.requests)}</td><td class="num">${r.errors}</td><td class="num">${money(r.cost_usd)}</td></tr>`).join('')}</table>
-     <h3 style="margin-top:16px">By purpose</h3>${barList(u.by_purpose.map(x=>({key:x.key,count:x.requests})))}</div>
+  return head('Usage & spend','What Aethron’s AI cost, and who used it.',`<div class="seg">${[1,7,30,90,365].map(d=>`<button class="${d===UDAYS?'on':''}" onclick="UDAYS=${d};refreshView()">${d===1?'Today':d===365?'1 year':d+' days'}</button>`).join('')}</div>`)+`
+  <div class="grid g4">${tile('Spent',money(u.total_usd),UDAYS===1?'today':'last '+UDAYS+' days','coin')}${tile('Requests',n(u.requests),'','activity')}${tile('People',n(u.by_user.length),'used it','users')}${tile('Models',n(u.by_model.length),'','ai')}</div>
+  <div class="card" style="margin-top:14px"><div class="ch"><h3>Spend per day</h3></div><div class="bars">${u.by_day.map(d=>`<div style="height:${d.cost_usd/max*100}%" data-t="${esc(d.key)} · ${money(d.cost_usd)} · ${d.requests} requests"></div>`).join('')||empty('Nothing yet','coin')}</div></div>
+  <div class="grid g2" style="margin-top:14px">
+   <div class="card flush"><div class="ch"><h3>By person</h3></div><div class="tw"><table><tr><th>Person</th><th class="num">Requests</th><th class="num">Tokens</th><th class="num">Cost</th></tr>
+     ${u.by_user.map(r=>`<tr><td>${person(r.key)}</td><td class="num">${n(r.requests)}</td><td class="num">${n(r.input_tokens+r.output_tokens)}</td><td class="num">${money(r.cost_usd)}</td></tr>`).join('')}</table></div></div>
+   <div class="card flush"><div class="ch"><h3>By model</h3></div><div class="tw"><table><tr><th>Model</th><th class="num">Requests</th><th class="num">Failed</th><th class="num">Cost</th></tr>
+     ${u.by_model.map(r=>`<tr><td>${esc(r.key)}</td><td class="num">${n(r.requests)}</td><td class="num">${r.errors}</td><td class="num">${money(r.cost_usd)}</td></tr>`).join('')}</table></div>
+     <div style="padding:16px 18px"><div class="ch"><h3>By purpose</h3></div>${barList(u.by_purpose.map(x=>({label:esc(x.key),count:x.requests})))}</div></div>
   </div>`;
 };
 
 let EDAYS=7;
 VIEWS.errors = async () => {
   const g = await T('errors',{days:EDAYS,limit:100});
-  return head('Errors',`<select style="width:auto" onchange="EDAYS=+this.value;refreshView()">${[1,7,30,90].map(d=>`<option value="${d}" ${d===EDAYS?'selected':''}>${d} day${d>1?'s':''}</option>`).join('')}</select>
-    <button onclick="download('errors','md',EDAYS)">Download .md</button>`)+`
-  <div class="card tw">${g.length?`<table><tr><th>What failed</th><th class="num">Times</th><th class="num">Copies</th><th>Versions</th><th>Last</th></tr>
-  ${g.map(e=>`<tr class="click" onclick="errDetail(${jsq(e.fingerprint)})"><td><b>${esc(e.kind||'?')}</b> <span class="lo">${esc(e.step||'')}</span>
-    <div class="dim">${esc(e.category||'')}</div>${(e.source_urls||[]).length?`<div class="lo mono">${esc(e.source_urls[0])}</div>`:''}</td>
-    <td class="num">${e.count}</td><td class="num">${e.machines}</td><td class="lo">${esc((e.versions||[]).join(', '))}</td><td class="lo">${ago(e.last)}</td></tr>`).join('')}</table>`
-    :'<div class="empty">No errors in this window. 🎉</div>'}</div>`;
+  return head('Errors','Every failure a copy met, grouped by cause — one row however many people hit it.',`<div class="seg">${[1,7,30,90].map(d=>`<button class="${d===EDAYS?'on':''}" onclick="EDAYS=${d};refreshView()">${d===1?'24 h':d+' days'}</button>`).join('')}</div>
+    <button class="btn" onclick="download('errors','md',EDAYS)">${ic('exports')}Download .md</button>`)+`
+  <div class="card flush"><div class="tw">${g.length?`<table><tr><th>What failed</th><th class="num">Times</th><th class="num">Copies</th><th>Versions</th><th>Last seen</th></tr>
+  ${g.map(e=>`<tr class="click" onclick="errDetail(${jsq(e.fingerprint)})"><td><b>${esc(e.category||e.kind||'Unknown')}</b>
+    <div class="t3">${esc(e.kind||'')}${e.step?' · '+esc(e.step):''}${(e.source_urls||[]).length?' · <span class="mono">'+esc(e.source_urls[0])+'</span>':''}</div></td>
+    <td class="num"><b>${n(e.count)}</b></td><td class="num">${n(e.machines)}</td><td class="t3">${esc((e.versions||[]).join(', '))}</td><td class="t3">${ago(e.last)}</td></tr>`).join('')}</table>`
+    :empty('No errors in this window.','check')}</div></div>`;
 };
 async function errDetail(fp){
-  const rows = await T('error_detail',{fingerprint:fp});
-  const sh=document.createElement('div'); sh.className='shade'; document.body.appendChild(sh);
-  const d=document.createElement('div'); d.className='drawer'; document.body.appendChild(d);
-  sh.onclick=()=>{d.remove();sh.remove()};
-  d.innerHTML=`<div class="top"><h1>Error ${esc(fp)}</h1><button onclick="askAiAbout(${jsq(fp)})">Ask the admin AI</button>
-    <button onclick="this.closest('.drawer').remove();document.querySelector('.shade')?.remove()">Close</button></div>
+  closeDrawer();
+  const sh=document.createElement('div'); sh.className='shade'; sh.onclick=closeDrawer; document.body.appendChild(sh);
+  const d=document.createElement('div'); d.className='drawer'; d.innerHTML='<div class="empty"><span class="spin"></span></div>'; document.body.appendChild(d);
+  let rows; try{ rows = await T('error_detail',{fingerprint:fp}) }catch(e){ d.innerHTML=`<div class="card bad">${esc(e.message)}</div>`; return }
+  const f=rows[0]||{};
+  d.innerHTML=`<div class="top"><div class="tt"><h1>${esc(f.category||f.kind||'Error')}</h1><p>${rows.length} report(s) · group <span class="mono">${esc(fp)}</span></p></div>
+    <button class="btn" onclick="askAiAbout(${jsq(fp)})">${ic('sparkles')}Ask the admin AI</button><button class="btn" onclick="closeDrawer()">${ic('x')}Close</button></div>
     ${rows.map(r=>{const rec=r.record||{};return `<div class="card stack" style="margin-bottom:12px">
-      <div><b>${esc(r.kind)}</b> · ${esc(r.step||'')} · <span class="lo">${when(r.received_at)} · app ${esc(r.app_version||'?')} · copy ${esc(r.machine)}</span></div>
-      <div class="dim">${esc(r.category||'')}</div>${r.source_url?`<div class="lo mono">${esc(r.source_url)}</div>`:''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>${esc(r.kind)}</b>${r.step?`<span class="tag">${esc(r.step)}</span>`:''}<span class="t3">${when(r.received_at)} · Aethron ${esc(r.app_version||'?')} · <span class="mono">${esc(r.machine)}</span></span></div>
+      ${r.source_url?`<div class="t3 mono">${esc(r.source_url)}</div>`:''}
       ${rec.lines&&rec.lines.length?`<pre>${esc(rec.lines.join('\n'))}</pre>`:''}${rec.error?`<pre>${esc(rec.error)}</pre>`:''}
-      ${rec.trace?`<details><summary>trace</summary><pre>${esc(rec.trace)}</pre></details>`:''}
-      ${rec.log?`<details><summary>log</summary><pre>${esc(rec.log)}</pre></details>`:''}
-      <details><summary class="lo">everything</summary><pre>${esc(JSON.stringify(rec,null,1))}</pre></details></div>`}).join('')}`;
+      ${rec.trace?`<details><summary>Trace</summary><pre>${esc(rec.trace)}</pre></details>`:''}
+      ${rec.log?`<details><summary>Log</summary><pre>${esc(rec.log)}</pre></details>`:''}
+      <details><summary>Everything in this report</summary><pre>${esc(JSON.stringify(rec,null,1))}</pre></details></div>`}).join('')}`;
 }
-function askAiAbout(fp){ document.querySelectorAll('.drawer,.shade').forEach(x=>x.remove()); PENDING_ASK='Look at error '+fp+
-  ': what failed, who it hits, which version, and what you think the fix is.'; go('assistant'); }
+function askAiAbout(fp){ closeDrawer(); PENDING_ASK='Look at error '+fp+': what failed, who it hits, which version, and what you think the fix is.'; go('assistant'); }
 
 let EVQ={user:'',event:'',days:7};
 VIEWS.activity = async () => {
   const rows = await T('events',{...EVQ,limit:400});
-  return head('Activity')+`<div class="card"><div class="row" style="margin-bottom:12px">
-    <div><label>Person (email or id)</label><input id="eu" value="${esc(EVQ.user)}"></div>
-    <div><label>Event</label><input id="ee" value="${esc(EVQ.event)}" placeholder="login, project_created, run_step…"></div>
-    <div><label>Days</label><input id="ed" value="${EVQ.days}"></div>
-    <button class="tight" onclick="EVQ={user:$('eu').value.trim(),event:$('ee').value.trim(),days:+$('ed').value||7};refreshView()">Filter</button></div>
-    <div class="tw">${rows.length?`<table><tr><th>When</th><th>Event</th><th>Person</th><th>Details</th></tr>${rows.map(e=>`<tr><td class="lo" style="white-space:nowrap">${when(e.created_at)}</td>
-      <td><b>${esc(e.event)}</b></td><td class="lo mono">${esc(String(e.user_id||'').slice(0,8))}</td><td class="lo mono">${esc(JSON.stringify(e.props||{}))}</td></tr>`).join('')}</table>`
-      :'<div class="empty">No events match.</div>'}</div></div>`;
+  return head('Activity','What people did in Aethron: sign-ins, projects, builds, migrations, agent turns.')+`<div class="card flush">
+    <div class="row" style="padding:14px 16px;border-bottom:1px solid var(--line)">
+    <div><label class="f">Person</label><input id="eu" value="${esc(EVQ.user)}" placeholder="Email or id"></div>
+    <div><label class="f">Event</label><input id="ee" value="${esc(EVQ.event)}" placeholder="login, project_created, run_step…"></div>
+    <div style="max-width:120px"><label class="f">Days</label><input id="ed" value="${EVQ.days}"></div>
+    <button class="btn tight" onclick="EVQ={user:$('eu').value.trim(),event:$('ee').value.trim(),days:+$('ed').value||7};refreshView()">Filter</button></div>
+    <div class="tw">${rows.length?`<table><tr><th>When</th><th>Event</th><th>Person</th><th>Details</th></tr>${rows.map(e=>`<tr><td class="t3" style="white-space:nowrap">${when(e.created_at)}</td>
+      <td><b>${esc(e.event)}</b></td><td class="t3 mono">${esc(String(e.user_id||'').slice(0,8))}</td><td class="t3 mono">${esc(JSON.stringify(e.props||{}))}</td></tr>`).join('')}</table>`
+      :empty('No events match.','activity')}</div></div>`;
 };
 
 VIEWS.runs = async () => {
   const rows = await T('agent_runs',{days:7,limit:400});
-  return head('Agent runs')+`<div class="card tw">${rows.length?`<table><tr><th>When</th><th>Agent</th><th>Tool</th><th>Project</th><th>Status</th><th class="num">Time</th></tr>
-    ${rows.map(r=>`<tr><td class="lo">${when(r.received_at)}</td><td>${esc(r.caller)}<div class="lo mono">${esc(r.machine)}</div></td><td><b>${esc(r.tool)}</b></td>
-    <td>${esc(r.project||'')}</td><td class="${r.status==='ok'?'okc':'err'}">${esc(r.status)}</td><td class="num lo">${n(r.ms)}ms</td></tr>`).join('')}</table>`
-    :'<div class="empty">No agent runs uploaded. (Copies upload runs only when “Agent runs” upload is switched on.)</div>'}</div>`;
+  return head('Agent runs','What outside agents (Claude Code, Cursor…) did through Aethron’s MCP, call by call.')+`<div class="card flush"><div class="tw">${rows.length?`<table><tr><th>When</th><th>Agent</th><th>Tool</th><th>Project</th><th>Result</th><th class="num">Time</th></tr>
+    ${rows.map(r=>`<tr><td class="t3">${when(r.received_at)}</td><td>${esc(r.caller)}<div class="t3 mono">${esc(r.machine)}</div></td><td><b>${esc(r.tool)}</b></td>
+    <td>${esc(r.project||'')}</td><td>${r.status==='ok'?'<span class="tag ok">OK</span>':'<span class="tag bad">'+esc(r.status)+'</span>'}</td><td class="num t3">${n(r.ms)}ms</td></tr>`).join('')}</table>`
+    :empty('No agent runs uploaded yet. Copies upload runs only when “Agent runs” upload is switched on in their Settings.','runs')}</div></div>`;
 };
 
 VIEWS.audit = async () => {
   const rows = await T('audit_log',{limit:500});
-  return head('Audit log',`<button onclick="download('audit','md',90)">Download .md</button>`)+`<div class="card tw"><table><tr><th>When</th><th>Who</th><th>How</th><th>Action</th><th>On</th><th>Details</th></tr>
-    ${rows.map(r=>`<tr><td class="lo" style="white-space:nowrap">${when(r.at)}</td><td>${esc(r.actor)}</td><td><span class="pill">${esc(r.via)}</span></td>
-    <td><b>${esc(r.action)}</b></td><td>${esc(r.target)}</td><td class="lo mono">${esc(JSON.stringify(r.details||{}))}</td></tr>`).join('')}</table></div>`;
+  return head('Audit log','Every admin action — who did it, how, and to whom.',`<button class="btn" onclick="download('audit','md',90)">${ic('exports')}Download .md</button>`)+`<div class="card flush"><div class="tw">${rows.length?`<table><tr><th>When</th><th>Who</th><th>How</th><th>Action</th><th>On</th><th>Details</th></tr>
+    ${rows.map(r=>`<tr><td class="t3" style="white-space:nowrap">${when(r.at)}</td><td>${esc(r.actor)}</td><td><span class="tag ${r.via==='ai'?'acc':''}">${esc({ai:'Admin AI',key:'API key',ui:'Console',mcp:'MCP'}[r.via]||r.via)}</span></td>
+    <td><b>${esc(String(r.action).replace(/_/g,' '))}</b></td><td>${esc(r.target)}</td><td class="t3 mono">${esc(JSON.stringify(r.details||{}))}</td></tr>`).join('')}</table>`:empty('Nothing yet.','audit')}</div></div>`;
 };
 
 let THREAD='', PENDING_ASK='';
@@ -543,24 +896,26 @@ VIEWS.assistant = async () => {
   let threads=[]; try{ threads=await req('/admin/ai/threads') }catch(e){}
   let msgs=[]; if(THREAD){ try{ msgs=await req('/admin/ai/thread?id='+encodeURIComponent(THREAD)) }catch(e){} }
   setTimeout(()=>{ if(PENDING_ASK&&$('aiin')){ $('aiin').value=PENDING_ASK; PENDING_ASK=''; } const m=$('msgs'); if(m)m.scrollTop=m.scrollHeight; },0);
-  return head('Admin AI',`<span class="pill">acts with your permissions · every change audited</span>`)+`<div class="chat">
-    <div class="card threads"><button class="primary" onclick="THREAD='';refreshView()">New conversation</button>
-      ${threads.map(t=>`<button class="${t.thread===THREAD?'on':''}" onclick="THREAD=${jsq(t.thread)};refreshView()">${esc(t.first)}<br><span class="lo">${ago(t.at)}</span></button>`).join('')}</div>
-    <div class="card convo"><div class="msgs" id="msgs">${msgs.filter(m=>m.role==='user'||(m.role==='assistant'&&m.content)).map(m=>
-      `<div class="msg ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`).join('')||
-      `<div class="empty">Ask it to read the logs, explain an error, find who is online, pause Aethron, change a model, write a report…<br><br>
-       <span class="lo">“What broke today and for whom?” · “Who used the most AI this week?” · “Switch everyone to managed gemini-3.6-flash with a $0.30 daily allowance.”</span></div>`}</div>
-      <div class="composer"><textarea id="aiin" placeholder="Ask the admin AI…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askAi()}"></textarea>
-      <button class="primary" id="aisend" onclick="askAi()">Send</button></div></div></div>`;
+  const shown=msgs.filter(m=>m.role==='user'||(m.role==='assistant'&&m.content));
+  const S=['What broke today, and for whom?','Who used the most AI this week?','Announce that screenshot-to-code now builds whole sites','Write me a report of the last 7 days'];
+  return head('Admin AI','Reads the logs, explains errors, changes switches and writes announcements — with your permissions. Every change it makes is audited.')+`<div class="chat">
+    <div class="card threads"><button class="btn primary" style="margin-bottom:8px" onclick="THREAD='';refreshView()">${ic('plus')}New conversation</button>
+      ${threads.map(t=>`<button class="thr ${t.thread===THREAD?'on':''}" onclick="THREAD=${jsq(t.thread)};refreshView()">${esc(t.first)}<span>${ago(t.at)}</span></button>`).join('')||'<div class="t3" style="padding:8px;font-size:12px">Your conversations appear here.</div>'}</div>
+    <div class="card convo"><div class="msgs" id="msgs">${shown.map(m=>`<div class="msg ${m.role==='user'?'user':'ai'}">${esc(m.content)}</div>`).join('')||
+      `<div class="empty" style="margin:auto">${ic('sparkles')}<div style="color:var(--tx);font-weight:600;font-size:15px">How can I help run Aethron?</div>
+       <div class="sugg">${S.map(s=>`<button onclick="$('aiin').value=${jsq(s)};askAi()">${esc(s)}</button>`).join('')}</div></div>`}</div>
+      <div class="composer"><textarea id="aiin" placeholder="Ask the admin AI…  (Enter to send, Shift+Enter for a new line)" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askAi()}"></textarea>
+      <button class="btn primary" id="aisend" onclick="askAi()">${ic('send')}Send</button></div></div></div>`;
 };
 async function askAi(){
   const t=$('aiin'), m=t.value.trim(); if(!m)return;
-  const box=$('msgs'); box.insertAdjacentHTML('beforeend',`<div class="msg user">${esc(m)}</div><div class="msg ai" id="aiwait"><span class="spin"></span></div>`);
+  const box=$('msgs'); if(box.querySelector('.empty'))box.innerHTML='';
+  box.insertAdjacentHTML('beforeend',`<div class="msg user">${esc(m)}</div><div class="msg ai" id="aiwait"><span class="spin"></span></div>`);
   box.scrollTop=box.scrollHeight; t.value=''; $('aisend').disabled=true;
   try{ const r=await req('/admin/ai',{body:{message:m,thread:THREAD}}); THREAD=r.thread;
-    $('aiwait').outerHTML=`<div class="msg ai">${esc(r.reply)}${r.actions.length?`<div class="acts">${r.actions.map(a=>`<span class="act ${a.ok?'':'bad'}" title="${esc(JSON.stringify(a.args))}">${a.ok?'✓':'✗'} ${esc(a.tool)}</span>`).join('')}</div>`:''}
-      <div class="lo" style="font-size:11px;margin-top:6px">${r.steps} step(s) · ${money(r.cost_usd)}</div></div>`;
-  }catch(e){ $('aiwait').outerHTML=`<div class="msg ai err">${esc(e.message)}</div>` }
+    $('aiwait').outerHTML=`<div class="msg ai">${esc(r.reply)}${r.actions.length?`<div class="acts2">${r.actions.map(a=>`<span class="act ${a.ok?'':'bad'}" title="${esc(JSON.stringify(a.args))}">${a.ok?'✓':'✗'} ${esc(a.tool)}</span>`).join('')}</div>`:''}
+      <div class="meta">${r.steps} step(s) · ${money(r.cost_usd)}</div></div>`;
+  }catch(e){ $('aiwait').outerHTML=`<div class="msg ai bad">${esc(e.message)}</div>` }
   $('aisend').disabled=false; box.scrollTop=box.scrollHeight;
 }
 
@@ -568,53 +923,56 @@ VIEWS.access = async () => {
   const [keys, admins] = await Promise.all([T('list_api_keys'), T('list_admins')]);
   const o=can('owner');
   const mcpUrl=CFG.fn.replace(/\/+$/,'')+'/mcp';
-  return head('API keys & MCP')+`<div class="stack">
-  <div class="card stack"><h3>Connect a coding agent</h3><div class="dim">Any agent can read the logs, run every admin tool and talk to the admin AI through the admin MCP server — with an API key below.</div>
-    <div><label>MCP address (Streamable HTTP)</label><pre>${esc(mcpUrl)}</pre></div>
-    <div><label>Claude Code</label><pre>claude mcp add --transport http aethron-admin ${esc(mcpUrl)} --header "Authorization: Bearer ak_YOUR_KEY"</pre></div>
-    <div><label>Any MCP client (JSON)</label><pre>${esc(JSON.stringify({mcpServers:{'aethron-admin':{type:'http',url:mcpUrl,headers:{Authorization:'Bearer ak_YOUR_KEY'}}}},null,1))}</pre></div>
-    <div><label>Plain HTTP</label><pre>curl -X POST ${esc(CFG.fn.replace(/\/+$/,''))}/admin/call -H "Authorization: Bearer ak_YOUR_KEY" -H "Content-Type: application/json" -d '{"tool":"overview","args":{}}'</pre></div></div>
-  <div class="card stack"><h3>API keys</h3>
-    ${o?`<div class="row"><div><label>Label (who it is for)</label><input id="kl" placeholder="claude-code on my Mac"></div>
-      <div><label>Permissions</label><select id="ks"><option value="read">read — logs and reports only</option><option value="read,write">read + write — switches and people</option>
-      <option value="read,write,owner">owner — everything, incl. keys</option></select></div><button class="primary tight" onclick="newKey()">Create key</button></div><div id="newkey"></div>`:''}
-    <div class="tw"><table><tr><th>Label</th><th>Key</th><th>Permissions</th><th>Created</th><th>Last used</th><th></th></tr>
-    ${keys.map(k=>`<tr><td>${esc(k.label)}</td><td class="mono">${esc(k.prefix)}…</td><td>${esc((k.scopes||[]).join(', '))}</td><td class="lo">${ago(k.created_at)} · ${esc(k.created_by)}</td>
-      <td class="lo">${ago(k.last_used)}</td><td>${k.revoked_at?'<span class="pill err">revoked</span>':o?`<button class="danger" onclick="rvKey(${jsq(k.id)})">Revoke</button>`:''}</td></tr>`).join('')}</table></div></div>
-  <div class="card stack"><h3>Who can sign in to the admin</h3>
-    <table>${admins.map(a=>`<tr><td>${esc(a.email)}</td><td><span class="pill">${esc(a.role)}</span></td><td class="lo">${a.source==='ADMIN_EMAILS'?'set on the server':esc(a.added_by||'')}</td>
-      <td>${o&&a.source!=='ADMIN_EMAILS'?`<button class="danger" onclick="rmAdmin(${jsq(a.email)})">Remove</button>`:''}</td></tr>`).join('')}</table>
-    ${o?`<div class="row"><div><label>Email</label><input id="nae"></div><div><label>Role</label><select id="nar"><option>admin</option><option>viewer</option><option>owner</option></select></div>
-      <button class="tight" onclick="addAdmin()">Add</button></div>`:''}</div>
+  const code=(label,txt)=>`<div><label class="f">${label}</label><div class="code"><pre>${esc(txt)}</pre><button class="btn sm" onclick="navigator.clipboard.writeText(${jsq(txt)});toast('Copied')">${ic('copy')}Copy</button></div></div>`;
+  return head('Access & API keys','Who can use this admin, and keys for your coding agents.')+`<div class="stack">
+  <div class="card"><div class="ch"><h3>Who can sign in to the admin</h3></div>
+    <div class="tw"><table><tr><th>Person</th><th>Role</th><th>Added by</th><th></th></tr>${admins.map(a=>`<tr><td>${person(a.email)}</td><td><span class="tag ${a.role==='owner'?'acc':''}">${esc(a.role)}</span></td><td class="t3">${a.source==='ADMIN_EMAILS'?'Set on the server':esc(a.added_by||'')}</td>
+      <td style="text-align:right">${o&&a.source!=='ADMIN_EMAILS'?`<button class="btn danger sm" onclick="rmAdmin(${jsq(a.email)})">Remove</button>`:''}</td></tr>`).join('')}</table></div>
+    ${o?`<div class="row" style="margin-top:14px"><div><label class="f">Email</label><input id="nae" placeholder="teammate@company.com"></div><div style="max-width:200px"><label class="f">Role</label><select id="nar"><option value="admin">Admin — read and change</option><option value="viewer">Viewer — read only</option><option value="owner">Owner — everything</option></select></div>
+      <button class="btn tight" onclick="addAdmin()">${ic('plus')}Add</button></div>`:''}</div>
+  <div class="card"><div class="ch"><h3>API keys</h3><span class="sub">for coding agents and scripts</span></div>
+    ${o?`<div class="row"><div><label class="f">Who it is for</label><input id="kl" placeholder="e.g. Claude Code on my Mac"></div>
+      <div style="max-width:260px"><label class="f">Permissions</label><select id="ks"><option value="read">Read — logs and reports only</option><option value="read,write">Read + change — switches and people</option>
+      <option value="read,write,owner">Owner — everything, including keys</option></select></div><button class="btn primary tight" onclick="newKey()">Create key</button></div><div id="newkey" style="margin-top:12px"></div>`:''}
+    <div class="tw">${keys.length?`<table><tr><th>For</th><th>Key</th><th>Permissions</th><th>Created</th><th>Last used</th><th></th></tr>
+    ${keys.map(k=>`<tr><td>${esc(k.label)}</td><td class="mono">${esc(k.prefix)}…</td><td>${(k.scopes||[]).map(s=>`<span class="tag">${esc(s)}</span>`).join(' ')}</td><td class="t3">${ago(k.created_at)} · ${esc(k.created_by)}</td>
+      <td class="t3">${ago(k.last_used)}</td><td style="text-align:right">${k.revoked_at?'<span class="tag bad">Revoked</span>':o?`<button class="btn danger sm" onclick="rvKey(${jsq(k.id)})">Revoke</button>`:''}</td></tr>`).join('')}</table>`:empty('No keys yet.','key')}</div></div>
+  <div class="card"><div class="ch"><h3>Connect a coding agent</h3></div><div class="stack">
+    <div class="t2">Any agent can read the logs, run every admin tool its key allows and talk to the admin AI through the admin MCP server.</div>
+    ${code('MCP address (Streamable HTTP)',mcpUrl)}
+    ${code('Claude Code',`claude mcp add --transport http aethron-admin ${mcpUrl} --header "Authorization: Bearer ak_YOUR_KEY"`)}
+    ${code('Any MCP client (JSON)',JSON.stringify({mcpServers:{'aethron-admin':{type:'http',url:mcpUrl,headers:{Authorization:'Bearer ak_YOUR_KEY'}}}},null,1))}
+    ${code('Plain HTTP',`curl -X POST ${CFG.fn.replace(/\/+$/,'')}/admin/call -H "Authorization: Bearer ak_YOUR_KEY" -H "Content-Type: application/json" -d '{"tool":"overview","args":{}}'`)}</div></div>
   </div>`;
 };
 async function newKey(){ const r=await act('create_api_key',{label:$('kl').value.trim(),scopes:$('ks').value.split(',')},'Key created');
-  $('newkey').innerHTML=`<div class="stack"><div class="dim">Copy it now — it is not shown again.</div><div class="keybox">${esc(r.key)}</div>
-    <button class="tight" onclick="navigator.clipboard.writeText(${jsq(r.key)});toast('Copied')">Copy</button></div>`; }
-async function rvKey(id){ if(!confirm('Revoke this key? Agents using it lose access at once.'))return; await act('revoke_api_key',{id},'Revoked'); refreshView(); }
+  $('newkey').innerHTML=`<div class="alert info">${ic('info')}<div style="flex:1"><b>Copy it now — it is not shown again.</b><div class="keybox" style="margin-top:8px">${esc(r.key)}</div>
+    <button class="btn sm" style="margin-top:8px" onclick="navigator.clipboard.writeText(${jsq(r.key)});toast('Copied')">${ic('copy')}Copy</button></div></div>`; }
+async function rvKey(id){ if(!await dialog({title:'Revoke this key?',body:'Agents using it lose access at once.',ok:'Revoke',danger:true}))return; await act('revoke_api_key',{id},'Revoked'); refreshView(); }
 async function addAdmin(){ await act('add_admin',{email:$('nae').value.trim(),role:$('nar').value},'Added'); refreshView(); }
-async function rmAdmin(e){ if(!confirm('Remove '+e+' from the admin?'))return; await act('remove_admin',{email:e},'Removed'); refreshView(); }
+async function rmAdmin(e){ if(!await dialog({title:'Remove '+e+' from the admin?',ok:'Remove',danger:true}))return; await act('remove_admin',{email:e},'Removed'); refreshView(); }
 
 VIEWS.exports = async () => {
-  const kinds=[['all','Everything','overview, errors with logs, usage, users, admin actions'],['errors','Errors','grouped, with failing lines, logs and traces'],
-    ['usage','AI usage','by person, model, day, purpose'],['users','Users','every account with country, version, spend'],
-    ['events','Activity','the event stream'],['runs','Agent runs','what MCP agents did'],['audit','Admin actions','the audit log']];
-  return head('Exports')+`<div class="card stack"><div class="row" style="max-width:320px"><div><label>Window (days)</label><input id="xd" value="7"></div></div>
-    <table>${kinds.map(([k,l,d])=>`<tr><td><b>${l}</b><div class="lo">${d}</div></td><td style="text-align:right">
-      <button onclick="download('${k}','md',+$('xd').value||7)">.md</button> <button onclick="download('${k}','json',+$('xd').value||7)">.json</button>
-      <button onclick="download('${k}','csv',+$('xd').value||7)">.csv</button></td></tr>`).join('')}</table>
-    <div class="lo">Markdown files are written to be handed to a person or a coding agent as they are.</div></div>`;
+  const kinds=[['all','Everything','overview, errors with logs, usage, people, admin actions','overview'],['errors','Errors','grouped, with failing lines, logs and traces','errors'],
+    ['usage','AI usage','by person, model, day and purpose','coin'],['users','People','every account with country, version and spend','users'],
+    ['events','Activity','the event stream','activity'],['runs','Agent runs','what MCP agents did','runs'],['audit','Admin actions','the audit log','audit']];
+  return head('Exports','Download any of it. Markdown files are written to be handed to a person or a coding agent as they are.')+`<div class="card flush">
+    <div class="row" style="padding:14px 16px;border-bottom:1px solid var(--line)"><div style="max-width:160px"><label class="f">Window (days)</label><input id="xd" value="7"></div></div>
+    <table>${kinds.map(([k,l,d,i])=>`<tr><td><div style="display:flex;gap:12px;align-items:center"><span class="kpi"><span class="ki">${ic(i)}</span></span><div><b>${l}</b><div class="t3">${d}</div></div></div></td><td style="text-align:right;white-space:nowrap">
+      <button class="btn sm" onclick="download('${k}','md',+$('xd').value||7)">.md</button> <button class="btn sm" onclick="download('${k}','json',+$('xd').value||7)">.json</button>
+      <button class="btn sm" onclick="download('${k}','csv',+$('xd').value||7)">.csv</button></td></tr>`).join('')}</table></div>`;
 };
 async function download(kind,format,days){
   try{ const r=await req(`/admin/export?kind=${kind}&format=${format}&days=${days}`,{raw:true});
     if(!r.ok)throw new Error('export failed ('+r.status+')');
     const cd=r.headers.get('content-disposition')||''; const name=(cd.match(/filename="([^"]+)"/)||[])[1]||`aethron-${kind}.${format}`;
     const url=URL.createObjectURL(await r.blob()); const a=document.createElement('a'); a.href=url; a.download=name; a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),2000);
+    setTimeout(()=>URL.revokeObjectURL(url),2000); toast('Downloaded '+name);
   }catch(e){ toast(e.message,true) }
 }
 
 window.addEventListener('hashchange',()=>{ const v=location.hash.slice(1); if(v&&v!==VIEW&&VIEWS[v]){VIEW=v;render()} });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&document.querySelector('.drawer')&&!document.querySelector('.dlg'))closeDrawer(); });
 if(AUTH.token) boot(); else render();
 </script>
 </body>

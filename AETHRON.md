@@ -6614,6 +6614,43 @@ the copy obeying — a copy kept offline keeps its last answer, and one that
 never checked in is not stopped. With the managed AI the server refuses
 regardless.
 
+## ADMIN v2: ANNOUNCEMENTS DRAWN BY THE ADMIN AI, AND THE TEAM'S VOICE IN THE APP
+## — 2026-10-27
+Owner, after the first live use: the team notices looked unprofessional (a red
+pill floating over the page title; a pause answered in chat with "open Plan &
+AI and check the model settings"), the admin needed to look and read better,
+Google sign-in to the admin "did not work", and announcements should carry an
+illustration the admin AI draws, "very good like yours".
+- ANNOUNCEMENTS (supabase/functions/aethron/announce.ts, art.ts; table
+  `announcements`, control.announcement_id). Tools preview_illustration,
+  publish_announcement, end_announcement, list_announcements. The admin AI
+  draws a 400x206 animated SVG in the house style, shown two house drawings
+  as examples; `checkSvg` refuses anything but a picture (element allow-list,
+  no scripts/handlers/outside addresses/entities) AND anything hidden at rest
+  (opacity 0 until animated — with motion off it never appears). A refused
+  drawing goes back once with every reason; then a house template
+  (maintenance/feature/alert/update). /control carries the announcement
+  WITHOUT its drawing; GET /announcement/art?id= serves it once, immutable,
+  CSP sandbox. The app fetches it into HOME/announcements/ and shows it as an
+  <img> (never runs code) in a What's-New-style card, once per machine.
+- THE APP: team notices are a chip in the top bar (popover with the full
+  words, hideable unless something is stopped) and, when stopped, a calm card
+  above the chat box; a message refused by the team gets one quiet line
+  ("Not sent — …"), never "check the model settings" (api() errors now carry
+  status and stopped_by_team).
+- THE CONSOLE, rewritten: grouped sidebar with live status, real dialogs (no
+  prompt/confirm — and the first version's dialog backdrop sat ABOVE its own
+  buttons; the battery caught it), country names, 14-day trend lines,
+  Announcements studio with a live preview identical to the app's card.
+- SIGN-IN: the console now reads Google's error from the return address and
+  says when a signed-in account is not an admin. Most likely cause of "Google
+  doesn't work": the admin address was not an allowed redirect, so Supabase
+  sent people to its Site URL. The deploy now adds it (and prints the Site URL
+  and list) through the Management API, warning — not failing — if the token
+  cannot.
+Tests: cloud 34/34, console 26/26, tests/team_ui_battery.py 16/16 (new, in
+run_all), control 35/35, news/conversation/page-preview green.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6890,6 +6927,9 @@ regardless.
   own revocable device token; no key reaches a copy, a log or a listing.
 - A RETRY CONTINUES, IT NEVER RESTARTS. The same request works on the
   same page, from the best attempt on disk, inside one budget.
+- A PICTURE A MODEL DREW IS SHOWN ONLY AS A PICTURE: checked against an
+  allow-list, served as an image with a sandbox policy, never as markup.
+- A DRAWING MUST BE COMPLETE WITH MOTION OFF. Nothing hidden at rest.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.

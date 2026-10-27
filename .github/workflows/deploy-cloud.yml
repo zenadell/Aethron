@@ -75,6 +75,41 @@ jobs:
             if [ "$code" -ge 300 ]; then cat /tmp/out.json; exit 1; fi
           done
 
+      - name: Let sign-in come back to the admin
+        # Google and email links return to an address Supabase must allow;
+        # anything not on the list is sent to the project's Site URL instead
+        # (the "sign-in doesn't work" that looks like Supabase being down).
+        if: steps.have.outputs.ok == 'true'
+        env:
+          TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          REF: ${{ steps.have.outputs.ref }}
+        run: |
+          api="https://api.supabase.com/v1/projects/$REF/config/auth"
+          code=$(curl -sS -o /tmp/auth.json -w '%{http_code}' "$api" -H "Authorization: Bearer $TOKEN")
+          if [ "$code" -ge 300 ]; then
+            echo "::warning::Could not read the sign-in settings ($code). Add https://aethron.jomiez.com/admin to Supabase → Authentication → URL Configuration → Redirect URLs by hand, or give the access token Auth config read+write."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          c = json.load(open("/tmp/auth.json"))
+          have = [u.strip() for u in (c.get("uri_allow_list") or "").split(",") if u.strip()]
+          print("Site URL:", c.get("site_url"))
+          print("Allowed return addresses before:", have or "(none)")
+          want = ["https://aethron.jomiez.com/admin", "https://aethron.jomiez.com/admin/**",
+                  "http://127.0.0.1:*/auth/callback", "http://localhost:*/auth/callback"]
+          add = [u for u in want if u not in have]
+          json.dump({"uri_allow_list": ",".join(have + add)}, open("/tmp/patch.json", "w"))
+          open("/tmp/add.txt", "w").write(" ".join(add))
+          print("Adding:", add or "(nothing — already allowed)")
+          PY
+          if [ -s /tmp/add.txt ]; then
+            code=$(curl -sS -o /tmp/out.json -w '%{http_code}' -X PATCH "$api" -H "Authorization: Bearer $TOKEN" \
+              -H "Content-Type: application/json" -d @/tmp/patch.json)
+            echo "update -> $code"
+            if [ "$code" -ge 300 ]; then cat /tmp/out.json; echo "::warning::Could not update the sign-in settings ($code) — add the addresses above by hand."; fi
+          fi
+
       - uses: supabase/setup-cli@v1
         if: steps.have.outputs.ok == 'true'
         with:

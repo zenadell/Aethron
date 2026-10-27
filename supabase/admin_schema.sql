@@ -168,5 +168,22 @@ create index if not exists admin_ai_thread on public.admin_ai_messages (thread, 
 alter table public.admin_ai_messages enable row level security;
 revoke all on public.admin_ai_messages from anon, authenticated;
 
+-- ── announcements: a card every copy shows once, with an illustration ──
+create table if not exists public.announcements (
+  id          text primary key,
+  title       text not null,
+  body        text not null default '',
+  level       text not null default 'info' check (level in ('info', 'warn', 'critical')),
+  art         text not null default '',
+  art_source  text not null default 'none',
+  cta_label   text not null default '',
+  cta_url     text not null default '',
+  created_by  text not null default '',
+  created_at  timestamptz not null default now()
+);
+alter table public.announcements enable row level security;
+revoke all on public.announcements from anon, authenticated;
+alter table public.control add column if not exists announcement_id text not null default '';
+
 -- the users list reads plans from profiles; keep updated_at for the admin
 alter table public.profiles add column if not exists updated_at timestamptz;

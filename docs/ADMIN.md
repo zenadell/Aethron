@@ -32,7 +32,8 @@ thrown away; it is never stored.
 | | |
 |---|---|
 | **Kill switch** | Pause everything: no messages, no agent turns, no AI answers, no MCP tools, for every copy. A running agent stops at its next model call. People see your message. |
-| **Banner** | An announcement at the top of every copy (info, warning or critical). |
+| **Top banner** | A one-line notice in the top bar of every copy (info, warning or critical). |
+| **Announcements** | A card every copy shows once — headline, a few words, an optional button — with an **animated illustration the admin AI draws for it** in Aethron's house style (a matching house illustration when no admin AI is set). Preview it, redraw it, publish it, end it. |
 | **Parts on/off** | The coding agent, MCP for outside agents (Claude Code, Cursor…), migrating/building, screenshot to code, publishing, new sign-ups. |
 | **Minimum version** | Copies older than this must update before they work. |
 | **Who powers the AI** | *People's own keys* (today), **Aethron's AI** (every copy runs on your key and model; people's keys are not used), or *off*. Switch the provider and model at any time. |
@@ -46,6 +47,8 @@ A separate AI with its own provider, model and key, set in **AI & models** (it i
 that powers users). It reads and acts through exactly the same tools you click, with **your**
 permissions, and everything it changes is in the audit log as "via ai". It is told never to
 pause Aethron, delete anyone or change keys unless you asked in so many words.
+
+When you ask it to announce something it writes the headline and words, and the illustration is drawn for that announcement — refused and redrawn if it ever contains anything but a picture (no scripts, no outside addresses, nothing hidden until animated). Illustrations are only ever shown as images, which cannot run code.
 
 Ask it things like *"what broke today and for whom?"*, *"who used the most AI this week?"*, or
 *"switch everyone to managed gemini-3.6-flash with a $0.30 daily allowance"*.
@@ -92,9 +95,13 @@ shown once. With it, any agent can:
 2. **Deploy.** Merging to main deploys it (`.github/workflows/deploy-cloud.yml`: tests, tables,
    function, then a check that it answers). You can also run that workflow by hand from the
    Actions tab.
-3. **Let the console sign you in.** In Supabase → Authentication → URL configuration, add
-   `https://aethron.jomiez.com/admin` to the redirect URLs (needed for "Email me a link" and
-   Google). Password sign-in and the master key work without this.
+3. **Let the console sign you in.** The deploy adds `https://aethron.jomiez.com/admin` to
+   Supabase's allowed redirect URLs by itself (and prints the Site URL and the list in its log).
+   If the token cannot change auth settings, add it by hand in Supabase → Authentication → URL
+   configuration. Without it, Google and "Email me a link" land on the project's Site URL instead
+   of the admin — which looks like Supabase being down. Password sign-in and the master key work
+   without it. A Google account that is not in `AETHRON_ADMIN_EMAILS` (or added under Access)
+   is told so on the sign-in page.
 4. **Open** `https://aethron.jomiez.com/admin`, sign in, then in **AI & models** add a provider
    key and set up the admin AI.
 
@@ -103,8 +110,9 @@ model → **Apply**. Set the daily allowance first.
 
 ## Testing
 
-- `bun test tests/cloud` — the function, end to end, against a stand-in Supabase (29 checks)
+- `bun test tests/cloud` — the function, end to end, against a stand-in Supabase (34 checks)
 - `python3 tests/control_battery.py` — the app obeying every switch, against the real function (35)
-- `python3 tests/admin_console_battery.py` — the console in a real browser (22)
+- `python3 tests/admin_console_battery.py` — the console in a real browser, incl. drawing and publishing an announcement (26)
+- `python3 tests/team_ui_battery.py` — the app in a real browser: paused card, top-bar chip, announcement card (16)
 - `bun tests/cloud/serve_fake.ts 8787` — try the console by hand at `http://127.0.0.1:8787/`
   with seeded people (master key `master-key-0123456789abcdefghij`)

@@ -87,50 +87,52 @@ try:
         check("and today's AI spend", "$0.1048" in body or "$0.10" in body)
         check("and the top error", "ChunkLoadError" in body)
 
-        pg.click("nav >> text=Live now")
+        pg.click("aside .nv:has-text('Live now')")
         pg.wait_for_selector("text=open", timeout=10000)
         live = pg.inner_text("main")
-        check("live: what each copy is doing", "agent working in agero" in live and "build · agero" in live)
+        check("live: what each copy is doing", "Agent working in agero" in live and "build · agero" in live)
         check("live: only copies seen in the last minutes", "dee@example.com" not in live)
 
-        pg.click("nav >> text=Users")
+        pg.click("aside .nv:has-text('People')")
         pg.wait_for_selector("text=ada@example.com")
         pg.click("text=ada@example.com")
-        pg.wait_for_selector(".drawer >> text=Copies & where", timeout=10000)
+        pg.wait_for_selector(".drawer >> text=Devices & location", timeout=10000)
         drawer = pg.inner_text(".drawer")
-        check("a person's page: country and region", "NG" in drawer and "Lagos" in drawer)
+        check("a person's page: country and region", "Nigeria" in drawer and "Lagos" in drawer)
         pg.click(".drawer >> text=AI usage")
         check("a person's page: their AI spend", "gemini-3.6-flash" in pg.inner_text(".drawer"))
         pg.click(".drawer >> text=Errors")
         check("a person's page: the errors their copy reported", "ChunkLoadError" in pg.inner_text(".drawer"))
         pg.click(".drawer >> button:has-text('Close')")
 
-        pg.click("nav >> text=Switches")
+        pg.click("aside .nv:has-text('Controls')")
         pg.wait_for_selector("text=Kill switch")
-        pg.on("dialog", lambda d: d.accept("Back in five minutes"))
-        pg.click("text=Pause everything")
-        pg.wait_for_selector("text=Aethron is PAUSED for everyone", timeout=10000)
+        pg.click("main >> text=Pause everything")
+        pg.wait_for_selector(".dlg #dlf0")
+        pg.fill(".dlg #dlf0", "Back in five minutes")
+        pg.click(".dlg [data-ok]")
+        pg.wait_for_selector("main >> text=Aethron is paused for everyone", timeout=10000)
         st = server_state()
         check("the kill switch is really set on the server", st["control"]["paused"] is True
               and st["control"]["pause_message"] == "Back in five minutes")
         check("and recorded as the master key's action",
               any(a["action"] == "pause_all" and a["actor"] == "master key" for a in st["audit"]))
-        pg.click("text=Resume everything")
-        pg.wait_for_selector("text=Pause everything", timeout=10000)
+        pg.click("main >> text=Resume everything")
+        pg.wait_for_selector("main >> text=Pause everything", timeout=10000)
         check("resume lifts it", server_state()["control"]["paused"] is False)
 
-        pg.click("nav >> text=API keys & MCP")
+        pg.click("aside .nv:has-text('Access & API keys')")
         pg.wait_for_selector("#kl")
         pg.fill("#kl", "claude on my mac")
         pg.click("text=Create key")
         pg.wait_for_selector(".keybox", timeout=10000)
         key = pg.inner_text(".keybox").strip()
         check("a new API key is shown once", key.startswith("ak_"))
-        pg.click("nav >> text=API keys & MCP")
+        pg.click("aside .nv:has-text('Access & API keys')")
         pg.wait_for_selector("text=claude on my mac")
         check("and never again (only its prefix is listed)", key not in pg.content())
 
-        pg.click("nav >> text=Admin AI")
+        pg.click("aside .nv:has-text('Admin AI')")
         pg.wait_for_selector("#aiin")
         r = urllib.request.Request(base + "/aethron/admin/call", data=json.dumps({
             "tool": "set_admin_ai", "args": {"provider": "gemini", "model": "gemini-3.6-flash", "key": "admin-ai-key-xyz"}}).encode(),
@@ -142,7 +144,26 @@ try:
         check("the admin AI answers with the figure it read", True)
         check("and shows the tool it used", pg.locator(".act >> text=overview").count() >= 1)
 
-        pg.click("nav >> text=Exports")
+        pg.click("aside .nv:has-text('Announcements')")
+        pg.wait_for_selector("#at")
+        pg.fill("#at", "Screenshots now build whole sites")
+        pg.fill("#ab", "Drop a screenshot into Aethron and get a real website back.")
+        pg.click("#adraw")
+        pg.wait_for_selector("#apv .art img", timeout=10000)
+        src = pg.get_attribute("#apv .art img", "src") or ""
+        check("an illustration is drawn and previewed before anything goes out", src.startswith("data:image/svg+xml"))
+        check("the preview shows the card exactly as the app will", "Screenshots now build whole sites" in pg.inner_text("#apv"))
+        pg.click("#apub")
+        pg.click(".dlg [data-ok]")
+        pg.wait_for_selector("main >> text=Live: Screenshots now build whole sites", timeout=10000)
+        live_ann = json.loads(urllib.request.urlopen(base + "/aethron/control", timeout=5).read()).get("announcement") or {}
+        check("publishing makes it live for every copy, with its illustration",
+              live_ann.get("title") == "Screenshots now build whole sites" and live_ann.get("has_art") is True)
+        art = urllib.request.urlopen(base + "/aethron/announcement/art?id=" + live_ann.get("id", ""), timeout=5)
+        check("and the illustration is served as a picture that cannot run code",
+              "image/svg+xml" in art.headers.get("Content-Type", "") and b"<script" not in art.read().lower())
+
+        pg.click("aside .nv:has-text('Exports')")
         pg.wait_for_selector("text=Everything")
         with pg.expect_download() as dl:
             pg.locator("button[onclick^=\"download('errors','md'\"]").click()
@@ -152,12 +173,12 @@ try:
               and "chunk 42" in md)
 
         broken = []
-        for v in ("Usage & spend", "Errors", "Activity", "Agent runs", "Audit log", "AI & models", "Overview"):
-            pg.click(f"nav >> text={v}")
+        for v in ("Usage & spend", "Errors", "Activity", "Agent runs", "Audit log", "AI & models", "Announcements", "Overview"):
+            pg.click(f"aside .nv:has-text('{v}')")
             pg.wait_for_selector("main .top h1", timeout=10000)
-            pg.wait_for_function("!document.querySelector('main .spin')", timeout=10000)
-            if pg.locator("main > .card.err").count():
-                broken.append(v + ": " + pg.inner_text("main > .card.err"))
+            pg.wait_for_function("!document.querySelector('main .skel')", timeout=10000)
+            if pg.locator("main > .card.bad").count():
+                broken.append(v + ": " + pg.inner_text("main > .card.bad"))
         check("every view opens without an error", not broken or print(broken))
         check("no console errors on any view", not errors or print(errors))
 
