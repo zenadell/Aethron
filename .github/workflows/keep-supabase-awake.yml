@@ -1,0 +1,38 @@
+# Supabase's free plan pauses a project after about a week with no
+# requests. While anyone has Aethron open it pings every minute; this
+# covers the quiet weeks, so a person coming back can still sign in.
+name: Keep Supabase awake
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the database and the control function
+        env:
+          AETHRON_SUPABASE_URL: ${{ secrets.AETHRON_SUPABASE_URL }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          c = json.load(open("release_config.json"))
+          base = (os.environ.get("AETHRON_SUPABASE_URL") or c["supabase_url"]).rstrip("/")
+          key = c["supabase_anon_key"]
+          ok = 0
+          for path in ("/rest/v1/control?select=id&limit=1", "/functions/v1/aethron/control"):
+              req = urllib.request.Request(base + path, headers={"apikey": key, "Authorization": "Bearer " + key})
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as r:
+                      print(path, r.status); ok += 1
+              except urllib.error.HTTPError as e:
+                  print(path, e.code, e.read()[:200]); ok += e.code < 500
+              except Exception as e:
+                  print(path, "unreachable:", e)
+          if not ok:
+              raise SystemExit("Supabase did not answer — it may already be paused; restore it in the dashboard.")
+          PY
