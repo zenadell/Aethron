@@ -6547,7 +6547,10 @@ connections), so every grade said "no browser could render the page" —
 --disable-field-trial-config is now in the launcher; (2) a squash merge
 copies every commit message into the main commit, so ONE "[skip ci]" on
 any branch commit silently cancels the Mac release, and this repo's
-integration cannot dispatch it by hand. Keep [skip ci] off branches.
+integration cannot dispatch it by hand. Keep [skip ci] off branches —
+and do not even NAME that tag in a merge message: GitHub matches the
+literal text anywhere, so a note explaining it cancelled the next
+release too. Pass merge_pull_request an explicit commit_message.
 
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
