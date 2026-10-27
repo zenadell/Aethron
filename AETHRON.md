@@ -6519,6 +6519,29 @@ uploaded page, its link, real browser: alone bottom-right; beside
 Netlify's at 1400/500/390px with no overlap; switched off -> uploaded
 without it).
 
+## ONE SCREENSHOT REQUEST IS ONE PAGE, CONTINUED — 2026-10-27
+Owner: screenshot-to-code "abandons the project and starts afresh" on
+every error; the sidebar filled with <hash>, <hash>-2, … for ONE request,
+slow, and it ran out the session limit. Not the model's choice: every
+screenshot_to_page call without outdir made a NEW folder (page_slot) and
+ran the whole build (up to 3 model rounds) from nothing, and the tool's
+own text said to call it again until PASS. Fixed:
+- forge_mcp.page_for(image): the same picture BY ITS BYTES continues its
+  own page (source.json holds the sha1; older pages are found through the
+  screenshot their report.json names). new=true, and only that, makes a
+  second version.
+- aethron_shot2code.build(resume=True): a site.html already there is
+  graded first (no model call); a PASS is handed back as it is; anything
+  else gets REPAIR rounds from it, never the from-nothing prompt again.
+  The best page is still what is kept.
+- one request (calls within 20 min) has REQUEST_CALLS=6 model calls and
+  REQUEST_USD=$0.80 across all its calls (request.json); then DONE with
+  the best page and what still fails, at no cost. A page being built is
+  marked .building, so a second call waits (BUSY) instead of building
+  twice. The tool and the attachment note say: call ONCE.
+tests/page_resume_battery.py (in run_all) drives the real tool with a
+fake model and counts folders and calls.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6786,6 +6809,8 @@ without it).
   provider refuses it.
 - A CHANGED FILE GETS A NEW ADDRESS. A build that rewrites a file in place
   stamps its address; nothing it ships may be cached on trust.
+- A RETRY CONTINUES, IT NEVER RESTARTS. The same request works on the
+  same page, from the best attempt on disk, inside one budget.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.
