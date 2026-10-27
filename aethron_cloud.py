@@ -249,8 +249,11 @@ def google_exchange_code(code: str, redirect_to: str, verifier: str) -> str:
     req = urllib.request.Request("https://oauth2.googleapis.com/token",
                                  data=data, method="POST")
     req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    with urllib.request.urlopen(req, timeout=15) as r:
-        tok = json.loads(r.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            tok = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(_google_refusal(e)) from None
     if not tok.get("id_token"):
         raise RuntimeError("Google returned no id_token")
     return tok["id_token"]
@@ -260,8 +263,44 @@ def session_from_google(id_token: str) -> dict:
     """Verify a Google id_token with Supabase and return a session dict
     shaped like login()/signup() (access_token + user). The Google client
     id must be listed in Supabase → Auth → Providers → Google."""
-    return _post("/auth/v1/token?grant_type=id_token",
-                 {"provider": "google", "id_token": id_token})
+    try:
+        return _post("/auth/v1/token?grant_type=id_token",
+                     {"provider": "google", "id_token": id_token})
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(_supabase_refusal(e)) from None
+
+
+def _body_of(e) -> dict:
+    try:
+        return json.loads(e.read().decode() or "{}")
+    except Exception:
+        return {}
+
+
+def _google_refusal(e) -> str:
+    """Google's own reason, and what to change — never a bare 'HTTP 401'."""
+    b = _body_of(e)
+    code, why = b.get("error", ""), str(b.get("error_description", "")).rstrip(".")
+    msg = f"Google refused the sign-in ({e.code} {code}: {why})".replace(" : ", " ").replace(": )", ")")
+    if code == "invalid_client":
+        msg += (". The Google client secret this release carries does not match its client id, "
+                "or that OAuth client was deleted — update AETHRON_GOOGLE_CLIENT_SECRET / "
+                "AETHRON_GOOGLE_CLIENT_ID to the pair in Google Cloud → Credentials.")
+    elif code == "redirect_uri_mismatch":
+        msg += ". Add this app's return address to the OAuth client's redirect URIs."
+    elif code == "invalid_grant":
+        msg += ". The sign-in took too long or was used twice — try again."
+    return msg
+
+
+def _supabase_refusal(e) -> str:
+    b = _body_of(e)
+    why = b.get("error_description") or b.get("msg") or b.get("message") or b.get("error") or ""
+    msg = f"Aethron's account server refused the Google sign-in ({e.code}: {why})"
+    if "audience" in why.lower() or "client" in why.lower():
+        msg += (". Add this app's Google client id to Supabase → Authentication → "
+                "Providers → Google → Client IDs.")
+    return msg
 
 
 def user_from_token(access_token: str) -> dict:
