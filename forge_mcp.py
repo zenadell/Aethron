@@ -1348,6 +1348,31 @@ def t_create_from_library(a):
             + "\nNext: fetch -> inventory -> set_plan -> fill.")
 
 
+def t_publish_site(a):
+    """Build, then publish to the person's own Netlify account."""
+    import aethron_publish as Pub
+    name = a["project"]
+    d = pdir(name)
+    if not Pub.account()["connected"]:
+        return Result("NOT PUBLISHED: no Netlify account is connected. Ask the "
+                      "person to open the project in the Aethron app and press "
+                      "Publish once to connect Netlify; after that this tool "
+                      "publishes by itself.", {"published": False, "reason": "not connected"})
+    ok, out = run_forge(name, "build")
+    if not ok:
+        return Result("NOT PUBLISHED: the build failed:\n" + out[-1500:],
+                      {"published": False, "reason": "build failed"})
+    log = []
+    try:
+        rec = Pub.publish(f"project:{d.name}", Pub.folder_files(d / "site"),
+                          a.get("site_name") or d.name, log=log.append, title=d.name)
+    except Pub.PublishError as e:
+        return Result("NOT PUBLISHED: " + str(e), {"published": False, "reason": str(e)})
+    return Result(f"PUBLISHED: {rec['url']}\n" + "\n".join(log[-6:]),
+                  {"published": True, "url": rec["url"], "site": rec["name"],
+                   "files": rec["files"], "custom_domain": rec.get("custom_domain", "")})
+
+
 TOOLS = [
     ("list_projects", "List all migration projects with platform, fill "
      "progress and build state.", S({}, []), t_list_projects),
@@ -1691,6 +1716,16 @@ TOOLS = [
     ("generate_backend", "Generate backend/app.py (content API + site "
      "server; copy_map is the database) + AGENT_GUIDE.md for handoff.",
      S(P, ["project"]), t_pipeline("backend")),
+    ("publish_site", "Put a project on the web: builds it, then publishes "
+     "site/ to the person's OWN free Netlify account and returns the live "
+     "https address (<name>.netlify.app, or their domain once connected). "
+     "Republishing replaces the whole site at once and uploads only what "
+     "changed; earlier versions stay restorable in the app. Needs the "
+     "person to have connected Netlify once in the Aethron app (Publish "
+     "button) — if not, it says so instead of publishing.",
+     S(dict(P, site_name={"type": "string", "description":
+            "OPTIONAL address for a first publish, e.g. 'my-bakery' -> "
+            "my-bakery.netlify.app"}), ["project"]), t_publish_site),
     ("localize_assets", "FULL OWNERSHIP: download every remote CDN "
      "asset (Webflow css/js/images, Framer images, fonts) into the "
      "project under brand-free hashed names; the next build serves "

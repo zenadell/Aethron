@@ -32,6 +32,7 @@ jobs:
       SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       AETHRON_GOOGLE_CLIENT_ID: ${{ secrets.AETHRON_GOOGLE_CLIENT_ID }}
       AETHRON_GOOGLE_CLIENT_SECRET: ${{ secrets.AETHRON_GOOGLE_CLIENT_SECRET }}
+      AETHRON_NETLIFY_CLIENT_ID: ${{ secrets.AETHRON_NETLIFY_CLIENT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,6 +91,9 @@ jobs:
                          ("google_client_secret", "AETHRON_GOOGLE_CLIENT_SECRET")):
               if os.environ.get(env):
                   c[k] = os.environ[env]
+          # Netlify browser sign-in (Publish): a public client id, also a secret for tidiness
+          if os.environ.get("AETHRON_NETLIFY_CLIENT_ID"):
+              c["netlify_client_id"] = os.environ["AETHRON_NETLIFY_CLIENT_ID"]
           if "google_client_id" not in c:
               print("::warning::no AETHRON_GOOGLE_CLIENT_ID secret — Google sign-in is off in this release")
           json.dump(c, open("aethron_config.json", "w"))
