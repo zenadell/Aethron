@@ -19,7 +19,7 @@ RUN apt-get update \
 # Chrome inside a container: no user namespaces for its sandbox, and a
 # 64MB /dev/shm that crashes big pages. One wrapper fixes both for every
 # place Aethron opens a browser.
-RUN printf '#!/bin/sh\nexec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage --disable-gpu "$@"\n' \
+RUN printf '#!/bin/sh\nexec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage --disable-gpu --disable-field-trial-config "$@"\n' \
       > /usr/local/bin/aethron-chromium \
  && chmod +x /usr/local/bin/aethron-chromium
 
