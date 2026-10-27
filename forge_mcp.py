@@ -73,6 +73,70 @@ def page_slot(stem):
     return PAGES / name
 
 
+# One request for one screenshot is one page. Each call used to make a new
+# folder (<hash>, <hash>-2, …) and run the whole build again, so a single
+# request filled the sidebar and spent the person's limit on restarts.
+REQUEST_GAP_S = 20 * 60      # calls closer together than this are one request
+REQUEST_CALLS = 6            # model calls one request may make, all rounds included
+REQUEST_USD = 0.80           # and what it may spend
+BUSY_S = 20 * 60             # a build marked busy longer than this has died
+
+
+def _sha1_file(path):
+    import hashlib
+    try:
+        return hashlib.sha1(Path(path).read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def page_for(image, new=False):
+    """The page this screenshot already has, or a new one: (folder, reused).
+
+    The same picture (by its bytes, whatever its file is called) continues
+    the page it started. Only new=True — the person asking for another
+    version — makes a second page for it. Pages made before this record
+    are found by the screenshot their report names."""
+    h = _sha1_file(image)
+    if h and not new and PAGES.is_dir():
+        hits = []
+        for d in PAGES.iterdir():
+            if not (d / "site.html").is_file() and not (d / "source.json").is_file():
+                continue
+            try:
+                src = json.loads((d / "source.json").read_text())
+                same = src.get("sha1") == h
+            except Exception:
+                try:
+                    old = json.loads((d / "report.json").read_text()).get("image")
+                    same = bool(old) and _sha1_file(old) == h
+                except Exception:
+                    same = False
+            if same:
+                hits.append(d)
+        if hits:
+            d = max(hits, key=lambda x: x.stat().st_mtime)
+            if not (d / "source.json").is_file():
+                (d / "source.json").write_text(json.dumps({"sha1": h, "image": str(image)}))
+            return d, True
+    d = page_slot(Path(str(image)).stem)
+    (d / "source.json").write_text(json.dumps({"sha1": h, "image": str(image)}))
+    return d, False
+
+
+def request_state(folder, now=None):
+    """What this page's current request has used: calls and dollars, summed
+    over every call that belongs to it (calls within REQUEST_GAP_S)."""
+    now = time.time() if now is None else now
+    try:
+        st = json.loads((Path(folder) / "request.json").read_text())
+    except Exception:
+        st = {}
+    if not st or now - st.get("last", 0) > REQUEST_GAP_S:
+        st = {"since": now, "last": now, "calls": 0, "usd": 0.0, "builds": 0}
+    return st
+
+
 def page_snapshot(page):
     """Keep the version a change is about to replace, for Undo in the studio."""
     page = Path(page).resolve()
@@ -439,17 +503,25 @@ def t_screenshot_to_page(a):
     sys.path.insert(0, str(ROOT))
     import aethron_shot2code as S2C
     asked = a.get("outdir")
-    out = Path(asked) if asked else page_slot(Path(str(a["image"])).stem)
+    if asked:
+        out, again = Path(asked), (Path(asked) / "site.html").is_file()
+        out.mkdir(parents=True, exist_ok=True)
+    else:
+        out, again = page_for(a["image"], new=bool(a.get("new")))
     site = out / "site.html"
     name_line = ("" if asked else
                  f"aethron-page: {out.name}\nThe page is open in Aethron's preview, "
                  "where the person can look at it, point at anything to change or "
                  "remove it, and see the code. Do not give them the path as the "
                  "answer.\n")
-    yourself = (
+    yourself = ((
+        f"A page for this screenshot already exists at {site}. CONTINUE it: "
+        "edit that file to fix what grade_page names; do not start it again "
+        "and do not write a new file. The rules it follows:\n")
+        if site.is_file() else (
         "Build the page from the image yourself NOW, as ONE self-contained "
-        f"HTML file written to exactly {site}, following these rules:\n"
-        + S2C.RULES +
+        f"HTML file written to exactly {site}, following these rules:\n")) + (
+        S2C.RULES +
         f"\nThen call grade_page with image={a['image']} and page={site}, fix "
         "every finding it names, and call it again until it says PASS (at most "
         "three rounds). Do not ask the person to confirm first.\n")
@@ -463,26 +535,69 @@ def t_screenshot_to_page(a):
                 f"({r.get('why') or 'this provider has no API'}).\n" + yourself
                 + name_line)
     import contextlib
+    st = request_state(out)
+    calls_left = REQUEST_CALLS - st["calls"]
+    usd_left = REQUEST_USD - st["usd"]
+    busy = out / ".building"
+    try:
+        if time.time() - busy.stat().st_mtime < BUSY_S:
+            return ("BUSY this page is still being built by an earlier call. Do "
+                    "not call screenshot_to_page again; wait for that answer.\n"
+                    + name_line)
+    except OSError:
+        pass
+    if again and (calls_left <= 0 or usd_left < 0.02):
+        return _page_summary(out, site, name_line,
+                             f"DONE this request has used its {REQUEST_CALLS} model "
+                             f"calls / ${REQUEST_USD:.2f}; the best page so far is kept. "
+                             "Do not call screenshot_to_page again for it: fix what is "
+                             "still failing by editing the file and checking it with "
+                             "grade_page, or tell the person what is left.")
 
     def _s2c_log(*x):
         msg = " ".join(str(v) for v in x)
         print(msg, file=sys.stderr, flush=True)
         _tool_note("screenshot_to_page", msg)
 
+    if again:
+        _s2c_log(f"continuing {out.name} (this request: {st['calls']} model call(s), "
+                 f"${st['usd']:.2f} so far)")
+    rep = None
     try:
+        busy.write_text(str(os.getpid()))
         # stdout is the MCP channel on stdio; nothing the build prints may land in it.
         with contextlib.redirect_stdout(sys.stderr):
             rep = S2C.build(str(a["image"]), str(out),
-                            rounds=int(a.get("rounds", 3)), minutes=12,
-                            budget_usd=float(a.get("budget_usd", 0.40)),
-                            log=_s2c_log)
+                            rounds=max(1, min(int(a.get("rounds", 3)), calls_left)),
+                            minutes=12,
+                            budget_usd=min(float(a.get("budget_usd", 0.40)), usd_left),
+                            log=_s2c_log, resume=True)
     except SystemExit as e:
-        return f"FAILED {e}"
+        return f"FAILED {e}\n" + name_line
     except Exception as e:
-        return f"FAILED {type(e).__name__}: {e}"
+        return f"FAILED {type(e).__name__}: {e}\n" + name_line
+    finally:
+        try:
+            busy.unlink()
+        except OSError:
+            pass
+        rep_ = rep or {}
+        st.update(last=time.time(), calls=st["calls"] + int(rep_.get("calls") or 0),
+                  usd=round(st["usd"] + float(rep_.get("usd") or 0), 4),
+                  builds=st["builds"] + 1)
+        try:
+            (out / "request.json").write_text(json.dumps(st))
+        except OSError:
+            pass
     if rep.get("verdict") == "NOT ASKED" or not rep.get("page"):
         return (f"NOT ASKED {rep.get('why', '')}\n" + yourself + name_line)
-    lines = [f"{rep['verdict']}: the page is real HTML and CSS and looks "
+    if rep.get("resumed"):
+        r0 = rep["resumed"]
+        lines0 = [f"continued the page already built (it was {r0['likeness']:.0%} alike, "
+                  f"{r0['findings']} check(s) failing) instead of starting again"]
+    else:
+        lines0 = []
+    lines = lines0 + [f"{rep['verdict']}: the page is real HTML and CSS and looks "
              f"{rep.get('likeness', 0):.0%} like the screenshot "
              f"({len(rep.get('rounds', []))} round(s), "
              f"{rep.get('calls', 0)} model call(s), ${rep.get('usd', 0):.4f})",
@@ -506,10 +621,27 @@ def t_screenshot_to_page(a):
     if rep.get("findings"):
         lines.append("still failing:")
         lines += [f"- {x}" for x in rep["findings"]]
-        lines.append("You can fix these by editing the file and checking it "
-                     "with grade_page.")
+        lines.append("Fix these by editing the file and checking it with "
+                     "grade_page. Calling screenshot_to_page again continues this "
+                     "same page; it never starts a new one.")
     for n in rep.get("notes") or []:
         lines.append(f"note: {n}")
+    return "\n".join(lines) + "\n" + name_line
+
+
+def _page_summary(out, site, name_line, head):
+    """The page as it stands, from its last report, with no new build."""
+    try:
+        rep = json.loads((out / "report.json").read_text())
+    except Exception:
+        rep = {}
+    lines = [head, f"page: {site}"]
+    if rep:
+        lines.append(f"last check: {rep.get('verdict', '?')}, looks "
+                     f"{rep.get('likeness', 0):.0%} like the screenshot")
+        if rep.get("findings"):
+            lines.append("still failing:")
+            lines += [f"- {x}" for x in rep["findings"]]
     return "\n".join(lines) + "\n" + name_line
 
 
@@ -1626,8 +1758,11 @@ TOOLS = [
      "and corrects it over up to three rounds. A page that shows the "
      "screenshot itself or a crop of it bigger than an icon is refused, and "
      "phone widths are checked. Use this whenever the person attaches an "
-     "image and asks for a page. If it answers SKIPPED or NOT ASKED, build "
-     "the page yourself under the rules it gives and check it with "
+     "image and asks for a page. Call it ONCE per screenshot: the same "
+     "screenshot always continues its own page (a second call repairs it, "
+     "never starts again), and one request has a fixed budget of model "
+     "calls. If it answers SKIPPED or NOT ASKED, build the page yourself "
+     "under the rules it gives, in the file it names, and check it with "
      "grade_page — do not ask first.",
      {"type": "object", "properties": {
         "image": {"type": "string", "description":
@@ -1636,7 +1771,10 @@ TOOLS = [
                    "OPTIONAL where to write the page. Leave it out: by "
                    "default the page opens in Aethron's preview."},
         "rounds": {"type": "integer", "description":
-                   "OPTIONAL build + correction rounds (default 3)"}},
+                   "OPTIONAL build + correction rounds (default 3)"},
+        "new": {"type": "boolean", "description":
+                "OPTIONAL true ONLY when the person asks for a separate, "
+                "second version of a page they already have"}},
       "required": ["image"]}, t_screenshot_to_page),
     ("grade_page", "CHECK a page built from a screenshot: refuses it if it "
      "shows the screenshot (or a crop bigger than an icon) as a picture, "

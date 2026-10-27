@@ -61,6 +61,7 @@ BR.resolve = lambda *a, **k: {"ready": True, "wire": "openai"}
 try:
     r1 = FM.t_screenshot_to_page({"image": str(SHOT)})
     r2 = FM.t_screenshot_to_page({"image": str(SHOT)})
+    r2n = FM.t_screenshot_to_page({"image": str(SHOT), "new": True})
     BR.resolve = lambda *a, **k: {"ready": False, "why": "test"}
     r3 = FM.t_screenshot_to_page({"image": str(SHOT)})
 finally:
@@ -70,11 +71,13 @@ check("a rebuild lands where the studio looks, as site.html",
       (PAGES / name / "site.html").read_text() == FIX)
 check("and the result names the page for the studio, not a path to go find",
       f"aethron-page: {name}" in r1 and "Do not give them the path" in r1)
-check("a second rebuild of the same screenshot gets its own page",
-      f"aethron-page: {name}-2" in r2 and (PAGES / f"{name}-2" / "site.html").is_file())
-check("when measuring cannot run, the agent is told the exact file to write",
-      r3.startswith("SKIPPED") and str(PAGES / f"{name}-3" / "site.html") in r3
-      and "Do not ask" in r3)
+check("a second rebuild of the same screenshot continues its page, not a new one",
+      f"aethron-page: {name}\n" in r2 and f"{name}-2" not in r2)
+check("a separate version only when asked for (new=true)",
+      f"aethron-page: {name}-2" in r2n and (PAGES / f"{name}-2" / "site.html").is_file())
+check("when measuring cannot run, the agent is told the exact file to continue",
+      r3.startswith("SKIPPED") and str(PAGES / f"{name}-2" / "site.html") in r3
+      and "CONTINUE" in r3 and "Do not ask" in r3)
 check("the agent may write that file without a permission card",
       C.permission_risk("Write", {"file_path": str(PAGES / "x" / "site.html")},
                         str(HOME / "workspaces" / "__console__")) == "")
@@ -142,7 +145,7 @@ else:
                   {type:'text',text:'Done.'}]; renderChat();}""", name)
                 pg.wait_for_selector(".pagecard", timeout=5000)
                 check("the conversation shows the page itself, with its doors",
-                      pg.locator(".pagecard button").count() == 4
+                      pg.locator(".pagecard button").count() == 5
                       and pg.locator(".pagecard iframe").get_attribute("src")
                       == f"/design/{name}/site.html")
                 pg.click(".pagecard button:has-text('Point and edit')")

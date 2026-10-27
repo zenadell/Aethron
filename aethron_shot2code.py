@@ -1337,11 +1337,17 @@ def _polish(src, ref, scale, W, H, rep, html, lines, slots, fonts, out, work, re
     return rep2, html2
 
 
-def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=0.40):
+def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=0.40,
+          resume=True):
     """Screenshot -> outdir/site.html, real HTML and CSS, checked.
 
     Returns a report: verdict PASS / FAIL / SKIPPED / NOT ASKED, the
     likeness of the page kept, every round, and every check that failed.
+
+    With resume (the default), a site.html already in outdir is where the
+    work continues: it is graded first (no model call), handed back as it
+    is when it already passes, and otherwise every round is a repair of
+    it. A second call never starts the page again from nothing.
     """
     t0 = time.time()
     out = Path(outdir)
@@ -1369,6 +1375,31 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
     best = None
     html = None
     prev = None
+    existing = out / "site.html"
+    if resume and existing.is_file():
+        html0 = existing.read_text(encoding="utf-8", errors="replace")
+        page0 = work / "round0.html"
+        page0.write_text(html0)
+        rep0 = grade(src, page0, ref=ref if scale == 1 else None, work=work / "r0",
+                     slots=slots)
+        if rep0.get("verdict") != "SKIPPED":
+            report["resumed"] = {"likeness": rep0["likeness"], "verdict": rep0["verdict"],
+                                 "findings": len(rep0["findings"])}
+            log(f"continuing the page already built: it looks {rep0['likeness']:.0%} "
+                f"like the screenshot, {len(rep0['findings'])} check(s) failed")
+            if not rep0["reused"]:
+                prev, html, best = rep0, html0, (rep0, html0)
+                # a page that already passes was the answer; asking again
+                # must not spend more on it
+                if rep0["verdict"] == "PASS":
+                    for k in ("likeness", "colour", "structure", "findings", "notes",
+                              "elements", "phones_checked", "reused", "craft", "wide"):
+                        if k in rep0:
+                            report[k] = rep0[k]
+                    report["verdict"] = "PASS"
+                    report["seconds"] = round(time.time() - t0)
+                    return _finish(report, out, html0, ledger=getattr(writer, "ledger", None),
+                                   render_png=rep0.get("render_png"))
     for rnd in range(1, rounds + 1):
         elapsed = time.time() - t0
         if elapsed > minutes * 60 or (
@@ -1378,7 +1409,7 @@ def build(image, outdir, writer=None, rounds=3, minutes=15, log=say, budget_usd=
             log(f"round {rnd}: skipping to leave time for the finishing pass "
                 f"({minutes}-minute limit)")
             break
-        if rnd == 1:
+        if prev is None:
             prompt, images = _first_prompt(f), [("image/png", ref_png.read_bytes())]
             log("writing the page from the screenshot")
         else:

@@ -5350,7 +5350,14 @@ def _sandbox_safe(binary: str) -> str:
     /dev/shm crashes renderers without --disable-dev-shm-usage. A wrapper
     script carries both, so every caller — each of which builds its own
     command line — gets them without knowing. Only for root on Linux:
-    a person's own Mac or PC keeps its sandbox."""
+    a person's own Mac or PC keeps its sandbox.
+
+    --disable-field-trial-config: with a FRESH profile (every check makes
+    one) this build of Chromium waits on its field-trial setup and, in a
+    container whose proxy drops Google's background connections, never
+    renders at all — a one-line page timed out at 90s, and every grade
+    came back "no browser could render the page". The default profile
+    rendered in under a second, which is why it looked like the page."""
     import os
     if not sys.platform.startswith("linux") or not hasattr(os, "geteuid") \
             or os.geteuid() != 0:
@@ -5369,7 +5376,8 @@ def _sandbox_safe(binary: str) -> str:
     name = "chromium-" + hashlib.sha1(binary.encode()).hexdigest()[:10]
     w = d / name
     body = ("#!/bin/sh\n"
-            f"exec '{binary}' --no-sandbox --disable-dev-shm-usage \"$@\"\n")
+            f"exec '{binary}' --no-sandbox --disable-dev-shm-usage "
+            "--disable-field-trial-config \"$@\"\n")
     try:
         if not w.is_file() or w.read_text() != body:
             d.mkdir(parents=True, exist_ok=True)
