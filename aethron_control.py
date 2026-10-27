@@ -264,6 +264,38 @@ def managed() -> dict:
             "why": "" if tok else "sign in to Aethron to use its AI"}
 
 
+def announcement_art(aid: str) -> bytes:
+    """The live announcement's illustration: fetched once by id, kept in
+    <home>/announcements/, and only ever an SVG picture. b"" when there is
+    none or it cannot be fetched (the card then shows without a picture)."""
+    import re
+    if not re.fullmatch(r"an_[A-Za-z0-9_-]{6,40}", aid or "") or not base_url():
+        return b""
+    p = home() / "announcements" / (aid + ".svg")
+    if p.is_file():
+        return p.read_bytes()
+    req = urllib.request.Request(base_url() + "/announcement/art?id=" + aid)
+    anon = _anon()
+    if anon:
+        req.add_header("apikey", anon)
+        req.add_header("Authorization", "Bearer " + anon)
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            kind = r.headers.get("Content-Type", "")
+            body = r.read(64_000)
+    except Exception:
+        return b""
+    low = body.lower()
+    if "image/svg+xml" not in kind or b"<svg" not in low or b"<script" in low:
+        return b""
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(body)
+    except OSError:
+        pass
+    return body
+
+
 def summary() -> dict:
     """What the studio's screen needs, with no token in it."""
     s = state()

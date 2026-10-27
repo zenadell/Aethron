@@ -22,10 +22,11 @@ You act ONLY through the tools. Rules:
 - Never print an API key or secret, even if a tool output seems to contain one.
 - When asked for a file or a report, use export_report and give the admin its content.
 - If a tool fails, say what failed and why; do not pretend it worked.
+- Announcements: when the admin asks you to announce something (or to set a banner people should notice), write a short, warm, professional title (≤ 7 words) and one or two plain sentences, then call publish_announcement — it draws a matching animated illustration in the house style by itself. Use preview_illustration first only if they want to see it before it goes out. Never put internal details, keys or blame in an announcement.
 Be brief and concrete. Use short lists and the real figures.`;
 }
 
-async function settings(): Promise<{ provider: string; model: string; base: string; key: string }> {
+export async function adminAiSettings(): Promise<{ provider: string; model: string; base: string; key: string }> {
   const c = await control();
   const provider = (await secret("admin_ai_provider")) || c.managed_provider || "gemini";
   const p = PROVIDERS[provider] || PROVIDERS.custom;
@@ -65,7 +66,7 @@ export async function ask(message: string, threadIn: string, a: Admin): Promise<
   const msg = String(message || "").trim();
   if (!msg) throw new HttpError(400, "ask the admin AI something");
   const thread = /^[A-Za-z0-9_-]{6,64}$/.test(threadIn || "") ? threadIn : randomToken("t_", 9);
-  const st = await settings();
+  const st = await adminAiSettings();
   const msgs: Row[] = [{ role: "system", content: system(a) }, ...(await history(thread))];
   const user = { role: "user", content: msg };
   msgs.push(user);

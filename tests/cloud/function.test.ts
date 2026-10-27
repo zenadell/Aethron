@@ -446,3 +446,98 @@ describe("the admin AI and the admin MCP", () => {
     expect((await call("POST", "/mcp", { body: { jsonrpc: "2.0", id: 5, method: "tools/list" } })).status).toBe(401);
   });
 });
+
+describe("announcements and their illustrations", () => {
+  const GOOD = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 206"><style>.a{animation:p 2s infinite}@keyframes p{50%{opacity:.4}}</style>
+<rect width="400" height="206" fill="#0f0e10"/><circle class="a" cx="200" cy="103" r="30" fill="#d97757"/></svg>`;
+
+  test("a drawing is refused for scripts, handlers, outside addresses and foreign elements — with every reason", async () => {
+    const art = await import("../../supabase/functions/aethron/art.ts");
+    expect(art.checkSvg("Here you go:\n```svg\n" + GOOD + "\n```")).toContain("<circle");
+    for (const [bad, why] of [
+      [GOOD.replace("<rect", '<script>alert(1)</script><rect'), "<script> is not allowed"],
+      [GOOD.replace("<rect", '<rect onload="x()"'), "event handlers"],
+      [GOOD.replace("<rect", '<image href="https://evil.test/x.png"/><rect'), "links outside itself"],
+      [GOOD.replace("<rect", '<foreignObject></foreignObject><rect'), "<foreignObject> is not allowed"],
+      [GOOD.replace(".a{", ".a{background:url(https://evil.test/t.png);"), "outside address"],
+      [GOOD.replace("0 0 400 206", "0 0 100 100"), "viewBox"],
+    ] as const) {
+      let msg = "";
+      try { art.checkSvg(bad); } catch (e) { msg = (e as Error).message; }
+      expect(msg).toContain(why);
+    }
+    for (const t of Object.values(art.TEMPLATES)) expect(art.checkSvg(t)).toContain("@keyframes");
+  });
+
+  test("with no admin AI, publishing still ships a house illustration, and every copy sees the card", async () => {
+    const r = await tool("publish_announcement", { title: "Scheduled maintenance tonight", body: "Aethron pauses at 22:00 UTC for ten minutes." });
+    expect(r.status).toBe(200);
+    expect(r.body.result.art).toBe("template");
+    forget("");
+    const c = (await call("GET", "/control")).body;
+    expect(c.announcement.title).toBe("Scheduled maintenance tonight");
+    expect(c.announcement.has_art).toBe(true);
+    expect(JSON.stringify(c)).not.toContain("<svg");           // the minute-by-minute check stays small
+    const art = await call("GET", "/announcement/art?id=" + c.announcement.id);
+    expect(art.status).toBe(200);
+    expect(art.headers.get("content-type")).toContain("image/svg+xml");
+    expect(art.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(art.text).toContain("ring");                          // the maintenance drawing
+    const u = fake.addUser("ann@example.com");
+    expect((await ping({}, u.token)).body.control.announcement.id).toBe(c.announcement.id);
+  });
+
+  test("the admin AI draws it; a refused drawing is sent back with the reasons, and the fixed one ships", async () => {
+    await tool("set_provider_key", { provider: "gemini", keys: OUR_KEY, base_url: PROV });
+    await tool("set_admin_ai", { provider: "gemini", model: "gemini-3.6-flash" });
+    forget("");
+    const asks: any[] = [];
+    fake.provider = (b) => {
+      asks.push(b);
+      return fake.reply(asks.length === 1 ? GOOD.replace("<rect", "<script>x()</script><rect") : GOOD);
+    };
+    const r = await tool("publish_announcement", { title: "Screenshots now build whole sites", body: "Drop a screenshot.",
+      cta_label: "See how", cta_url: "https://aethron.jomiez.com/docs" });
+    expect(r.body.result.art).toBe("ai");
+    expect(asks.length).toBe(2);
+    expect(asks[0].messages[0].content).toContain("illustrator for Aethron");
+    expect(asks[1].messages.at(-1).content).toContain("<script> is not allowed");
+    forget("");
+    const c = (await call("GET", "/control")).body.announcement;
+    expect(c.cta_url).toBe("https://aethron.jomiez.com/docs");
+    expect((await call("GET", "/announcement/art?id=" + c.id)).text).not.toContain("<script");
+    expect(fake.tables.usage_ledger.some((x: any) => x.purpose === "admin_art")).toBe(true);
+  });
+
+  test("two refused drawings fall back to the house style; a bad button address is refused; ending clears it", async () => {
+    await tool("set_provider_key", { provider: "gemini", keys: OUR_KEY, base_url: PROV });
+    await tool("set_admin_ai", { provider: "gemini", model: "gemini-3.6-flash" });
+    forget("");
+    fake.provider = () => fake.reply('<svg viewBox="0 0 400 206"><image href="https://x.test/a.png"/></svg>');
+    const r = await tool("publish_announcement", { title: "Heads up", body: "Prices change next month.", level: "warn" });
+    expect(r.body.result.art).toBe("template");
+    expect(r.body.result.note).toContain("refused twice");
+    const bad = await tool("publish_announcement", { title: "x", cta_url: "javascript:alert(1)", art: "none" });
+    expect(bad.status).toBe(400);
+    const prev = await tool("preview_illustration", { title: "New: Publish", body: "One click to the web." });
+    expect(prev.body.result.svg).toContain("<svg");
+    await tool("end_announcement");
+    forget("");
+    expect((await call("GET", "/control")).body.announcement).toBeNull();
+    const list = (await tool("list_announcements")).body.result;
+    expect(list.length).toBe(1);
+    expect(fake.tables.audit_log.some((x: any) => x.action === "end_announcement")).toBe(true);
+  });
+});
+
+describe("a drawing must stand still", () => {
+  test("hidden-until-animated is refused; gradient stops at 0 are fine; every house drawing passes", async () => {
+    const art = await import("../../supabase/functions/aethron/art.ts");
+    const base = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 206"><defs><linearGradient id="ae-g"><stop offset="0" stop-opacity="0"/></linearGradient></defs><style>X</style><rect class="c" width="10" height="10"/></svg>`;
+    let msg = "";
+    try { art.checkSvg(base.replace("X", ".c{opacity:0;animation:in 1s forwards}@keyframes in{to{opacity:1}}")); } catch (e) { msg = (e as Error).message; }
+    expect(msg).toContain("with motion off it never appears");
+    expect(art.checkSvg(base.replace("X", ".c{animation:in 1s both}@keyframes in{from{opacity:0}to{opacity:1}}"))).toContain("<rect");
+    for (const t of Object.values(art.TEMPLATES)) expect(art.checkSvg(t)).toContain("<svg");
+  });
+});

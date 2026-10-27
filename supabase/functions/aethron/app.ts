@@ -2,6 +2,7 @@
 //   https://<project>.supabase.co/functions/v1/aethron/<route>
 //
 // PUBLIC        GET  /control            the switches (no sign-in needed)
+//               GET  /announcement/art?id=  an announcement's illustration (SVG)
 // A COPY        POST /ping               heartbeat; returns the switches for this person
 //               POST /event              activity events, on the device token
 // A PERSON      POST /v1/chat/completions  the managed AI (Aethron's key)
@@ -20,6 +21,7 @@
 import { Row } from "./db.ts";
 import { runTool, TOOLS, visibleTools } from "./admin.ts";
 import { ask, thread, threads } from "./ai.ts";
+import { artOf } from "./announce.ts";
 import { chat, models } from "./gateway.ts";
 import { mcp } from "./mcp.ts";
 import { events, ping } from "./presence.ts";
@@ -40,6 +42,16 @@ export async function handle(req: Request): Promise<Response> {
   try {
     if (r === "/" || r === "/health") return json({ ok: true, service: "aethron" });
     if (r === "/control" && req.method === "GET") return json(publicControl(await control()));
+    if (r === "/announcement/art" && req.method === "GET") {
+      // an illustration by id: the same bytes forever, and an image that can
+      // never run code (served as SVG with a policy that forbids scripts)
+      const svg = await artOf(new URL(req.url).searchParams.get("id") || "");
+      return text(svg, 200, "image/svg+xml; charset=utf-8", {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+        "X-Content-Type-Options": "nosniff",
+      });
+    }
     if (r === "/ping" && req.method === "POST") return await ping(req);
     if (r === "/event" && req.method === "POST") return await events(req);
     if (r === "/v1/chat/completions" && req.method === "POST") return await chat(req);

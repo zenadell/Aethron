@@ -22,8 +22,16 @@ export const DEFAULT_FEATURES = { agent: true, mcp: true, migrate: true, screens
 export async function control(fresh = false): Promise<Row> {
   if (fresh) forget("control");
   return cached("control", 8000, async () => {
-    const c = (await db.one("control", { id: "eq.1" })) || { id: 1 };
-    return normalise(c);
+    const c = normalise((await db.one("control", { id: "eq.1" })) || { id: 1 });
+    // the live announcement travels with the switches (its drawing does not:
+    // that is fetched once by id, so the minute-by-minute check stays small)
+    if (c.announcement_id) {
+      const a = await db.one("announcements", { id: "eq." + c.announcement_id,
+        select: "id,title,body,level,art_source,cta_label,cta_url,created_at" }).catch(() => null);
+      c.announcement = a ? { id: a.id, title: a.title, body: a.body, level: a.level, has_art: a.art_source !== "none",
+        cta_label: a.cta_label || "", cta_url: a.cta_url || "", published_at: a.created_at } : null;
+    }
+    return c;
   });
 }
 
@@ -41,6 +49,8 @@ function normalise(c: Row): Row {
     default_daily_usd: num(c.default_daily_usd, 0.5),
     global_daily_usd: num(c.global_daily_usd, 10),
     prices: c.prices || {},
+    announcement_id: c.announcement_id || "",
+    announcement: null as Row | null,
     updated_at: c.updated_at || "",
     updated_by: c.updated_by || "",
   };
@@ -51,7 +61,7 @@ export function publicControl(c: Row): Row {
   return {
     paused: c.paused, pause_message: c.pause_message, banner: c.banner, banner_level: c.banner_level,
     ai_mode: c.ai_mode, managed_model: c.managed_model, features: c.features, min_version: c.min_version,
-    updated_at: c.updated_at,
+    announcement: c.announcement || null, updated_at: c.updated_at,
   };
 }
 
@@ -94,6 +104,11 @@ const CONTROL_FIELDS: Record<string, (v: unknown) => unknown> = {
     const n = Number(v);
     if (!Number.isFinite(n) || n < 0) throw new HttpError(400, "global_daily_usd is 0 or more (0 = unlimited)");
     return n;
+  },
+  announcement_id: (v) => {
+    const s = String(v ?? "").trim();
+    if (s && !/^an_[A-Za-z0-9_-]{6,40}$/.test(s)) throw new HttpError(400, "announcement_id is an an_… id ('' ends it)");
+    return s;
   },
   prices: (v) => {
     if (!v || typeof v !== "object") throw new HttpError(400, "prices maps a model to [in, out] dollars per 1M tokens");

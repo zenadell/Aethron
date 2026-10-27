@@ -22,7 +22,8 @@ export class Fake {
 
   constructor() {
     for (const t of ["control", "user_controls", "user_notes", "devices", "usage_ledger", "secrets", "admins",
-      "admin_keys", "audit_log", "admin_ai_messages", "profiles", "events", "agent_runs", "failure_reports"]) {
+      "admin_keys", "audit_log", "admin_ai_messages", "profiles", "events", "agent_runs", "failure_reports",
+      "announcements"]) {
       this.tables[t] = [];
     }
     this.tables.control.push({ id: 1, paused: false, pause_message: "", banner: "", banner_level: "info", ai_mode: "byok",

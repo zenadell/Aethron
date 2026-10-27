@@ -1750,6 +1750,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.wfile.write(body)
             if u.path == "/api/control":
                 return self.send_json(_control.summary())
+            if u.path == "/api/announcement/art":
+                # the team's announcement picture, shown as an <img>: an SVG
+                # picture that cannot run code, served with a policy saying so
+                art = _control.announcement_art(q.get("id", [""])[0])
+                if not art:
+                    return self.fail("no illustration", 404)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/svg+xml; charset=utf-8")
+                self.send_header("Content-Security-Policy",
+                                 "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+                self.send_header("Cache-Control", "max-age=86400")
+                self.send_header("Content-Length", str(len(art)))
+                self.end_headers()
+                return self.wfile.write(art)
             if u.path == "/api/auth/me":
                 s = self._session()
                 return self.send_json({"email": s["email"]} if s else {}, 200)
@@ -9765,16 +9779,59 @@ INDEX_HTML = r"""<!doctype html>
 <script defer src="__METAL__"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-#teambar{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9000;
-  display:flex;flex-direction:column;gap:6px;max-width:min(720px,calc(100vw - 32px))}
-.teamline{display:flex;align-items:center;gap:10px;padding:9px 12px 9px 14px;border-radius:999px;
-  background:rgba(28,27,31,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
-  border:1px solid #35333a;color:#eceaf0;font:500 13px/1.35 var(--ui);box-shadow:0 8px 30px rgba(0,0,0,.35)}
-.teamline .teamdot{width:8px;height:8px;border-radius:50%;background:#7aa7ff;flex:none}
-.teamline.warn .teamdot{background:#e8b04b}.teamline.critical{border-color:#7a2f2a;background:rgba(48,20,18,.94)}
-.teamline.critical .teamdot{background:#e5695e;box-shadow:0 0 0 4px rgba(229,105,94,.18)}
-.teamtxt{flex:1;min-width:0}
-.teamx{border:0;background:transparent;color:#a5a2ad;font-size:18px;line-height:1;padding:0 4px;cursor:pointer}
+/* ── THE TEAM'S VOICE ─────────────────────────────────────────────
+   What the Aethron team says lives in three calm places, never over the
+   work: a chip in the top bar (always there while it applies), a card
+   above the chat box when something is stopped, and — for news — a card
+   with a picture, shown once. */
+#teamchip{position:relative;flex:none}
+#teamchip[hidden]{display:none!important}
+.tc{min-height:32px;max-width:340px;padding:0 13px 0 11px;border:0;border-radius:999px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:8px;background:rgba(122,167,255,.10);color:var(--t-1);
+  font:510 12.5px/1 var(--ui);letter-spacing:-.015em;box-shadow:inset 0 0 0 1px rgba(122,167,255,.28);
+  transition:background .18s var(--eo)}
+.tc:hover{background:rgba(122,167,255,.16)}
+.tc .tct{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tc .tcd{width:7px;height:7px;border-radius:50%;background:#7aa7ff;flex:none}
+.tc.warn{background:rgba(232,176,75,.10);box-shadow:inset 0 0 0 1px rgba(232,176,75,.32)}
+.tc.warn .tcd{background:#e8b04b}
+.tc.critical{background:rgba(229,105,94,.12);box-shadow:inset 0 0 0 1px rgba(229,105,94,.38)}
+.tc.critical .tcd{background:#e5695e;animation:tcping 2.4s var(--eo) infinite}
+@keyframes tcping{0%{box-shadow:0 0 0 0 rgba(229,105,94,.55)}70%,100%{box-shadow:0 0 0 7px rgba(229,105,94,0)}}
+.tcpop{position:absolute;right:0;top:40px;z-index:40;width:320px;padding:16px;border-radius:var(--r-lg);
+  background:rgba(26,23,22,.94);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:0 24px 56px -12px rgba(0,0,0,.45),inset 0 0 0 1px rgba(255,255,255,.12);
+  font-size:13px;line-height:1.5;color:var(--t-2)}
+.tcpop .tck{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--t-3);margin-bottom:6px;
+  display:flex;align-items:center;gap:6px}
+.tcpop b{display:block;color:var(--t-1);font-size:14px;font-weight:600;margin-bottom:4px}
+.tcpop .tcf{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;
+  border-top:1px solid var(--edge-1);font-size:12px;color:var(--t-3)}
+.teamhold{display:flex;gap:14px;align-items:flex-start;margin:0 0 10px;padding:14px 16px;border-radius:var(--r-lg);
+  background:linear-gradient(180deg,rgba(229,105,94,.09),rgba(229,105,94,.03));
+  box-shadow:inset 0 0 0 1px rgba(229,105,94,.26);animation:thIn .4s var(--eo) both}
+.teamhold.warn{background:linear-gradient(180deg,rgba(232,176,75,.09),rgba(232,176,75,.03));box-shadow:inset 0 0 0 1px rgba(232,176,75,.26)}
+@keyframes thIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.thic{width:34px;height:34px;flex:none;border-radius:11px;display:grid;place-items:center;
+  background:rgba(229,105,94,.14);color:#f08a7e;position:relative}
+.teamhold.warn .thic{background:rgba(232,176,75,.14);color:#e8b04b}
+.thic::after{content:"";position:absolute;inset:-1px;border-radius:12px;box-shadow:0 0 0 0 rgba(229,105,94,.4);
+  animation:thring 2.8s var(--eo) infinite}
+@keyframes thring{0%{box-shadow:0 0 0 0 rgba(229,105,94,.35)}70%,100%{box-shadow:0 0 0 9px rgba(229,105,94,0)}}
+.thb{flex:1;min-width:0}
+.thb b{display:block;color:var(--t-1);font-size:14px;font-weight:600;letter-spacing:-.01em;margin-bottom:3px}
+.thb p{margin:0;color:var(--t-2);font-size:13px;line-height:1.5}
+.thb .thm{margin-top:6px;font-size:11.5px;color:var(--t-3)}
+.composer.held textarea::placeholder{color:var(--t-3)}
+.composer.held .cbtn.send,.composer.held #npsend{opacity:.45}
+.turn.sys.teamnote{display:flex;gap:8px;align-items:flex-start;color:#f08a7e}
+.turn.sys.teamnote .ic{flex:none;margin-top:2px}
+.anncard .nbody p{min-height:0}
+.anncard .nart{height:auto;aspect-ratio:400/206;background:#0f0e10}
+.anncard .nart img{display:block;width:100%;height:100%}
+.anncard .nkick .ic{color:var(--a-hi)}
+.anncard.warn .nkick{color:#e8b04b}.anncard.critical .nkick{color:#f08a7e}
+@media (prefers-reduced-motion:reduce){.tc .tcd,.thic::after,.teamhold{animation:none}}
 .teamai{border:1px solid var(--line2,#35333a);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:8px}
 .teamai-h{font-weight:600;display:flex;align-items:center;gap:6px}
 .teamai .err{color:var(--err,#e5695e)}
@@ -12941,6 +12998,7 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
     <button class="iconbtn backbtn" id="backbtn" hidden title="Back (Esc)" onclick="goBack()"><span data-ic="up"></span></button>
     <div id="ptitle">Home</div>
     <div class="steps" id="steps"></div>
+    <div id="teamchip" hidden></div>
     <div id="updchip" hidden></div>
     <button class="iconbtn" id="helpbtn" title="show the walkthrough" onclick="startTour(0)"><span data-ic="help"></span></button>
   </header>
@@ -13089,7 +13147,7 @@ const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',
 async function api(path,body){
   const r=await fetch(path,body?{method:'POST',body:JSON.stringify(body)}:undefined);
   const j=await r.json().catch(()=>({}));
-  if(!r.ok)throw new Error(j.error||r.statusText);
+  if(!r.ok){const e=new Error(j.error||r.statusText);e.status=r.status;e.team=!!j.stopped_by_team;throw e;}
   return j;}
 async function b64of(file){ // chunked: spread on big arrays blows the stack
   const buf=new Uint8Array(await file.arrayBuffer());let s='';
@@ -16211,8 +16269,11 @@ async function consoleSend(){
     await api('/api/code/send',{key:CODE.key,text,images:pics.map(p=>p.name)});
     if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
   }catch(e){
-    CODE.events.push({type:'text',text:'Could not reach the agent: '
-      +e.message+' — open Plan & AI and check the model settings.'});
+    /* the TEAM stopped this (kill switch, hold, update needed): say so in
+       their words, never "check your model settings" */
+    if(e.team||e.status===423){CODE.events.push({type:'team',text:e.message});teamCheck(true);}
+    else CODE.events.push({type:'text',text:'Could not reach the agent: '
+      +e.message+' — open Settings and check the model and key.'});
     renderChat();
   }
 }
@@ -17937,6 +17998,7 @@ function convBlocks(evs){
     if(e.type==='recover'){out.push({kind:'sys',text:'The model went quiet, so Aethron reconnected and is carrying on from where it was'
       +(e.n>1?' (try '+e.n+' of '+RECOVER_MAX+')':'')+'.'});continue;}
     if(e.type==='truth'){out.push({kind:'truth',project:e.project,t:e.t,gaps:e.gaps||[]});continue;}
+    if(e.type==='team'){out.push({kind:'team',text:e.text});continue;}
     if(e.type==='you'&&e.auto){out.push({kind:'sys',text:'Aethron sent the agent back: the project on disk is not finished.'});continue;}
     if(e.type==='you')out.push({kind:'you',text:e.text,images:youImages(e)});
     else if(e.type==='text'&&String(e.text||'').trim())
@@ -18187,12 +18249,14 @@ function renderChat(){
           {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})):''
         } — Aethron remembers it and carries on from here.</span>
         <button onclick="newConversation()">Start a new conversation</button></div>`
+    : b.kind==='team' ? `<div class="turn sys teamnote">${I('alert',13)}<span>Not sent — ${esc(b.text)}</span></div>`
     : b.kind==='timing' ? `<div class="turn sys timing">${I('clock',12)}<span>${esc(b.text)}</span></div>`
     : b.text        ?`<div class="turn sys${b.bad?' bad':''}">${esc(b.text)}${
         b.detail?`<details class="errdet"><summary>what the provider said</summary>
           <div>${esc(b.detail)}</div></details>`:''}</div>`
     : '').join('')+nowHtml();
   dockMeta(); mountDots(box); mountOrbs(box);
+  if(TEAM&&TEAM.blocked_why&&!$('teamhold'))teamRender();   // the dock was redrawn
   /* Follow the conversation only while the reader is already at the
      bottom. Yanking the view down while someone is reading back through
      a run is the rudest thing a live log can do. */
@@ -19791,33 +19855,107 @@ function updMaybeCheck(){
    the team's own words. The server refuses the work regardless — this is
    only so a person is told before they press anything. */
 let TEAM={};
-async function teamCheck(){
+async function teamCheck(force){
   let t;try{t=await api('/api/control');}catch(e){return}
-  const was=JSON.stringify([TEAM.control&&TEAM.control.banner,TEAM.blocked_why,TEAM.me&&TEAM.me.notice,TEAM.managed]);
-  TEAM=t||{};
-  const now=JSON.stringify([TEAM.control&&TEAM.control.banner,TEAM.blocked_why,TEAM.me&&TEAM.me.notice,TEAM.managed]);
-  if(was!==now){teamRender(); if(AI&&AI.control!==undefined){loadAi().then(()=>{try{rerenderAi&&rerenderAi()}catch(e){}});}}
+  const key=()=>JSON.stringify([TEAM.control&&TEAM.control.banner,TEAM.control&&TEAM.control.banner_level,TEAM.blocked_why,
+    TEAM.me&&TEAM.me.notice,TEAM.managed,TEAM.control&&TEAM.control.updated_at]);
+  const was=key(); TEAM=t||{};
+  if(force===true||was!==key()){teamRender(); if(AI&&AI.control!==undefined){loadAi().then(()=>{try{rerenderAi&&rerenderAi()}catch(e){}});}}
+  annCheck();
 }
-function teamRender(){
-  let el=$('teambar');
+/* What the team says, and where. */
+function teamState(){
   const c=TEAM.control||{},m=TEAM.me||{};
-  const items=[];
-  if(TEAM.blocked_why)items.push({lvl:'critical',txt:TEAM.blocked_why,lock:1});
-  else if(c.banner)items.push({lvl:c.banner_level||'info',txt:c.banner});
-  if(m.notice)items.push({lvl:'info',txt:m.notice,key:'n:'+m.notice});
-  const hidden=(()=>{try{return JSON.parse(localStorage.ae_team_hidden||'[]')}catch(e){return[]}})();
-  const show=items.filter(x=>x.lock||!hidden.includes(x.key||('b:'+x.txt)));
-  if(!show.length){if(el)el.remove();return}
-  if(!el){el=document.createElement('div');el.id='teambar';document.body.appendChild(el);}
-  el.innerHTML=show.map(x=>`<div class="teamline ${esc(x.lvl)}">
-    <span class="teamdot"></span><span class="teamtxt">${esc(x.txt)}</span>
-    ${x.lock?'':`<button class="teamx" title="Hide" onclick="teamHide('${esc((x.key||('b:'+x.txt)).replace(/'/g,''))}')">×</button>`}
-  </div>`).join('');
+  if(TEAM.blocked_why){
+    const kind=c.paused?['Aethron is paused','pause']:m.signed_out?['You were signed out','user']
+      :m.blocked?['Your account is on hold','lock']:m.update_required?['An update is needed','download']:['Stopped by the Aethron team','alert'];
+    return {lvl:'critical',title:kind[0],icon:kind[1],txt:TEAM.blocked_why,lock:1,
+      chip:c.paused?'Paused by the team':kind[0]};
+  }
+  if(m.notice)return {lvl:'info',title:'A message for you',icon:'sparkles',txt:m.notice,key:'n:'+m.notice,chip:m.notice};
+  if(c.banner)return {lvl:c.banner_level||'info',title:c.banner_level==='critical'?'Important':'From the Aethron team',
+    icon:c.banner_level==='info'?'sparkles':'alert',txt:c.banner,key:'b:'+c.banner,chip:c.banner};
+  return null;
 }
+function teamHidden(){try{return JSON.parse(localStorage.ae_team_hidden||'[]')}catch(e){return[]}}
+function teamHoldHtml(text,inChat){
+  const st=teamState()||{title:'Stopped by the Aethron team',icon:'alert',lvl:'critical'};
+  const ic=st.icon==='pause'?`<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="5" width="3.6" height="14" rx="1.4"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.4"/></svg>`:I(st.icon,16);
+  return `<div class="teamhold ${st.lvl==='warn'?'warn':''}"><div class="thic">${ic}</div><div class="thb">
+    <b>${esc(st.title)}</b><p>${esc(text||st.txt||'')}</p>
+    <div class="thm">${inChat?'Your message was not sent. ':''}From the Aethron team · Aethron checks again every 30 seconds and carries on by itself.</div></div></div>`;
+}
+let TEAMPOP=false;
+function teamRender(){
+  const old=$('teambar'); if(old)old.remove();          // the old floating pill, if a page still has one
+  const chip=$('teamchip'), st=teamState();
+  const show=st&&(st.lock||!teamHidden().includes(st.key));
+  if(chip){
+    if(!show){chip.hidden=true;chip.innerHTML='';TEAMPOP=false;}
+    else{
+      chip.hidden=false;
+      const when=TEAM.control&&TEAM.control.updated_at?teamAgo(TEAM.control.updated_at):'';
+      chip.innerHTML=`<button class="tc ${esc(st.lvl)}" onclick="TEAMPOP=!TEAMPOP;teamRender()" title="${esc(st.txt)}">
+        <span class="tcd"></span><span class="tct">${esc(st.chip)}</span></button>`+(TEAMPOP?`<div class="tcpop">
+        <div class="tck">${I(st.icon==='pause'?'clock':st.icon,12)}From the Aethron team</div><b>${esc(st.title)}</b>${esc(st.txt)}
+        <div class="tcf"><span>${when?'Updated '+esc(when):''}</span>${st.lock?'':`<button class="btn" onclick="teamHide(${esc(JSON.stringify(st.key))})">Hide</button>`}</div></div>`:'');
+    }
+  }
+  /* stopped: a calm card above the chat box, and the box says why */
+  const dock=document.querySelector('.conv-dock .conv-wrap'), comp=dock&&dock.querySelector('.composer');
+  let hold=$('teamhold');
+  if(st&&st.lock&&dock&&comp){
+    if(!hold){hold=document.createElement('div');hold.id='teamhold';dock.insertBefore(hold,comp);}
+    hold.innerHTML=teamHoldHtml(st.txt,false);
+    comp.classList.add('held');
+    const ta=comp.querySelector('textarea'); if(ta){ta.dataset.ph=ta.dataset.ph||ta.placeholder;ta.placeholder='Aethron is stopped by its team for now — you can still write here';}
+  }else{
+    if(hold)hold.remove();
+    if(comp&&comp.classList.contains('held')){comp.classList.remove('held');
+      const ta=comp.querySelector('textarea'); if(ta&&ta.dataset.ph)ta.placeholder=ta.dataset.ph;}
+  }
+}
+function teamAgo(t){const s=(Date.now()-new Date(t).getTime())/1000;
+  return s<60?'just now':s<3600?Math.round(s/60)+' min ago':s<86400?Math.round(s/3600)+' h ago':Math.round(s/86400)+' d ago';}
 function teamHide(k){
-  try{const h=JSON.parse(localStorage.ae_team_hidden||'[]');h.push(k);localStorage.ae_team_hidden=JSON.stringify(h.slice(-30));}catch(e){}
-  teamRender();
+  try{const h=teamHidden();h.push(k);localStorage.ae_team_hidden=JSON.stringify(h.slice(-30));}catch(e){}
+  TEAMPOP=false;teamRender();
 }
+document.addEventListener('mousedown',e=>{if(TEAMPOP&&!e.target.closest('#teamchip')){TEAMPOP=false;teamRender();}});
+/* ANNOUNCEMENTS: news from the team, with a picture drawn for it, once. */
+function annSeen(){try{return JSON.parse(localStorage.ae_ann_seen||'[]')}catch(e){return[]}}
+function annCheck(){
+  const a=TEAM.control&&TEAM.control.announcement;
+  if(!a||!a.id||annSeen().includes(a.id)||$('annov')||$('newsov'))return;
+  const ov=document.createElement('div');ov.id='annov';ov.className='newsov';
+  ov.onclick=e=>{if(e.target===ov)annClose();};
+  const lvl=['warn','critical'].includes(a.level)?a.level:'info';
+  ov.innerHTML=`<div class="newscard anncard ${lvl}" role="dialog" aria-modal="true" aria-labelledby="atitle">
+    <button class="nx" onclick="annClose()" title="Close (Esc)">${I('x',14)}</button>
+    ${a.has_art?`<div class="nart nswap"><img src="/api/announcement/art?id=${encodeURIComponent(a.id)}" alt="" onerror="this.parentNode.remove()"></div>`:''}
+    <div class="nbody nswap">
+      <div class="nkick">${I(lvl==='info'?'sparkles':'alert',12)}From the Aethron team</div>
+      <h3 id="atitle">${esc(a.title)}</h3>
+      <p>${esc(a.body||'')}</p>
+      <div class="nfoot"><div class="ndots"></div>
+        ${a.cta_url?`<button class="btn" onclick="annClose()">Not now</button>
+        <button class="btn primary" id="ago" onclick="annGo()">${esc(a.cta_label||'Learn more')}</button>`
+        :`<button class="btn primary" id="ago" onclick="annClose()">Got it</button>`}</div></div></div>`;
+  document.body.appendChild(ov);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>ov.classList.add('on')));
+  const g=$('ago'); if(g)g.focus();
+}
+function annClose(){
+  const a=TEAM.control&&TEAM.control.announcement, ov=$('annov');
+  if(a&&a.id){try{const s=annSeen();s.push(a.id);localStorage.ae_ann_seen=JSON.stringify(s.slice(-50));}catch(e){}}
+  if(ov){ov.id='';ov.classList.remove('on');setTimeout(()=>ov.remove(),260);}
+}
+function annGo(){
+  const a=TEAM.control&&TEAM.control.announcement;
+  if(a&&/^https:\/\//.test(a.cta_url||''))api('/api/open',{url:a.cta_url}).catch(()=>window.open(a.cta_url,'_blank'));
+  annClose();
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('annov'))annClose();});
 function openAdmin(){
   const url=(TEAM.admin_url)||'https://aethron.jomiez.com/admin/';
   api('/api/open',{url}).catch(()=>window.open(url,'_blank'));

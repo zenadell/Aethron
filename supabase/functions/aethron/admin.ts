@@ -5,6 +5,7 @@
 
 import { auth, db, Row } from "./db.ts";
 import { PROVIDERS } from "./prices.ts";
+import { drawIllustration, end as endAnnouncement, list as listAnnouncements, publish as publishAnnouncement } from "./announce.ts";
 import {
   Admin, audit, cached, control, forget, keyList, need, ownerEmails, publicControl, Scope, secret, setControl, setSecret,
   spentToday,
@@ -129,8 +130,26 @@ async function overview(): Promise<Row> {
     control: publicControl(c),
     managed: { provider: c.managed_provider, model: c.managed_model, default_daily_usd: c.default_daily_usd,
       global_daily_usd: c.global_daily_usd },
+    trend: trend14(all, led30, t),
     at: nowIso(),
   };
+}
+
+/** The last 14 days, oldest first: sign-ups and AI spend per day (UTC). */
+function trend14(all: Row[], led: Row[], t: number): Row {
+  const days = [...Array(14)].map((_, i) => new Date(t - (13 - i) * 86400_000).toISOString().slice(0, 10));
+  const by = (rows: Row[], f: string) => {
+    const m = new Map<string, Row[]>();
+    for (const r of rows) {
+      const k = String(r[f] || "").slice(0, 10);
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(r);
+    }
+    return m;
+  };
+  const sp = by(led, "at"), su = by(all, "created_at");
+  return { days, spend: days.map((d) => sum(sp.get(d) || [])), signups: days.map((d) => (su.get(d) || []).length),
+    requests: days.map((d) => (sp.get(d) || []).length) };
 }
 
 async function listUsers(args: Row): Promise<Row> {
@@ -420,12 +439,30 @@ export const TOOLS: Tool[] = [
       return publicControl(c);
     } },
   { name: "set_banner", scope: "write", params: { text: S("message shown at the top of every copy ('' removes it)"), level: S("info, warn or critical") },
-    description: "Announce something to everyone using Aethron.",
+    description: "A one-line strip at the top of every copy, for ongoing notices (\"maintenance at 18:00 UTC\"). For news people should see once, with a picture, use publish_announcement.",
     run: async (a, ad) => {
       const c = await setControl({ banner: a.text || "", banner_level: a.level || "info" }, ad.actor);
       await audit(ad, "set_banner", "", { text: a.text, level: a.level });
       return publicControl(c);
     } },
+  { name: "preview_illustration", scope: "write",
+    params: { title: S("the announcement's title"), body: S("its words"), level: S("info, warn or critical"),
+      brief: S("optional art direction, e.g. 'a rocket leaving a launch pad'") },
+    description: "Draw (without publishing) the animated illustration for an announcement, in Aethron's house style. Returns the SVG.",
+    run: (a) => drawIllustration(a) },
+  { name: "publish_announcement", scope: "write",
+    params: { title: S("short headline, ≤ 7 words"), body: S("one or two plain sentences"), level: S("info, warn or critical"),
+      cta_label: S("optional button label"), cta_url: S("optional https:// address the button opens"),
+      art: S("'auto' (default: the admin AI draws it), 'none', or an SVG from preview_illustration"),
+      brief: S("optional art direction"), banner: B("also show it as the one-line strip at the top") },
+    required: ["title"],
+    description: "Show every copy of Aethron a card, once: title, words, optional button, and an animated illustration drawn for it.",
+    run: (a, ad) => publishAnnouncement(a, ad) },
+  { name: "end_announcement", scope: "write", params: {}, description: "Stop showing the current announcement.",
+    run: (_a, ad) => endAnnouncement(ad) },
+  { name: "list_announcements", scope: "read", params: { limit: N("rows (default 30)") },
+    description: "Past and current announcements (which one is live).",
+    run: (a) => listAnnouncements(Number(a.limit) || 30) },
   { name: "set_feature", scope: "write",
     params: { feature: S("agent, mcp, migrate, screenshot, publish or signup"), on: B("true to allow, false to switch off") },
     required: ["feature", "on"],
