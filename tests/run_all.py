@@ -48,6 +48,7 @@ SUITES = [
                 "aethron_shot2code.py", "tests/shot2code_battery.py",
                 "aethron_fit.py", "aethron_pictures.py", "tests/pictures_fit_battery.py",
                 "aethron_native.py", "tests/drop_battery.py",
+                "aethron_publish.py", "tests/publish_battery.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
@@ -63,6 +64,9 @@ SUITES = [
     ("model-use record", [PY, "aethron_usage.py", "--selftest"], False),
     ("MCP Studio lock", [PY, "aethron_access.py", "--selftest"], False),
     ("failure reports", [PY, "aethron_reports.py", "--selftest"], False),
+    ("publish to Netlify", [PY, "aethron_publish.py", "--selftest"], False),
+    ("publish battery (the dialog, end to end, against a fake Netlify)",
+     [PY, "tests/publish_battery.py"], False),
     # A tripped guard is said, not retried in silence; the cost shown is
     # the provider's own; a thinking model keeps the stream alive.
     ("guard battery (no silent refusals, honest cost)",

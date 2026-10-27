@@ -6460,6 +6460,45 @@ Reading (service key): `aethron_reports.py --cloud [days]`, `--html f`,
 NEXT: the Haiku healer reads these groups, reproduces from source_url,
 fixes on a branch, and opens a PR only when the batteries pass.
 
+## PUBLISH TO NETLIFY — `aethron_publish.py` — 2026-10-27
+Owner: users should publish a finished site from the app, Lovable-style.
+The real plan (our own *.aethron.page hosting on Cloudflare R2 + a Worker
++ Cloudflare for SaaS custom domains) costs ~$0 to start but needs a card
+on Cloudflare and a domain; parked until the owner is ready. Shipped now,
+at $0 to us: one-click publish to the PERSON'S OWN free Netlify account.
+- connect: Netlify's browser sign-in by the TICKET flow the Netlify CLI
+  uses (POST /oauth/tickets?client_id → approve on app.netlify.com →
+  exchange): no client secret, no redirect page, works from a desktop
+  app. Needs a public client id (OAuth app registered by the owner →
+  GitHub secret AETHRON_NETLIFY_CLIENT_ID → release writes
+  netlify_client_id into the bundled config). Without it, the dialog
+  offers a personal access token instead — works today.
+  Token in <home>/publish.json (0600); the page only ever sees email.
+- publish: build first (a publish is never of a stale site), sha1 every
+  file, POST the digest map, upload ONLY what Netlify says it lacks
+  (6 at a time, retries on 429/5xx), live only when the deploy says
+  "ready". serve.py/README.txt/DEPLOY.md/vercel.json/dotfiles never
+  shipped. A rebuilt page ships as index.html + only the files it
+  references (never its screenshot or history). A taken name takes the
+  next free one; a site deleted on Netlify is created again.
+- versions/restore, rename (address), unpublish (deletes the site),
+  custom domain: exact DNS records (apex: A 75.2.60.5 + www CNAME;
+  subdomain: CNAME to <site>.netlify.app), "DNS found"/"HTTPS ready"
+  only when measured (resolve + Netlify's ssl state), never assumed.
+- surfaces: Publish beside Build on the rail (shows "Live" once
+  published), "Publish to the web" row, Publish on page cards, a dialog
+  (connect / address / steps / live), MCP tool #47 publish_site, a
+  What's new card. Records in <home>/published.json by project:/page:.
+Tests: aethron_publish --selftest 29/29 (fake Netlify keeping the real
+rules: unique names, upload-only-required, sha1 checked, ready only when
+complete); tests/publish_battery.py 30/30 (real studio + browser:
+sign-in, publish, Live on the rail, republish uploads nothing new,
+restore, domain records, rename, unpublish, token never on the page,
+crafted names refused, a page publish, the MCP tool).
+NOT PROVEN against real Netlify from here (no account in this session):
+the ticket flow with a real client id, and the async deploy shape, follow
+Netlify's public API and CLI; first real publish is the owner's.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6727,3 +6766,6 @@ fixes on a branch, and opens a PR only when the batteries pass.
   provider refuses it.
 - A CHANGED FILE GETS A NEW ADDRESS. A build that rewrites a file in place
   stamps its address; nothing it ships may be cached on trust.
+- A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
+  publish; "HTTPS ready" is measured, never assumed; a host token never
+  reaches the page.

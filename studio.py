@@ -738,6 +738,15 @@ def undo_count(d: Path) -> int:
     return len(list(hist.glob("*.json"))) if hist.exists() else 0
 
 
+def _published_url(name):
+    """The live address of a project published to Netlify, or ''."""
+    try:
+        import aethron_publish
+        return (aethron_publish.record("project:" + name) or {}).get("url", "")
+    except Exception:
+        return ""
+
+
 def project_info(d: Path) -> dict:
     cfg = json.loads((d / "forge.json").read_text())
     chunks = d / "pristine" / "chunks"
@@ -760,6 +769,7 @@ def project_info(d: Path) -> dict:
                    or (chunks.exists() and any(chunks.glob("*.mjs"))),
         "inventoried": cm_f.exists(),
         "built": (d / "site").exists(),
+        "published": _published_url(d.name),
         "has_plan": (d / "project_plan.md").exists(),
         "filled": filled, "total": total,
         "undo": undo_count(d),
@@ -1494,6 +1504,94 @@ class Handler(BaseHTTPRequestHandler):
                 or not (d / "forge.json").exists():
             raise FileNotFoundError("unknown project")
         return d
+
+    # ---- publish to the person's own Netlify (aethron_publish) -------
+    def _publish_target(self, body):
+        """(key, title, files_fn, build_dir). Only a project or a rebuilt
+        page; never a path the request names."""
+        kind, name = str(body.get("kind") or "project"), str(body.get("name") or "")
+        if kind == "page":
+            page = design_page(name)
+            if not page:
+                raise FileNotFoundError("unknown page")
+            import aethron_publish as P
+            return f"page:{name}", name, (lambda: P.page_files(page)), None
+        d = self.project_dir({"name": [name]})
+        import aethron_publish as P
+        return f"project:{d.name}", d.name, (lambda: P.folder_files(d / "site")), d
+
+    def api_publish(self, body):
+        import aethron_publish as P
+        act = str(body.get("action") or "status")
+        try:
+            if act == "status":
+                out = {"account": P.account()}
+                if body.get("name"):
+                    key = self._publish_target(body)[0]
+                    out["site"] = P.record(key)
+                return self.send_json(out)
+            if act == "connect":
+                return self.send_json({"account": P.connect_token(body.get("token"))})
+            if act == "signin":
+                tid, url = P.signin_start()
+                try:
+                    import webbrowser
+                    webbrowser.open(url)
+                except Exception:
+                    pass
+                return self.send_json({"ticket": tid, "url": url})
+            if act == "signin_poll":
+                return self.send_json(P.signin_poll(str(body.get("ticket") or "")))
+            if act == "disconnect":
+                return self.send_json({"account": P.disconnect()})
+            key, title, files_fn, build_dir = self._publish_target(body)
+            if act == "publish":
+                if not P.account()["connected"]:
+                    return self.fail("Connect your Netlify account first.")
+                want = str(body.get("site_name") or "")
+
+                def job(append):
+                    if build_dir is not None:
+                        append("building the latest version of your site …")
+                        p = subprocess.run(forge_argv("build"), cwd=build_dir,
+                                           capture_output=True, text=True)
+                        if p.returncode != 0:
+                            tail = (p.stdout + p.stderr).strip().splitlines()[-8:]
+                            append("the build failed, so nothing was published:")
+                            for line in tail:
+                                append("  " + line)
+                            return False
+                        append("built")
+                    try:
+                        rec = P.publish(key, files_fn(), want or title,
+                                        log=append, title=title)
+                    except P.PublishError as e:
+                        append("not published: " + str(e))
+                        return False
+                    self._track("publish", files=rec.get("files", 0))
+                    return True
+                return self.send_json({"job": start_fn_job(job, f"publishing {title}\n")})
+            if act == "versions":
+                return self.send_json({"versions": P.versions(key)})
+            if act == "rollback":
+                return self.send_json({"site": P.rollback(key, str(body.get("deploy") or ""))})
+            if act == "rename":
+                return self.send_json({"site": P.rename(key, str(body.get("site_name") or ""))})
+            if act == "domain":
+                return self.send_json({"domain": P.set_domain(key, str(body.get("domain") or "")),
+                                       "site": P.record(key)})
+            if act == "domain_status":
+                return self.send_json({"domain": P.domain_status(key), "site": P.record(key)})
+            if act == "domain_remove":
+                return self.send_json({"site": P.remove_domain(key)})
+            if act == "unpublish":
+                P.unpublish(key)
+                return self.send_json({"site": None})
+            return self.fail("unknown publish action")
+        except P.PublishError as e:
+            return self.fail(str(e))
+        except FileNotFoundError as e:
+            return self.fail(str(e), 404)
 
     # ---- the code workspace (IDE + coding agent) --------------------
     def ws_dir(self, src) -> Path:
@@ -2264,6 +2362,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(out)))
                 self.end_headers()
                 return self.wfile.write(out)
+            if u.path == "/api/publish":
+                return self.api_publish(body)
             if u.path == "/api/news/seen":
                 try:
                     import aethron_news
@@ -12249,6 +12349,94 @@ header>.iconbtn,header>.steps{flex:none}
   display:grid;place-items:center;cursor:pointer;z-index:2}
 .nx:hover{color:var(--t-1);background:var(--g-3)}
 
+/* ── PUBLISH: a site goes to the person's own Netlify (aethron_publish) ── */
+.pubov{position:fixed;inset:0;z-index:9000;display:grid;place-items:center;
+  background:rgba(5,4,4,.58);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);
+  opacity:0;pointer-events:none;transition:opacity .22s var(--eo)}
+.pubov.on{opacity:1;pointer-events:auto}
+.pubcard{position:relative;width:min(540px,calc(100vw - 32px));max-height:calc(100vh - 48px);
+  overflow:auto;background:var(--g-1);border:1px solid var(--edge-2);border-radius:var(--r-xl);
+  box-shadow:0 30px 80px -20px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.4);
+  transform:translateY(12px) scale(.98);transition:transform .38s var(--eo)}
+.pubov.on .pubcard{transform:none}
+.pubhd{display:flex;align-items:center;gap:12px;padding:18px 20px 14px;border-bottom:1px solid var(--edge-1)}
+.pubic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;flex:none;
+  background:var(--a-16);color:var(--a-hi)}
+.pubhd h3{margin:0;font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--t-1)}
+.pubhd .psub{font-size:12.5px;color:var(--t-3);margin-top:2px}
+.pubbody{padding:18px 20px 20px;display:flex;flex-direction:column;gap:14px}
+.pubbody p{margin:0;font-size:13.5px;line-height:1.55;color:var(--t-2)}
+.pubrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pubrow>button{flex:none}
+.pubgrow{flex:1;min-width:0}
+.pubaddr{display:flex;align-items:center;border:1px solid var(--edge-2);border-radius:10px;
+  background:var(--g-3);overflow:hidden}
+.pubaddr input{border:0;background:transparent;flex:1;min-width:0;padding:9px 0 9px 12px;
+  font-size:13.5px;box-shadow:none}
+.pubaddr input:focus{outline:none;box-shadow:none}
+.pubaddr span{padding:0 12px;color:var(--t-3);font-size:13.5px;white-space:nowrap}
+.pubaddr:focus-within{border-color:rgba(217,119,87,.6)}
+.publbl{font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--t-3);margin-bottom:7px}
+.pubacct{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--t-3)}
+.pubacct b{color:var(--t-2);font-weight:500}
+.pubacct a{color:var(--t-3);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.pubacct a:hover{color:var(--t-1)}
+.publive{border:1px solid var(--edge-2);border-radius:12px;padding:14px;background:var(--g-2);
+  display:flex;flex-direction:column;gap:10px}
+.publive .url{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:550;color:var(--t-1);
+  min-width:0}
+.publive .url span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.publive .meta{font-size:12px;color:var(--t-3)}
+.pubdot{width:8px;height:8px;border-radius:4px;background:var(--ok);flex:none;
+  box-shadow:0 0 0 3px rgba(95,163,131,.18)}
+.pubsec{border-top:1px solid var(--edge-1);padding-top:14px}
+.pubsec{padding-top:12px!important}
+.pubsec>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;margin:0;
+  font-size:13.5px;font-weight:550;color:var(--t-1);line-height:20px}
+.pubsec>summary::-webkit-details-marker{display:none}
+.pubsec>summary .hint{margin:0 0 0 auto;line-height:20px;font-weight:400;font-size:12.5px;color:var(--t-3)}
+.pubsec>summary::after{content:"";width:7px;height:7px;border-right:1.5px solid var(--t-3);
+  border-bottom:1.5px solid var(--t-3);transform:rotate(-45deg);margin-left:8px;transition:transform .2s}
+.pubsec[open]>summary::after{transform:rotate(45deg)}
+.pubsec .in{padding-top:12px;display:flex;flex-direction:column;gap:10px}
+.pubdns{width:100%;border-collapse:collapse;font-size:12.5px}
+.pubdns th{text-align:left;font-weight:500;color:var(--t-3);padding:0 8px 6px 0}
+.pubdns td{padding:7px 8px 7px 0;border-top:1px solid var(--edge-1);color:var(--t-1);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+.pubdns td button{padding:3px 8px;font-size:11.5px}
+.pubpill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 9px;border-radius:99px;
+  background:var(--g-3);color:var(--t-2)}
+.pubpill.ok{background:rgba(95,163,131,.14);color:#8fcfb0}
+.pubpill.wait::before{content:"";width:6px;height:6px;border-radius:3px;background:currentColor;
+  animation:pubPulse 1.4s ease-in-out infinite}
+@keyframes pubPulse{50%{opacity:.25}}
+.pubver{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--t-2);padding:6px 0;
+  border-top:1px solid var(--edge-1)}
+.pubver:first-child{border-top:0}
+.pubver .t{flex:1}
+.pubver .live{font-size:11.5px;color:#8fcfb0}
+.pubver button{padding:4px 10px;font-size:12px}
+.pubsteps{display:flex;flex-direction:column;gap:10px}
+.pubstep{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--t-3)}
+.pubstep i{width:18px;height:18px;border-radius:9px;border:1.5px solid var(--edge-3);flex:none;
+  display:grid;place-items:center}
+.pubstep.now{color:var(--t-1)}
+.pubstep.now i{border-color:var(--a);border-top-color:transparent;animation:pubSpin .8s linear infinite}
+.pubstep.done{color:var(--t-2)}
+.pubstep.done i{background:var(--ok);border-color:var(--ok)}
+.pubstep.done i::after{content:"";width:6px;height:3px;border-left:1.6px solid #0d1a14;
+  border-bottom:1.6px solid #0d1a14;transform:rotate(-45deg) translate(1px,-1px)}
+@keyframes pubSpin{to{transform:rotate(360deg)}}
+.pubbar{height:4px;border-radius:2px;background:var(--g-4);overflow:hidden}
+.pubbar i{display:block;height:100%;background:var(--a);width:0;transition:width .35s var(--eo)}
+.publine{font-size:12px;color:var(--t-3);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.puberr{border:1px solid rgba(201,106,95,.35);background:rgba(201,106,95,.08);border-radius:10px;
+  padding:10px 12px;font-size:13px;color:#e3a69d;line-height:1.5}
+.pubok{font-size:12.5px;color:#8fcfb0}
+.pubdanger{color:#e3a69d!important}
+.pubdanger:hover{border-color:rgba(201,106,95,.6)!important}
+@media (prefers-reduced-motion:reduce){.pubstep.now i,.pubpill.wait::before{animation:none}}
 /* the illustrations: drawn in code, final pose is the resting pose, so
    with motion turned off each one is a still picture of the feature */
 .nart .fr{fill:var(--g-2);stroke:var(--edge-3);stroke-width:1}
@@ -12663,6 +12851,9 @@ const $=id=>document.getElementById(id);
 if(location.search.indexOf('glass=1')>=0)
   document.documentElement.classList.add('native-glass');
 const ICONS={
+globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+link:'<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>',
+ext:'<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
 monitor:'<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
 tablet:'<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M11 18h2"/>',
 phone:'<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
@@ -13047,6 +13238,8 @@ function renderHeader(){
       : `<button class="big" onclick="runAll()"
            title="fetch, inventory and build, in order">
            ${I('zap')}${busy?'Preparing…':'Prepare'}</button>`)
+   +(ready?`<button class="ghost" id="pubbtn" onclick="openPublish('project',S.cur)"
+       title="put this site on the web">${I('globe')}Publish</button>`:'')
    +`<details class="omenu"><summary title="more">${I('more',15)}</summary>
       <div class="omlist">`
    + menu.map(m=>m?`<button onclick="this.closest('details').open=false;${m[2]}">
@@ -14812,6 +15005,8 @@ function projectRail(){
     <div class="rbtns">
       ${ready?`<button class="big" onclick="runStep('build')">${I('hammer',14)}Build</button>`
         :`<button class="big" onclick="runAll()">${I('zap',14)}Prepare</button>`}
+      ${ready?`<button class="ghost" id="pubrail" onclick="openPublish('project',S.cur)"
+          title="${i.published?esc(i.published):'put this site on the web'}">${i.published?'<span class="pubdot"></span>Live':I('globe',14)+'Publish'}</button>`:''}
       ${i.undo?`<button class="ghost" onclick="doUndo()">${I('undo',14)}Undo</button>`:''}
     </div>
    </div>
@@ -14824,6 +15019,7 @@ function projectRail(){
    </div>
    <div class="rcard rlist">
     <div class="rhead"><span>Take it with you</span></div>
+    ${ready?row('globe','Publish to the web',"openPublish('project',S.cur)"):''}
     ${row('download','Download site.zip','exportZip(false)')}
     ${row('package','Dev handoff','exportZip(true)')}
     ${ready?row('package','Port to a framework','portFramework()'):''}
@@ -15615,6 +15811,7 @@ function pageCardHtml(b){
       <div class="pacts">
         <button class="cpill" onclick="openPage('${n}')">${I('play',13)}Preview</button>
         <button class="cpill" onclick="openPage('${n}',true)">${I('pencil',13)}Point and edit</button>
+        <button class="cpill" onclick="openPublish('page','${n}')">${I('globe',13)}Publish</button>
         <button class="cpill opt" onclick="pageCode('${n}')">${I('terminal',13)}Show code</button>
         <button class="cpill opt" onclick="pageReveal('${n}')">${I('file',13)}Open in Finder</button>
       </div>
@@ -18990,6 +19187,26 @@ history:()=>NEWS_ART.frame(`
     <rect class="cd" x="312" y="${y-9}" width="52" height="18" rx="9"/>
     <rect x="328" y="${y-1.5}" width="28" height="3" rx="1.5" style="fill:var(--t-2)"/></g>`}).join('')}
   <path class="cur g-cur" d="M0 0v15l4-4 3 6 2.4-1-3-6h5.6z" style="animation-name:nHCur"/>`),
+publish:()=>NEWS_ART.frame(`
+  <rect class="cd" x="44" y="52" width="150" height="124" rx="10"/>
+  <rect class="shot" x="54" y="62" width="130" height="62" rx="6"/>
+  <rect class="hero" x="62" y="72" width="70" height="8" rx="4"/>
+  <rect class="hln" x="62" y="86" width="50" height="4" rx="2"/>
+  <rect class="acc" x="62" y="98" width="30" height="11" rx="5.5"/>
+  <rect class="ln" x="54" y="134" width="96" height="5" rx="2.5"/>
+  <rect class="ln" x="54" y="146" width="72" height="5" rx="2.5"/>
+  <rect class="pill acc a-press" x="54" y="158" width="58" height="12" rx="6"/>
+  <path class="wire" d="M200 114 C 232 114, 236 92, 262 92"/>
+  <g class="a-rail">
+    <circle cx="300" cy="92" r="30" fill="none" style="stroke:var(--a-hi)" stroke-width="1.6"/>
+    <ellipse cx="300" cy="92" rx="13" ry="30" fill="none" style="stroke:var(--a-hi)" stroke-width="1.2"/>
+    <line x1="270" y1="92" x2="330" y2="92" style="stroke:var(--a-hi)" stroke-width="1.2"/>
+  </g>
+  <g class="a-bub" style="animation-delay:1.6s">
+    <rect class="cd" x="226" y="140" width="148" height="26" rx="13"/>
+    <circle class="ok" cx="242" cy="153" r="4"/>
+    <text class="lbl lbla" x="254" y="156">YOURSITE.NETLIFY.APP</text>
+  </g>`),
 cmdk:()=>NEWS_ART.frame(`
   <rect class="cd" x="70" y="48" width="260" height="134" rx="12"/>
   <circle cx="90" cy="66" r="5" fill="none" style="stroke:var(--t-2)" stroke-width="1.6"/>
@@ -18998,6 +19215,261 @@ cmdk:()=>NEWS_ART.frame(`
   <rect class="c-sel" x="78" y="90" width="244" height="20" rx="6" fill="rgba(255,255,255,.09)"/>
   ${[0,1,2,3].map(i=>{const y=100+i*21;return `<rect x="88" y="${y-6}" width="12" height="12" rx="3.5" style="fill:${i?'var(--t-3)':'var(--a)'}"/>
     <rect class="ln" x="108" y="${y-2.5}" width="${[70,92,58,80][i]}" height="5" rx="2.5"/>`}).join('')}`)};
+/* ── PUBLISH ─────────────────────────────────────────────────────────
+   A finished site goes to the person's own free Netlify account
+   (aethron_publish.py). The dialog has four states: connect, choose an
+   address, publishing, and live (with domain, versions, address and
+   unpublish). Nothing here holds a token: the server keeps it. */
+let PUB={kind:'project',name:'',acct:null,site:null,stage:'',line:'',pct:0,err:'',
+  ticket:null,showToken:false,versions:null,domain:null,busy:false};
+function pubAgo(t){
+  const s=Math.max(1,(Date.now()/1000)-t);
+  if(s<60)return 'just now';
+  if(s<3600)return Math.round(s/60)+' min ago';
+  if(s<86400)return Math.round(s/3600)+' h ago';
+  return Math.round(s/86400)+' days ago';
+}
+function pubSlug(t){return String(t||'').toLowerCase().replace(/[^a-z0-9-]+/g,'-')
+  .replace(/-{2,}/g,'-').replace(/^-|-$/g,'').slice(0,58)||'site';}
+async function pubApi(action,extra){
+  return api('/api/publish',Object.assign({action,kind:PUB.kind,name:PUB.name},extra||{}));
+}
+async function openPublish(kind,name){
+  PUB={kind:kind||'project',name:name||S.cur||'',acct:null,site:null,stage:'',line:'',
+    pct:0,err:'',ticket:null,showToken:false,versions:null,domain:null,busy:false};
+  if(!PUB.name)return;
+  pubRender();
+  try{const r=await pubApi('status');PUB.acct=r.account;PUB.site=r.site||null;}
+  catch(e){PUB.err=e.message;}
+  pubRender();
+  if(PUB.site&&PUB.site.custom_domain)pubDomainCheck(true);
+}
+function pubClose(){
+  const ov=$('pubov'); if(!ov)return;
+  PUB.ticket=null;
+  document.removeEventListener('keydown',pubKey);
+  ov.id='';ov.classList.remove('on');setTimeout(()=>ov.remove(),240);
+  if(PUB.kind==='project'&&S.cur===PUB.name)refresh(true).then(()=>{renderHeader();renderTab();}).catch(()=>{});
+}
+function pubKey(e){if(e.key==='Escape'&&$('pubov')&&!PUB.busy){e.stopPropagation();pubClose();}}
+function pubRender(){
+  let ov=$('pubov');
+  if(!ov){
+    ov=document.createElement('div');ov.id='pubov';ov.className='pubov';
+    ov.onclick=e=>{if(e.target===ov&&!PUB.busy)pubClose();};
+    document.body.appendChild(ov);
+    requestAnimationFrame(()=>requestAnimationFrame(()=>ov.classList.add('on')));
+    document.addEventListener('keydown',pubKey);
+  }
+  const keep=document.activeElement&&document.activeElement.id;
+  const live=PUB.site&&!PUB.stage;
+  ov.innerHTML=`<div class="pubcard" role="dialog" aria-modal="true" aria-labelledby="pubt">
+    <button class="nx" onclick="pubClose()" title="Close (Esc)" ${PUB.busy?'disabled':''}>${I('x',14)}</button>
+    <div class="pubhd"><div class="pubic">${I('globe',18)}</div>
+      <div><h3 id="pubt">${live?'Your site is live':'Publish to the web'}</h3>
+      <div class="psub">${esc(PUB.name)}${PUB.kind==='page'?' &middot; page':''}</div></div></div>
+    <div class="pubbody">${pubBody()}</div></div>`;
+  if(keep&&$(keep))$(keep).focus();
+}
+function pubBody(){
+  if(!PUB.acct)return PUB.err?`<div class="puberr">${esc(PUB.err)}</div>`:`<p>Checking…</p>`;
+  if(PUB.stage)return pubProgress();
+  if(!PUB.acct.connected)return pubConnect();
+  const acct=`<div class="pubacct">${I('check',12)}Netlify &middot; <b>${esc(PUB.acct.email||PUB.acct.name||'connected')}</b>
+     &middot; <a onclick="pubDisconnect()">Disconnect</a></div>`;
+  const err=PUB.err?`<div class="puberr">${esc(PUB.err)}</div>`:'';
+  if(!PUB.site)return `<p>Your site goes to your own free Netlify account. You get a web address
+      right away, can add your own domain any time, and you stay in control of it.</p>
+    <div><div class="publbl">Address</div>
+      <div class="pubaddr"><input id="pubname" value="${esc(pubSlug(PUB.name))}" spellcheck="false"
+        aria-label="site address" onkeydown="if(event.key==='Enter')pubGo()"><span>.netlify.app</span></div></div>
+    ${err}
+    <div class="pubrow"><span class="pubgrow">${acct}</span>
+      <button class="primary" onclick="pubGo()">${I('globe',14)}Publish</button></div>`;
+  return pubLive(acct,err);
+}
+function pubConnect(){
+  const err=PUB.err?`<div class="puberr">${esc(PUB.err)}</div>`:'';
+  if(PUB.ticket)return `<p>Approve Aethron in the Netlify page that just opened in your browser.
+      This window carries on by itself once you do.</p>
+    <div class="pubsteps"><div class="pubstep now"><i></i>Waiting for your approval on netlify.com</div></div>
+    ${err}<div class="pubrow"><span class="pubgrow"></span>
+      <button class="ghost" onclick="PUB.ticket=null;pubRender()">Cancel</button></div>`;
+  const tok=`<div><div class="publbl">Personal access token</div>
+      <div class="pubrow"><input id="pubtok" class="pubgrow" type="password" autocomplete="off"
+        placeholder="paste your Netlify token" onkeydown="if(event.key==='Enter')pubToken()">
+        <button class="primary" onclick="pubToken()">Connect</button></div>
+      <p style="margin-top:8px;font-size:12.5px">Create one on Netlify under
+        <a onclick="openExternal('https://app.netlify.com/user/applications#personal-access-tokens')"
+          style="cursor:pointer;text-decoration:underline">User settings &rsaquo; Applications</a>.
+        Aethron keeps it on this Mac only.</p></div>`;
+  const browser=PUB.acct.browser_signin;
+  return `<p>Aethron publishes to <b>your own free Netlify account</b>, so your site is yours:
+      you get a web address right away and can add your own domain any time.
+      There is nothing to pay.</p>
+    ${err}
+    ${browser&&!PUB.showToken
+      ?`<div class="pubrow"><button class="primary" onclick="pubSignin()">${I('globe',14)}Connect Netlify</button>
+         <button class="ghost" onclick="PUB.showToken=true;PUB.err='';pubRender()">Use a token instead</button></div>
+        <p style="font-size:12.5px">No Netlify account? You can create one free on the same page.</p>`
+      :tok}`;
+}
+function pubProgress(){
+  const order=['build','upload','live'];
+  const idx=order.indexOf(PUB.stage);
+  const names={build:PUB.kind==='page'?'Preparing the page':'Building the latest version',
+    upload:'Uploading to Netlify',live:'Going live'};
+  return `<div class="pubsteps">${order.map((k,i)=>`<div class="pubstep ${i<idx?'done':i===idx?'now':''}"><i></i>${names[k]}</div>`).join('')}</div>
+    <div class="pubbar"><i style="width:${PUB.pct}%"></i></div>
+    <div class="publine">${esc(PUB.line||'')}</div>`;
+}
+function pubLive(acct,err){
+  const s=PUB.site, d=PUB.domain;
+  const vs=PUB.versions;
+  const dom=s.custom_domain
+    ? `<div class="pubrow"><span class="pubpill ${d&&d.dns?'ok':'wait'}">${d&&d.dns?'DNS found':'Waiting for DNS'}</span>
+         <span class="pubpill ${d&&d.https==='ready'?'ok':'wait'}">${d&&d.https==='ready'?'HTTPS ready':'HTTPS pending'}</span>
+         <span class="pubgrow"></span>
+         <button class="ghost" onclick="pubDomainCheck()">Check again</button>
+         <button class="ghost pubdanger" onclick="pubDomainRemove()">Remove</button></div>
+       ${d&&d.records&&!(d.dns&&d.https==='ready')?`<p style="font-size:12.5px">At the company where you bought
+         <b>${esc(s.custom_domain)}</b>, add ${d.records.length>1?'these records':'this record'}.
+         It usually works within an hour; HTTPS follows by itself.</p>
+       <table class="pubdns"><tr><th>Type</th><th>Name</th><th>Value</th><th></th></tr>
+         ${d.records.map(r=>`<tr><td>${r.type}</td><td>${esc(r.host)}</td><td>${esc(r.value)}</td>
+           <td><button onclick="pubCopy('${esc(r.value)}')">Copy</button></td></tr>`).join('')}</table>`
+       :d&&d.dns&&d.https==='ready'?`<div class="pubok">${esc(s.custom_domain)} is live with HTTPS.</div>`:''}`
+    : `<div class="pubrow"><input id="pubdom" class="pubgrow" placeholder="yourbrand.com" spellcheck="false"
+         onkeydown="if(event.key==='Enter')pubDomain()">
+         <button onclick="pubDomain()">Connect domain</button></div>
+       <p style="font-size:12.5px">Already own a domain? Aethron tells you the one record to add.</p>`;
+  return `<div class="publive">
+      <div class="url"><span class="pubdot"></span><span>${esc(s.url.replace(/^https?:\/\//,''))}</span></div>
+      <div class="meta">Published ${pubAgo(s.published_at)} &middot; ${s.files} files</div>
+      <div class="pubrow">
+        <button class="primary" onclick="openExternal('${esc(s.url)}')">${I('ext',14)}Open site</button>
+        <button onclick="pubCopy('${esc(s.url)}')">${I('link',14)}Copy link</button>
+        <span class="pubgrow"></span>
+        <button onclick="pubGo()">${I('up',14)}Publish changes</button></div></div>
+    ${err}
+    <details class="pubsec" ${s.custom_domain?'open':''}><summary>${I('globe',14)}Custom domain
+      <span class="hint">${esc(s.custom_domain||'none')}</span></summary><div class="in">${dom}</div></details>
+    <details class="pubsec" ontoggle="if(this.open&&!PUB.versions)pubVersions()"><summary>${I('clock',14)}Versions
+      <span class="hint">restore any earlier one</span></summary><div class="in">
+      ${vs===null?'<p>Loading…</p>':vs.length?vs.map(v=>`<div class="pubver"><span class="t">${esc(new Date(v.at).toLocaleString())}</span>
+        ${v.live?'<span class="live">Live</span>':`<button onclick="pubRollback('${v.id}')">Restore</button>`}</div>`).join(''):'<p>No versions yet.</p>'}
+      </div></details>
+    <details class="pubsec"><summary>${I('pencil',14)}Address<span class="hint">${esc(s.name)}.netlify.app</span></summary>
+      <div class="in"><div class="pubaddr"><input id="pubren" value="${esc(s.name)}" spellcheck="false"
+        onkeydown="if(event.key==='Enter')pubRename()"><span>.netlify.app</span></div>
+        <div class="pubrow"><span class="pubgrow"></span><button onclick="pubRename()">Change address</button></div></div></details>
+    <details class="pubsec"><summary>${I('trash',14)}Unpublish<span class="hint">take the site down</span></summary><div class="in">
+      <p>Takes the site off the web and deletes it from your Netlify account. Your project here is untouched.</p>
+      <div class="pubrow"><span class="pubgrow"></span><button class="pubdanger" onclick="pubUnpublish()">Unpublish site</button></div></div></details>
+    ${acct}`;
+}
+async function pubCopy(t){
+  try{await navigator.clipboard.writeText(t);toast('Copied');}catch(e){prompt('Copy this:',t);}
+}
+async function pubSignin(){
+  PUB.err='';
+  try{const r=await pubApi('signin');PUB.ticket=r.ticket;pubRender();}
+  catch(e){PUB.err=e.message;PUB.showToken=true;pubRender();return;}
+  const t=PUB.ticket, t0=Date.now();
+  while(PUB.ticket===t&&$('pubov')&&Date.now()-t0<10*60e3){
+    await new Promise(x=>setTimeout(x,2000));
+    if(PUB.ticket!==t)return;
+    try{
+      const r=await pubApi('signin_poll',{ticket:t});
+      if(r.status==='ok'){PUB.ticket=null;PUB.acct=r;pubRender();toast('Netlify connected');return;}
+    }catch(e){PUB.ticket=null;PUB.err=e.message;pubRender();return;}
+  }
+  if(PUB.ticket===t){PUB.ticket=null;PUB.err='The sign-in timed out. Try again.';pubRender();}
+}
+async function pubToken(){
+  const v=($('pubtok')||{}).value||'';
+  PUB.err='';
+  try{const r=await pubApi('connect',{token:v});PUB.acct=r.account;toast('Netlify connected');}
+  catch(e){PUB.err=e.message;}
+  pubRender();
+}
+async function pubDisconnect(){
+  if(!confirm('Disconnect your Netlify account from Aethron? Published sites stay online.'))return;
+  try{const r=await pubApi('disconnect');PUB.acct=r.account;}catch(e){PUB.err=e.message;}
+  pubRender();
+}
+async function pubGo(){
+  if(PUB.busy)return;
+  const want=($('pubname')||{}).value||'';
+  PUB.err='';PUB.busy=true;PUB.stage='build';PUB.pct=4;PUB.line='starting…';pubRender();
+  let j={};
+  try{
+    const {job}=await pubApi('publish',{site_name:want});
+    do{
+      await new Promise(x=>setTimeout(x,700));
+      j=await api('/api/job?id='+job);
+      const lines=(j.log||'').trim().split('\n');
+      const last=lines[lines.length-1]||'';
+      const up=/uploaded (\d+)\/(\d+)/.exec(j.log.split('\n').filter(l=>/uploaded \d+\//.test(l)).pop()||'');
+      if(/going live|published:/.test(j.log)){PUB.stage='live';PUB.pct=96;}
+      else if(/uploading|checking \d+ files|created /.test(j.log)){
+        PUB.stage='upload';PUB.pct=up?30+Math.round(60*up[1]/Math.max(1,up[2])):26;}
+      else{PUB.stage='build';PUB.pct=Math.min(22,PUB.pct+2);}
+      PUB.line=last;pubRender();
+    }while(!j.done);
+  }catch(e){j={done:true,ok:false,log:'not published: '+e.message};}
+  PUB.busy=false;PUB.stage='';
+  if(!j.ok){
+    const lines=(j.log||'').trim().split('\n');
+    const i=lines.findIndex(l=>/^(not published|the build failed)/.test(l));
+    PUB.err=(i>=0?lines.slice(i):lines.slice(-4)).join('\n').replace(/^not published: /,'');
+    pubRender();return;
+  }
+  try{const r=await pubApi('status');PUB.site=r.site;}catch(e){}
+  PUB.versions=null;pubRender();toast('Your site is live');
+}
+async function pubVersions(){
+  try{const r=await pubApi('versions');PUB.versions=r.versions;}catch(e){PUB.versions=[];PUB.err=e.message;}
+  pubRender();
+  const d=document.querySelectorAll('.pubsec')[1]; if(d)d.open=true;
+}
+async function pubRollback(id){
+  if(!confirm('Make this earlier version the live site? You can switch back any time.'))return;
+  try{const r=await pubApi('rollback',{deploy:id});PUB.site=r.site;toast('Restored');}
+  catch(e){PUB.err=e.message;}
+  PUB.versions=null;await pubVersions();
+}
+async function pubRename(){
+  const v=($('pubren')||{}).value||'';
+  PUB.err='';
+  try{const r=await pubApi('rename',{site_name:v});PUB.site=r.site;toast('Address changed');}
+  catch(e){PUB.err=e.message;}
+  pubRender();
+}
+async function pubDomain(){
+  const v=($('pubdom')||{}).value||'';
+  PUB.err='';
+  try{const r=await pubApi('domain',{domain:v});PUB.site=r.site;PUB.domain=r.domain;}
+  catch(e){PUB.err=e.message;}
+  pubRender();
+}
+async function pubDomainCheck(quiet){
+  try{const r=await pubApi('domain_status');PUB.domain=r.domain;PUB.site=r.site||PUB.site;
+    if(!quiet&&!(r.domain.dns&&r.domain.https==='ready'))toast(r.domain.dns?'DNS found; HTTPS is on its way':'The record isn’t visible yet');}
+  catch(e){if(!quiet)PUB.err=e.message;}
+  pubRender();
+}
+async function pubDomainRemove(){
+  if(!confirm('Disconnect '+PUB.site.custom_domain+' from this site?'))return;
+  try{const r=await pubApi('domain_remove');PUB.site=r.site;PUB.domain=null;}catch(e){PUB.err=e.message;}
+  pubRender();
+}
+async function pubUnpublish(){
+  if(!confirm('Take '+PUB.site.url+' off the web? This deletes the site from your Netlify account.'))return;
+  try{await pubApi('unpublish');PUB.site=null;PUB.domain=null;PUB.versions=null;toast('Unpublished');}
+  catch(e){PUB.err=e.message;}
+  pubRender();
+}
 let NEWS={list:[],i:0,ver:'',asked:false};
 async function newsCheck(ver){
   if(NEWS.asked)return; NEWS.asked=true;
@@ -19056,6 +19528,12 @@ async function newsGo(go){
   if(go==='back'){ openSettings(); return aeSpot('#backbtn','This takes you back to where you were'); }
   if(go==='home'){ newProject(); return aeSpot('#hgal','Your projects, with a picture of each site'); }
   if(go==='cmdk'){ return cmdkOpen(); }
+  if(go==='publish'){
+    const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);
+    if(!p){ toast('Build a project first, then press Publish.'); return aeSpot('.composer','Paste a template link to begin'); }
+    if(S.cur!==p.name)await select(p.name);
+    return setTimeout(()=>aeSpot('#pubrail','Publish puts this site on the web'),500);
+  }
   if(go==='phone'||go==='history'){
     const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);
     if(!p){ toast('Build a project first.'); return aeSpot('.composer','Paste a template link to begin'); }
