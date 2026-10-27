@@ -6499,6 +6499,26 @@ NOT PROVEN against real Netlify from here (no account in this session):
 the ticket flow with a real client id, and the async deploy shape, follow
 Netlify's public API and CLI; first real publish is the owner's.
 
+## "BUILT WITH AETHRON" BADGE — 2026-10-27
+Owner: every published site carries our own Framer-style badge, "Built
+with Aethron · Try Aethron →", linking to aethron.jomiez.com/?ref=badge.
+aethron_publish.with_badge() puts one <script data-aethron-badge> before
+</body> of every .html AT PUBLISH (never in site/ or the source file, so
+site.zip stays clean). A closed shadow root: the site's CSS cannot touch
+it. Bottom-right; when Netlify's own badge (free plan, an iframe it
+injects: #nl-badge-frame "Powered by Netlify", 216px, or the owner's
+#nl-hud-frame 652px) sits there, ours moves bottom-left, or stacks above
+it when both cannot fit (phones). Netlify's free-plan badge cannot be
+hidden (its own script says so) and we do not cover it; our own hosting
+(the parked Cloudflare plan) has no host badge at all.
+Switchable in the Publish dialog and MCP publish_site(badge=false):
+badge_choice() allows it while billing is not enforced (beta) and on
+Pro/Studio; on Free once billing is on, it stays (forced, logged).
+Tests: publish selftest 29 -> 35, publish battery 30 -> 37 (badge in the
+uploaded page, its link, real browser: alone bottom-right; beside
+Netlify's at 1400/500/390px with no overlap; switched off -> uploaded
+without it).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

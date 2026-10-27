@@ -1365,12 +1365,14 @@ def t_publish_site(a):
     log = []
     try:
         rec = Pub.publish(f"project:{d.name}", Pub.folder_files(d / "site"),
-                          a.get("site_name") or d.name, log=log.append, title=d.name)
+                          a.get("site_name") or d.name, log=log.append, title=d.name,
+                          badge=a.get("badge", True) is not False)
     except Pub.PublishError as e:
         return Result("NOT PUBLISHED: " + str(e), {"published": False, "reason": str(e)})
     return Result(f"PUBLISHED: {rec['url']}\n" + "\n".join(log[-6:]),
                   {"published": True, "url": rec["url"], "site": rec["name"],
-                   "files": rec["files"], "custom_domain": rec.get("custom_domain", "")})
+                   "files": rec["files"], "custom_domain": rec.get("custom_domain", ""),
+                   "badge": rec.get("badge", True)})
 
 
 TOOLS = [
@@ -1725,7 +1727,11 @@ TOOLS = [
      "button) — if not, it says so instead of publishing.",
      S(dict(P, site_name={"type": "string", "description":
             "OPTIONAL address for a first publish, e.g. 'my-bakery' -> "
-            "my-bakery.netlify.app"}), ["project"]), t_publish_site),
+            "my-bakery.netlify.app"},
+            badge={"type": "boolean", "description": "OPTIONAL false to publish "
+                   "without the small 'Built with Aethron' badge (allowed during "
+                   "the beta and on Pro/Studio; on Free it stays on)"}),
+       ["project"]), t_publish_site),
     ("localize_assets", "FULL OWNERSHIP: download every remote CDN "
      "asset (Webflow css/js/images, Framer images, fonts) into the "
      "project under brand-free hashed names; the next build serves "

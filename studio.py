@@ -1525,7 +1525,8 @@ class Handler(BaseHTTPRequestHandler):
         act = str(body.get("action") or "status")
         try:
             if act == "status":
-                out = {"account": P.account()}
+                can_hide, why = P.badge_choice()
+                out = {"account": P.account(), "badge": {"can_hide": can_hide, "why": why}}
                 if body.get("name"):
                     key = self._publish_target(body)[0]
                     out["site"] = P.record(key)
@@ -1549,6 +1550,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not P.account()["connected"]:
                     return self.fail("Connect your Netlify account first.")
                 want = str(body.get("site_name") or "")
+                badge = body.get("badge", True) is not False
 
                 def job(append):
                     if build_dir is not None:
@@ -1564,7 +1566,7 @@ class Handler(BaseHTTPRequestHandler):
                         append("built")
                     try:
                         rec = P.publish(key, files_fn(), want or title,
-                                        log=append, title=title)
+                                        log=append, title=title, badge=badge)
                     except P.PublishError as e:
                         append("not published: " + str(e))
                         return False
@@ -12434,6 +12436,17 @@ header>.iconbtn,header>.steps{flex:none}
 .puberr{border:1px solid rgba(201,106,95,.35);background:rgba(201,106,95,.08);border-radius:10px;
   padding:10px 12px;font-size:13px;color:#e3a69d;line-height:1.5}
 .pubok{font-size:12.5px;color:#8fcfb0}
+.pubbadge{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:12.5px;color:var(--t-3)}
+.pubbadge.locked{cursor:default}
+.pubbadge input{width:15px;height:15px;margin:0;accent-color:var(--a);flex:none}
+.pbprev{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px 0 7px;border-radius:7px;
+  background:#fff;color:#555;font:500 11px/1 -apple-system,BlinkMacSystemFont,Inter,sans-serif;white-space:nowrap;
+  box-shadow:0 0 0 1px rgba(0,0,0,.06),0 3px 10px -4px rgba(0,0,0,.4)}
+.pbprev img{width:12px;height:12px}.pbprev b{color:#111;font-weight:600}
+.pbprev i{width:1px;height:11px;background:rgba(0,0,0,.12)}
+.pbprev em{font-style:normal;color:#c4593a;font-weight:600}
+.pubbadge input:not(:checked)~.pbprev{opacity:.35;filter:grayscale(1)}
+.pbtxt{min-width:0}
 .pubdanger{color:#e3a69d!important}
 .pubdanger:hover{border-color:rgba(201,106,95,.6)!important}
 @media (prefers-reduced-motion:reduce){.pubstep.now i,.pubpill.wait::before{animation:none}}
@@ -19221,7 +19234,18 @@ cmdk:()=>NEWS_ART.frame(`
    address, publishing, and live (with domain, versions, address and
    unpublish). Nothing here holds a token: the server keeps it. */
 let PUB={kind:'project',name:'',acct:null,site:null,stage:'',line:'',pct:0,err:'',
-  ticket:null,showToken:false,versions:null,domain:null,busy:false};
+  ticket:null,showToken:false,versions:null,domain:null,busy:false,badge:null,showBadge:true};
+/* the "Built with Aethron" switch: on by default; off only where allowed */
+function pubBadgeRow(live){
+  const b=PUB.badge||{can_hide:true}, on=PUB.showBadge||!b.can_hide;
+  const changed=live&&PUB.site&&(PUB.site.badge!==false)!==on;
+  return `<label class="pubbadge${b.can_hide?'':' locked'}">
+    <input type="checkbox" id="pubbadge" ${on?'checked':''} ${b.can_hide?'':'disabled'}
+      onchange="PUB.showBadge=this.checked;pubRender()">
+    <span class="pbprev"><img src="__BADGEMARK__" alt="">Built with <b>Aethron</b><i></i><em>Try Aethron &rarr;</em></span>
+    <span class="pbtxt">${b.can_hide?(changed?'Press Publish changes to apply':'Show the badge on the site')
+      :esc(b.why||'Always shown on this plan')}</span></label>`;
+}
 function pubAgo(t){
   const s=Math.max(1,(Date.now()/1000)-t);
   if(s<60)return 'just now';
@@ -19236,10 +19260,13 @@ async function pubApi(action,extra){
 }
 async function openPublish(kind,name){
   PUB={kind:kind||'project',name:name||S.cur||'',acct:null,site:null,stage:'',line:'',
-    pct:0,err:'',ticket:null,showToken:false,versions:null,domain:null,busy:false};
+    pct:0,err:'',ticket:null,showToken:false,versions:null,domain:null,busy:false,
+    badge:null,showBadge:true};
   if(!PUB.name)return;
   pubRender();
-  try{const r=await pubApi('status');PUB.acct=r.account;PUB.site=r.site||null;}
+  try{const r=await pubApi('status');PUB.acct=r.account;PUB.site=r.site||null;
+    PUB.badge=r.badge||{can_hide:true};
+    PUB.showBadge=!(PUB.site&&PUB.site.badge===false&&PUB.badge.can_hide);}
   catch(e){PUB.err=e.message;}
   pubRender();
   if(PUB.site&&PUB.site.custom_domain)pubDomainCheck(true);
@@ -19283,6 +19310,7 @@ function pubBody(){
     <div><div class="publbl">Address</div>
       <div class="pubaddr"><input id="pubname" value="${esc(pubSlug(PUB.name))}" spellcheck="false"
         aria-label="site address" onkeydown="if(event.key==='Enter')pubGo()"><span>.netlify.app</span></div></div>
+    ${pubBadgeRow(false)}
     ${err}
     <div class="pubrow"><span class="pubgrow">${acct}</span>
       <button class="primary" onclick="pubGo()">${I('globe',14)}Publish</button></div>`;
@@ -19351,6 +19379,7 @@ function pubLive(acct,err){
         <button onclick="pubCopy('${esc(s.url)}')">${I('link',14)}Copy link</button>
         <span class="pubgrow"></span>
         <button onclick="pubGo()">${I('up',14)}Publish changes</button></div></div>
+    ${pubBadgeRow(true)}
     ${err}
     <details class="pubsec" ${s.custom_domain?'open':''}><summary>${I('globe',14)}Custom domain
       <span class="hint">${esc(s.custom_domain||'none')}</span></summary><div class="in">${dom}</div></details>
@@ -19404,7 +19433,8 @@ async function pubGo(){
   PUB.err='';PUB.busy=true;PUB.stage='build';PUB.pct=4;PUB.line='starting…';pubRender();
   let j={};
   try{
-    const {job}=await pubApi('publish',{site_name:want});
+    const {job}=await pubApi('publish',{site_name:want,
+      badge:!(PUB.badge&&PUB.badge.can_hide)||PUB.showBadge});
     do{
       await new Promise(x=>setTimeout(x,700));
       j=await api('/api/job?id='+job);
@@ -19619,6 +19649,11 @@ LOGIN_HTML = LOGIN_HTML.replace("__MARK__", MARK)
 METAL_VER = __import__("hashlib").sha256(METAL_JS.encode()).hexdigest()[:12]
 INDEX_HTML = INDEX_HTML.replace("__METAL__", f"/metal.js?v={METAL_VER}")
 INDEX_HTML = INDEX_HTML.replace("__MARK__", MARK)
+try:
+    import aethron_publish as _pub
+    INDEX_HTML = INDEX_HTML.replace("__BADGEMARK__", _pub.BADGE_MARK)
+except Exception:
+    INDEX_HTML = INDEX_HTML.replace("__BADGEMARK__", MARK)
 CALLBACK_DONE_HTML = CALLBACK_DONE_HTML.replace("__MARK__", MARK)
 
 
