@@ -36,6 +36,8 @@ Bun.serve({
       if (t === "held") return Response.json({ user_id: "h", email: "h@x.com", publish: false, why: "Your Aethron account is on hold." });
       return Response.json({ error: "Sign in to Aethron to publish." }, { status: 401 });
     }
+    // like Cloudflare's browser check on aethron.site: Python's default client name is refused (1010)
+    if ((req.headers.get("user-agent") || "").startsWith("Python-urllib")) return new Response("error code: 1010", { status: 403 });
     if (u.pathname === "/__stats") return Response.json({ keys: [...r2.m.keys()] });
     // the Host the Worker sees comes from X-Host (a test cannot resolve *.aethron.site)
     const host = req.headers.get("x-host") || "aethron.site";

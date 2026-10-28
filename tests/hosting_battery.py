@@ -67,7 +67,7 @@ OPEN = urllib.request.build_opener(_NoRedirect)
 
 
 def get(host, path="/"):
-    r = urllib.request.Request(BASE + path, headers={"x-host": host})
+    r = urllib.request.Request(BASE + path, headers={"x-host": host, "User-Agent": "test"})
     try:
         with OPEN.open(r, timeout=10) as f:
             return f.status, f.read().decode("utf-8", "replace"), dict(f.headers)
@@ -77,7 +77,7 @@ def get(host, path="/"):
 
 def raw(method, path, data=b"", tok="good-u1"):
     r = urllib.request.Request(BASE + "/__api" + path, data=data or None, method=method,
-                               headers={"authorization": "Bearer " + tok})
+                               headers={"authorization": "Bearer " + tok, "User-Agent": "test"})
     try:
         with urllib.request.urlopen(r, timeout=10) as f:
             return f.status, json.loads(f.read() or b"{}")
@@ -100,6 +100,11 @@ try:
     (site / "style.css").write_text("body{color:red}")
     files = P.folder_files(site)
 
+    try:
+        urllib.request.urlopen(BASE + "/__api/v1/health", timeout=10)
+        check("the fake refuses Python's default client name, like Cloudflare", False)
+    except urllib.error.HTTPError as e:
+        check("the fake refuses Python's default client name, like Cloudflare", e.code == 403)
     token("")
     check("with no sign-in, hosting is not offered", not P.hosting()["ready"])
     token("good-u1")

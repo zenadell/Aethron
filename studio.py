@@ -19655,7 +19655,8 @@ function pubBody(){
   const acct=aeth
     ?`<div class="pubacct">${I('check',12)}Aethron hosting &middot; free${!PUB.site?` &middot; <a onclick="PUB.host='netlify';PUB.err='';pubRender()">Use Netlify instead</a>`:''}</div>`
     :`<div class="pubacct">${I('check',12)}Netlify &middot; <b>${esc(PUB.acct.email||PUB.acct.name||'connected')}</b>
-     &middot; <a onclick="pubDisconnect()">Disconnect</a>${canAeth&&!PUB.site?` &middot; <a onclick="PUB.host='aethron';PUB.err='';pubRender()">Use Aethron hosting</a>`:''}</div>`;
+     &middot; <a onclick="pubDisconnect()">Disconnect</a>${canAeth&&!PUB.site?` &middot; <a onclick="PUB.host='aethron';PUB.err='';pubRender()">Use Aethron hosting</a>`:''}</div>`
+     +(!canAeth&&!PUB.site&&PUB.hosting&&PUB.hosting.why?`<p style="font-size:12px;opacity:.6;margin-top:8px">Aethron hosting: ${esc(PUB.hosting.why)}.</p>`:'');
   const err=PUB.err?`<div class="puberr">${esc(PUB.err)}</div>`:'';
   if(!PUB.site)return `<p>${aeth?`Your site goes live on Aethron's own hosting, served fast from
       Cloudflare's network around the world. You get a web address right away. It's free.`
