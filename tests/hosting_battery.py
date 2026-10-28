@@ -153,6 +153,8 @@ try:
     check("no token is refused", st == 401)
     st, b = raw("PUT", "/v1/blobs/" + "0" * 40, b"hello")
     check("bytes that don't match their hash are refused", st == 400)
+    st, b = raw("POST", "/v1/blobs", json.dumps([["0" * 40, 5]]).encode() + b"\nhello")
+    check("a batch whose bytes don't match their hash is refused", st == 400)
     st, b = raw("POST", "/v1/sites", json.dumps({"name": "admin"}).encode())
     check("reserved names cannot be claimed", st == 409)
 
@@ -161,10 +163,13 @@ try:
     (big / "index.html").write_text("<html><body>Big</body></html>")
     for i in range(1500):
         (big / "assets" / f"c{i}.js").write_text(f"export const n={i};")
+    up0 = json.loads(urllib.request.urlopen(urllib.request.Request(BASE + "/__stats", headers={"User-Agent": "t"})).read())["uploads"]
     t0 = time.time()
     P.publish("project:big", P.folder_files(big), "Big Site", log=lambda *_: None, title="Big")
     took = time.time() - t0
     check(f"a 1500-file site publishes (Cloudflare allows 1000 storage calls per request) without a long wait ({took:.1f}s)", took < 15)
+    ups = json.loads(urllib.request.urlopen(urllib.request.Request(BASE + "/__stats", headers={"User-Agent": "t"})).read())["uploads"] - up0
+    check(f"in a handful of upload requests, not one per file ({ups})", ups <= 12)
     st, body, _ = get("big-site.aethron.site", "/assets/c599.js")
     check("and every file is served", st == 200 and "599" in body)
     P.unpublish("project:big")

@@ -30,6 +30,8 @@ const RESERVED = new Set(["www", "api", "app", "admin", "mail", "email", "smtp",
   "static", "assets", "login", "signin", "signup", "account", "billing", "secure", "root"]);
 const MAX_FILE = 25 * 1024 * 1024;
 const MAX_FILES = 5000;
+const BATCH_BYTES = 4 * 1024 * 1024;
+const BATCH_FILES = 300;
 const TYPES = {
   html: "text/html; charset=utf-8", htm: "text/html; charset=utf-8", css: "text/css; charset=utf-8",
   js: "text/javascript; charset=utf-8", mjs: "text/javascript; charset=utf-8",
@@ -170,6 +172,34 @@ async function api(req, env, path) {
     if (!(await env.SITES.head(`blobs/${g[1]}`))) await env.SITES.put(`blobs/${g[1]}`, buf);
     await env.SITES.put(`up/${who.user_id}/${g[1]}`, "");
     return json({ ok: true });
+  }
+
+  // Many small files in one request: a first line of JSON [[sha1, size], ...],
+  // a newline, then the files' bytes back to back. One request per few hundred
+  // files instead of one per file; each file is still checked against its hash.
+  if (path === "/v1/blobs" && m === "POST") {
+    const raw = new Uint8Array(await req.arrayBuffer());
+    if (raw.byteLength > BATCH_BYTES + 65536) return fail(413, "a batch can be at most 4 MB");
+    const nl = raw.indexOf(10);
+    let index;
+    try { index = JSON.parse(new TextDecoder().decode(raw.subarray(0, nl))); } catch { index = null; }
+    if (nl < 0 || !Array.isArray(index) || index.length > BATCH_FILES) return fail(400, "bad batch");
+    let at = nl + 1;
+    const parts = [];
+    for (const e of index) {
+      const [h, len] = Array.isArray(e) ? e : [];
+      if (!SHA_RE.test(String(h)) || !Number.isInteger(len) || len < 0 || at + len > raw.byteLength) return fail(400, "bad batch");
+      const buf = raw.slice(at, at + len);
+      at += len;
+      if ((await sha1Hex(buf)) !== h) return fail(400, "a file does not match its hash");
+      parts.push([h, buf]);
+    }
+    if (at !== raw.byteLength) return fail(400, "bad batch");
+    await Promise.all(parts.map(async ([h, buf]) => {
+      await env.SITES.put(`blobs/${h}`, buf);
+      await env.SITES.put(`up/${who.user_id}/${h}`, "");
+    }));
+    return json({ ok: true, stored: parts.length });
   }
 
   if ((g = path.match(/^\/v1\/sites\/([^/]+)(\/.*)?$/))) {

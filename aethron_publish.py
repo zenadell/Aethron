@@ -427,6 +427,25 @@ def hosting():
     return {"ready": True, "root": HOSTING_ROOT, "why": ""}
 
 
+BATCH_FILE = 512 * 1024          # files up to this size travel in batches
+BATCH_BYTES = 3 * 1024 * 1024     # the server takes 4 MB per batch
+BATCH_FILES = 250                 # and 300 files
+
+
+def _batches(paths, blobs, files):
+    out, cur, size = [], [], 0
+    for p in paths:
+        n = len(blobs[p]) if p in blobs else files[p].stat().st_size
+        if cur and (size + n > BATCH_BYTES or len(cur) >= BATCH_FILES):
+            out.append(cur)
+            cur, size = [], 0
+        cur.append(p)
+        size += n
+    if cur:
+        out.append(cur)
+    return out
+
+
 def _hreq(method, path, body=None, raw=None, timeout=60):
     """Every hosting call is safe to repeat, so one that hits a server error
     or a dropped connection is tried again (3 more times, 1/3/9 s apart)."""
@@ -530,8 +549,30 @@ def _publish_aethron(key, files, name, log, title, badge):
         if n == len(need) or n % max(1, len(need) // 10) == 0:
             log(f"uploaded {n}/{len(need)} ({round(100 * n / len(need))}%)")
 
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        list(pool.map(put, need))
+    # small files travel together, a few hundred per request (see _batches);
+    # big ones on their own
+    def put_batch(group):
+        datas = [blobs[p] if p in blobs else files[p].read_bytes() for p in group]
+        head = json.dumps([[digests[p], len(d)] for p, d in zip(group, datas)]).encode() + b"\n"
+        try:
+            _hreq("POST", "/v1/blobs", raw=head + b"".join(datas), timeout=300)
+        except PublishError as e:
+            code = getattr(e, "code", 0) or 0
+            if not (code == 404 or code >= 500 or code == -1):
+                raise
+            for p in group:                     # an older server, or one that choked: one by one
+                put(p)
+            return
+        with LOCK:
+            done[0] += len(group)
+            n = done[0]
+        log(f"uploaded {n}/{len(need)} ({round(100 * n / len(need))}%)")
+
+    small = [p for p in need if (len(blobs[p]) if p in blobs else files[p].stat().st_size) <= BATCH_FILE]
+    large = [p for p in need if p not in set(small)]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(put_batch, _batches(small, blobs, files)))
+        list(pool.map(put, large))
     log("going live …")
     fin = _hreq("POST", f"/v1/sites/{site_name}/deploys/{dep['id']}/finish", body={}, timeout=300)
     url = fin.get("url") or f"https://{site_name}.{HOSTING_ROOT}"
