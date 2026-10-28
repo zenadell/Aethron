@@ -15,7 +15,10 @@ export class FakeR2 {
   async get(k: string) { const v = this.m.get(k); return v ? new Obj(v) : null; }
   // a real R2 lookup takes tens of milliseconds; asked one by one, hundreds add up
   async head(k: string) { await new Promise((r) => setTimeout(r, 25)); return this.m.has(k) ? {} : null; }
+  // like R2 now and then: one write in 40 fails once with "internal error"
+  puts = 0;
   async put(k: string, v: ArrayBuffer | string | Uint8Array) {
+    if (++this.puts % 40 === 0) throw new Error("put: We encountered an internal error. Please try again. (10001)");
     this.m.set(k, typeof v === "string" ? new TextEncoder().encode(v) : new Uint8Array(v as ArrayBuffer));
   }
   async delete(k: string) { this.m.delete(k); }

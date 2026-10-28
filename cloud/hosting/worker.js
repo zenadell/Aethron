@@ -319,8 +319,22 @@ async function serve(req, env, name, path) {
   return new Response(req.method === "HEAD" ? null : obj.body, { status, headers });
 }
 
+// R2 sometimes answers "internal error, please try again" (10001) on a
+// single call; across a thousand-file publish that is likely, so every
+// storage call is tried up to three times before it counts as a failure.
+function retrying(store) {
+  const again = (name) => async (...a) => {
+    for (let i = 0; ; i++) {
+      try { return await store[name](...a); }
+      catch (e) { if (i >= 2) throw e; await new Promise((r) => setTimeout(r, 150 * 3 ** i)); }
+    }
+  };
+  return { get: again("get"), head: again("head"), put: again("put"), delete: again("delete"), list: again("list") };
+}
+
 export default {
   async fetch(req, env) {
+    env = { ...env, SITES: retrying(env.SITES) };
     const url = new URL(req.url);
     const host = url.hostname.toLowerCase();
     const root = env.ROOT_DOMAIN;
