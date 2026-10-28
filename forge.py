@@ -2980,6 +2980,16 @@ def cmd_build(_args):
             "</style>", f"{sel}{{display:none !important}}</style>")
     if style_css:
         hide_css += f"<style data-forge-styles>{style_css}</style>"
+    # injected AFTER the copy is applied: the map holds the OLD address,
+    # and _apply would turn it into the new one (a map of new -> new)
+    live = _live_fixes(cm_all, cfg)
+    if live:
+        log("live fixes: " + ", ".join(
+            f"{n} {k}" for k, n in (("link(s) followed at click time",
+                                      len(_link_map(cm_all))),
+                                     ("text(s) hidden as drawn",
+                                      len(cfg.get("hide_text") or [])))
+            if n))
 
     pub = cfg.get("public_base", "/assets").rstrip("/")
 
@@ -3112,6 +3122,9 @@ def cmd_build(_args):
         t = _localize_refs(t, cfg.get("localized", {}))
         t = _inject_runtime_map(t, cfg, pairs)
         t = _inject_link_routes(t, cfg, pairs)
+        if live:
+            m = re.search(r"<head\b[^>]*>", t, re.I)
+            t = (t[:m.end()] + live + t[m.end():]) if m else live + t
         t, n_regen = _regen_split_runs(t, pairs, stats=stats)
         if held:
             t = _unseal_marks(t, "W", held)
@@ -4201,6 +4214,69 @@ def _inject_runtime_map(t: str, cfg: dict, pairs) -> str:
            % json.dumps(rmap).replace("</", "<\\/") + "</script>")
     m = re.search(r"<head\b[^>]*>", t, re.I)
     return (t[:m.end()] + tag + t[m.end():]) if m else tag + t
+
+
+LIVE_FIX_JS = r"""(function(L,H){function k(u){try{var x=new URL(u,location.href);
+return(x.origin+x.pathname).replace(/\/$/,'').replace('://www.','://')}catch(e){return u}}
+var K={};for(var o in L)K[k(o)]=L[o];function to(u){if(typeof u!=='string')return null;
+if(L[u]!=null)return L[u];var v=K[k(u)];return v==null?null:v}
+document.addEventListener('click',function(e){var a=e.target&&e.target.closest&&
+e.target.closest('a[href]');if(!a)return;var d=to(a.href);if(d==null)return;
+if(e.metaKey||e.ctrlKey||e.shiftKey||e.button)return;e.preventDefault();
+e.stopImmediatePropagation();if(a.target==='_blank')window.open(d,'_blank');
+else location.href=d},true);document.addEventListener('mouseover',function(e){
+var a=e.target&&e.target.closest&&e.target.closest('a[href]');if(!a)return;
+var d=to(a.href);if(d!=null)a.setAttribute('href',d)},true);
+var w=window.open;window.open=function(u){var d=to(u);if(d!=null)arguments[0]=d;
+return w.apply(this,arguments)};['assign','replace'].forEach(function(f){
+var g=location[f];try{location[f]=function(u){var d=to(u);
+return g.call(location,d==null?u:d)}}catch(e){}});
+var W=H.map(function(s){return s.replace(/\s+/g,' ').trim().toLowerCase()});
+function hide(){if(!W.length||!document.body)return;var t=document.createTreeWalker(
+document.body,4),n,seen=[];while(n=t.nextNode()){var v=n.nodeValue.replace(/\s+/g,' ')
+.trim().toLowerCase();if(!v||W.indexOf(v)<0)continue;var e=n.parentElement;
+while(e&&e.parentElement&&e.parentElement!==document.body&&
+e.parentElement.textContent.replace(/\s+/g,' ').trim().toLowerCase()===v)
+e=e.parentElement;if(e&&seen.indexOf(e)<0){seen.push(e);
+e.style.setProperty('display','none','important')}}}var q=0;
+function later(){if(q)return;q=1;requestAnimationFrame(function(){q=0;hide()})}
+if(W.length){new MutationObserver(later).observe(document.documentElement,
+{childList:true,subtree:true,characterData:true});
+document.addEventListener('DOMContentLoaded',hide);hide()}})(%s,%s);"""
+
+
+def _link_map(cm: dict) -> dict:
+    """Filled link entries that are ADDRESSES: old -> new.
+
+    A link entry rewrites the address where it is written in the files. A
+    widget that builds the address in its own code, or opens it with
+    window.open, never shows that spelling — the Essentia cart kept
+    sending "Contact Jomiez" to a Stripe checkout after the entry was set.
+    So the same entries are also followed at click time."""
+    out = {}
+    for e in cm.get("links", []) or []:
+        old, new = str(e.get("old") or "").strip(), str(e.get("new") or "").strip()
+        new = re.sub(r"#a?0+$", "", new)
+        if (old and new and old != new and not re.search(r"[<>\"'`]", new)
+                and re.match(r"(https?:|mailto:|tel:|/)", old)
+                and re.match(r"(https?:|mailto:|tel:|/|#)", new)):
+            out[old] = new
+    return out
+
+
+def _live_fixes(cm: dict, cfg: dict) -> str:
+    """One <script> for what only exists once the page runs: links built
+    in code (see _link_map) and cfg["hide_text"] — words a widget draws
+    after load (a "FRAMESHIP" tag in a cart) that no selector in the
+    files can name. The smallest element carrying exactly those words is
+    hidden whenever it appears. Hidden, not removed: React re-creates DOM."""
+    links = _link_map(cm)
+    texts = [str(t) for t in (cfg.get("hide_text") or []) if str(t).strip()]
+    if not links and not texts:
+        return ""
+    js = LIVE_FIX_JS % (json.dumps(links), json.dumps(texts))
+    return ("<script data-aethron-live>" + js.replace("</", "<\\/")
+            + "</script>")
 
 
 LINK_ROUTES_JS = r"""(function(R){function k(h){return(h||'').replace(/^\.?\/+/,'')
