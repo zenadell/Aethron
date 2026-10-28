@@ -19177,7 +19177,7 @@ function renderChat(){
   /* THE WELCOME BECOMES THE CONVERSATION. Openers, suggestions and the
      file picker are scaffolding for the first message; once there IS a
      conversation they are only pushing the composer down the window. */
-  for(const sel of ['welcome','qrows','hgal'])
+  for(const sel of ['welcome','qrows'])
     {const e=$(sel);if(e)e.hidden=talking;}
   const shell=$('convshell');
   if(shell)shell.classList.toggle('talking',talking);
