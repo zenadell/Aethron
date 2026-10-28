@@ -69,6 +69,18 @@ function cleanPath(p) {
   return s;
 }
 
+// Which of these blobs are not stored yet? Asked 50 at a time: one by one,
+// a site of a few hundred files kept the app waiting past its timeout.
+async function missingBlobs(env, hashes) {
+  const list = [...new Set(hashes)], out = [];
+  for (let i = 0; i < list.length; i += 50) {
+    const part = list.slice(i, i + 50);
+    const got = await Promise.all(part.map((h) => env.SITES.head(`blobs/${h}`)));
+    part.forEach((h, k) => { if (!got[k]) out.push(h); });
+  }
+  return out;
+}
+
 const WHO = new Map();   // token -> {at, who}: a short cache, the server stays the authority
 async function whoami(req, env) {
   const h = req.headers.get("authorization") || "";
@@ -84,7 +96,8 @@ async function whoami(req, env) {
   }
   const body = await r.json().catch(() => ({}));
   let who;
-  if (r.status === 401 || r.status === 403) who = { error: body.error || "Sign in to Aethron to publish.", status: 401 };
+  const said = typeof body.error === "string" ? body.error : (body.error && body.error.message) || "";
+  if (r.status === 401 || r.status === 403) who = { error: said || "Sign in to Aethron to publish.", status: 401 };
   else if (!r.ok || !body.user_id) who = { error: "Aethron's account server answered " + r.status, status: 503 };
   else if (!body.publish) who = { error: body.why || "Publishing is switched off for this account.", status: 403 };
   else who = { user_id: body.user_id, email: body.email || "" };
@@ -172,18 +185,18 @@ async function api(req, env, path) {
       const n = Object.keys(clean).length;
       if (!n) return fail(400, "a site needs at least one file");
       if (n > MAX_FILES) return fail(413, `a site can have at most ${MAX_FILES} files`);
-      const required = [];
-      for (const h of new Set(Object.values(clean))) if (!(await env.SITES.head(`blobs/${h}`))) required.push(h);
+      const required = await missingBlobs(env, Object.values(clean));
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      await putJSON(env, `deploys/${name}/${id}.json`, { files: clean, created: new Date().toISOString(), state: "uploading" });
+      await putJSON(env, `deploys/${name}/${id}.json`, { files: clean, required, created: new Date().toISOString(), state: "uploading" });
       return json({ id, required });
     }
 
     if ((g = rest.match(/^\/deploys\/([a-z0-9]+)\/finish$/)) && m === "POST") {
       const d = await getJSON(env, `deploys/${name}/${g[1]}.json`);
       if (!d) return fail(404, "no such version");
-      const missing = [];
-      for (const h of new Set(Object.values(d.files))) if (!(await env.SITES.head(`blobs/${h}`))) missing.push(h);
+      // blobs are content-addressed and never removed, so only the ones that
+      // were missing when the version was made need checking again
+      const missing = await missingBlobs(env, d.required || Object.values(d.files));
       if (missing.length) return fail(409, `${missing.length} file(s) were not uploaded`);
       d.state = "ready";
       await putJSON(env, `deploys/${name}/${g[1]}.json`, d);

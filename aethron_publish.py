@@ -448,7 +448,11 @@ def _hreq(method, path, body=None, raw=None, timeout=60):
         err.code = e.code
         raise err from None
     except (urllib.error.URLError, socket.timeout, OSError) as e:
-        raise PublishError(f"Aethron hosting could not be reached ({e}).") from None
+        step = {"PUT": "uploading a file"}.get(method) or (
+            "making the new version" if path.endswith("/deploys") else
+            "putting it live" if path.endswith("/finish") else "talking to it")
+        raise PublishError(f"Aethron hosting stopped answering while {step} ({e}). "
+                           "Try again; files already uploaded are kept.") from None
 
 
 def host_of(key):
@@ -491,7 +495,7 @@ def _publish_aethron(key, files, name, log, title, badge):
     for k, s in digests.items():
         by_sha.setdefault(s, k)
     try:
-        dep = _hreq("POST", f"/v1/sites/{site_name}/deploys", body={"files": digests})
+        dep = _hreq("POST", f"/v1/sites/{site_name}/deploys", body={"files": digests}, timeout=300)
     except PublishError as e:
         if getattr(e, "code", 0) == 404 and rec:      # removed on the server: start again
             _save_record(key, None)
@@ -514,7 +518,7 @@ def _publish_aethron(key, files, name, log, title, badge):
     with ThreadPoolExecutor(max_workers=6) as pool:
         list(pool.map(put, need))
     log("going live …")
-    fin = _hreq("POST", f"/v1/sites/{site_name}/deploys/{dep['id']}/finish", body={})
+    fin = _hreq("POST", f"/v1/sites/{site_name}/deploys/{dep['id']}/finish", body={}, timeout=300)
     url = fin.get("url") or f"https://{site_name}.{HOSTING_ROOT}"
     rec = {"host": "aethron", "name": site_name, "url": url, "default_url": url,
            "custom_domain": "", "deploy_id": dep["id"], "published_at": time.time(),

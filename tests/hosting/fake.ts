@@ -13,7 +13,8 @@ class Obj {
 export class FakeR2 {
   m = new Map<string, Uint8Array>();
   async get(k: string) { const v = this.m.get(k); return v ? new Obj(v) : null; }
-  async head(k: string) { return this.m.has(k) ? {} : null; }
+  // a real R2 lookup takes tens of milliseconds; asked one by one, hundreds add up
+  async head(k: string) { await new Promise((r) => setTimeout(r, 25)); return this.m.has(k) ? {} : null; }
   async put(k: string, v: ArrayBuffer | string | Uint8Array) {
     this.m.set(k, typeof v === "string" ? new TextEncoder().encode(v) : new Uint8Array(v as ArrayBuffer));
   }
