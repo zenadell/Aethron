@@ -6673,6 +6673,37 @@ nameservers to Cloudflare (john/suzanne.ns.cloudflare.com; records: AAAA
 - tests/hosting_battery.py drives the REAL worker.js in Bun (tests/hosting/
   fake.ts: in-memory R2 + fake whoami) with the app's publish code.
 
+## REDESIGN: TRAYS, THE PROMPT AS THE HEADLINE — 2026-10-28
+Owner's reference (an Apple-like dark UI: a near-black frame, rounded
+trays, one large light line, small orange labels). Shipped in passes,
+all as late CSS blocks in studio.py ("V3 — TRAYS" … "V3.4"), so the old
+rules still exist underneath:
+- frame + trays (body>aside, body>main, the preview sheet); NEW pill and
+  orange PROJECTS label in the sidebar; Home's ways in are cards in a
+  right tray (homeRail), hidden in a conversation or with a preview open.
+- THE PROMPT IS THE HEADLINE: no box; an empty textarea shows a ghost
+  line ("What should we build_" / "What should <p> become_" / "Reply to
+  Aethron…" once talking); typed text steps down in size (growTa sets
+  data-sz). Send is a round orange button with the metal ring (radius 999).
+- conversation set editorially: YOU / AETHRON labels, the user's words
+  as a large light quote, steps as one slim pill.
+- buttons: .btn = hairline pill, .btn.primary = orange pill, everywhere.
+TRAP, and the battery caught it: `text-transform:uppercase` CHANGES
+innerText, so tests reading "Updated to 1.1.13" failed. Labels that tests
+or people read use `font-variant-caps:all-small-caps` instead.
+TRAP: my tray rule hit every <aside> — the project rail is one too.
+Scope window-level rules as body>aside / body>main.
+
+## POINT-AND-EDIT SENDS THE ELEMENT, NOT ITS WORDS — 2026-10-28
+Owner: a card with no text "could not be found". A pick now carries the
+element's own opening tag (picker classes stripped), scroll and viewport;
+Ask calls /api/pickshot, which locates it in the source (pick_locate:
+exact tag, then framer name / data-ae-id / id / class → file + line) and
+photographs exactly that element in headless Chrome (pick_shot crops the
+full-page shot at the person's scroll). The request gets the picture as
+an attachment plus file, line, tag, CSS path, Framer name and what it
+sits inside. The picture is capped at 8s; past that the words go alone.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

@@ -1431,6 +1431,10 @@ function elInfo(el){
 }
 function elInfoFull(el){
   var s=elInfo(el),p=el.parentElement,n=0;
+  try{var c=el.cloneNode(false);c.classList.remove('__forge-hl','__forge-target');
+    if(!c.getAttribute('class'))c.removeAttribute('class');
+    var oh=c.outerHTML||'';s.open=oh.slice(0,oh.indexOf('>')+1).slice(0,500);}catch(e){}
+  s.sy=window.scrollY||0;s.vw=window.innerWidth||0;s.vh=window.innerHeight||0;
   s.ancestors=[];
   while(p&&p.tagName!=='BODY'&&n<6){s.ancestors.push(elInfo(p));
     p=p.parentElement;n++;}
@@ -1469,6 +1473,103 @@ document.addEventListener('click',function(e){
 
 
 # ───────────────────────── HTTP handler ──────────────────────────────
+
+
+def _pick_file(path: str):
+    """The source file a picked page came from: a project's built page or a
+    page rebuilt from a screenshot. None for anything else."""
+    from urllib.parse import unquote
+    parts = [unquote(x) for x in path.split("?")[0].split("/") if x]
+    if len(parts) >= 2 and parts[0] == "edit":
+        page = "/".join(parts[2:]) or "index.html"
+        if not page.endswith(".html"):
+            page = page.rstrip("/") + ".html" if "." not in page.split("/")[-1] else page
+        f = (PROJECTS / parts[1] / "site" / page).resolve()
+        root = (PROJECTS / parts[1]).resolve()
+    elif len(parts) >= 2 and parts[0] == "design":
+        f = (PAGES / parts[1] / "/".join(parts[2:] or ["site.html"])).resolve()
+        root = (PAGES / parts[1]).resolve()
+    else:
+        return None, None
+    if not str(f).startswith(str(root)) or not f.is_file():
+        return None, None
+    return f, root
+
+
+def pick_locate(path: str, el: dict) -> dict:
+    """Find a picked element in its source: the line of its opening tag,
+    trying the exact tag first and then the attributes that name it."""
+    f, root = _pick_file(path)
+    if not f:
+        return {}
+    try:
+        src = f.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    tries = []
+    if el.get("open"):
+        tries.append(("tag", el["open"]))
+    if el.get("frname"):
+        tries.append(("framer name", f'data-framer-name="{el["frname"]}"'))
+    if el.get("aeid"):
+        tries.append(("id", f'data-ae-id="{el["aeid"]}"'))
+    if el.get("id"):
+        tries.append(("id", f'id="{el["id"]}"'))
+    if el.get("classes"):
+        tries.append(("class", 'class="' + " ".join(el["classes"])))
+    for how, needle in tries:
+        hits = [m.start() for _, m in zip(range(50), re.finditer(re.escape(needle), src))] if len(needle) > 6 else []
+        if hits:
+            # the n-th match when the same thing repeats, else the first
+            k = min(int(el.get("index") or 0), len(hits) - 1) if how != "tag" else 0
+            at = hits[k]
+            return {"file": str(f.relative_to(root)), "line": src.count("\n", 0, at) + 1,
+                    "matched_by": how, "matches": len(hits)}
+    return {"file": str(f.relative_to(root))}
+
+
+def pick_shot(body: dict, port: int) -> dict:
+    """Photograph one element of a page in the preview, at the size and
+    scroll the person saw it, and store the crop as an attachment."""
+    import tempfile
+    import aethron_figma_grade as G
+    path = str(body.get("path") or "")
+    if not (path.startswith("/edit/") or path.startswith("/design/")):
+        return {"error": "not a preview page"}
+    el = body.get("el") or {}
+    loc = pick_locate(path, el)
+    r = body.get("rect") or {}
+    try:
+        l, t, rr, b = (float(r.get(k, 0)) for k in ("l", "t", "r", "b"))
+        sy = max(0.0, float(el.get("sy") or 0))
+        w = int(min(max(float(el.get("vw") or 1280), 500), 3000))
+    except (TypeError, ValueError):
+        return {"location": loc, "error": "bad rectangle"}
+    if rr - l < 2 or b - t < 2:
+        return {"location": loc, "error": "nothing to photograph"}
+    top = sy + t
+    h = int(min(max(top + (b - t) + 60, 400), 9000))
+    tmp = Path(tempfile.mkdtemp(prefix="aethron-pick-"))
+    try:
+        url = f"http://127.0.0.1:{port}{path.split('?')[0]}"
+        G.shoot(tmp / "x.html", w, h, tmp / "full.png", url=url, wait_max=45)
+        if not (tmp / "full.png").exists():
+            return {"location": loc, "error": "no browser could take the picture"}
+        W, H, px = G.read_png(tmp / "full.png")
+        pad = 8
+        x0, y0 = max(0, int(l) - pad), max(0, int(top) - pad)
+        x1, y1 = min(W, int(rr) + pad), min(H, int(top + (b - t)) + pad)
+        if x1 - x0 < 4 or y1 - y0 < 4:
+            return {"location": loc, "error": "the element is outside the page"}
+        out = bytearray()
+        for y in range(y0, y1):
+            out += px[(y * W + x0) * 4:(y * W + x1) * 4]
+        G.write_png(tmp / "crop.png", x1 - x0, y1 - y0, out)
+        up = store_upload((tmp / "crop.png").read_bytes(), "png")
+        return {"location": loc, "name": up["name"], "url": "/uploads/" + up["name"]}
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def store_upload(blob: bytes, ext: str) -> dict:
@@ -2434,6 +2535,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(result)
             if u.path in ("/api/auth/login", "/api/auth/signup"):
                 return self.api_auth(u.path, body)
+            if u.path == "/api/pickshot":
+                # WHAT YOU POINTED AT, PHOTOGRAPHED AND LOCATED. A card
+                # with no words in it could not be described to the agent
+                # by its text, so it was "not found". Now the agent gets a
+                # picture of exactly that element and where it lives in
+                # the code: file, line, opening tag.
+                return self.send_json(pick_shot(body, self.server.server_port))
             if u.path == "/api/image":
                 # PASTE, DON'T FILE. A screenshot lives on the clipboard
                 # for about four seconds; telling someone to save it,
@@ -13200,7 +13308,104 @@ body.homev #startmeta,.startmeta{display:none!important}
 .conv-shell.talking .hrail{display:none!important}
 .conv-shell.talking .conv-wrap{max-width:780px!important;margin:0 auto!important}
 .turn.you .bubble{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:18px!important}
-.run,.runsum{border-radius:16px!important;border-color:var(--hair)!important;background:var(--tray2)!important}
+.run{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
+.run.open,.run[open]{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:18px!important;padding:6px!important}
+.tcpop .tck{font:800 11.5px/1 var(--ui)!important;letter-spacing:.12em;font-variant-caps:all-small-caps;color:var(--acc)!important}
+body.pvwopen .hrail{display:none!important}
+
+/* ══ V3.3 — THE CONVERSATION, EDITORIAL ════════════════════════════
+   What you said is set like a quote: large, light, left, with a small
+   label; what Aethron says is quiet reading text under its own small
+   orange name. Each exchange is separated by a hairline, steps are one
+   slim pill, nothing sits in a box it does not need. */
+.clog{padding-top:12px}
+.turn.you{align-items:flex-start!important;gap:8px!important}
+.turn.you:not(:first-child){border-top:1px solid var(--hair);padding-top:30px;margin-top:30px}
+.turn.you::before,.turn.you+.turn.bot::before{display:block;font:800 9.5px/1 var(--ui);
+  letter-spacing:.16em;text-transform:uppercase}
+.turn.you::before{content:"You";color:var(--lo)}
+.turn.you+.turn.bot::before{content:"Aethron";color:var(--acc);margin-bottom:12px}
+.turn.you .bubble{background:transparent!important;border:0!important;padding:0!important;
+  border-radius:0!important;box-shadow:none!important;max-width:100%!important;
+  font:300 25px/1.28 var(--display);letter-spacing:-.025em;color:var(--tx)}
+.turn.you+.turn.bot{margin-top:22px}
+.turn.bot .prose{font-size:15px!important;line-height:1.75!important;color:#d6d5d2!important}
+.turn.bot .prose strong,.turn.bot .prose b{color:var(--tx)}
+.turn.bot .prose code{background:rgba(255,255,255,.06)!important;border-radius:6px}
+.runsum{background:transparent!important;border:1px solid var(--hair)!important;border-radius:999px!important;
+  padding:7px 14px!important;width:fit-content;max-width:100%;gap:10px}
+.runsum:hover{border-color:var(--hair2)!important}
+.turn.sys{color:var(--lo);font-size:12.5px}
+
+/* buttons everywhere: one orange pill for the action, hairline pills for the rest */
+.btn{border-radius:999px!important;border:1px solid var(--hair2)!important;background:transparent!important;
+  box-shadow:none!important;color:var(--tx)!important}
+.btn:hover{background:rgba(255,255,255,.05)!important}
+.btn.primary{background:var(--acc)!important;border-color:var(--acc)!important;color:#fff!important}
+.btn.primary:hover{background:var(--acc2)!important}
+
+/* what's new and team announcements: the same tray language */
+.newsov{background:rgba(4,4,4,.62)!important;backdrop-filter:blur(14px) saturate(1.1)!important}
+.newscard{background:var(--tray)!important;border:1px solid var(--hair)!important;border-radius:26px!important;
+  box-shadow:0 40px 120px rgba(0,0,0,.6)!important;overflow:hidden}
+.newscard .nart{background:var(--tray2)!important;border-bottom:1px solid var(--hair)!important;margin:10px 10px 0;
+  border-radius:18px;overflow:hidden}
+.newscard .nkick{font:800 11.5px/1 var(--ui)!important;letter-spacing:.12em!important;font-variant-caps:all-small-caps;
+  color:var(--acc)!important;display:flex;align-items:center;gap:6px}
+.newscard h3{font:300 28px/1.15 var(--display)!important;letter-spacing:-.03em!important;color:var(--tx)!important;margin:12px 0 10px!important}
+.newscard p{color:var(--dim)!important;font-size:14px!important;line-height:1.65!important}
+.newscard .nx{border-radius:999px!important;background:rgba(0,0,0,.35)!important;border:1px solid var(--hair)!important}
+.newscard .ndots i{background:var(--hair2)!important}
+.newscard .ndots i.on{background:var(--acc)!important}
+.anncard.warn .nkick{color:#f5b84a!important}
+.anncard.critical .nkick{color:#ff6b5a!important}
+
+/* the team's notices in the bar and above the chat box */
+#teamchip>button,.tchip{border-radius:999px!important;border:1px solid var(--hair2)!important;background:transparent!important}
+.tcpop{background:var(--tray)!important;border:1px solid var(--hair2)!important;border-radius:20px!important;
+  box-shadow:0 24px 70px rgba(0,0,0,.55)!important}
+.tcard,.teamcard,.heldcard{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:18px!important}
+
+/* toasts: a quiet dark pill */
+.toast,#toast{border-radius:999px!important;background:#1d1d1d!important;border:1px solid var(--hair2)!important;
+  box-shadow:0 14px 40px rgba(0,0,0,.5)!important}
+
+/* ══ V3.4 — THE PREVIEW TRAY, DIALOGS, SETTINGS, RESULT CARDS ══════ */
+.pvw{top:10px;right:10px;bottom:10px;width:calc(var(--pvw-w) - 10px);border-radius:var(--trayr);
+  border:1px solid var(--hair);background:var(--tray);box-shadow:0 30px 80px rgba(0,0,0,.45);overflow:hidden}
+.pvw:not(.in){transform:translateX(calc(100% + 20px))}
+.pvw-bar{background:transparent!important;border:0!important;box-shadow:none!important;padding:4px 4px 2px!important}
+.pvw-name{font-weight:600}
+.pvw-stage{border-radius:16px!important;overflow:hidden;border:1px solid var(--hair)}
+.pvw-seg{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:999px!important}
+.pvw-seg button.on,.pvw-seg .on{background:var(--acc)!important;color:#fff!important;border-radius:999px!important}
+.pvw-dev{background:transparent!important;border:1px solid var(--hair)!important;border-radius:999px!important}
+.pvw-bar .cpill{border-radius:999px!important;border:1px solid var(--hair)!important;background:transparent!important}
+.pvw-bar .cpill:hover{border-color:var(--hair2)!important;background:rgba(255,255,255,.04)!important}
+@media (max-width:1100px){.pvw{top:0;right:0;bottom:0;width:100vw;border-radius:0}}
+
+.pubov{background:rgba(4,4,4,.62)!important;backdrop-filter:blur(14px)!important}
+.pubcard{background:var(--tray)!important;border:1px solid var(--hair)!important;border-radius:26px!important;
+  box-shadow:0 40px 120px rgba(0,0,0,.6)!important}
+.pubcard input{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:14px!important}
+.pubcard input:focus{border-color:var(--hair2)!important;box-shadow:none!important}
+
+.setwrap h1,.setwrap h2{font-family:var(--display);font-weight:300!important;letter-spacing:-.035em}
+.setwrap .card{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:20px!important;
+  box-shadow:none!important}
+.setwrap .card h3,.setwrap .card .ch{font-size:9.5px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+.setwrap input,.setwrap select{background:var(--tray)!important;border:1px solid var(--hair)!important;border-radius:12px!important}
+
+.pcard{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:22px!important;
+  box-shadow:none!important}
+.pcard .cpill{border-radius:999px!important;border:1px solid var(--hair)!important;background:transparent!important}
+.pcard .cpill.primary,.pcard .cpill.go{background:var(--acc)!important;border-color:var(--acc)!important;color:#fff!important}
+.pshot{border-radius:14px!important;overflow:hidden}
+body.pvwopen .conv-shell{padding-right:0!important}
+body.pvwopen .conv-shell:not(.talking) .conv-wrap{margin:0 0 0 28px!important;max-width:calc(100% - 52px)!important}
+body.pvwopen .conv-shell:not(.talking) #npurl,body.pvwopen .conv-shell:not(.talking) .cghost{font-size:28px}
+body.pvwopen .conv-shell:not(.talking) .cghost{white-space:normal}
+body.pvwopen .conv-shell:not(.talking) #npurl:placeholder-shown{min-height:2.3em}
 </style></head><body>
 <aside>
   <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -16207,12 +16412,40 @@ addEventListener('resize',()=>{
 /* ONE SENTENCE, ABOUT ONE ELEMENT. The selection becomes the subject and
    the person's own words become the request; everything downstream is the
    measured change path, unchanged. */
-function selSend(){
+/* WHAT YOU POINTED AT, EXACTLY. Words alone could not name a card with no
+   words in it, so the agent answered "I could not find that section".
+   The request now carries a picture of exactly that element and where it
+   lives in the code: file, line, opening tag, CSS path, Framer name, and
+   what it sits inside. */
+async function pickDetails(m){
+  let path='';
+  try{path=$('pvwframe').contentWindow.location.pathname;}catch(e){}
+  let r={};
+  // the picture is worth a few seconds, not a stalled request: past 8s the
+  // words and the location go without it
+  try{r=await Promise.race([api('/api/pickshot',{path,rect:m.rect,el:m.el}),
+    new Promise(ok=>setTimeout(()=>ok({}),8000))])||{};}catch(e){}
+  if(r.name)CODE.pending.push({busy:false,name:r.name,url:r.url,label:'the selected element'});
+  const el=m.el||{}, loc=r.location||{}, out=[];
+  if(loc.file)out.push(`- File: ${loc.file}${loc.line?`, line ${loc.line}`:''}`);
+  if(el.open)out.push("- Opening tag: `"+el.open.slice(0,300).replace(/`/g,"'")+"`");
+  if(el.path)out.push(`- CSS path: ${el.path}`);
+  if(el.frname)out.push(`- Framer name: "${el.frname}"`);
+  if(el.classes&&el.classes.length)out.push(`- Classes: ${el.classes.join(' ')}`);
+  const anc=(el.ancestors||[]).map(a=>a.frname||(a.id?'#'+a.id:'')||'').filter(Boolean).slice(0,4);
+  if(anc.length)out.push(`- Inside: ${anc.join(' \u203a ')}`);
+  if(r.name)out.push('- A screenshot of exactly this element is attached.');
+  return out.length?'\n\nThe element I selected:\n'+out.join('\n'):'';
+}
+async function selSend(){
   const ta=$('selta'); const words=(ta&&ta.value||'').trim();
   if(!words||!PVW.pick)return;
+  const btn=document.querySelector('#selbox .send');
+  if(btn){btn.disabled=true;btn.textContent='Taking a picture\u2026';}
   const L=pickLabel(PVW.pick);
-  if(PVW.page)return pageAsk(`change ${L.ref}: ${words}`);
-  const ask=`On ${S.cur}, change ${L.ref}: ${words}`;
+  const extra=await pickDetails(PVW.pick);
+  if(PVW.page)return pageAsk(`change ${L.ref}: ${words}`+extra);
+  const ask=`On ${S.cur}, change ${L.ref}: ${words}`+extra;
   closeSel(); closePvw();
   const box=$('npurl');
   if(box){box.value=ask; growTa(box);}

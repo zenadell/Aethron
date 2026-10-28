@@ -191,8 +191,16 @@ else:
                 pg.wait_for_selector("#selta", timeout=5000)
                 pg.fill("#selta", "make it green")
                 pg.click("#selbox .send")
-                pg.wait_for_timeout(2500)
+                # the request now carries a picture of the element (up to 8s)
+                for _ in range(40):
+                    if sent:
+                        break
+                    pg.wait_for_timeout(500)
+                pg.wait_for_timeout(1000)
                 said = sent[-1]["text"] if sent else ""
+                check("and carries where the element is in the code, with its picture",
+                      "The element I selected" in said and "line " in said
+                      and bool(sent and sent[-1].get("images")))
                 check("a change in words names the page's file exactly",
                       f'On the page "{name}"' in said
                       and str(PAGES / name / "site.html") in said
