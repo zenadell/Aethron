@@ -19,9 +19,23 @@ export class FakeR2 {
     this.m.set(k, typeof v === "string" ? new TextEncoder().encode(v) : new Uint8Array(v as ArrayBuffer));
   }
   async delete(k: string) { this.m.delete(k); }
-  async list(o: { prefix: string }) {
-    return { objects: [...this.m.keys()].filter((k) => k.startsWith(o.prefix)).sort().map((key) => ({ key })), truncated: false };
+  async list(o: { prefix: string; limit?: number; cursor?: string }) {
+    const all = [...this.m.keys()].filter((k) => k.startsWith(o.prefix)).sort();
+    const from = Number(o.cursor || 0), lim = Math.min(o.limit || 1000, 1000);
+    const page = all.slice(from, from + lim);
+    const more = from + lim < all.length;
+    return { objects: page.map((key) => ({ key })), truncated: more, cursor: more ? String(from + lim) : undefined };
   }
+}
+// Cloudflare's limit: one request may touch storage at most 1000 times
+function counted(r2: FakeR2) {
+  let n = 0;
+  const tick = () => { if (++n > 1000) throw new Error("Too many API requests by single Worker invocation."); };
+  return {
+    get: (k: string) => (tick(), r2.get(k)), head: (k: string) => (tick(), r2.head(k)),
+    put: (k: string, v: any) => (tick(), r2.put(k, v)), delete: (k: string) => (tick(), r2.delete(k)),
+    list: (o: any) => (tick(), r2.list(o)),
+  };
 }
 
 const port = Number(process.argv[2] || 8787);
@@ -44,7 +58,7 @@ Bun.serve({
     const host = req.headers.get("x-host") || "aethron.site";
     const url = new URL(u.pathname + u.search, "https://" + host);
     const fwd = new Request(url, { method: req.method, headers: req.headers, body: ["GET", "HEAD"].includes(req.method) ? undefined : await req.arrayBuffer() });
-    return worker.fetch(fwd, env);
+    return worker.fetch(fwd, { ...env, SITES: counted(r2) });
   },
 });
 console.log("ready");

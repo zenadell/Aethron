@@ -69,16 +69,20 @@ function cleanPath(p) {
   return s;
 }
 
-// Which of these blobs are not stored yet? Asked 50 at a time: one by one,
-// a site of a few hundred files kept the app waiting past its timeout.
-async function missingBlobs(env, hashes) {
-  const list = [...new Set(hashes)], out = [];
-  for (let i = 0; i < list.length; i += 50) {
-    const part = list.slice(i, i + 50);
-    const got = await Promise.all(part.map((h) => env.SITES.head(`blobs/${h}`)));
-    part.forEach((h, k) => { if (!got[k]) out.push(h); });
+// Cloudflare lets one request touch storage at most 1000 times, and a site
+// can have thousands of files, so nothing here looks files up one by one.
+// Each upload leaves an empty marker up/<account>/<sha1>; what an account
+// has uploaded is then read by listing, 1000 names per call.
+async function uploadedBy(env, uid) {
+  const have = new Set();
+  let cursor;
+  for (let page = 0; page < 200; page++) {
+    const l = await env.SITES.list({ prefix: `up/${uid}/`, limit: 1000, cursor });
+    for (const o of l.objects) have.add(o.key.slice(o.key.lastIndexOf("/") + 1));
+    if (!l.truncated) break;
+    cursor = l.cursor;
   }
-  return out;
+  return have;
 }
 
 const WHO = new Map();   // token -> {at, who}: a short cache, the server stays the authority
@@ -164,6 +168,7 @@ async function api(req, env, path) {
     if (buf.byteLength > MAX_FILE) return fail(413, "a single file can be at most 25 MB");
     if ((await sha1Hex(buf)) !== g[1]) return fail(400, "the file does not match its hash");
     if (!(await env.SITES.head(`blobs/${g[1]}`))) await env.SITES.put(`blobs/${g[1]}`, buf);
+    await env.SITES.put(`up/${who.user_id}/${g[1]}`, "");
     return json({ ok: true });
   }
 
@@ -185,7 +190,12 @@ async function api(req, env, path) {
       const n = Object.keys(clean).length;
       if (!n) return fail(400, "a site needs at least one file");
       if (n > MAX_FILES) return fail(413, `a site can have at most ${MAX_FILES} files`);
-      const required = await missingBlobs(env, Object.values(clean));
+      const have = await uploadedBy(env, who.user_id);
+      if (site.live) {
+        const prev = await getJSON(env, `deploys/${name}/${site.live}.json`);
+        for (const h of Object.values((prev && prev.files) || {})) have.add(h);
+      }
+      const required = [...new Set(Object.values(clean))].filter((h) => !have.has(h));
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
       await putJSON(env, `deploys/${name}/${id}.json`, { files: clean, required, created: new Date().toISOString(), state: "uploading" });
       return json({ id, required });
@@ -196,7 +206,8 @@ async function api(req, env, path) {
       if (!d) return fail(404, "no such version");
       // blobs are content-addressed and never removed, so only the ones that
       // were missing when the version was made need checking again
-      const missing = await missingBlobs(env, d.required || Object.values(d.files));
+      const have = await uploadedBy(env, who.user_id);
+      const missing = (d.required || []).filter((h) => !have.has(h));
       if (missing.length) return fail(409, `${missing.length} file(s) were not uploaded`);
       d.state = "ready";
       await putJSON(env, `deploys/${name}/${g[1]}.json`, d);
@@ -268,11 +279,19 @@ const PAGE = (title, body, status) => new Response(
   `<a href="https://aethron.jomiez.com/?ref=hosting">Built with Aethron</a></main></body></html>`,
   { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
 
+const DEPS = new Map();
 async function serve(req, env, name, path) {
   const site = await getJSON(env, `sites/${name}.json`);
   if (!site || !site.live) return PAGE("Nothing here yet", `${name}.${env.ROOT_DOMAIN} has not been published.`, 404);
-  const dep = await getJSON(env, `deploys/${name}/${site.live}.json`);
-  if (!dep) return PAGE("Nothing here yet", "This site is being published. Try again in a moment.", 404);
+  // a version never changes once made, so its file list is kept in memory
+  const ck = `${name}/${site.live}`;
+  let dep = DEPS.get(ck);
+  if (!dep) {
+    dep = await getJSON(env, `deploys/${name}/${site.live}.json`);
+    if (!dep) return PAGE("Nothing here yet", "This site is being published. Try again in a moment.", 404);
+    if (DEPS.size > 200) DEPS.clear();
+    DEPS.set(ck, dep);
+  }
   const files = dep.files;
   let p = decodeURIComponent(path).replace(/^\/+/, "");
   let status = 200;
