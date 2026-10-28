@@ -3,10 +3,11 @@
 # them, and by hand from the Actions tab.
 #
 # Repository secrets (GitHub → Settings → Secrets and variables → Actions):
-#   CLOUDFLARE_API_TOKEN   a token with: Account · Workers Scripts · Edit,
-#                          Account · Workers R2 Storage · Edit,
-#                          Zone · Workers Routes · Edit, Zone · DNS · Edit,
-#                          Zone · SSL and Certificates · Edit (aethron.site)
+#   CLOUDFLARE_API_TOKEN   the "Edit Cloudflare Workers" template, account =
+#                          the Aethron account, zone = aethron.site (it covers
+#                          Workers Scripts, R2 Storage and Workers Routes; the
+#                          DNS records and the free wildcard certificate are
+#                          already in place, so no DNS/SSL permission)
 #   CLOUDFLARE_ACCOUNT_ID  shown on the aethron.site overview page
 # Without them the job says so and changes nothing.
 name: Deploy Aethron hosting (Cloudflare)
