@@ -1658,7 +1658,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if act == "status":
                 can_hide, why = P.badge_choice()
-                out = {"account": P.account(), "badge": {"can_hide": can_hide, "why": why}}
+                out = {"account": P.account(), "badge": {"can_hide": can_hide, "why": why},
+                       "hosting": P.hosting()}
                 if body.get("name"):
                     key = self._publish_target(body)[0]
                     out["site"] = P.record(key)
@@ -1679,7 +1680,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"account": P.disconnect()})
             key, title, files_fn, build_dir = self._publish_target(body)
             if act == "publish":
-                if not P.account()["connected"]:
+                host = str(body.get("host") or "") or None
+                if host not in (None, "aethron", "netlify"):
+                    return self.fail("unknown host")
+                host = host or P.host_of(key) or ("aethron" if P.hosting()["ready"] else "netlify")
+                if host == "netlify" and not P.account()["connected"]:
                     return self.fail("Connect your Netlify account first.")
                 want = str(body.get("site_name") or "")
                 badge = body.get("badge", True) is not False
@@ -1698,7 +1703,7 @@ class Handler(BaseHTTPRequestHandler):
                         append("built")
                     try:
                         rec = P.publish(key, files_fn(), want or title,
-                                        log=append, title=title, badge=badge)
+                                        log=append, title=title, badge=badge, host=host)
                     except P.PublishError as e:
                         append("not published: " + str(e))
                         return False
@@ -19565,7 +19570,16 @@ cmdk:()=>NEWS_ART.frame(`
    address, publishing, and live (with domain, versions, address and
    unpublish). Nothing here holds a token: the server keeps it. */
 let PUB={kind:'project',name:'',acct:null,site:null,stage:'',line:'',pct:0,err:'',
-  ticket:null,showToken:false,versions:null,domain:null,busy:false,badge:null,showBadge:true};
+  ticket:null,showToken:false,versions:null,domain:null,busy:false,badge:null,showBadge:true,
+  hosting:null,host:''};
+/* where this site goes: where it already is, else Aethron hosting when it
+   can be reached, else the person's own Netlify account */
+function pubHost(){
+  if(PUB.site)return PUB.site.host||'netlify';
+  if(PUB.host)return PUB.host;
+  return PUB.hosting&&PUB.hosting.ready?'aethron':'netlify';
+}
+function pubSuffix(){return pubHost()==='aethron'?'.'+((PUB.hosting&&PUB.hosting.root)||'aethron.site'):'.netlify.app';}
 /* the "Built with Aethron" switch: on by default; off only where allowed */
 function pubBadgeRow(live){
   const b=PUB.badge||{can_hide:true}, on=PUB.showBadge||!b.can_hide;
@@ -19592,10 +19606,11 @@ async function pubApi(action,extra){
 async function openPublish(kind,name){
   PUB={kind:kind||'project',name:name||S.cur||'',acct:null,site:null,stage:'',line:'',
     pct:0,err:'',ticket:null,showToken:false,versions:null,domain:null,busy:false,
-    badge:null,showBadge:true};
+    badge:null,showBadge:true,hosting:null,host:''};
   if(!PUB.name)return;
   pubRender();
   try{const r=await pubApi('status');PUB.acct=r.account;PUB.site=r.site||null;
+    PUB.hosting=r.hosting||null;
     PUB.badge=r.badge||{can_hide:true};
     PUB.showBadge=!(PUB.site&&PUB.site.badge===false&&PUB.badge.can_hide);}
   catch(e){PUB.err=e.message;}
@@ -19632,15 +19647,23 @@ function pubRender(){
 function pubBody(){
   if(!PUB.acct)return PUB.err?`<div class="puberr">${esc(PUB.err)}</div>`:`<p>Checking…</p>`;
   if(PUB.stage)return pubProgress();
-  if(!PUB.acct.connected)return pubConnect();
-  const acct=`<div class="pubacct">${I('check',12)}Netlify &middot; <b>${esc(PUB.acct.email||PUB.acct.name||'connected')}</b>
-     &middot; <a onclick="pubDisconnect()">Disconnect</a></div>`;
+  const aeth=pubHost()==='aethron';
+  const canAeth=PUB.hosting&&PUB.hosting.ready;
+  if(!aeth&&!PUB.acct.connected)return pubConnect()+(canAeth&&!PUB.site
+    ?`<p style="font-size:12.5px;margin-top:10px"><a style="cursor:pointer;text-decoration:underline"
+        onclick="PUB.host='aethron';PUB.err='';pubRender()">Use Aethron hosting instead</a> &mdash; free, no account needed.</p>`:'');
+  const acct=aeth
+    ?`<div class="pubacct">${I('check',12)}Aethron hosting &middot; free${!PUB.site?` &middot; <a onclick="PUB.host='netlify';PUB.err='';pubRender()">Use Netlify instead</a>`:''}</div>`
+    :`<div class="pubacct">${I('check',12)}Netlify &middot; <b>${esc(PUB.acct.email||PUB.acct.name||'connected')}</b>
+     &middot; <a onclick="pubDisconnect()">Disconnect</a>${canAeth&&!PUB.site?` &middot; <a onclick="PUB.host='aethron';PUB.err='';pubRender()">Use Aethron hosting</a>`:''}</div>`;
   const err=PUB.err?`<div class="puberr">${esc(PUB.err)}</div>`:'';
-  if(!PUB.site)return `<p>Your site goes to your own free Netlify account. You get a web address
-      right away, can add your own domain any time, and you stay in control of it.</p>
+  if(!PUB.site)return `<p>${aeth?`Your site goes live on Aethron's own hosting, served fast from
+      Cloudflare's network around the world. You get a web address right away. It's free.`
+      :`Your site goes to your own free Netlify account. You get a web address
+      right away, can add your own domain any time, and you stay in control of it.`}</p>
     <div><div class="publbl">Address</div>
-      <div class="pubaddr"><input id="pubname" value="${esc(pubSlug(PUB.name))}" spellcheck="false"
-        aria-label="site address" onkeydown="if(event.key==='Enter')pubGo()"><span>.netlify.app</span></div></div>
+      <div class="pubaddr"><input id="pubname" value="${esc(pubSlug(PUB.name).slice(0,aeth?42:58).replace(/-$/,''))}" spellcheck="false"
+        aria-label="site address" onkeydown="if(event.key==='Enter')pubGo()"><span>${pubSuffix()}</span></div></div>
     ${pubBadgeRow(false)}
     ${err}
     <div class="pubrow"><span class="pubgrow">${acct}</span>
@@ -19677,7 +19700,7 @@ function pubProgress(){
   const order=['build','upload','live'];
   const idx=order.indexOf(PUB.stage);
   const names={build:PUB.kind==='page'?'Preparing the page':'Building the latest version',
-    upload:'Uploading to Netlify',live:'Going live'};
+    upload:pubHost()==='aethron'?'Uploading':'Uploading to Netlify',live:'Going live'};
   return `<div class="pubsteps">${order.map((k,i)=>`<div class="pubstep ${i<idx?'done':i===idx?'now':''}"><i></i>${names[k]}</div>`).join('')}</div>
     <div class="pubbar"><i style="width:${PUB.pct}%"></i></div>
     <div class="publine">${esc(PUB.line||'')}</div>`;
@@ -19685,7 +19708,11 @@ function pubProgress(){
 function pubLive(acct,err){
   const s=PUB.site, d=PUB.domain;
   const vs=PUB.versions;
-  const dom=s.custom_domain
+  const aeth=pubHost()==='aethron';
+  const dom=aeth
+    ? `<p style="font-size:12.5px">Using your own domain with Aethron hosting is coming soon.
+         Your site is live at <b>${esc(s.url.replace(/^https?:\/\//,''))}</b> meanwhile.</p>`
+    : s.custom_domain
     ? `<div class="pubrow"><span class="pubpill ${d&&d.dns?'ok':'wait'}">${d&&d.dns?'DNS found':'Waiting for DNS'}</span>
          <span class="pubpill ${d&&d.https==='ready'?'ok':'wait'}">${d&&d.https==='ready'?'HTTPS ready':'HTTPS pending'}</span>
          <span class="pubgrow"></span>
@@ -19719,12 +19746,12 @@ function pubLive(acct,err){
       ${vs===null?'<p>Loading…</p>':vs.length?vs.map(v=>`<div class="pubver"><span class="t">${esc(new Date(v.at).toLocaleString())}</span>
         ${v.live?'<span class="live">Live</span>':`<button onclick="pubRollback('${v.id}')">Restore</button>`}</div>`).join(''):'<p>No versions yet.</p>'}
       </div></details>
-    <details class="pubsec"><summary>${I('pencil',14)}Address<span class="hint">${esc(s.name)}.netlify.app</span></summary>
+    <details class="pubsec"><summary>${I('pencil',14)}Address<span class="hint">${esc(s.name)}${pubSuffix()}</span></summary>
       <div class="in"><div class="pubaddr"><input id="pubren" value="${esc(s.name)}" spellcheck="false"
-        onkeydown="if(event.key==='Enter')pubRename()"><span>.netlify.app</span></div>
+        onkeydown="if(event.key==='Enter')pubRename()"><span>${pubSuffix()}</span></div>
         <div class="pubrow"><span class="pubgrow"></span><button onclick="pubRename()">Change address</button></div></div></details>
     <details class="pubsec"><summary>${I('trash',14)}Unpublish<span class="hint">take the site down</span></summary><div class="in">
-      <p>Takes the site off the web and deletes it from your Netlify account. Your project here is untouched.</p>
+      <p>Takes the site off the web${aeth?'':' and deletes it from your Netlify account'}. Your project here is untouched.</p>
       <div class="pubrow"><span class="pubgrow"></span><button class="pubdanger" onclick="pubUnpublish()">Unpublish site</button></div></div></details>
     ${acct}`;
 }
@@ -19764,7 +19791,7 @@ async function pubGo(){
   PUB.err='';PUB.busy=true;PUB.stage='build';PUB.pct=4;PUB.line='starting…';pubRender();
   let j={};
   try{
-    const {job}=await pubApi('publish',{site_name:want,
+    const {job}=await pubApi('publish',{site_name:want,host:pubHost(),
       badge:!(PUB.badge&&PUB.badge.can_hide)||PUB.showBadge});
     do{
       await new Promise(x=>setTimeout(x,700));
@@ -19773,7 +19800,7 @@ async function pubGo(){
       const last=lines[lines.length-1]||'';
       const up=/uploaded (\d+)\/(\d+)/.exec(j.log.split('\n').filter(l=>/uploaded \d+\//.test(l)).pop()||'');
       if(/going live|published:/.test(j.log)){PUB.stage='live';PUB.pct=96;}
-      else if(/uploading|checking \d+ files|created /.test(j.log)){
+      else if(/uploading|checking \d+ files|created |claimed /.test(j.log)){
         PUB.stage='upload';PUB.pct=up?30+Math.round(60*up[1]/Math.max(1,up[2])):26;}
       else{PUB.stage='build';PUB.pct=Math.min(22,PUB.pct+2);}
       PUB.line=last;pubRender();

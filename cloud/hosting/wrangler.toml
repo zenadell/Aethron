@@ -1,0 +1,19 @@
+# Aethron hosting — deployed by .github/workflows/deploy-hosting.yml
+name = "aethron-hosting"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+routes = [
+  { pattern = "aethron.site/*", zone_name = "aethron.site" },
+  { pattern = "*.aethron.site/*", zone_name = "aethron.site" },
+]
+
+[[r2_buckets]]
+binding = "SITES"
+bucket_name = "aethron-sites"
+
+[vars]
+ROOT_DOMAIN = "aethron.site"
+HOME_URL = "https://aethron.jomiez.com/"
+AUTH_URL = "https://bnmiretrggdnoaskasxj.supabase.co/functions/v1/aethron"

@@ -7,6 +7,8 @@
 //               POST /event              activity events, on the device token
 // A PERSON      POST /v1/chat/completions  the managed AI (Aethron's key)
 //               GET  /v1/models
+//               GET  /whoami             who this token is, and whether they may
+//                                        publish (read by the hosting Worker)
 // AN ADMIN      GET  /admin/me           who you are, what you may do
 //               GET  /admin/tools        every admin tool and its arguments
 //               POST /admin/call         {tool, args} — run any admin tool
@@ -25,7 +27,7 @@ import { artOf } from "./announce.ts";
 import { chat, models } from "./gateway.ts";
 import { mcp } from "./mcp.ts";
 import { events, ping } from "./presence.ts";
-import { admin, control, publicControl } from "./state.ts";
+import { admin, caller, control, effective, publicControl, signedOutAfter } from "./state.ts";
 import { CORS, fail, HttpError, json, text } from "./util.ts";
 
 function route(req: Request): string {
@@ -56,6 +58,19 @@ export async function handle(req: Request): Promise<Response> {
     if (r === "/event" && req.method === "POST") return await events(req);
     if (r === "/v1/chat/completions" && req.method === "POST") return await chat(req);
     if (r === "/v1/models") return await models(req);
+    if (r === "/whoami" && req.method === "GET") {
+      // The hosting Worker asks this before it takes an upload: the same
+      // person, the same holds and pauses as everywhere else.
+      const who = await caller(req);
+      if (!who || !who.user_id) return fail(401, "Sign in to Aethron to publish.");
+      const e = await effective(who.user_id);
+      let why = "";
+      // deno-lint-ignore no-explicit-any
+      if (signedOutAfter(who as any, e.signout_after)) why = "You were signed out of Aethron. Sign in again.";
+      else if (e.control && e.control.paused) why = e.control.pause_message || "Aethron is paused by its team for a moment.";
+      else if (e.blocked) why = e.block_reason ? `Your Aethron account is on hold: ${e.block_reason}` : "Your Aethron account is on hold.";
+      return json({ user_id: who.user_id, email: who.email, publish: !why, why });
+    }
 
     if (r.startsWith("/admin") || r === "/mcp") {
       const a = await admin(req);

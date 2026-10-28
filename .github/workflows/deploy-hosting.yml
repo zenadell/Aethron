@@ -1,0 +1,81 @@
+# Ships Aethron hosting (<name>.aethron.site) to Cloudflare: the Worker in
+# cloud/hosting/ and its R2 bucket. Runs on every push to main that touches
+# them, and by hand from the Actions tab.
+#
+# Repository secrets (GitHub → Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   a token with: Account · Workers Scripts · Edit,
+#                          Account · Workers R2 Storage · Edit,
+#                          Zone · Workers Routes · Edit, Zone · DNS · Edit,
+#                          Zone · SSL and Certificates · Edit (aethron.site)
+#   CLOUDFLARE_ACCOUNT_ID  shown on the aethron.site overview page
+# Without them the job says so and changes nothing.
+name: Deploy Aethron hosting (Cloudflare)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloud/hosting/**"
+      - "tests/hosting/**"
+      - "tests/hosting_battery.py"
+      - ".github/workflows/deploy-hosting.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-hosting
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check the hosting end to end (real Worker, fake storage)
+        run: python3 tests/hosting_battery.py
+      - name: Secrets present?
+        id: have
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set — nothing was deployed"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.have.outputs.ok == 'true'
+        with:
+          node-version: "20"
+      - name: Create the storage bucket (once)
+        if: steps.have.outputs.ok == 'true'
+        working-directory: cloud/hosting
+        run: |
+          out=$(npx --yes wrangler@3 r2 bucket create aethron-sites 2>&1) || true
+          echo "$out"
+          if echo "$out" | grep -qi "already exists\|Created bucket"; then exit 0; fi
+          if echo "$out" | grep -qi "enable R2\|10042"; then
+            echo "::error::R2 is not enabled on this Cloudflare account yet: Cloudflare dashboard → R2 → enable (it asks for a card; the free allowance covers this)."
+            exit 1
+          fi
+          echo "$out" | grep -qi "error" && exit 1 || exit 0
+      - name: Deploy the Worker
+        if: steps.have.outputs.ok == 'true'
+        working-directory: cloud/hosting
+        run: npx --yes wrangler@3 deploy
+      - name: Live check
+        if: steps.have.outputs.ok == 'true'
+        run: |
+          for i in $(seq 1 12); do
+            body=$(curl -s https://aethron.site/__api/v1/health || true)
+            echo "$body"
+            echo "$body" | grep -q '"ok":true' && exit 0
+            sleep 10
+          done
+          echo "::warning::https://aethron.site/__api/v1/health did not answer yet — if the domain is still pending on Cloudflare, this resolves once it is Active"
