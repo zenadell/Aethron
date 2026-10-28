@@ -13037,6 +13037,92 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
 .cmp-foot{font-size:12px;color:var(--t-3)}
 .cmp-page{flex:none;width:auto;max-width:220px;background:var(--g-3);color:var(--t-1);border:1px solid var(--edge-2);
   border-radius:9px;padding:5px 9px;font:inherit;font-size:12.5px}
+
+/* ══ V3 — TRAYS ═════════════════════════════════════════════════════
+   The window is a near-black frame; the sidebar, the conversation and
+   the preview sit in it as rounded trays with a hairline edge. Very
+   little on screen, one calm line doing the talking, and the orange
+   kept for the one thing to press and the small words that name things. */
+:root{--frame:#070707;--tray:#141414;--tray2:#1b1b1b;--hair:rgba(255,255,255,.065);
+  --hair2:rgba(255,255,255,.11);--tx:#ededec;--dim:#9b9a97;--lo:#6c6b68;
+  --acc:#ff5a1f;--acc2:#ff7a45;--accg:#ff5a1f;--trayr:22px}
+body{background:var(--frame);padding:10px;gap:10px}
+html.native-glass body{padding:10px}
+body>aside,body>main{background:var(--tray);border:1px solid var(--hair);border-radius:var(--trayr);
+  overflow:hidden}
+html.native-glass body>aside,html.native-glass body>main{background:rgba(20,20,20,.72)}
+body>aside{width:236px;min-width:236px;border-right:1px solid var(--hair)}
+body>aside::before{display:none}
+.brand{border-bottom:0;padding:18px 16px 10px;font-size:15px}
+.brand span{display:none}
+.find{margin:4px 12px 0}
+.newbtn{margin:12px 12px 6px;height:42px;padding:0 14px;justify-content:space-between;
+  background:#050505;border:1px solid var(--hair);border-radius:13px;color:#fff;
+  font-size:12px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  box-shadow:none;transition:border-color .2s,transform .2s}
+.newbtn .ic{color:var(--acc)}
+.newbtn:hover{border-color:var(--hair2);transform:translateY(-1px)}
+.slabel{margin:16px 18px 4px;font-size:10px;font-weight:700;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--acc)}
+.srows{padding:0 8px 10px}
+.srows .qrow{border:1px solid transparent!important;border-radius:14px;margin:1px 0;
+  padding:10px 12px;font-size:13px;color:var(--tx)}
+.srows .qrow:hover{background:var(--tray2);border-color:var(--hair)!important}
+.srows .qrow,.srows .qrow:last-child{border-top:0!important;border-bottom:0!important;box-shadow:none!important}
+.srows .qrow .qc{display:none}
+header{background:transparent!important;backdrop-filter:none!important;border-bottom:0!important;
+  padding:14px 20px}
+#ptitle{font-size:13px;font-weight:600;color:var(--dim);letter-spacing:0}
+.conv-dock{background:linear-gradient(to top,var(--tray) 62%,transparent)!important}
+.dotf.hero{display:none!important}
+
+/* home: the line sits low in an empty tray, the ways in on the right */
+body.homev .conv-shell{padding-right:322px}
+body.homev .conv-shell:not(.talking) .conv-scroll{margin-top:auto}
+body.homev .conv-shell:not(.talking) .conv-dock{margin-bottom:0;padding-bottom:22px}
+body.homev .conv-shell:not(.talking) .conv-wrap{max-width:760px;margin:0 0 0 34px}
+body.homev #welcome h1{font-family:var(--display);font-weight:300;font-size:64px;
+  line-height:1.02;letter-spacing:-.045em;color:var(--tx)}
+#welcome h1{font-weight:300!important;letter-spacing:-.04em!important;font-size:44px}
+#welcome h1 em{font-weight:300}
+#welcome h1 .caret{display:inline;margin-left:2px;
+  animation:aecaret 1.1s linear infinite!important}
+@keyframes aecaret{0%,55%{opacity:1}56%,100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){#welcome h1 .caret{animation:none}}
+body.homev #welcome .sub{font-size:14px;color:var(--dim);max-width:460px;margin-top:14px}
+.composer{background:var(--tray2)!important;border:1px solid var(--hair)!important;
+  border-radius:20px!important}
+.composer::before{display:none}
+.composer:focus-within{border-color:var(--hair2)!important;
+  box-shadow:0 0 0 4px rgba(255,255,255,.035)!important}
+.composer .cbtn:not(.stop){background:var(--acc)!important;color:#fff!important;
+  border-radius:999px!important;width:40px!important;height:40px!important;border:0!important}
+body.homev .startmeta{opacity:.75}
+
+.hrail{position:absolute;top:10px;right:10px;bottom:10px;width:300px;z-index:6;
+  display:none;flex-direction:column;gap:10px;overflow-y:auto}
+body.homev .hrail{display:flex}
+.hrail-cards{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hrc{position:relative;display:flex;flex-direction:column;align-items:flex-start;
+  text-align:left;gap:0;min-height:200px;padding:14px;border-radius:18px;
+  background:var(--tray2);border:1px solid var(--hair);color:var(--tx);
+  box-shadow:none;transition:border-color .2s,transform .25s var(--ease)}
+.hrc{min-width:0;width:auto;white-space:normal;overflow:hidden}
+.hrail-cards{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+.hrc.tall{grid-column:1/-1;min-height:250px}
+.hrc:hover{border-color:var(--hair2);transform:translateY(-2px)}
+.hrc-dot{width:11px;height:11px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#e9e7e4,#7d7b78)}
+.hrc-t{margin-top:auto;font-size:13px;line-height:1.35;font-weight:500}
+.hrc-tag{margin-top:16px;font-size:9.5px;font-weight:800;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--acc)}
+.hrail .hgal{margin:4px 0 0;padding:0}
+.hrail .hgal-h{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--acc);margin:6px 4px 8px}
+.hrail .hgal-n{display:none}
+.hrail .hgrid{grid-template-columns:1fr!important;gap:10px}
+@media (max-width:1100px){body.homev .conv-shell{padding-right:0}body.homev .hrail{display:none}
+  body.homev #welcome h1{font-size:44px}}
 </style></head><body>
 <aside>
   <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -13047,11 +13133,10 @@ body.editing .workbody>#editrow{flex:1 1 auto;min-height:0;height:auto}
                 if(event.key==='Enter')findFirst()">
     <kbd>&#8984;K</kbd></div>
   <div id="findhits" class="findhits" hidden></div>
+  <button class="newbtn" onclick="newProject()">New<span data-ic="zap" data-ics="15"></span></button>
+  <div class="slabel">Projects</div>
   <div id="plist"></div>
   <div class="srows">
-    <button class="qrow" onclick="newProject()">
-      <span data-ic="plus"></span><span class="ql">New project</span>
-      <span class="qc" data-ic="up"></span></button>
     <button class="qrow" id="codebtn" onclick="openCode()">
       <span data-ic="terminal"></span><span class="ql">Code workspace</span>
       <span class="qc" data-ic="up"></span></button>
@@ -15002,7 +15087,7 @@ function convShell(o){
           <span data-ic="${q.icon}"></span><span class="ql">${esc(q.label)}</span>
           <span class="qc" data-ic="up"></span></button>`).join('')}</div>
       ${o.after||''}
-    </div></div></div>`;
+    </div></div>${o.rail||''}</div>`;
 }
 /* ══ SETTINGS ═══════════════════════════════════════════════════════
    Who you are, what Aethron is using to think, and what it has spent.
@@ -15430,6 +15515,24 @@ function agoText(t){
   if(h<24)return Math.round(h)+' h ago';
   if(d<30)return Math.round(d)+(Math.round(d)===1?' day ago':' days ago');
   return new Date(t*1000).toLocaleDateString();
+}
+/* The ways in, as cards in a tray beside the conversation: what each
+   one does, in one sentence, and an orange word for what it is. */
+function homeRail(){
+  const card=(cls,tag,text,ask,need)=>`<button class="hrc ${cls}" onclick="quick(${
+      JSON.stringify(ask).replace(/"/g,'&quot;')},${JSON.stringify(need).replace(/"/g,'&quot;')})">
+      <span class="hrc-dot"></span><span class="hrc-t">${text}</span><span class="hrc-tag">${tag}</span></button>`;
+  return `<div class="hrail" id="hrail">
+    <div class="hrail-cards">
+      ${card('tall','Migrate','Make a live Framer or Webflow site entirely yours, with your brand in every line.',
+        'Migrate ','Paste the live Framer or Webflow URL, and tell me the brand it should become.')}
+      ${card('','Rebuild','Turn a screenshot into real, responsive code.',
+        'Rebuild this screenshot as ','Attach or paste the screenshot, then say which framework you want.')}
+      ${card('','Build','Describe a site and watch it get built.',
+        'Build a website for ','Say what it is for, who it is for, and how it should feel.')}
+    </div>
+    ${homeGallery()}
+  </div>`;
 }
 function homeGallery(){
   const all=S.projects||[];
@@ -16160,11 +16263,11 @@ function renderWelcome(c){
   if(!c)return;
   c.dataset.split='';
   c.className='conv-host';
+  document.body.classList.add('homev');
   c.innerHTML=convShell({
-    title:'Every template you buy<br>can be entirely yours.',
-    sub:`Paste a live Framer or Webflow URL, drop in a screenshot, or just
-      say what you want built. Aethron works out whether that is a
-      migration, a port, a rebuild or a coding job &mdash; and does it here.`,
+    title:'What should we build<span class="caret">_</span>',
+    sub:`A live Framer or Webflow site, a screenshot, or a few words.
+      Aethron works out the rest.`,
     hint:'Paste a template URL, or tell Aethron what you want\u2026',
     extra:`<div class="startmeta" id="startmeta">
         <input id="npname" placeholder="Project name (optional)">
@@ -16173,14 +16276,8 @@ function renderWelcome(c){
          accept=".html,.htm,.zip" multiple>${I('file',13)}
          Choose an export, a zip, or saved pages</label>
       </div>`,
-    quick:[
-      {icon:'zap',label:'Migrate a live site',
-       ask:'Migrate ',
-       need:'Paste the live Framer or Webflow URL, and tell me the brand it should become.'},
-      {icon:'image',label:'Rebuild a screenshot into real code',
-       ask:'Rebuild this screenshot as ',
-       need:'Attach or paste the screenshot, then say which framework you want.'}],
-    after:homeGallery()});
+    quick:[],
+    rail:homeRail()});
   switchConversation('');
   bindStick(); renderChat(); mountDots(c); mountOrbs(c); syncComposer();
   loadThumbs(c);
@@ -18462,6 +18559,7 @@ function renderTab(){
   noteNav();
   const c=$('content');
   document.body.classList.toggle('railed', S.view==='project'&&!!S.cur);
+  document.body.classList.remove('homev');
   if(S.view!=='settings')c.classList.remove('set-host');
   if(S.view==='settings')return renderSettings(c);
   if(S.view==='code')return renderCode(c);
