@@ -6651,6 +6651,28 @@ illustration the admin AI draws, "very good like yours".
 Tests: cloud 34/34, console 26/26, tests/team_ui_battery.py 16/16 (new, in
 run_all), control 35/35, news/conversation/page-preview green.
 
+## AETHRON HOSTING — <name>.aethron.site on Cloudflare — 2026-10-28
+Owner bought aethron.site ($0.98 first year; renews ~$30) and moved its
+nameservers to Cloudflare (john/suzanne.ns.cloudflare.com; records: AAAA
+@, www, * -> 100:: proxied). Sites no longer need a Netlify account.
+- cloud/hosting/worker.js: ONE Worker on aethron.site/* and *.aethron.site/*,
+  one R2 bucket (binding SITES): sites/<name>.json {owner, live},
+  deploys/<name>/<id>.json {files: path->sha1}, blobs/<sha1> shared. Serves
+  exact path, dir/ -> index.html (dir -> 301 dir/), path.html, the site's
+  own 404.html. API at aethron.site/__api/v1 (health, me, sites, deploys,
+  blobs PUT checked against their sha1, finish, rollback, rename, DELETE).
+  Who may publish: GET <supabase fn>/whoami on the app's DEVICE TOKEN (same
+  holds/pauses as everywhere); the Worker holds no keys.
+- aethron_publish: host "aethron" | "netlify". A site stays where it is; a
+  new one goes to Aethron hosting when signed in and /v1/health answers,
+  else Netlify. Own domains on Aethron hosting: "coming soon" (needs
+  Cloudflare for SaaS custom hostnames).
+- Deploy: .github/workflows/deploy-hosting.yml (wrangler) needs secrets
+  CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID; creates the R2 bucket; R2
+  must be enabled on the account (card on file, free allowance).
+- tests/hosting_battery.py drives the REAL worker.js in Bun (tests/hosting/
+  fake.ts: in-memory R2 + fake whoami) with the app's publish code.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

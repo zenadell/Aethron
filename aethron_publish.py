@@ -1,7 +1,8 @@
-"""Publish a finished site to the person's own Netlify account.
+"""Publish a finished site: to Aethron's own hosting (<name>.aethron.site,
+on Cloudflare's edge, see cloud/hosting/worker.js) or to the person's own
+Netlify account.
 
-Aethron has no hosting of its own yet, so a site goes where the person
-already can host for free: their Netlify account. One click gives them
+Netlify is where the person already can host for free: their account. One click gives them
 `<name>.netlify.app`; republishing replaces the whole site at once,
 every version is kept for rollback, and their own domain gets HTTPS from
 Netlify. Nothing is hosted, stored or paid for by Aethron.
@@ -379,9 +380,155 @@ def _site_or_none(site_id):
         raise
 
 
-def publish(key, files, name="", log=print, title="", badge=True):
+# ── Aethron's own hosting: <name>.aethron.site ───────────────────────
+# A Cloudflare Worker (cloud/hosting/worker.js) serves every site from
+# Cloudflare's edge. This copy proves who it is with its own device token
+# — the same one the rest of Aethron uses — and holds no Cloudflare key.
+HOSTING_API = os.environ.get("AETHRON_HOSTING_API", "https://aethron.site/__api").rstrip("/")
+HOSTING_ROOT = os.environ.get("AETHRON_HOSTING_ROOT", "aethron.site")
+_HOSTING_UP = {"at": 0.0, "ok": False}
+
+
+def _device_token():
+    try:
+        import aethron_control
+        return aethron_control.device_token()
+    except Exception:
+        return ""
+
+
+def hosting():
+    """Is Aethron hosting usable from this copy? {ready, root, why}."""
+    if os.environ.get("AETHRON_HOSTING", "on") == "off":
+        return {"ready": False, "root": HOSTING_ROOT, "why": "switched off"}
+    if not _device_token():
+        return {"ready": False, "root": HOSTING_ROOT, "why": "sign in to Aethron to publish here"}
+    if time.time() - _HOSTING_UP["at"] > (600 if _HOSTING_UP["ok"] else 60):
+        try:
+            with urllib.request.urlopen(HOSTING_API + "/v1/health", timeout=6) as r:
+                _HOSTING_UP["ok"] = json.loads(r.read() or b"{}").get("ok") is True
+        except Exception:
+            _HOSTING_UP["ok"] = False
+        _HOSTING_UP["at"] = time.time()
+    if not _HOSTING_UP["ok"]:
+        return {"ready": False, "root": HOSTING_ROOT, "why": "Aethron hosting could not be reached"}
+    return {"ready": True, "root": HOSTING_ROOT, "why": ""}
+
+
+def _hreq(method, path, body=None, raw=None, timeout=60):
+    tok = _device_token()
+    if not tok:
+        raise PublishError("Sign in to Aethron to publish.")
+    data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
+    req = urllib.request.Request(HOSTING_API + path, data=data, method=method)
+    req.add_header("Authorization", "Bearer " + tok)
+    req.add_header("Content-Type", "application/octet-stream" if raw is not None else "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read() or b"{}").get("error") or ""
+        except Exception:
+            msg = ""
+        err = PublishError(msg or f"Aethron hosting answered {e.code}")
+        err.code = e.code
+        raise err from None
+    except (urllib.error.URLError, socket.timeout, OSError) as e:
+        raise PublishError(f"Aethron hosting could not be reached ({e}).") from None
+
+
+def host_of(key):
+    rec = record(key)
+    return (rec.get("host") or "netlify") if rec else None
+
+
+def _hslug(text):
+    s = slug(text)[:42].strip("-")
+    return s or "site"
+
+
+def _publish_aethron(key, files, name, log, title, badge):
+    rec = record(key) or {}
+    if rec.get("host") != "aethron":
+        rec = {}
+    site_name = rec.get("name")
+    if not site_name:
+        base = _hslug(name or key.split(":")[-1])
+        tries = [base] + [f"{base[:39]}-{n}" for n in range(2, 6)] + [
+            f"{base[:37]}-{os.urandom(2).hex()}" for _ in range(3)]
+        for cand in tries:
+            try:
+                _hreq("POST", "/v1/sites", body={"name": cand})
+                site_name = cand
+                log(f"claimed {cand}.{HOSTING_ROOT}")
+                break
+            except PublishError as e:
+                if getattr(e, "code", 0) == 409:
+                    continue
+                raise
+        if not site_name:
+            raise PublishError(f"Every address like {base}.{HOSTING_ROOT} is taken. Choose another name.")
+    blobs = {k: with_badge(p.read_bytes()) for k, p in files.items()
+             if badge and k.lower().endswith((".html", ".htm"))}
+    log(f"checking {len(files)} files …")
+    digests = {k: (hashlib.sha1(blobs[k]).hexdigest() if k in blobs else _sha1(p))
+               for k, p in files.items()}
+    by_sha = {}
+    for k, s in digests.items():
+        by_sha.setdefault(s, k)
+    try:
+        dep = _hreq("POST", f"/v1/sites/{site_name}/deploys", body={"files": digests})
+    except PublishError as e:
+        if getattr(e, "code", 0) == 404 and rec:      # removed on the server: start again
+            _save_record(key, None)
+            return _publish_aethron(key, files, name or site_name, log, title, badge)
+        raise
+    need = [by_sha[s] for s in dep.get("required") or [] if s in by_sha]
+    log(f"uploading {len(need)} new or changed file(s)"
+        + (f", {len(by_sha) - len(need)} already there" if len(by_sha) > len(need) else ""))
+    done = [0]
+
+    def put(path):
+        data = blobs[path] if path in blobs else files[path].read_bytes()
+        _hreq("PUT", f"/v1/blobs/{digests[path]}", raw=data, timeout=300)
+        with LOCK:
+            done[0] += 1
+            n = done[0]
+        if n == len(need) or n % max(1, len(need) // 10) == 0:
+            log(f"uploaded {n}/{len(need)} ({round(100 * n / len(need))}%)")
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(put, need))
+    log("going live …")
+    fin = _hreq("POST", f"/v1/sites/{site_name}/deploys/{dep['id']}/finish", body={})
+    url = fin.get("url") or f"https://{site_name}.{HOSTING_ROOT}"
+    rec = {"host": "aethron", "name": site_name, "url": url, "default_url": url,
+           "custom_domain": "", "deploy_id": dep["id"], "published_at": time.time(),
+           "files": len(files), "title": title or rec.get("title", ""), "badge": bool(badge)}
+    _save_record(key, rec)
+    log(f"published: {url}")
+    return rec
+
+
+def publish(key, files, name="", log=print, title="", badge=True, host=None):
     """Upload `files` ({"/path": Path}) as a new version of the site kept
-    under `key`, creating the site the first time. Returns the record."""
+    under `key`, creating the site the first time. Returns the record.
+
+    host: "aethron" (<name>.aethron.site) or "netlify" (the person's own
+    account). Unset, a site stays where it is, and a new one goes to
+    Aethron hosting when it is reachable, else Netlify."""
+    if not files or "/index.html" not in files:
+        raise PublishError("There's no index.html to publish.")
+    host = host or host_of(key) or ("aethron" if hosting()["ready"] else "netlify")
+    if host == "aethron":
+        big = [k for k, p in files.items() if p.stat().st_size > 25 * 1024 * 1024]
+        if big:
+            raise PublishError(f"{big[0]} is over 25 MB, which Aethron hosting doesn't accept.")
+        if not badge and not badge_choice()[0]:
+            log(badge_choice()[1] + " The badge stays on.")
+            badge = True
+        return _publish_aethron(key, files, name, log, title, badge)
     if not _token():
         raise PublishError("Connect your Netlify account first.")
     if not files or "/index.html" not in files:
@@ -473,6 +620,14 @@ def versions(key, limit=12):
     rec = record(key)
     if not rec:
         return []
+    if rec.get("host") == "aethron":
+        try:
+            ds = _hreq("GET", f"/v1/sites/{rec['name']}/deploys").get("deploys") or []
+        except PublishError as e:
+            if getattr(e, "code", 0) == 404:
+                return []
+            raise
+        return [{"id": d["id"], "at": d.get("created"), "live": bool(d.get("live"))} for d in ds[:limit]]
     site = _site_or_none(rec["site_id"])
     if not site:
         return []
@@ -490,6 +645,13 @@ def rollback(key, deploy_id):
     rec = record(key)
     if not rec:
         raise PublishError("This site isn't published.")
+    if rec.get("host") == "aethron":
+        if not re.fullmatch(r"[a-z0-9]{6,30}", deploy_id or ""):
+            raise PublishError("unknown version")
+        _hreq("POST", f"/v1/sites/{rec['name']}/rollback", body={"id": deploy_id})
+        rec["deploy_id"] = deploy_id
+        _save_record(key, rec)
+        return rec
     if not re.fullmatch(r"[a-f0-9]{8,40}", deploy_id or ""):
         raise PublishError("unknown version")
     _req("POST", f"/sites/{rec['site_id']}/deploys/{deploy_id}/restore", body={})
@@ -503,6 +665,19 @@ def rename(key, name):
     if not rec:
         raise PublishError("This site isn't published.")
     new = slug(name)
+    if rec.get("host") == "aethron":
+        new = _hslug(name)
+        if new == rec.get("name"):
+            return rec
+        try:
+            r = _hreq("POST", f"/v1/sites/{rec['name']}/rename", body={"name": new})
+        except PublishError as e:
+            if getattr(e, "code", 0) == 409:
+                raise PublishError(f"{new}.{HOSTING_ROOT} is taken. Try another name.") from None
+            raise
+        rec.update(name=r["name"], url=r["url"], default_url=r["url"])
+        _save_record(key, rec)
+        return rec
     if new == rec.get("name"):
         return rec
     try:
@@ -522,6 +697,14 @@ def rename(key, name):
 def unpublish(key):
     rec = record(key)
     if not rec:
+        return None
+    if rec.get("host") == "aethron":
+        try:
+            _hreq("DELETE", f"/v1/sites/{rec['name']}")
+        except PublishError as e:
+            if getattr(e, "code", 0) != 404:
+                raise
+        _save_record(key, None)
         return None
     try:
         _req("DELETE", f"/sites/{rec['site_id']}")
@@ -564,6 +747,9 @@ def set_domain(key, domain):
     rec = record(key)
     if not rec:
         raise PublishError("Publish the site first, then add your domain.")
+    if rec.get("host") == "aethron":
+        raise PublishError("Your own domain on Aethron hosting is coming soon. "
+                           f"Your site is live at {rec['url']} meanwhile.")
     d = clean_domain(domain)
     body = {"custom_domain": d}
     if _is_apex(d):

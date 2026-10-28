@@ -50,7 +50,7 @@ SUITES = [
                 "aethron_frame.py", "tests/frame_battery.py",
                 "aethron_fit.py", "aethron_pictures.py", "tests/pictures_fit_battery.py",
                 "aethron_native.py", "tests/drop_battery.py",
-                "aethron_publish.py", "tests/publish_battery.py",
+                "aethron_publish.py", "tests/publish_battery.py", "tests/hosting_battery.py",
                 "aethron_control.py", "tests/control_battery.py",
                 "tests/admin_console_battery.py", "tests/team_ui_battery.py",
                 "tests/run_all.py"], False),
@@ -71,6 +71,8 @@ SUITES = [
     ("publish to Netlify", [PY, "aethron_publish.py", "--selftest"], False),
     ("publish battery (the dialog, end to end, against a fake Netlify)",
      [PY, "tests/publish_battery.py"], False),
+    ("sites publish to <name>.aethron.site (the real Worker, fake storage)",
+     [PY, "tests/hosting_battery.py"], False),
     # The admin: the edge function (bun), the app obeying its switches, and
     # the console in a browser — all against a stand-in Supabase.
     ("admin edge function (bun test)", [os.path.expanduser("~/.bun/bin/bun") if os.path.exists(

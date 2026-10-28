@@ -106,6 +106,23 @@ describe("public switches and the heartbeat", () => {
   });
 });
 
+describe("who may publish (read by the hosting Worker)", () => {
+  test("a device token says who it is; a hold or a pause says why not; a stranger is refused", async () => {
+    const d = await deviceFor("ada@example.com");
+    const ok = await call("GET", "/whoami", { token: d.device });
+    expect(ok.status).toBe(200);
+    expect(ok.body.user_id).toBe(d.id);
+    expect(ok.body.publish).toBe(true);
+    expect((await call("GET", "/whoami")).status).toBe(401);
+    expect((await call("GET", "/whoami", { token: "adt_nonsense" })).status).toBe(401);
+    await tool("block_user", { user: "ada@example.com", reason: "testing" });
+    forget("");
+    const held = await call("GET", "/whoami", { token: d.device });
+    expect(held.body.publish).toBe(false);
+    expect(held.body.why).toContain("on hold");
+  });
+});
+
 describe("activity events", () => {
   test("a copy sends events on its device token; a stranger cannot", async () => {
     const d = await deviceFor("ada@example.com");
