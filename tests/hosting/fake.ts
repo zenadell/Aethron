@@ -43,6 +43,7 @@ function counted(r2: FakeR2) {
 
 const port = Number(process.argv[2] || 8787);
 const r2 = new FakeR2();
+let UPLOADS = 0;
 const env = { SITES: r2, ROOT_DOMAIN: "aethron.site", AUTH_URL: `http://127.0.0.1:${port}/__auth`, HOME_URL: "https://aethron.jomiez.com/" };
 Bun.serve({
   port, hostname: "127.0.0.1",
@@ -56,7 +57,8 @@ Bun.serve({
     }
     // like Cloudflare's browser check on aethron.site: Python's default client name is refused (1010)
     if ((req.headers.get("user-agent") || "").startsWith("Python-urllib")) return new Response("error code: 1010", { status: 403 });
-    if (u.pathname === "/__stats") return Response.json({ keys: [...r2.m.keys()] });
+    if (u.pathname === "/__stats") return Response.json({ keys: [...r2.m.keys()], uploads: UPLOADS });
+    if (u.pathname.startsWith("/__api/v1/blobs")) UPLOADS++;
     // the Host the Worker sees comes from X-Host (a test cannot resolve *.aethron.site)
     const host = req.headers.get("x-host") || "aethron.site";
     const url = new URL(u.pathname + u.search, "https://" + host);
