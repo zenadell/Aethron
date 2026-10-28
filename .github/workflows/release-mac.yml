@@ -11,11 +11,22 @@ name: Release Aethron for Mac
 on:
   push:
     branches: [main]
-    # The website is not part of the app: a push that only touches it
-    # deploys on Netlify and does not cut a Mac release.
+    # Only changes to the app cut a Mac release (a Mac minute counts 10x
+    # against the Actions allowance). The website deploys on Netlify, the
+    # hosting server and the cloud function have their own deploys, and
+    # tests and docs alone change nothing a person installs.
     paths-ignore:
       - "projects/aethron-web/**"
       - "render.website.yaml"
+      - "cloud/**"
+      - "supabase/**"
+      - "admin_ui/**"
+      - "tests/**"
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/deploy-*.yml"
+      - ".github/workflows/keep-supabase-awake.yml"
+      - ".github/workflows/mac-shot2code.yml"
   workflow_dispatch:
 
 concurrency:
