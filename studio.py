@@ -13124,6 +13124,83 @@ body.homev .hrail{display:flex}
 .hrail .hgrid{grid-template-columns:1fr!important;gap:10px}
 @media (max-width:1100px){body.homev .conv-shell{padding-right:0}body.homev .hrail{display:none}
   body.homev #welcome h1{font-size:44px}}
+
+/* ══ V3.1 — THE PROMPT IS THE HEADLINE ═════════════════════════════
+   No box. Before anything is said, the place to type IS the large calm
+   line ("What should we build_"); what you type is set in that same
+   light display face and steps down in size as it gets longer. Under it
+   a row of small icons, and the one orange button on the right. Once a
+   conversation is going it settles into a quiet line at the bottom. */
+#welcome h1:empty,#welcome .sub:empty{display:none}
+#welcome .sub .ptag{display:inline-block;margin-right:8px;font-size:9.5px;font-weight:800;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+.composer{background:transparent!important;border:0!important;box-shadow:none!important;
+  padding:0!important;border-radius:0!important}
+.composer[data-beam]::after,.composer [data-beam-bloom]{display:none!important}
+#npurl{position:relative;z-index:1;display:block;width:100%;background:transparent!important;
+  border:0!important;outline:0!important;box-shadow:none!important;resize:none;padding:0!important;
+  color:var(--tx);caret-color:var(--acc);min-height:0}
+.cghost{position:absolute;left:0;top:0;right:60px;pointer-events:none;z-index:0;
+  color:var(--tx);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cghost i{font-style:normal;animation:aecaret 1.1s linear infinite}
+@media (prefers-reduced-motion:reduce){.cghost i{animation:none}}
+#npurl:not(:placeholder-shown)~.cghost{display:none}
+.composer .cbar{display:flex;align-items:center;gap:2px;margin-top:18px;border:0!important;padding:0!important}
+.composer .cbar .cpill{background:transparent!important;border:0!important;box-shadow:none!important;
+  color:var(--lo)!important;font-size:0!important;padding:7px!important;border-radius:999px!important;min-height:0}
+.composer .cbar .cpill:hover{color:var(--tx)!important;background:rgba(255,255,255,.05)!important}
+.composer .cbar .cpill .cv,.composer .cbar .cpill select{font-size:11.5px!important}
+.composer .cbar .cpill select{background:transparent;border:0;color:inherit;padding:0 2px}
+.composer .cbar .cbtn{margin-left:auto}
+.composer .cbtn:not(.stop){width:46px!important;height:46px!important;
+  box-shadow:0 6px 24px rgba(255,90,31,.28)!important}
+
+/* empty: the line is large and light */
+.conv-shell:not(.talking) #npurl,.conv-shell:not(.talking) .cghost{
+  font:300 56px/1.08 var(--display);letter-spacing:-.045em}
+.conv-shell:not(.talking) #npurl[data-sz="l"]{font-size:34px;letter-spacing:-.03em}
+.conv-shell:not(.talking) #npurl[data-sz="m"]{font-size:21px;letter-spacing:-.015em;line-height:1.35}
+body:not(.homev) .conv-shell:not(.talking) #npurl,body:not(.homev) .conv-shell:not(.talking) .cghost{font-size:44px}
+.conv-shell:not(.talking) .conv-wrap{max-width:min(820px,calc(100% - 48px))!important;margin:0 0 0 40px!important}
+.composer:focus-within{box-shadow:none!important;border:0!important;transform:none!important}
+.conv-shell:not(.talking) .conv-scroll{margin-top:auto!important}
+.conv-shell:not(.talking) .conv-dock{margin-bottom:0!important;padding:0 24px 26px!important}
+.conv-shell:not(.talking){padding-right:322px}
+#welcome .sub{font-size:13px;color:var(--dim);margin:0 0 16px}
+body.homev #startmeta,.startmeta{display:none!important}
+
+/* talking: a quiet line at the bottom, a hairline above it */
+.conv-shell.talking .conv-dock .composer{border-top:1px solid var(--hair)!important;padding-top:14px!important}
+.conv-shell.talking #npurl,.conv-shell.talking .cghost{font:400 15px/1.5 var(--ui);letter-spacing:0}
+.conv-shell.talking .cghost{color:var(--lo)}
+.cghost .g-reply,.conv-shell.talking .cghost .g-big{display:none}
+.conv-shell.talking .cghost .g-reply{display:inline}
+.conv-shell.talking .composer .cbar{margin-top:8px}
+.conv-shell.talking .composer .cbtn:not(.stop){width:38px!important;height:38px!important}
+
+/* project quick actions: small chips, not a list */
+.conv-shell:not(.talking) .qrows{flex-direction:row;flex-wrap:wrap;gap:8px;margin-top:20px}
+.conv-shell:not(.talking) .qrows .qrow{width:auto;border:1px solid var(--hair)!important;border-radius:999px;
+  padding:8px 14px;font-size:12.5px;color:var(--dim);background:transparent;box-shadow:none}
+.conv-shell:not(.talking) .qrows .qrow:hover{color:var(--tx);border-color:var(--hair2)!important}
+.conv-shell:not(.talking) .qrows .qrow .qc{display:none}
+
+/* the project tray on the right, in the same card language as home */
+.prail{top:10px!important;right:10px!important;bottom:10px!important;width:300px!important;gap:10px}
+.prail .rcard{background:var(--tray2)!important;border:1px solid var(--hair)!important;
+  border-radius:18px!important;box-shadow:none!important}
+.prail .rcard>div:first-child:not(.rshot),.prail .rlabel,.prail .rcard h4{
+  font-size:9.5px;font-weight:800;letter-spacing:.16em;color:var(--acc)}
+.prail .cpill{background:transparent!important;border:1px solid var(--hair)!important;box-shadow:none!important}
+.prail .cpill:hover{border-color:var(--hair2)!important}
+.prail .rshot{border-radius:12px;overflow:hidden}
+
+/* in a conversation the ways in step aside; the talk gets the room */
+.conv-shell.talking{padding-right:0!important}
+.conv-shell.talking .hrail{display:none!important}
+.conv-shell.talking .conv-wrap{max-width:780px!important;margin:0 auto!important}
+.turn.you .bubble{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:18px!important}
+.run,.runsum{border-radius:16px!important;border-color:var(--hair)!important;background:var(--tray2)!important}
 </style></head><body>
 <aside>
   <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -15061,9 +15138,10 @@ function convShell(o){
     <div class="conv-dock"><div class="conv-wrap">
       <div class="composer" data-beam="ae"><span data-beam-bloom></span>
         <div class="cattach" hidden></div>
-        <textarea id="npurl" rows="1" placeholder="${esc(o.hint||'')}"
+        <textarea id="npurl" rows="1" placeholder=" " aria-label="${esc(o.hint||'Message')}"
          oninput="growTa(this)"
          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
+        <div class="cghost" aria-hidden="true"><span class="g-big">${esc(o.ghost||o.hint||'')}<i>_</i></span><span class="g-reply">Reply to Aethron…</span></div>
         <div class="cbar">
           <label class="cpill" title="a screenshot to rebuild, an export, a zip, or saved pages"><input
            type="file" class="cattach-in" accept="image/*,.html,.htm,.zip" multiple
@@ -15076,7 +15154,7 @@ function convShell(o){
             ?`<button class="cbtn stop" onclick="stopTurn()" aria-label="Stop"
                 title="Stop">${I('stop',15)}</button>`
             :`<button class="cbtn" onclick="consoleSend()" aria-label="Send"
-                title="Send">${I('up',15)}</button>`}
+                title="Send">${I('zap',16)}</button>`}
         </div>
       </div>
       <div class="dockmeta" id="dockmeta"></div>
@@ -15896,7 +15974,8 @@ function mountMetal(){
        specificity, so the button is drawn 34px at radius 11. A ring
        measured from the wrong rule reads as a ring that does not fit. */
     const h=window.metalWrap(send,{variant:'button',preset:'chromatic',
-      theme:'dark',borderRadius:11,innerShadow:true,
+      /* the redesign's send button is a full circle */
+      theme:'dark',borderRadius:999,innerShadow:true,
       /* the owner's actual point: the light is in the room, not only on
          the button — the pills beside it catch the metal */
       reflect:[...document.querySelectorAll('.cbar .cpill')]
@@ -16266,9 +16345,9 @@ function renderWelcome(c){
   c.className='conv-host';
   document.body.classList.add('homev');
   c.innerHTML=convShell({
-    title:'What should we build<span class="caret">_</span>',
-    sub:`A live Framer or Webflow site, a screenshot, or a few words.
-      Aethron works out the rest.`,
+    title:'',
+    sub:'',
+    ghost:'What should we build',
     hint:'Paste a template URL, or tell Aethron what you want\u2026',
     extra:`<div class="startmeta" id="startmeta">
         <input id="npname" placeholder="Project name (optional)">
@@ -16288,11 +16367,9 @@ function renderChatTab(c){
   const n=(S.info&&(S.info.total||S.info.strings))||0, f=(S.info&&S.info.filled)||0;
   c.innerHTML=convShell({
     top:projectCard(),
-    title:`What should <em>${esc(S.cur)}</em> become?`,
-    sub:`Describe the brand and Aethron rebrands every string, fits the
-      byte-locked slots, rebuilds and checks the result. Ask it to port the
-      site to Astro, Next or Vue, swap a logo, edit a page, or fix what a
-      check flagged.${n?` &mdash; ${f} of ${n} strings filled so far.`:''}`,
+    title:'',
+    sub:n?`<span class="ptag">${esc(S.cur)}</span> ${f} of ${n} lines are yours`:`<span class="ptag">${esc(S.cur)}</span>`,
+    ghost:`What should ${S.cur} become`,
     hint:`Tell Aethron what to do with ${S.cur}…`,
     quick:[
       {icon:'wand',label:'Rebrand every string',
@@ -16390,8 +16467,11 @@ function copyOld(t){
   document.body.appendChild(a); a.select();
   try{document.execCommand('copy');}catch(e){} a.remove();
 }
-function growTa(el){el.style.height='auto';
-  el.style.height=Math.min(el.scrollHeight,180)+'px'}
+function growTa(el){
+  const n=(el.value||'').length;
+  el.dataset.sz=n<34?'xl':n<90?'l':'m';
+  el.style.height='auto';
+  el.style.height=Math.min(el.scrollHeight,260)+'px'}
 
 /* THE FRONT DOOR. The composer is the product: a URL, an instruction,
    or both. The first message starts a console session rooted outside
