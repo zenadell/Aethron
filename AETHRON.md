@@ -7027,3 +7027,27 @@ tab, set_link + hide_text, the same click PASSES, the tag is gone).
 NOT PROVEN on the owner's real Essentia build (their project is on their
 Mac): whether the cart opens the address by window.open or by a link,
 both are covered.
+
+## LIVE HOME CARDS, A READABLE "YOU", LIMITS THAT MEAN SOMETHING — 2026-10-28
+Owner, on the redesign: the home cards were preset prompts ("a waste");
+a point-and-edit request ran as giant display type behind the project
+rail; the Limits card showed on Aethron AI, where it changes nothing; and
+the problem-reports notice linked to the website.
+- HOME CARDS ARE LIVE: /api/pulse (pulse_report) checks, each with a time
+  limit, the model (ready + name, team AI named), the browser, text
+  reading (Mac), hosting; plus the sites this Mac published. Cards:
+  System (live rows, green beat when all ready, a failing model row opens
+  Settings), Live sites (count + newest address, click opens it), Your
+  work (lines rewritten across projects, built count).
+- THE SUGGESTIONS MOVED INTO THE PROMPT: the empty headline types through
+  "Migrate a Framer site / Turn a screenshot into code / …"; Tab takes the
+  one showing (quick() with its hint). Off under reduced motion.
+- "YOU" IS SET TO ITS LENGTH: short = quote, longer = 19px, long = body
+  text, pre-wrap, 62ch. The details point-and-edit attaches fold into one
+  `pickcard` (tag, Framer name, file; expands to file/inside/CSS path/
+  tag). The talking conversation keeps 330px for the project rail (the
+  V3 `.talking{padding-right:0}` had let it run under the rail).
+- LIMITS HIDE ON AETHRON AI (limits_report carries `managed`); the plan's
+  allowance shows in the Model card.
+- PROBLEM REPORTS: a "What a report contains" list in Settings, no link out.
+Batteries: team_ui, news, page_preview, conversation, limits green.

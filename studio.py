@@ -1600,12 +1600,89 @@ def _jsonable(d: dict) -> dict:
             for k, v in d.items()}
 
 
+def pulse_report() -> dict:
+    """What the home screen shows as live: every part Aethron needs,
+    measured now, and what this Mac has put on the web. Each check has a
+    time limit; one that cannot answer in time says so instead of
+    holding the page."""
+    import threading
+    out = {"checks": []}
+
+    def add(key, label, ok, detail, fix=""):
+        out["checks"].append({"key": key, "label": label, "ok": ok,
+                              "detail": detail, "fix": fix})
+    try:
+        import aethron_brain as _brain
+        r = _brain.resolve()
+        managed = _brain.managed()
+        model = r.get("model") or ""
+        if managed:
+            try:
+                model = (_control.summary().get("control") or {}).get(
+                    "managed_model") or model
+            except Exception:
+                pass
+        who = "Aethron AI" if managed else (r.get("label") or r.get("provider") or "")
+        add("model", "Model", bool(r.get("ready")),
+            (model + (" · " + who if who else "")).strip(" ·") if r.get("ready")
+            else ("no key yet" if "key" in (r.get("why") or "").lower()
+                  else "not set up"), "settings")
+    except Exception as e:
+        add("model", "Model", False, str(e)[:90], "settings")
+    try:
+        import forge as _forge
+        b = bool(_forge._find_browser())
+        add("browser", "Browser", b, "ready" if b else "no Chrome found")
+    except Exception as e:
+        add("browser", "Browser", False, str(e)[:90])
+    if sys.platform == "darwin":
+        try:
+            import aethron_vision as _v
+            ok = bool(_v.ocr_binary())
+            add("ocr", "Reading text", ok, "ready" if ok else "unavailable")
+        except Exception as e:
+            add("ocr", "Reading text", False, str(e)[:90])
+    host = {}
+
+    def ask():
+        try:
+            import aethron_publish as _pub
+            host.update(_pub.hosting())
+        except Exception as e:
+            host.update({"ready": False, "why": str(e)[:90]})
+    t = threading.Thread(target=ask, daemon=True)
+    t.start()
+    t.join(3)
+    if host:
+        add("hosting", "Hosting", bool(host.get("ready")),
+            "aethron.site online" if host.get("ready") else
+            ("sign in to publish" if "sign in" in host.get("why", "") else "unreachable"))
+    else:
+        add("hosting", "Hosting", None, "still checking")
+    sites = []
+    try:
+        import aethron_publish as _pub
+        for key, rec in (_pub.records() or {}).items():
+            if isinstance(rec, dict) and rec.get("url"):
+                sites.append({"key": key, "url": rec.get("custom_domain") and
+                              ("https://" + rec["custom_domain"]) or rec["url"],
+                              "at": rec.get("published_at") or 0,
+                              "host": rec.get("host", "netlify")})
+    except Exception:
+        pass
+    sites.sort(key=lambda x: -(x["at"] or 0))
+    out["sites"] = sites[:5]
+    out["site_count"] = len(sites)
+    out["ready"] = all(c["ok"] is not False for c in out["checks"])
+    return out
+
+
 def limits_report() -> dict:
     """Every limit, what has been used against it, and when it resets."""
     import aethron_brain as _brain
     lim = _brain.limits()
     out = {**lim, "session": _jsonable(_brain.session()),
-           "wallet": _jsonable(_brain.wallet())}
+           "wallet": _jsonable(_brain.wallet()), "managed": _brain.managed()}
     br = sys.modules.get("aethron_bridge")
     if br is not None:
         out["run_spent_usd"] = round(br.USED.get("usd", 0.0), 6)
@@ -1899,6 +1976,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(aethron_reports.status())
             if u.path == "/api/limits":
                 return self.send_json(limits_report())
+            if u.path == "/api/pulse":
+                return self.send_json(_jsonable(pulse_report()))
             if u.path.startswith("/design/"):
                 # The page itself, for the preview frame. Served from HOME/pages,
                 # never from anywhere a crafted name could reach.
@@ -13413,6 +13492,80 @@ body.pvwopen .conv-shell:not(.talking) #npurl:placeholder-shown{min-height:2.3em
 .proof{margin:8px 0 2px}.proof .stepshot{margin-left:0}
 .proofv{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut,#9a9a9a);margin-top:2px}
 .proofv .sverd{margin-left:0}
+
+/* ══ V3.5 — LIVE HOME CARDS, A READABLE "YOU", THE RAIL KEEPS ITS ROOM ═ */
+.hrc{min-height:150px}
+.hrc.tall{min-height:0}
+.hrc .hrc-tag{margin-top:0}
+.hpulse{gap:12px;cursor:default}
+.hpulse:hover{transform:none;border-color:var(--hair)}
+.hp-h{display:flex;align-items:center;gap:8px;width:100%}
+.hp-st{margin-left:auto;font-size:11.5px;color:var(--lo)}
+.hp-dot{width:8px;height:8px;border-radius:50%;background:#77736d;flex:none}
+.hp-dot.ok{background:#46c877;box-shadow:0 0 0 0 rgba(70,200,119,.5);animation:hpbeat 2.4s ease-out infinite}
+.hp-dot.bad{background:#ff9b3d}
+@keyframes hpbeat{0%{box-shadow:0 0 0 0 rgba(70,200,119,.45)}70%{box-shadow:0 0 0 8px rgba(70,200,119,0)}100%{box-shadow:0 0 0 0 rgba(70,200,119,0)}}
+.hp-rows{display:flex;flex-direction:column;width:100%}
+.hp-row{display:grid;grid-template-columns:10px 92px minmax(0,1fr);align-items:center;gap:8px;
+  padding:9px 0;border-top:1px solid var(--hair);font-size:12.5px}
+.hp-row:first-child{border-top:0}
+.hp-i{width:6px;height:6px;border-radius:50%;background:#5c5955}
+.hp-row.ok .hp-i{background:#46c877}.hp-row.bad .hp-i{background:#ff9b3d}
+.hp-row.wait .hp-i{animation:hpwait 1.2s ease-in-out infinite}
+@keyframes hpwait{50%{opacity:.25}}
+.hp-l{color:var(--tx);font-weight:500}
+.hp-d{color:var(--lo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hp-row.bad .hp-d{color:#ffb98a}
+.hp-row[role=button]{cursor:pointer}.hp-row[role=button]:hover .hp-d{text-decoration:underline}
+.hlive,.hwork{gap:4px;justify-content:flex-end}
+.hbig{margin-top:auto;font:300 44px/1 var(--display);letter-spacing:-.04em;color:var(--tx)}
+.hrc-s{font-size:11.5px;line-height:1.35;color:var(--lo);max-width:100%;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.hwbar{display:block;width:100%;height:3px;border-radius:99px;background:var(--hair);margin:6px 0 2px;overflow:hidden}
+.hwbar i{display:block;height:100%;background:var(--acc);border-radius:inherit}
+.cghost .g-tab{display:inline-block;vertical-align:middle;margin-left:14px;padding:3px 8px 4px;
+  border:1px solid var(--hair2);border-radius:7px;font:600 11px/1 var(--ui);letter-spacing:.06em;
+  color:var(--lo);transform:translateY(-.4em)}
+.cghost .g-tab[hidden]{display:none}
+.conv-shell.talking .cghost .g-tab{display:none}
+@media (prefers-reduced-motion:reduce){.hp-dot.ok,.hp-row.wait .hp-i{animation:none}}
+
+/* what you said: a quote when short, readable when long, never a wall */
+.turn.you .bubble{white-space:pre-wrap;overflow-wrap:anywhere;max-width:62ch!important}
+.turn.you .bubble.sz-m{font-size:19px!important;line-height:1.42!important;letter-spacing:-.012em!important}
+.turn.you .bubble.sz-s{font:400 15px/1.65 var(--ui)!important;letter-spacing:0!important;color:#dedcd8!important}
+.pickcard{width:100%;max-width:62ch;border:1px solid var(--hair);border-radius:14px;background:var(--tray2)}
+.pickcard summary{list-style:none;display:flex;align-items:center;gap:8px;padding:9px 12px;font-family:var(--ui);
+  cursor:pointer;font-size:12.5px;color:var(--lo);min-width:0}
+.pickcard summary::-webkit-details-marker{display:none}
+.pickcard summary b{font:500 12.5px/1 var(--mono);color:var(--tx)}
+.pickcard summary em{font-style:normal;color:var(--tx)}
+.pickcard .pk-f{margin-left:auto;font:12px/1 var(--mono);color:var(--lo);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.pickcard .pk-shot{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border-radius:99px;
+  border:1px solid var(--hair);font-size:11px;flex:none}
+.pk-b{padding:2px 12px 12px;display:flex;flex-direction:column;gap:8px}
+.pk-r{display:grid;grid-template-columns:84px minmax(0,1fr);gap:10px;font-size:12px;color:var(--lo)}
+.pk-r b{font-weight:500;color:var(--tx)}
+.pk-r code{font:11.5px/1.5 var(--mono);color:#d8d6d2;overflow-wrap:anywhere;
+  background:rgba(255,255,255,.04);border-radius:6px;padding:2px 6px;max-height:4.6em;overflow:hidden}
+
+/* the project rail is a card on top of the conversation: keep its room */
+@media (min-width:1100px){
+  body.railed:not(.split):not(.pvwopen) #conv .conv-shell.talking{padding-right:330px!important}
+  body.railed:not(.split):not(.pvwopen) .conv-shell.talking .conv-wrap{max-width:760px!important}
+}
+
+/* settings: what a report holds, as a list rather than a link elsewhere */
+.sentlist{margin-top:10px;border:1px solid var(--hair);border-radius:12px;padding:0 12px}
+.sentlist summary{cursor:pointer;padding:10px 0;font-size:12.5px;color:var(--tx);list-style:none}
+.sentlist summary::-webkit-details-marker{display:none}
+.sentlist summary::after{content:"+";float:right;color:var(--lo)}
+.sentlist[open] summary::after{content:"\2212"}
+.sentlist ul{margin:0 0 10px;padding-left:18px;display:flex;flex-direction:column;gap:6px;
+  font-size:12.5px;color:var(--lo);line-height:1.5}
+.sentlist li b{color:var(--tx);font-weight:500}
+.sentlist .hint{margin-bottom:12px}
 </style></head><body>
 <aside>
   <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -15353,7 +15506,7 @@ function convShell(o){
         <textarea id="npurl" rows="1" placeholder=" " aria-label="${esc(o.hint||'Message')}"
          oninput="growTa(this)"
          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();consoleSend()}"></textarea>
-        <div class="cghost" aria-hidden="true"><span class="g-big">${esc(o.ghost||o.hint||'')}<i>_</i></span><span class="g-reply">Reply to Aethron…</span></div>
+        <div class="cghost" aria-hidden="true"><span class="g-big"><span class="g-text">${esc(o.ghost||o.hint||'')}</span><i>_</i></span><span class="g-tab" hidden>tab</span><span class="g-reply">Reply to Aethron…</span></div>
         <div class="cbar">
           <label class="cpill" title="a screenshot to rebuild, an export, a zip, or saved pages"><input
            type="file" class="cattach-in" accept="image/*,.html,.htm,.zip" multiple
@@ -15443,10 +15596,19 @@ async function renderSettings(c){
 
     <section class="card">
       <h3>${I('eye',14)} Problem reports</h3>
-      <div class="hint">When something fails (a build, a check, an agent step, the app itself),
-        Aethron sends us what failed: the error, the end of the log, the template's address and
-        your app and macOS version, so we can fix it, often before you write to us. It never sends
-        your keys, your copy outside the log, or your name. <a href="/docs#trouble" target="_blank">More</a></div>
+      <div class="hint">When something fails, Aethron tells the team what broke, so it can be
+        fixed, often before you notice. Your keys, your name and this Mac's name are never sent.</div>
+      <details class="sentlist"><summary>What a report contains</summary>
+        <ul>
+          <li><b>What failed</b> — the step (a build, a check, an agent step) and its error</li>
+          <li><b>The end of the log</b> — the last lines Aethron printed before it failed</li>
+          <li><b>The template's address</b> — so the team can open the same site</li>
+          <li><b>Versions</b> — Aethron and macOS, and whether the Mac is Apple silicon or Intel</li>
+          <li><b>A random id</b> for this Mac, made by Aethron, so repeats count once</li>
+        </ul>
+        <div class="hint">Never sent: API keys (hidden even inside logs), your name, this Mac's
+          name, folder names from your home folder, or the copy you write outside the log.</div>
+      </details>
       <div id="repstat" class="hint" style="margin-top:6px"></div>
     </section>
   </div>`;
@@ -15467,6 +15629,13 @@ async function showLimits(){
   const box=$('limitsbox');if(!box)return;
   let L;
   try{L=await api('/api/limits')}catch(e){box.innerHTML=`<div class="hint">${esc(e.message)}</div>`;return;}
+  /* ON AETHRON AI THE LIMITS ARE THE TEAM'S. Spend guards and session
+     windows are for a person's own keys; with the team's AI the plan sets
+     the allowance (shown in the Model card), so these would be knobs that
+     change nothing. */
+  const card=$('limitscard');
+  if(L.managed){if(card)card.hidden=true;return;}
+  if(card)card.hidden=false;
   const S2=L.session||{}, W=L.wallet||{};
   const money=v=>'$'+Number(v||0).toFixed(2);
   const used=S2.unit==='requests'?(S2.used_requests||0)+' requests':money(S2.used_usd);
@@ -15810,21 +15979,104 @@ function agoText(t){
 /* The ways in, as cards in a tray beside the conversation: what each
    one does, in one sentence, and an orange word for what it is. */
 function homeRail(){
-  const card=(cls,tag,text,ask,need)=>`<button class="hrc ${cls}" onclick="quick(${
-      JSON.stringify(ask).replace(/"/g,'&quot;')},${JSON.stringify(need).replace(/"/g,'&quot;')})">
-      <span class="hrc-dot"></span><span class="hrc-t">${text}</span><span class="hrc-tag">${tag}</span></button>`;
+  /* THE HOME CARDS SHOW WHAT IS TRUE RIGHT NOW, not suggestions: every
+     part Aethron needs, checked live; what this Mac has put on the web;
+     and how much of the work is done. The suggestions moved into the
+     prompt itself (the headline types them; Tab takes one). */
+  const all=S.projects||[];
+  const lines=all.reduce((n,p)=>n+(+p.filled||0),0),
+        total=all.reduce((n,p)=>n+(+p.total||0),0),
+        built=all.filter(p=>p.built).length;
+  const pct=total?Math.round(100*lines/total):0;
   return `<div class="hrail" id="hrail">
     <div class="hrail-cards">
-      ${card('tall','Migrate','Make a live Framer or Webflow site entirely yours, with your brand in every line.',
-        'Migrate ','Paste the live Framer or Webflow URL, and tell me the brand it should become.')}
-      ${card('','Rebuild','Turn a screenshot into real, responsive code.',
-        'Rebuild this screenshot as ','Attach or paste the screenshot, then say which framework you want.')}
-      ${card('','Build','Describe a site and watch it get built.',
-        'Build a website for ','Say what it is for, who it is for, and how it should feel.')}
+      <section class="hrc tall hpulse" id="hpulse" aria-live="polite">
+        <div class="hp-h"><span class="hp-dot" id="hpdot"></span>
+          <span class="hrc-tag">System</span><span class="hp-st" id="hpst">checking</span></div>
+        <div class="hp-rows" id="hprows">${['Model','Browser','Reading text','Hosting'].map(l=>
+          `<div class="hp-row wait"><span class="hp-i"></span><span class="hp-l">${l}</span><span class="hp-d">checking…</span></div>`).join('')}</div>
+      </section>
+      <button class="hrc hlive" id="hlive" onclick="openLive()">
+        <span class="hrc-tag">Live sites</span>
+        <span class="hbig" id="hlivenum">—</span>
+        <span class="hrc-s" id="hlivesub">on the web</span>
+      </button>
+      <div class="hrc hwork">
+        <span class="hrc-tag">Your work</span>
+        <span class="hbig">${lines.toLocaleString()}</span>
+        <span class="hrc-s">lines rewritten</span>
+        <span class="hwbar"><i style="width:${pct}%"></i></span>
+        <span class="hrc-s">${pct}% · ${built} of ${all.length} built</span>
+      </div>
     </div>
     ${homeGallery()}
   </div>`;
 }
+let PULSE=null;
+async function loadPulse(){
+  let r;
+  try{r=await api('/api/pulse')}catch(e){return;}
+  PULSE=r;
+  const rows=$('hprows');if(!rows)return;
+  rows.innerHTML=(r.checks||[]).map(c=>`<div class="hp-row ${c.ok===true?'ok':c.ok===false?'bad':'wait'}"
+      ${c.fix==='settings'&&c.ok===false?'role="button" tabindex="0" onclick="openSettings()"':''}>
+      <span class="hp-i"></span><span class="hp-l">${esc(c.label)}</span>
+      <span class="hp-d" title="${esc(c.detail||'')}">${esc(c.detail||'')}</span></div>`).join('');
+  const bad=(r.checks||[]).filter(c=>c.ok===false).length;
+  const st=$('hpst'),dot=$('hpdot');
+  if(st)st.textContent=bad?`${bad} needs attention`:'all ready';
+  if(dot)dot.className='hp-dot '+(bad?'bad':'ok');
+  const n=$('hlivenum'),sub=$('hlivesub');
+  if(n)n.textContent=String(r.site_count||0);
+  if(sub){const s=(r.sites||[])[0];
+    sub.textContent=s?s.url.replace(/^https?:\/\//,'').replace(/\/$/,''):'none published yet';}
+  if((r.checks||[]).some(c=>c.ok===null))setTimeout(()=>{if($('hprows'))loadPulse()},4000);
+}
+function openLive(){
+  const s=PULSE&&(PULSE.sites||[])[0];
+  if(s)window.open(s.url,'_blank','noopener');
+  else{const p=(S.projects||[]).find(p=>p.built);if(p)select(p.name);}
+}
+/* THE HEADLINE TYPES WHAT AETHRON CAN DO. Tab takes the one showing. */
+const GHOSTS=[
+  {t:'What should we build'},
+  {t:'Migrate a Framer site',ask:'Migrate ',need:'Paste the live Framer or Webflow URL, and tell me the brand it should become.'},
+  {t:'Turn a screenshot into code',ask:'Rebuild this screenshot as ',need:'Attach or paste the screenshot, then say which framework you want.'},
+  {t:'Rebrand a Webflow template',ask:'Rebrand ',need:'Paste the template URL, and tell me the brand it should become.'},
+  {t:'Describe a site to build',ask:'Build a website for ',need:'Say what it is for, who it is for, and how it should feel.'},
+];
+const GH={i:0,timer:0};
+function ghostTyper(){
+  clearTimeout(GH.timer);
+  const el=document.querySelector('body.homev .cghost .g-text');
+  if(!el||matchMedia('(prefers-reduced-motion: reduce)').matches)return;
+  const ta=$('npurl');
+  const tab=document.querySelector('.cghost .g-tab');
+  const step=()=>{
+    if(!el.isConnected)return;
+    if(ta&&ta.value){GH.timer=setTimeout(step,800);return;}
+    const want=GHOSTS[GH.i].t, cur=el.textContent;
+    if(cur===want){
+      if(tab)tab.hidden=!GHOSTS[GH.i].ask;
+      GH.i=(GH.i+1)%GHOSTS.length; GH.del=true;
+      GH.timer=setTimeout(step,GH.i===1?3200:2400); return;}
+    if(GH.del){
+      if(tab)tab.hidden=true;
+      if(cur.length){el.textContent=cur.slice(0,-1);GH.timer=setTimeout(step,22);return;}
+      GH.del=false;}
+    el.textContent=want.slice(0,cur.length+1);
+    GH.timer=setTimeout(step,48);
+  };
+  GH.timer=setTimeout(step,2400);
+}
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Tab'||e.shiftKey||!document.body.classList.contains('homev'))return;
+  const ta=$('npurl'); if(!ta||document.activeElement!==ta||ta.value)return;
+  const shown=document.querySelector('.cghost .g-text');
+  const g=GHOSTS.find(x=>x.ask&&shown&&x.t===shown.textContent);
+  if(!g)return;
+  e.preventDefault(); clearTimeout(GH.timer); quick(g.ask,g.need);
+});
 function homeGallery(){
   const all=S.projects||[];
   if(!all.length)return '';
@@ -16600,7 +16852,7 @@ function renderWelcome(c){
     rail:homeRail()});
   switchConversation('');
   bindStick(); renderChat(); mountDots(c); mountOrbs(c); syncComposer();
-  loadThumbs(c);
+  loadThumbs(c); loadPulse(); ghostTyper();
 }
 function renderChatTab(c){
   if(!c)return;              // never take the whole layout down with it
@@ -18688,6 +18940,32 @@ function proofHtml(b){
     ${v[1]?`<div class="proofv"><span class="sverd ${v[1]==='PASS'?'ok':'bad'}">${v[1]}</span>
     <span>${esc(v[2]||'')}</span></div>`:''}</div>`;
 }
+/* WHAT YOU SAID, SET TO ITS LENGTH. A short request reads as a quote; a
+   long one steps down so it stays readable; and the details Point and
+   edit attaches (file, tag, CSS path) are not prose at all — they fold
+   into one quiet card instead of running across the page in display
+   type. */
+function youHtml(t){
+  t=String(t||'');
+  const cut=t.indexOf('\n\nThe element I selected:');
+  const main=(cut>=0?t.slice(0,cut):t).trim(), pick=cut>=0?t.slice(cut+2):'';
+  const n=main.length, sz=n<=90?'l':n<=280?'m':'s';
+  let h=main?`<div class="bubble sz-${sz}">${esc(main)}</div>`:'';
+  if(pick){
+    const f={};
+    pick.split('\n').forEach(l=>{const m=/^- ([^:]+):\s*(.*)$/.exec(l);if(m)f[m[1].trim()]=m[2].trim();});
+    const tag=((f['Opening tag']||'').match(/^`?<([a-z0-9-]+)/i)||[])[1]||'element';
+    const where=f['File']||'';
+    const row=(k,v,code)=>v?`<div class="pk-r"><span>${k}</span>${code?`<code>${esc(v.replace(/^`|`$/g,''))}</code>`:`<b>${esc(v)}</b>`}</div>`:'';
+    h+=`<details class="pickcard"><summary>${I('pin',12)}<span>Selected</span>
+        <b>&lt;${esc(tag)}&gt;</b>${f['Framer name']?`<em>${esc(f['Framer name'])}</em>`:''}
+        ${where?`<span class="pk-f">${esc(where)}</span>`:''}
+        ${/screenshot/i.test(pick)?`<span class="pk-shot">${I('image',11)} picture</span>`:''}</summary>
+      <div class="pk-b">${row('File',f['File'])}${row('Inside',f['Inside'])}
+        ${row('CSS path',f['CSS path'],1)}${row('Classes',f['Classes'],1)}${row('Opening tag',f['Opening tag'],1)}</div></details>`;
+  }
+  return h;
+}
 function runHtml(b){
   /* A run is finished when nothing in it is still live — no extra
      bookkeeping needed, because a step leaves `live` the moment its
@@ -18798,7 +19076,7 @@ function renderChat(){
   box.innerHTML=convBlocks(CODE.events).map(b=>
       b.kind==='you' ?`<div class="turn you">${(b.images||[]).length?`<div class="youpics">${
           b.images.map(u=>`<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="attached image" loading="lazy"></a>`).join('')}</div>`:''}${
-          b.text&&b.text!=='(image attached)'?`<div class="bubble">${esc(b.text)}</div>`:''}</div>`
+          b.text&&b.text!=='(image attached)'?youHtml(b.text):''}</div>`
     : b.kind==='bot' ?`<div class="turn bot"><div class="prose">${fmt(b.text)}</div></div>`
     : b.kind==='think'?`<details class="think"><summary>${I('sparkles',12)
         }Aethron thought this through</summary><div class="body">${esc(b.text)}</div></details>`
