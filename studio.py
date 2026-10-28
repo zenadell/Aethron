@@ -13566,6 +13566,117 @@ body.pvwopen .conv-shell:not(.talking) #npurl:placeholder-shown{min-height:2.3em
   font-size:12.5px;color:var(--lo);line-height:1.5}
 .sentlist li b{color:var(--tx);font-weight:500}
 .sentlist .hint{margin-bottom:12px}
+
+/* ══ V3.6 — A QUIET, ORDERED CONVERSATION; AN APPLE-STYLE PUBLISH SHEET ══
+   One column, one rhythm. What you said sits in a soft card on the
+   right at reading size; what Aethron says is plain text on the left.
+   No hairlines between exchanges, no display type for a sentence. The
+   work Aethron did is one tidy row; opened, it is a timeline. */
+#conv .clog{max-width:740px;margin:0 auto;width:100%;gap:0}
+.turn{margin:0 0 26px!important}
+.turn.you{align-items:flex-end!important;gap:8px!important}
+.turn.you:not(:first-child){border-top:0!important;padding-top:0!important;margin-top:10px!important}
+.turn.you::before{display:none!important}
+.turn.you+.turn.bot::before{display:none!important}
+.turn.you+.turn.bot{margin-top:0!important}
+.turn.you .bubble,.turn.you .bubble.sz-m,.turn.you .bubble.sz-s{
+  background:var(--tray2)!important;border:1px solid var(--hair)!important;
+  border-radius:20px 20px 6px 20px!important;padding:11px 16px!important;max-width:min(560px,82%)!important;
+  font:400 15px/1.6 var(--ui)!important;letter-spacing:0!important;color:var(--tx)!important;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.turn.you .pickcard{max-width:min(560px,82%)}
+.turn.bot{position:relative}
+.turn.bot .prose{font-size:15px!important;line-height:1.7!important;color:#dcdad6!important;max-width:68ch}
+.turn.bot .prose p{margin:0 0 .9em}
+.turn.bot .prose h2,.turn.bot .prose h3{margin:1.3em 0 .5em;letter-spacing:-.01em}
+.turn.sys{font-size:12px!important;color:var(--lo)!important;margin:4px 0 20px!important}
+
+/* the work, folded: one row */
+.run{border:0!important;background:transparent!important;box-shadow:none!important;margin:2px 0 14px;
+  border-radius:0!important;overflow:visible}
+.runsum{display:inline-flex!important;align-items:center;gap:9px!important;width:auto!important;max-width:100%;
+  padding:6px 12px 6px 8px!important;border:1px solid var(--hair)!important;border-radius:12px!important;
+  background:rgba(255,255,255,.025)!important;font-size:12.5px!important;color:var(--dim)!important}
+.runsum:hover{background:rgba(255,255,255,.05)!important;border-color:var(--hair2)!important}
+.runsum>.ic:first-child{width:18px;height:18px;padding:3px;border-radius:50%;flex:none;
+  background:rgba(95,163,131,.16);color:#8fcfb0;box-sizing:border-box}
+.runsum .rs-n{color:var(--tx)!important;font-weight:550!important}
+.runsum .st{color:var(--dim);font-family:var(--ui)!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-width:0;max-width:340px}
+.runsum .st::before{content:"";display:inline-block;width:3px;height:3px;border-radius:50%;
+  background:var(--lo);margin:0 9px 2px 0;vertical-align:middle}
+.runsum .rs-bad{color:var(--err)!important}
+.runsum .rs-c{margin-left:4px!important;color:var(--lo)!important}
+.runsum .rs-c .ic{transform:rotate(180deg);transition:transform .22s var(--ease)}
+.run.open>.runsum .rs-c .ic{transform:none}
+.run.open>.runsum .ic:first-child{transform:none!important}
+
+/* the work, open: a timeline */
+.run.open,.run:not(.open):has(> .step){border-left:0!important}
+.run>.step{position:relative;display:flex!important;align-items:center;gap:10px!important;
+  margin-left:16px;padding:7px 10px 7px 18px!important;border:0!important;border-radius:10px!important;
+  background:transparent!important;width:calc(100% - 16px);text-align:left}
+.run>.step::before{content:"";position:absolute;left:2px;top:0;bottom:0;width:1px;background:var(--hair2)}
+.run>.step:first-of-type::before{top:50%}
+.run>.step:last-of-type::before{bottom:50%}
+.run>.step .sdot{position:absolute;left:-1px;top:50%;margin-top:-3.5px;width:7px!important;height:7px!important;
+  box-shadow:0 0 0 3px var(--tray)}
+.run>.step:hover{background:rgba(255,255,255,.035)!important}
+.run>.step .sv{font-weight:500!important;font-size:13px}
+.run>.step .st{font-size:12px!important;color:var(--lo)!important}
+.run>.step .sx{margin-left:auto;font-size:11px;color:var(--lo)}
+.run>.stepdet{margin:2px 0 8px 34px!important;border-radius:10px!important;border:1px solid var(--hair)!important;
+  background:var(--tray2)!important;font-size:12px}
+.run>.stepshot{margin:4px 0 8px 34px!important;border-radius:10px;border:1px solid var(--hair)}
+
+/* ── the publish sheet ── */
+.pubcard{width:min(500px,calc(100vw - 32px))!important;border-radius:22px!important}
+.pubhd{border-bottom:0!important;padding:22px 22px 6px!important}
+.pubhd .pubic{width:34px;height:34px;border-radius:10px}
+.pubhd.islive .pubic{background:rgba(95,163,131,.16)!important;color:#8fcfb0!important}
+.pubhd h3{font:600 17px/1.2 var(--ui)!important;letter-spacing:-.015em!important}
+.pubbody{padding:14px 22px 22px!important;gap:16px!important}
+.publive{border:1px solid var(--hair)!important;border-radius:18px!important;background:var(--tray2)!important;
+  padding:16px 16px 14px!important;gap:6px!important}
+.pubstat{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--lo);font-weight:500}
+.pubstat .pubdot{width:7px;height:7px}
+.pubstat b{color:#8fcfb0;font-weight:600}
+.pubaddr input{border:0!important;background:transparent!important;border-radius:0!important}
+.pgi.t-acc img{filter:invert(1) brightness(1.4)}
+.pubstat .sep{width:3px;height:3px;border-radius:50%;background:var(--lo);opacity:.6}
+.pubstat{color:var(--lo)}
+.publive .url{font:500 21px/1.25 var(--ui)!important;letter-spacing:-.02em!important;color:var(--tx)!important;margin:2px 0 8px}
+.publive .pubacts{gap:8px}
+.publive .pubacts button,.pubcard .pubrow button{border-radius:999px!important;padding:7px 14px!important;font-size:13px!important}
+.pubgroup{border:1px solid var(--hair);border-radius:16px;background:var(--tray2);overflow:hidden}
+.pgrow{display:flex;align-items:center;gap:12px;padding:11px 14px;margin:0;cursor:pointer}
+.pubgroup>.pgrow+.pgrow{border-top:1px solid var(--hair)!important}
+.pubgroup .pubsec{border-top:0;padding:0!important;display:block}
+.pubgroup .pubsec>summary{display:flex;align-items:center;gap:12px;padding:11px 14px;font-weight:500;line-height:20px}
+.pubgroup .pubsec>summary:hover{background:rgba(255,255,255,.03)}
+.pubgroup .pubsec .in{padding:2px 14px 14px 56px!important}
+.pgi{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;flex:none;color:#fff}
+.pgi img{width:15px;height:15px}
+.pgi.t-acc{background:rgba(217,119,87,.18)}
+.pgi.t-blue{background:#2f6fe4}.pgi.t-violet{background:#7a5af5}.pgi.t-green{background:#2f9e68}.pgi.t-red{background:#d9493d}
+.pgl{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.pgl b{font-weight:500;font-size:13.5px;color:var(--tx)}
+.pgl .pbtxt{font-size:12px;color:var(--lo)}
+.pubgroup .pubsec>summary .hint{font-size:12.5px;color:var(--lo);max-width:200px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.pubbadge.pgrow{border:0!important;background:transparent!important}
+.pubbadge .pbprev{display:none}
+input.sw{appearance:none;-webkit-appearance:none;flex:none;width:42px;height:25px;border-radius:999px;margin:0;
+  background:rgba(255,255,255,.16)!important;border:0!important;position:relative;cursor:pointer;
+  transition:background .2s var(--ease)}
+input.sw::after{content:"";position:absolute;left:2px;top:2px;width:21px;height:21px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35);transition:transform .24s var(--spring,ease)}
+input.sw:checked{background:#34c759!important}
+input.sw:checked::after{transform:translateX(17px)}
+input.sw:disabled{opacity:.55;cursor:default}
+input.sw:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.pubfoot{display:flex;justify-content:center}
+.pubfoot .pubacct{font-size:12px}
 </style></head><body>
 <aside>
   <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -17066,7 +17177,7 @@ const TOOLWORDS={
   browser_open:'Opening',browser_click:'Clicking',browser_type:'Typing',
   browser_scroll:'Scrolling',browser_read:'Reading the screen',
   browser_find:'Finding',browser_back:'Going back',browser_screenshot:'Looking at',
-  set_link:'Pointing a link',hide_text:'Hiding',
+  set_link:'Pointing a link',hide_text:'Hiding',find_templates:'Finding a template',
   create_project:'Reading the template',fetch:'Downloading the runtime',
   inventory:'Finding every string, image and link',
   localize:'Localising assets',localize_assets:'Localising assets',
@@ -18662,6 +18773,7 @@ function toolTarget(n,inp){
       +(inp.expect?' → '+String(inp.expect).replace(/^https?:\/\//,'').slice(0,40):'');
   if(/__(browser_\w+|hide_text)$/.test(raw)&&(inp.text||inp.to))
     return String(inp.text||inp.to).slice(0,74);
+  if(/__find_templates$/.test(raw)&&inp.about)return String(inp.about).slice(0,64);
   if(/__set_link$/.test(raw)&&inp.new)return String(inp.new).replace(/^https?:\/\//,'').slice(0,64);
   for(const k of ['pattern','query','request','name','project','workspace'])
     if(inp[k])return String(inp[k]).slice(0,74);
@@ -18983,16 +19095,15 @@ function runHtml(b){
       ${I(bad?'alert':'check',13)}
       <span class="rs-n">${b.steps.length} step${b.steps.length>1?'s':''}</span>
       ${bad?`<span class="rs-bad">${bad} failed</span>`:''}${blkTxt}
-      <span class="st">last: ${esc(toolVerb(b.steps[b.steps.length-1].name)
-        .replace(/^./,c=>c.toLowerCase()))}</span>
-      <span class="rs-c">show${I('up',12)}</span></button>${proofHtml(b)}</div>`;
+      <span class="st">${esc(toolVerb(b.steps[b.steps.length-1].name))}</span>
+      <span class="rs-c" title="Show the steps">${I('up',12)}</span></button>${proofHtml(b)}</div>`;
   }
   return '<div class="run'+(done?' open':'')+'">'+(done?`<button
       class="runsum" onclick="toggleRun('${key}')">
       ${I(bad?'alert':'check',13)}
       <span class="rs-n">${b.steps.length} step${b.steps.length>1?'s':''}</span>
       ${bad?`<span class="rs-bad">${bad} failed</span>`:''}${blkTxt}
-      <span class="rs-c">hide${I('up',12)}</span></button>`:'')
+      <span class="rs-c" title="Hide the steps">${I('up',12)}</span></button>`:'')
     +b.steps.map(s=>{
     const shot=(/(?:^|\n)aethron-shot: ([0-9a-f]{16}\.jpg)/.exec(s.detail||'')||[])[1];
     const id='sd'+s.i,det=String(s.detail||'').replace(/\n?aethron-shot: \S+/,'').trim(),
@@ -20316,12 +20427,13 @@ function pubSuffix(){return pubHost()==='aethron'?'.'+((PUB.hosting&&PUB.hosting
 function pubBadgeRow(live){
   const b=PUB.badge||{can_hide:true}, on=PUB.showBadge||!b.can_hide;
   const changed=live&&PUB.site&&(PUB.site.badge!==false)!==on;
-  return `<label class="pubbadge${b.can_hide?'':' locked'}">
-    <input type="checkbox" id="pubbadge" ${on?'checked':''} ${b.can_hide?'':'disabled'}
-      onchange="PUB.showBadge=this.checked;pubRender()">
-    <span class="pbprev"><img src="__BADGEMARK__" alt="">Built with <b>Aethron</b><i></i><em>Try Aethron &rarr;</em></span>
-    <span class="pbtxt">${b.can_hide?(changed?'Press Publish changes to apply':'Show the badge on the site')
-      :esc(b.why||'Always shown on this plan')}</span></label>`;
+  return `<label class="pubbadge pgrow${b.can_hide?'':' locked'}">
+    <span class="pgi t-acc"><img src="__BADGEMARK__" alt=""></span>
+    <span class="pgl"><b>Built with Aethron badge</b>
+      <span class="pbtxt">${b.can_hide?(changed?'Press Publish changes to apply':'A small credit in the corner of your site')
+      :esc(b.why||'Always shown on this plan')}</span></span>
+    <input type="checkbox" class="sw" id="pubbadge" ${on?'checked':''} ${b.can_hide?'':'disabled'}
+      role="switch" onchange="PUB.showBadge=this.checked;pubRender()"></label>`;
 }
 function pubAgo(t){
   const s=Math.max(1,(Date.now()/1000)-t);
@@ -20370,7 +20482,7 @@ function pubRender(){
   const live=PUB.site&&!PUB.stage;
   ov.innerHTML=`<div class="pubcard" role="dialog" aria-modal="true" aria-labelledby="pubt">
     <button class="nx" onclick="pubClose()" title="Close (Esc)" ${PUB.busy?'disabled':''}>${I('x',14)}</button>
-    <div class="pubhd"><div class="pubic">${I('globe',18)}</div>
+    <div class="pubhd${live?' islive':''}"><div class="pubic">${I(live?'check':'globe',18)}</div>
       <div><h3 id="pubt">${live?'Your site is live':'Publish to the web'}</h3>
       <div class="psub">${esc(PUB.name)}${PUB.kind==='page'?' &middot; page':''}</div></div></div>
     <div class="pubbody">${pubBody()}</div></div>`;
@@ -20397,7 +20509,7 @@ function pubBody(){
     <div><div class="publbl">Address</div>
       <div class="pubaddr"><input id="pubname" value="${esc(pubSlug(PUB.name).slice(0,aeth?42:58).replace(/-$/,''))}" spellcheck="false"
         aria-label="site address" onkeydown="if(event.key==='Enter')pubGo()"><span>${pubSuffix()}</span></div></div>
-    ${pubBadgeRow(false)}
+    <div class="pubgroup">${pubBadgeRow(false)}</div>
     ${err}
     <div class="pubrow"><span class="pubgrow">${acct}</span>
       <button class="primary" onclick="pubGo()">${I('globe',14)}Publish</button></div>`;
@@ -20462,31 +20574,33 @@ function pubLive(acct,err){
          onkeydown="if(event.key==='Enter')pubDomain()">
          <button onclick="pubDomain()">Connect domain</button></div>
        <p style="font-size:12.5px">Already own a domain? Aethron tells you the one record to add.</p>`;
+  const row=(ic,tint,label,hint,body,extra)=>`<details class="pubsec pgrow" ${extra||''}><summary>
+      <span class="pgi ${tint}">${I(ic,14)}</span><span class="pgl"><b>${label}</b></span>
+      <span class="hint">${hint}</span></summary><div class="in">${body}</div></details>`;
+  const vbody=vs===null?'<p>Loading…</p>':vs.length?vs.map(v=>`<div class="pubver"><span class="t">${esc(new Date(v.at).toLocaleString())}</span>
+        ${v.live?'<span class="live">Live</span>':`<button onclick="pubRollback('${v.id}')">Restore</button>`}</div>`).join(''):'<p>No versions yet.</p>';
+  const abody=`<div class="pubaddr"><input id="pubren" value="${esc(s.name)}" spellcheck="false"
+        onkeydown="if(event.key==='Enter')pubRename()"><span>${pubSuffix()}</span></div>
+        <div class="pubrow"><span class="pubgrow"></span><button onclick="pubRename()">Change address</button></div>`;
+  const ubody=`<p>Takes the site off the web${aeth?'':' and deletes it from your Netlify account'}. Your project here is untouched.</p>
+      <div class="pubrow"><span class="pubgrow"></span><button class="pubdanger" onclick="pubUnpublish()">Unpublish site</button></div>`;
   return `<div class="publive">
-      <div class="url"><span class="pubdot"></span><span>${esc(s.url.replace(/^https?:\/\//,''))}</span></div>
-      <div class="meta">Published ${pubAgo(s.published_at)} &middot; ${s.files} files</div>
-      <div class="pubrow">
+      <div class="pubstat"><span class="pubdot"></span><b>Live</b><span class="sep"></span>Published ${pubAgo(s.published_at)}<span class="sep"></span>${s.files} files</div>
+      <div class="url"><span>${esc(s.url.replace(/^https?:\/\//,''))}</span></div>
+      <div class="pubrow pubacts">
         <button class="primary" onclick="openExternal('${esc(s.url)}')">${I('ext',14)}Open site</button>
         <button onclick="pubCopy('${esc(s.url)}')">${I('link',14)}Copy link</button>
         <span class="pubgrow"></span>
         <button onclick="pubGo()">${I('up',14)}Publish changes</button></div></div>
-    ${pubBadgeRow(true)}
     ${err}
-    <details class="pubsec" ${s.custom_domain?'open':''}><summary>${I('globe',14)}Custom domain
-      <span class="hint">${esc(s.custom_domain||'none')}</span></summary><div class="in">${dom}</div></details>
-    <details class="pubsec" ontoggle="if(this.open&&!PUB.versions)pubVersions()"><summary>${I('clock',14)}Versions
-      <span class="hint">restore any earlier one</span></summary><div class="in">
-      ${vs===null?'<p>Loading…</p>':vs.length?vs.map(v=>`<div class="pubver"><span class="t">${esc(new Date(v.at).toLocaleString())}</span>
-        ${v.live?'<span class="live">Live</span>':`<button onclick="pubRollback('${v.id}')">Restore</button>`}</div>`).join(''):'<p>No versions yet.</p>'}
-      </div></details>
-    <details class="pubsec"><summary>${I('pencil',14)}Address<span class="hint">${esc(s.name)}${pubSuffix()}</span></summary>
-      <div class="in"><div class="pubaddr"><input id="pubren" value="${esc(s.name)}" spellcheck="false"
-        onkeydown="if(event.key==='Enter')pubRename()"><span>${pubSuffix()}</span></div>
-        <div class="pubrow"><span class="pubgrow"></span><button onclick="pubRename()">Change address</button></div></div></details>
-    <details class="pubsec"><summary>${I('trash',14)}Unpublish<span class="hint">take the site down</span></summary><div class="in">
-      <p>Takes the site off the web${aeth?'':' and deletes it from your Netlify account'}. Your project here is untouched.</p>
-      <div class="pubrow"><span class="pubgrow"></span><button class="pubdanger" onclick="pubUnpublish()">Unpublish site</button></div></div></details>
-    ${acct}`;
+    <div class="pubgroup">${pubBadgeRow(true)}</div>
+    <div class="pubgroup">
+      ${row('globe','t-blue','Custom domain',esc(s.custom_domain||'None'),dom,s.custom_domain?'open':'')}
+      ${row('clock','t-violet','Versions','Restore any earlier one',vbody,'ontoggle="if(this.open&&!PUB.versions)pubVersions()"')}
+      ${row('pencil','t-green','Address',esc(s.name)+pubSuffix(),abody)}
+      ${row('trash','t-red','Unpublish','Take the site down',ubody)}
+    </div>
+    <div class="pubfoot">${acct}</div>`;
 }
 async function pubCopy(t){
   try{await navigator.clipboard.writeText(t);toast('Copied');}catch(e){prompt('Copy this:',t);}

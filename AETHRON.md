@@ -6704,6 +6704,38 @@ full-page shot at the person's scroll). The request gets the picture as
 an attachment plus file, line, tag, CSS path, Framer name and what it
 sits inside. The picture is capped at 8s; past that the words go alone.
 
+## A NEAT CONVERSATION, AN APPLE-STYLE PUBLISH SHEET, AND "MAKE MY SITE
+## BETTER" — `aethron_templates.py` — 2026-10-28
+Owner: the chat looked "tattered", the steps pill too; the publish card
+should be Apple-neat; and a person who brings their OWN site and asks for
+it to be better should get it migrated into the best-fitting FREE Framer
+or Webflow template Aethron finds itself.
+- CHAT (CSS "V3.6"): one 740px column; "you" is a soft right-aligned card
+  at 15px (no display type, no labels, no hairlines between exchanges);
+  a finished run is one row (check, "N steps", last step, chevron); open,
+  the steps are a timeline in a soft tray.
+- PUBLISH: hero card (Live · published · files, the address large, Open
+  site / Copy link / Publish changes), the badge as a real switch row
+  (input.sw — the checkbox itself is the switch, so tests and clicks hit
+  it), Custom domain / Versions / Address / Unpublish as one grouped list
+  with tinted icon squares. Same functions, ids and texts.
+- TEMPLATES: aethron_templates.find(about, platform) reads Framer's
+  listing (all, or the categories the person's words map to; each card's
+  title, author, price — null = free — and preview address sit in the
+  page's own payload) and Webflow's free page (structured-data list) plus
+  each template page (its .webflow.io preview; price read from ITS OWN
+  card/Offer, because the page also lists related paid templates — the
+  first version called all 12 paid for that). Paid never returned.
+  Listings need a real browser load (Framer answers curl with 429); a
+  rate-limit or bot-check page is named and not retried, and nothing is
+  dressed up as a person's browser. Cached 6h in HOME/template_cache.json.
+  MCP tool `find_templates`; agent rule (home 7 / project 10): read their
+  site, find, look at 2-3 previews, pick one and say why, migrate their
+  real words in. Selftest 15/15 on saved page excerpts
+  (tests/pages/templates/). Proven live: "calm dental clinic" -> Dentelle,
+  Verde Clinic, ReoDental (Framer, free); Webflow free list read.
+NOT PROVEN: a whole live run of the agent choosing and migrating.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6983,6 +7015,9 @@ sits inside. The picture is capped at 8s; past that the words go alone.
 - A PICTURE A MODEL DREW IS SHOWN ONLY AS A PICTURE: checked against an
   allow-list, served as an image with a sandbox policy, never as markup.
 - A DRAWING MUST BE COMPLETE WITH MOTION OFF. Nothing hidden at rest.
+- A MARKETPLACE IS READ LIKE A PERSON READS IT. One page at a time, a
+  rate limit or bot check is reported, never worked around; only free
+  templates are ever offered.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.
