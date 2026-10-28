@@ -13073,6 +13073,7 @@ body>aside::before{display:none}
 header{background:transparent!important;backdrop-filter:none!important;border-bottom:0!important;
   padding:14px 20px}
 #ptitle{font-size:13px;font-weight:600;color:var(--dim);letter-spacing:0}
+header{position:relative;z-index:30}
 .conv-dock{background:linear-gradient(to top,var(--tray) 62%,transparent)!important}
 .dotf.hero{display:none!important}
 
