@@ -53,12 +53,14 @@ SUITES = [
                 "aethron_publish.py", "tests/publish_battery.py", "tests/hosting_battery.py",
                 "aethron_control.py", "tests/control_battery.py",
                 "tests/admin_console_battery.py", "tests/team_ui_battery.py",
-                "aethron_browser.py", "tests/browser_battery.py",
+                "aethron_browser.py", "tests/browser_battery.py", "aethron_templates.py",
                 "tests/run_all.py"], False),
     # The replacement engine may change COPY and nothing else: a fill of
     # "me" -> "us" once renamed variables inside Framer's runtime.
     ("browser selftest (open, click, new tabs, type, scroll, back)",
      [PY, "aethron_browser.py", "--selftest"], False),
+    ("template finder selftest (free Framer/Webflow templates read from saved pages)",
+     [PY, "aethron_templates.py", "--selftest"], False),
     # "the button goes to my contact page" is proven by pressing it
     ("browser battery (a widget's link checked, fixed and re-checked)",
      [PY, "tests/browser_battery.py"], False),

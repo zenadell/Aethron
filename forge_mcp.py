@@ -1175,6 +1175,34 @@ def t_add_style(a):
     return f"style saved for {sel}\nbuild: " + ("OK" if ok else "FAILED\n" + log)
 
 
+
+def t_find_templates(a):
+    """Free Framer/Webflow templates that fit what a person's site is
+    about. The agent judges which one fits; this only reads the
+    marketplaces (free only, never around a rate limit)."""
+    import aethron_templates as T
+    about = str(a.get("about") or "").strip()
+    if len(about) < 3:
+        raise ValueError("about: say what the site is (a few words: trade, tone, what it offers)")
+    r = T.find(about, str(a.get("platform") or "any"), int(a.get("limit") or 10))
+    lines = [f"{i + 1}. {t['name']} ({t['platform']}, free) — preview {t['preview']}"
+             + (f" — by {t['author']}" if t.get("author") else "")
+             + (f" — {t['category']}" if t.get("category") else "")
+             + (f" — {t['about'][:120]}" if t.get("about") else "")
+             for i, t in enumerate(r["templates"])]
+    head = (f"{len(r['templates'])} free template(s) for: {about}\n"
+            f"searched: {', '.join(r['searched'])}"
+            + (f"; {r['paid_skipped']} paid one(s) left out" if r["paid_skipped"] else ""))
+    tail = ("\nNEXT: open the 2-3 that fit best with browser_open url=<preview> and "
+            "look; pick ONE and say why in a sentence; then create_project "
+            "url=<preview> -> fetch -> inventory -> learn_brand (the person's own "
+            "site) -> set_plan -> fill from their words -> build -> verify -> probe.")
+    notes = ("\nnotes: " + " | ".join(r["notes"])) if r["notes"] else ""
+    if not r["templates"]:
+        return Result(head + "\nNo free template could be read right now." + notes
+                      + "\nAsk the person for a template link they like instead.", r)
+    return Result(head + "\n" + "\n".join(lines) + notes + tail, r)
+
 def t_set_link(a):
     """Send every link to one address somewhere else — including links a
     widget builds in its own code or opens with window.open, which never
@@ -2107,6 +2135,17 @@ TOOLS = [
     ("serve_preview", "Serve the built site locally with the exact "
      "protocols production needs; returns the URL.",
      S(P, ["project"]), t_serve_preview),
+    ("find_templates", "Find FREE Framer and Webflow templates that fit a "
+     "person's site, for when they bring their own site and want it made "
+     "better: read their site first (browser_open url=..., or learn_brand), "
+     "describe it in `about` (trade, audience, tone, what it offers), then "
+     "pick the best fit from what this returns and migrate their content "
+     "into it. Paid templates are never returned. If the person gives a "
+     "template link of their own, use theirs instead and skip this.",
+     S({"about": {"type": "string", "description": "what the site is: "
+        "e.g. 'dental clinic, calm, online booking'"},
+        "platform": {"type": "string", "enum": ["any", "framer", "webflow"]},
+        "limit": {"type": "integer"}}, ["about"]), t_find_templates),
     ("set_link", "Make every link to an address go somewhere else. Works "
      "for links in the files AND links a widget builds in its own code or "
      "opens with window.open (a shop cart, a booking widget) — those are "
