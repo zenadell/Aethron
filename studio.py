@@ -13382,9 +13382,9 @@ body.homev #startmeta,.startmeta{display:none!important}
 .prail .cpill:hover{border-color:var(--hair2)!important}
 .prail .rshot{border-radius:12px;overflow:hidden}
 
-/* in a conversation the ways in step aside; the talk gets the room */
+/* the home cards stay beside a conversation; the talk keeps its room */
 .conv-shell.talking{padding-right:0!important}
-.conv-shell.talking .hrail{display:none!important}
+@media (min-width:1101px){body.homev:not(.pvwopen) .conv-shell.talking{padding-right:320px!important}}
 .conv-shell.talking .conv-wrap{max-width:780px!important;margin:0 auto!important}
 .turn.you .bubble{background:var(--tray2)!important;border:1px solid var(--hair)!important;border-radius:18px!important}
 .run{background:transparent!important;border:0!important;box-shadow:none!important;padding:0!important}
