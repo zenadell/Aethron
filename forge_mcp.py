@@ -16,6 +16,7 @@ undo. The typical migration:
   create_project -> fetch -> inventory -> set_plan ->
   get_content(only_unfilled) -> set_content_bulk -> build -> verify
 """
+import base64
 import json
 import re
 import shutil
@@ -1174,6 +1175,55 @@ def t_add_style(a):
     return f"style saved for {sel}\nbuild: " + ("OK" if ok else "FAILED\n" + log)
 
 
+def t_set_link(a):
+    """Send every link to one address somewhere else — including links a
+    widget builds in its own code or opens with window.open, which never
+    appear in the files (build follows them at click time)."""
+    d = pdir(str(a["project"]))
+    old, new = str(a.get("old") or "").strip(), str(a.get("new") or "").strip()
+    if not re.match(r"(https?:|mailto:|tel:|/)", old):
+        raise ValueError("old must be an address (https://..., mailto:, tel: or /path)")
+    if not re.match(r"(https?:|mailto:|tel:|/|#)", new) or re.search(r"[<>\"'`]", new):
+        raise ValueError("new must be an address (https://..., mailto:, tel:, /path or #id)")
+    cm = load_cm(d)
+    snapshot(d)
+    for e in cm.setdefault("links", []):
+        if e["old"] == old:
+            e["new"] = new
+            break
+    else:
+        cm["links"].append({"old": old, "new": new})
+    save_cm(d, cm)
+    ok, log = run_forge(str(a["project"]), "build")
+    return Result(f"links to {old} now go to {new} (in the files and at click "
+                  "time)\nbuild: " + ("OK" if ok else "FAILED\n" + log[-1500:])
+                  + "\nNow PROVE it: browser_open the project, press the "
+                  f"button with browser_click expect={new}.",
+                  {"old": old, "new": new, "built": ok})
+
+
+def t_hide_text(a):
+    """Hide words a widget draws after the page loads."""
+    d = pdir(str(a["project"]))
+    text = str(a.get("text") or "").strip()
+    if len(text) < 2:
+        raise ValueError("give the exact words to hide")
+    f = d / "forge.json"
+    cfg = json.loads(f.read_text(encoding="utf-8"))
+    snapshot(d)
+    cur = [t for t in cfg.get("hide_text", []) if t.strip().lower() != text.lower()]
+    if not a.get("show"):
+        cur.append(text)
+    cfg["hide_text"] = cur
+    f.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    ok, log = run_forge(str(a["project"]), "build")
+    return Result(("no longer hiding " if a.get("show") else "hiding ")
+                  + repr(text) + " wherever it is drawn\nbuild: "
+                  + ("OK" if ok else "FAILED\n" + log[-1500:])
+                  + "\nCheck it with browser_open + browser_find.",
+                  {"hide_text": cur, "built": ok})
+
+
 def t_remove_element(a):
     d = pdir(str(a["project"]))
     cfg = json.loads((d / "forge.json").read_text())
@@ -1381,6 +1431,160 @@ def t_delete_project(a):
 
 
 # ───────────────────────── tool schemas ──────────────────────────────
+
+# ───────────────────────── Aethron's own browser ─────────────────────
+# One real Chrome kept open for this agent session (aethron_browser). It is
+# how a request about BEHAVIOUR is proven: "the button goes to my contact
+# page" is done when the button was pressed and the address read, never
+# when the build finished. Every step hands back what is on screen, and
+# open/click attach a picture the chat shows.
+_BROWSER = None
+
+
+def _br():
+    global _BROWSER
+    import aethron_browser as AB
+    if _BROWSER is None or not _BROWSER.alive():
+        _BROWSER = AB.Browser()
+        import atexit
+        atexit.register(lambda: _BROWSER and _BROWSER.close())
+    return _BROWSER
+
+
+def _shot(b, data: dict) -> str:
+    """A picture of the screen, kept where the chat can show it."""
+    import hashlib
+    try:
+        jpg = b.screenshot(fmt="jpeg", quality=60)
+    except Exception:
+        return ""
+    name = hashlib.sha1(jpg).hexdigest()[:16] + ".jpg"
+    d = HOME / "uploads"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / name).write_bytes(jpg)
+    data["screenshot"] = name
+    return f"\naethron-shot: {name}"
+
+
+def _page_text(st: dict, limit=1500) -> str:
+    links = "\n".join(f"  - {l['text'] or '(no words)'} -> {l['href']}"
+                      + (" (new tab)" if l.get("target") == "_blank" else "")
+                      for l in st.get("links", [])[:40])
+    bits = [f"{st.get('title') or '(no title)'} — {st.get('url')}"]
+    if st.get("blocked"):
+        bits.append(f"BLOCKED: this is a bot check ('{st['blocked']}'), not "
+                    "the site. Tell the person; do not try to get around it.")
+    bits.append("On screen:\n" + (st.get("text") or "")[:limit])
+    if st.get("buttons"):
+        bits.append("Buttons: " + " | ".join(st["buttons"][:30]))
+    if links:
+        bits.append("Links (where each really goes):\n" + links)
+    if st.get("inputs"):
+        bits.append("Fields: " + " | ".join(
+            (i.get("label") or i.get("name") or i["type"])
+            for i in st["inputs"]))
+    return "\n\n".join(bits)
+
+
+def t_browser_open(a):
+    import aethron_browser as AB
+    url = (a.get("url") or "").strip()
+    if a.get("project"):
+        d = pdir(a["project"])
+        site = d / "site"
+        if not (site / "index.html").exists():
+            raise ValueError("the project has no built site yet — run build")
+        cfg = json.loads((d / "forge.json").read_text(encoding="utf-8"))
+        base = AB.serve_site(site, cfg.get("platform", "static"))
+        url = base + str(a.get("page") or "").lstrip("/")
+    if not url:
+        raise ValueError("give a url, or a project (and optionally a page)")
+    b = _br()
+    st = b.open(url)
+    data = {k: st.get(k) for k in ("url", "title", "buttons", "links",
+                                   "inputs", "scroll", "blocked")}
+    return Result(_page_text(st) + _shot(b, data), data)
+
+
+def t_browser_click(a):
+    import aethron_browser as AB
+    b = _br()
+    if not b.alive():
+        raise ValueError("open a page first (browser_open)")
+    r = b.click(a.get("text"), a.get("selector"), int(a.get("nth") or 0))
+    c = r["clicked"]
+    lines = [f"Clicked {c['tag']} \"{c['text']}\" on {r['from']}"]
+    if r.get("covered_by"):
+        lines.append(f"NOTE: something lies over it — {r['covered_by']['tag']} "
+                     f"\"{r['covered_by']['text']}\" — the click hit that.")
+    if r.get("new_tab"):
+        lines.append(f"It opened a NEW TAB at {r['new_tab']}")
+    lines.append(("Landed on " if r["navigated"] else
+                  "Stayed on the same page: ") + r["landed"])
+    if r.get("dialogs"):
+        lines.append("Dialogs: " + " | ".join(r["dialogs"]))
+    exp = (a.get("expect") or "").strip()
+    if exp:
+        good = AB.same_place(r["landed"], exp)
+        r["verdict"] = "PASS" if good else "FAIL"
+        lines.insert(0, ("PASS — it goes where it should: " if good else
+                         "FAIL — it does NOT go to ") + exp)
+        if not good:
+            lines.append("The fix is not done. Find where this address comes "
+                         "from (browser_find gives the element; the link may "
+                         "be built by the page's own code), change it through "
+                         "Aethron's tools, rebuild, and click again.")
+    st = b.read(800)
+    lines.append("\n" + _page_text(st, 800))
+    return Result("\n".join(lines) + _shot(b, r), r)
+
+
+def t_browser_type(a):
+    r = _br().type(str(a.get("text") or ""), a.get("into"), a.get("selector"),
+                   bool(a.get("submit")))
+    f = r["field"]
+    return Result(f"Typed into {f['tag']} {f.get('selector')}"
+                  + (" and pressed Enter" if a.get("submit") else "")
+                  + f". Now at {r['url']}", r)
+
+
+def t_browser_scroll(a):
+    r = _br().scroll(a.get("by"), a.get("to"))
+    y, h, vh = r["scroll"]
+    return Result(f"Scrolled to {y}px of {h}px (window {vh}px tall).", r)
+
+
+def t_browser_read(a):
+    b = _br()
+    st = b.read(int(a.get("limit") or 4000))
+    data = {k: st.get(k) for k in ("url", "title", "buttons", "links",
+                                   "inputs", "scroll", "blocked")}
+    return Result(_page_text(st, int(a.get("limit") or 4000)), data)
+
+
+def t_browser_find(a):
+    d = _br().find(a.get("text"), a.get("selector"), int(a.get("nth") or 0))
+    if not d:
+        return Result("Nothing visible matches that.", {"found": False})
+    d["found"] = True
+    return Result(f"{d['tag']} \"{d['text']}\" at {d['box']} — selector "
+                  f"{d['selector']}" + (f", inside a link to {d['href']}"
+                                        if d.get("href") else "")
+                  + (f", Framer name '{d['framer_name']}'"
+                     if d.get("framer_name") else ""), d)
+
+
+def t_browser_back(a):
+    r = _br().back()
+    return Result(f"Back on {r['url']}", r)
+
+
+def t_browser_screenshot(a):
+    b = _br()
+    data = {"url": b.url()}
+    return Result(f"Picture of {data['url']}" + _shot(b, data), data)
+
+
 
 def S(props, req):
     return {"type": "object", "properties": props, "required": req}
@@ -1903,6 +2107,19 @@ TOOLS = [
     ("serve_preview", "Serve the built site locally with the exact "
      "protocols production needs; returns the URL.",
      S(P, ["project"]), t_serve_preview),
+    ("set_link", "Make every link to an address go somewhere else. Works "
+     "for links in the files AND links a widget builds in its own code or "
+     "opens with window.open (a shop cart, a booking widget) — those are "
+     "followed at click time. Prove it after with browser_click expect=new.",
+     S({**P, "old": {"type": "string", "description": "the address it goes "
+        "to now — read it with browser_click or browser_read"},
+        "new": {"type": "string"}}, ["project", "old", "new"]), t_set_link),
+    ("hide_text", "Hide words a widget draws after the page loads (a "
+     "'FRAMESHIP' or 'Powered by' tag inside a cart or embed) — no selector "
+     "in the files can reach those. Hides the smallest element carrying "
+     "exactly these words, whenever it appears. show=true undoes it.",
+     S({**P, "text": {"type": "string"}, "show": {"type": "boolean"}},
+       ["project", "text"]), t_hide_text),
     ("remove_element", "Remove an element from the shipped code — the "
      "agent-facing version of the visual editor's Remove (closes the MCP's "
      "biggest parity gap). Give `contains`: a snippet of the TEXT inside "
@@ -2057,6 +2274,49 @@ TOOLS = [
      "can't rebuild a template. Then: fetch -> inventory -> set_plan "
      "-> fill.", S({"id": {"type": "string"}, "name": {"type": "string"}},
                    ["id", "name"]), t_create_from_library),
+    ("browser_open", "Aethron's own browser: open a page and see it like a "
+     "person — the words on screen, every button, every link WITH WHERE IT "
+     "REALLY GOES, the fields, and a picture. Give a url (any site: the "
+     "person's own, the original template, a competitor) or a project (+ "
+     "page) to open its built site. The browser stays open for the whole "
+     "conversation, so open -> click -> click inside what opened is one "
+     "visit. Use it to PROVE anything about behaviour: never say a button, "
+     "link, menu or form works until you pressed it here.",
+     S({"url": {"type": "string"}, "project": {"type": "string"},
+        "page": {"type": "string", "description": "e.g. about.html"}}, []),
+     t_browser_open),
+    ("browser_click", "Press the thing carrying these words (or matching a "
+     "CSS selector) with a real mouse click — the page's own code runs. "
+     "Says where it landed, including a new tab, and whether something "
+     "covered the button. Give `expect` (an address) to CHECK a link: PASS "
+     "only when the click really lands there. A request like 'this button "
+     "should go to X' is done only when browser_click with expect=X says PASS.",
+     S({"text": {"type": "string"}, "selector": {"type": "string"},
+        "nth": {"type": "integer", "description": "0 = first match"},
+        "expect": {"type": "string", "description": "address it must land on"}},
+       []), t_browser_click),
+    ("browser_type", "Type into a field found by its label, placeholder or "
+     "name (or a selector); submit=true presses Enter.",
+     S({"text": {"type": "string"}, "into": {"type": "string"},
+        "selector": {"type": "string"}, "submit": {"type": "boolean"}},
+       ["text"]), t_browser_type),
+    ("browser_scroll", "Scroll by pixels, or to the words given, or to "
+     "'top'/'bottom'.",
+     S({"by": {"type": "integer"}, "to": {"type": "string"}}, []),
+     t_browser_scroll),
+    ("browser_read", "What is on screen now: words, buttons, links and "
+     "where they go, fields.",
+     S({"limit": {"type": "integer"}}, []), t_browser_read),
+    ("browser_find", "Locate a visible element by its words: its tag, box, "
+     "a CSS selector that matches only it, the link it sits in and its "
+     "Framer name — what hide_selectors or a style needs. Finds things the "
+     "page's code draws after loading too.",
+     S({"text": {"type": "string"}, "selector": {"type": "string"},
+        "nth": {"type": "integer"}}, []), t_browser_find),
+    ("browser_back", "Go back one page in the current tab.", S({}, []),
+     t_browser_back),
+    ("browser_screenshot", "A picture of the current screen (shown to the "
+     "person in the chat).", S({}, []), t_browser_screenshot),
 ]
 
 TOOL_DEFS = [{"name": n, "description": d, "inputSchema": s}
@@ -2167,6 +2427,14 @@ def dispatch(msg, run=None):
             res = {"content": [{"type": "text", "text": str(text)}]}
             if isinstance(text, Result):
                 res["structuredContent"] = text.data
+                shot = (text.data or {}).get("screenshot") \
+                    if isinstance(text.data, dict) else None
+                if shot and re.fullmatch(r"[0-9a-f]{16}\.jpg", shot):
+                    f = HOME / "uploads" / shot
+                    if f.is_file():          # the agent sees the screen too
+                        res["content"].append({
+                            "type": "image", "mimeType": "image/jpeg",
+                            "data": base64.b64encode(f.read_bytes()).decode()})
             if run is not None and name not in ("list_runs", "get_run"):
                 run.call(name, args, str(text), False,
                          (time.time() - t0) * 1000,

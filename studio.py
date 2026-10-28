@@ -13406,6 +13406,13 @@ body.pvwopen .conv-shell:not(.talking) .conv-wrap{margin:0 0 0 28px!important;ma
 body.pvwopen .conv-shell:not(.talking) #npurl,body.pvwopen .conv-shell:not(.talking) .cghost{font-size:28px}
 body.pvwopen .conv-shell:not(.talking) .cghost{white-space:normal}
 body.pvwopen .conv-shell:not(.talking) #npurl:placeholder-shown{min-height:2.3em}
+.stepshot{display:block;width:min(360px,70%);margin:6px 0 10px 22px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.08);cursor:zoom-in;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.sverd{font-size:10.5px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:999px;margin-left:6px}
+.sverd.ok{background:rgba(70,200,120,.16);color:#7ee2a3}.sverd.bad{background:rgba(255,90,60,.16);color:#ff9b85}
+.proof{margin:8px 0 2px}.proof .stepshot{margin-left:0}
+.proofv{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mut,#9a9a9a);margin-top:2px}
+.proofv .sverd{margin-left:0}
 </style></head><body>
 <aside>
   <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -16804,6 +16811,10 @@ async function consoleSend(){
    REPORTING it: one line saying what is happening now, and the detail
    folded away for whoever wants it. */
 const TOOLWORDS={
+  browser_open:'Opening',browser_click:'Clicking',browser_type:'Typing',
+  browser_scroll:'Scrolling',browser_read:'Reading the screen',
+  browser_find:'Finding',browser_back:'Going back',browser_screenshot:'Looking at',
+  set_link:'Pointing a link',hide_text:'Hiding',
   create_project:'Reading the template',fetch:'Downloading the runtime',
   inventory:'Finding every string, image and link',
   localize:'Localising assets',localize_assets:'Localising assets',
@@ -18394,6 +18405,12 @@ function toolTarget(n,inp){
   const tail=p=>String(p||'').split('/').filter(Boolean).slice(-2).join('/');
   if(raw==='Bash')return String(inp.description||inp.command||'').slice(0,90);
   for(const k of ['file_path','page','path'])if(inp[k])return tail(inp[k]);
+  if(/__browser_click$/.test(raw)&&(inp.text||inp.selector))
+    return '"'+String(inp.text||inp.selector).slice(0,50)+'"'
+      +(inp.expect?' → '+String(inp.expect).replace(/^https?:\/\//,'').slice(0,40):'');
+  if(/__(browser_\w+|hide_text)$/.test(raw)&&(inp.text||inp.to))
+    return String(inp.text||inp.to).slice(0,74);
+  if(/__set_link$/.test(raw)&&inp.new)return String(inp.new).replace(/^https?:\/\//,'').slice(0,64);
   for(const k of ['pattern','query','request','name','project','workspace'])
     if(inp[k])return String(inp[k]).slice(0,74);
   if(inp.url)return String(inp.url).replace(/^https?:\/\//,'').slice(0,64);
@@ -18652,6 +18669,25 @@ function runOpen(k){
   return b===undefined?!RUN_DONE[k]:b;
 }
 const RUN_DONE={};
+/* WHAT THE BROWSER SAW stays in view when a run folds away: the last
+   checked click (PASS/FAIL) and the picture of where it landed. The
+   proof is the point; hiding it behind "show" made it a claim again. */
+function proofHtml(b){
+  let pick=null;
+  for(const st of b.steps){
+    if(!/__browser_\w+$/.test(st.name||''))continue;
+    const d=String(st.detail||'');
+    if(/(?:^|\n)aethron-shot: /.test(d)||/^(PASS|FAIL) — /.test(d))pick=st;
+  }
+  if(!pick)return '';
+  const d=String(pick.detail||''),
+        shot=(/(?:^|\n)aethron-shot: ([0-9a-f]{16}\.jpg)/.exec(d)||[])[1],
+        v=(/^(PASS|FAIL) — ([^\n]*)/.exec(d)||[]);
+  return `<div class="proof">${shot?`<img class="stepshot" loading="lazy" alt=""
+    src="/uploads/${shot}" onclick="window.open(this.src,'_blank')">`:''}
+    ${v[1]?`<div class="proofv"><span class="sverd ${v[1]==='PASS'?'ok':'bad'}">${v[1]}</span>
+    <span>${esc(v[2]||'')}</span></div>`:''}</div>`;
+}
 function runHtml(b){
   /* A run is finished when nothing in it is still live — no extra
      bookkeeping needed, because a step leaves `live` the moment its
@@ -18671,7 +18707,7 @@ function runHtml(b){
       ${bad?`<span class="rs-bad">${bad} failed</span>`:''}${blkTxt}
       <span class="st">last: ${esc(toolVerb(b.steps[b.steps.length-1].name)
         .replace(/^./,c=>c.toLowerCase()))}</span>
-      <span class="rs-c">show${I('up',12)}</span></button></div>`;
+      <span class="rs-c">show${I('up',12)}</span></button>${proofHtml(b)}</div>`;
   }
   return '<div class="run'+(done?' open':'')+'">'+(done?`<button
       class="runsum" onclick="toggleRun('${key}')">
@@ -18680,13 +18716,19 @@ function runHtml(b){
       ${bad?`<span class="rs-bad">${bad} failed</span>`:''}${blkTxt}
       <span class="rs-c">hide${I('up',12)}</span></button>`:'')
     +b.steps.map(s=>{
-    const id='sd'+s.i,det=String(s.detail||'').trim(),
+    const shot=(/(?:^|\n)aethron-shot: ([0-9a-f]{16}\.jpg)/.exec(s.detail||'')||[])[1];
+    const id='sd'+s.i,det=String(s.detail||'').replace(/\n?aethron-shot: \S+/,'').trim(),
           tgt=toolTarget(s.name,s.input);
+    /* THE PERSON WATCHES IT WORK: a browser step carries the picture of
+       what was on screen, and a checked click says PASS or FAIL. */
+    const verdict=(/^(PASS|FAIL) — /.exec(det)||[])[1];
     return `<button class="step ${s.state}" onclick="toggleStep('${id}')">
       <span class="sdot"></span><span class="sv">${esc(toolVerb(s.name))}</span>
       <span class="st">${esc(tgt)}</span>
+      ${verdict?`<span class="sverd ${verdict==='PASS'?'ok':'bad'}">${verdict}</span>`:''}
       ${det?`<span class="sx">${s.state==='bad'?'failed':s.state==='blocked'?'blocked':'detail'}</span>`:''}
-      </button>${det?`<div class="stepdet${s.state==='bad'?' bad':''}"
+      </button>${shot?`<img class="stepshot" loading="lazy" alt="" src="/uploads/${shot}"
+        onclick="window.open(this.src,'_blank')">`:''}${det?`<div class="stepdet${s.state==='bad'?' bad':''}"
       id="${id}" ${CODE.open[id]?'':'hidden'}>${esc(det.slice(0,4000))}</div>`:''}`;
   }).join('')+'</div>';
 }

@@ -269,6 +269,11 @@ WHAT YOU CAN DO (all via mcp__aethron__*):
   probe            RUNTIME check in a real browser — what a visitor gets
   heal             recover edits that landed nowhere
   generate_logo, replace_image_slots, remove_element, serve_preview, undo
+  browser_open/click/type/scroll/find/read/back/screenshot
+                   YOUR OWN BROWSER: visit any site or a project's build,
+                   press buttons, follow links, see the screen. Prove any
+                   claim about behaviour here (browser_click expect=URL).
+  set_link, hide_text  links and words a widget makes after loading
 
 THE ORDER THAT WORKS:
   create_project -> fetch -> inventory -> localize_assets -> set_plan
@@ -372,6 +377,17 @@ instinct you have about editing files here:
    what those return. Do not ask what they meant.
    Animated headings are ONE line each; their single words are not
    offered and cannot be written on their own.
+
+9. YOU HAVE YOUR OWN BROWSER (`browser_open`, `browser_click`,
+   `browser_type`, `browser_scroll`, `browser_find`, `browser_read`).
+   A request about what something DOES — a button, link, menu, cart,
+   form — is finished only when you pressed it there: open the project
+   (browser_open project=...), click through to the thing, and run
+   browser_click with expect=<address> until it says PASS. Never report
+   a link or button as fixed from a build alone. A link a widget builds
+   in its own code is changed with `set_link`; words a widget draws
+   after loading are hidden with `hide_text`. If a site shows a bot
+   check, say so; do not try to get around it.
 
 After changing anything: `build`, then `verify` (files), then `probe`
 (what the browser actually does). If an edit lands nowhere, run `heal`

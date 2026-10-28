@@ -6986,3 +6986,44 @@ sits inside. The picture is capped at 8s; past that the words go alone.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.
+
+## AETHRON'S OWN BROWSER — and a button is fixed when it was pressed
+## — `aethron_browser.py`, 2026-10-28
+The owner's Essentia migration: the Frameship cart's "Contact Jomiez"
+button still opened a Stripe checkout and the "FRAMESHIP" tag still
+showed, while the agent reported both fixed — it rebuilt and probed the
+home page and never pressed the button. Every browser use in Aethron was
+an instrument (load, read, close); none could make a VISIT.
+- aethron_browser.Browser: one real Chrome over the DevTools protocol
+  (stdlib WebSocket client), kept open for the agent session, profile in
+  HOME/browser (another live instance -> a temp profile). open, read
+  (words, buttons, fields, every link WITH where it goes), click (by the
+  words on the thing; real mouse events at its centre; reports what
+  covers it, a NEW TAB and where it landed), type (by label/placeholder),
+  scroll, back, find (selector, box, Framer name), screenshot. Headless
+  reports a normal Chrome user agent; a bot-check page is named, never
+  worked around.
+- MCP tools browser_open/click/type/scroll/read/find/back/screenshot.
+  browser_click(expect=URL) is the check: PASS only when the click lands
+  there. Open/click answers carry an image block (the agent sees the
+  screen) and `aethron-shot: <sha1>.jpg` (HOME/uploads); the chat shows
+  the picture and PASS/FAIL, and keeps the last proof visible when the
+  run folds away. PROJECT_RULES 9: a request about behaviour is finished
+  only when browser_click says PASS.
+- WIDGETS BUILD THEIR LINKS IN CODE. A link entry rewrites the address
+  where it is written; a cart that builds it and calls window.open never
+  shows that spelling. Build now injects data-aethron-live (LIVE_FIX_JS)
+  first in <head>: filled link entries that are addresses are followed at
+  click time (anchors, window.open, location.assign/replace), and
+  cfg["hide_text"] hides the smallest element carrying exactly those
+  words whenever a widget draws it. MCP set_link (adds an entry for an
+  address inventory never saw) and hide_text. THE LIVE SCRIPT IS INJECTED
+  AFTER _apply: first version sat in the head before the copy pass, which
+  rewrote its own map to new -> new and the redirect did nothing; the
+  battery caught it.
+Tests: aethron_browser --selftest 14/14; tests/browser_battery.py 17/17
+(the Essentia case over the real MCP: FAIL naming the Stripe-like new
+tab, set_link + hide_text, the same click PASSES, the tag is gone).
+NOT PROVEN on the owner's real Essentia build (their project is on their
+Mac): whether the cart opens the address by window.open or by a link,
+both are covered.
