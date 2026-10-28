@@ -385,6 +385,17 @@ def _site_or_none(site_id):
 # Cloudflare's edge. This copy proves who it is with its own device token
 # — the same one the rest of Aethron uses — and holds no Cloudflare key.
 HOSTING_API = os.environ.get("AETHRON_HOSTING_API", "https://aethron.site/__api").rstrip("/")
+
+
+def _ua():
+    """Cloudflare refuses Python's default client name (error 1010), so
+    every request to Aethron hosting says what it is."""
+    try:
+        import aethron_update
+        v = aethron_update.VERSION
+    except Exception:
+        v = "dev"
+    return f"Aethron/{v}"
 HOSTING_ROOT = os.environ.get("AETHRON_HOSTING_ROOT", "aethron.site")
 _HOSTING_UP = {"at": 0.0, "ok": False}
 
@@ -405,7 +416,8 @@ def hosting():
         return {"ready": False, "root": HOSTING_ROOT, "why": "sign in to Aethron to publish here"}
     if time.time() - _HOSTING_UP["at"] > (600 if _HOSTING_UP["ok"] else 60):
         try:
-            with urllib.request.urlopen(HOSTING_API + "/v1/health", timeout=6) as r:
+            hreq = urllib.request.Request(HOSTING_API + "/v1/health", headers={"User-Agent": _ua()})
+            with urllib.request.urlopen(hreq, timeout=6) as r:
                 _HOSTING_UP["ok"] = json.loads(r.read() or b"{}").get("ok") is True
         except Exception:
             _HOSTING_UP["ok"] = False
@@ -422,6 +434,7 @@ def _hreq(method, path, body=None, raw=None, timeout=60):
     data = raw if raw is not None else (json.dumps(body).encode() if body is not None else None)
     req = urllib.request.Request(HOSTING_API + path, data=data, method=method)
     req.add_header("Authorization", "Bearer " + tok)
+    req.add_header("User-Agent", _ua())
     req.add_header("Content-Type", "application/octet-stream" if raw is not None else "application/json")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
