@@ -428,6 +428,19 @@ def hosting():
 
 
 def _hreq(method, path, body=None, raw=None, timeout=60):
+    """Every hosting call is safe to repeat, so one that hits a server error
+    or a dropped connection is tried again (3 more times, 1/3/9 s apart)."""
+    for i in range(4):
+        try:
+            return _hreq_once(method, path, body, raw, timeout)
+        except PublishError as e:
+            code = getattr(e, "code", 0) or 0
+            if i == 3 or not (code >= 500 or code == -1):
+                raise
+            time.sleep(3 ** i)
+
+
+def _hreq_once(method, path, body=None, raw=None, timeout=60):
     tok = _device_token()
     if not tok:
         raise PublishError("Sign in to Aethron to publish.")
@@ -451,8 +464,10 @@ def _hreq(method, path, body=None, raw=None, timeout=60):
         step = {"PUT": "uploading a file"}.get(method) or (
             "making the new version" if path.endswith("/deploys") else
             "putting it live" if path.endswith("/finish") else "talking to it")
-        raise PublishError(f"Aethron hosting stopped answering while {step} ({e}). "
-                           "Try again; files already uploaded are kept.") from None
+        err = PublishError(f"Aethron hosting stopped answering while {step} ({e}). "
+                           "Try again; files already uploaded are kept.")
+        err.code = -1
+        raise err from None
 
 
 def host_of(key):
