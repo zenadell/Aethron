@@ -159,12 +159,12 @@ try:
     big = HOME / "big"
     (big / "assets").mkdir(parents=True)
     (big / "index.html").write_text("<html><body>Big</body></html>")
-    for i in range(600):
+    for i in range(1500):
         (big / "assets" / f"c{i}.js").write_text(f"export const n={i};")
     t0 = time.time()
     P.publish("project:big", P.folder_files(big), "Big Site", log=lambda *_: None, title="Big")
     took = time.time() - t0
-    check(f"a 600-file site publishes without a long wait ({took:.1f}s)", took < 15)
+    check(f"a 1500-file site publishes (Cloudflare allows 1000 storage calls per request) without a long wait ({took:.1f}s)", took < 15)
     st, body, _ = get("big-site.aethron.site", "/assets/c599.js")
     check("and every file is served", st == 200 and "599" in body)
     P.unpublish("project:big")
