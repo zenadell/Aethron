@@ -691,6 +691,79 @@ def _string_dump_cms(path: Path):
         i += 1
 
 
+def _brand_of(title: str, page: str, cfg: dict) -> str:
+    """The template's brand name, as the site names itself.
+
+    The first word of the title is right for "Nexmind® - AI agency" and
+    wrong for "Webdesign Beverwijk | Websites op maat | MK Vision Studio":
+    it made "Webdesign" a forbidden word, so verify demanded an ordinary
+    word be removed from the site's own code and never passed. A title
+    part (or og:site_name) that spells the site's own host name wins."""
+    import html as _h
+    title = _h.unescape(title).strip()
+    parts = [p.strip() for p in re.split(r"\s+[|—–:·-]\s+|\s*[|—–·]\s*",
+                                          title) if p.strip()]
+    m = re.search(r'property=["\']og:site_name["\'][^>]*content=["\']'
+                  r'([^"\']+)', page) or re.search(
+        r'content=["\']([^"\']+)["\'][^>]*property=["\']og:site_name',
+        page)
+    site_name = _h.unescape(m.group(1)).strip() if m else ""
+    hosts = list(cfg.get("own_hosts") or [])
+    if cfg.get("source_url"):
+        hosts.append(urllib.parse.urlparse(cfg["source_url"]).hostname or "")
+    labels = {h.lower().removeprefix("www.").split(".")[0] for h in hosts if h}
+    compact = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
+    for cand in ([site_name] if site_name else []) + parts:
+        c = compact(re.sub(r"[®™©]", "", cand))
+        if len(c) >= 3 and any(lab and (c in lab or lab in c)
+                               for lab in labels):
+            # "MK Vision Studio" vs host "mkvision": keep the words that
+            # make up the host label, never a generic trailing word
+            words = re.sub(r"[®™©]", "", cand).split()
+            for n in range(len(words), 0, -1):
+                if any(compact(" ".join(words[:n])) == lab for lab in labels):
+                    return " ".join(words[:n])
+            return re.sub(r"[®™©]", "", cand).strip()
+    brand = re.sub(r"[®™©]", "", re.split(r"[\s—|:-]+", title)[0])
+    # "Home | Plumbing": the title never names the brand; the host does
+    alpha = sorted(l for l in labels if l.isalpha() and len(l) >= 4)
+    if alpha and brand.lower() in ("home", "index", "welcome", "homepage"):
+        return alpha[0].capitalize()
+    return brand  # "Nexmind®" must mop up "Nexmind"
+
+
+def _heal_brand_word(root: Path, cfg: dict, brand: str = "") -> None:
+    """A project made before _brand_of may carry a WRONG auto-set word
+    (the title's first word, e.g. "Webdesign"), which verify can never
+    clear. When the saved list is exactly that old guess and it is not
+    the brand, replace it. A list the person edited is left alone."""
+    words = cfg.get("forbidden_words") or []
+    if len(words) != 1:
+        return
+    try:
+        home = next((p for p in cfg["pages"]
+                     if Path(p).name in ("index.html", "index.htm")),
+                    cfg["pages"][0])
+        page = (root / "pristine" / home).read_text(encoding="utf-8",
+                                                    errors="ignore")
+        t = re.search(r"<title>([^<]+)</title>", page)
+        if not t:
+            return
+        import html as _h
+        old = re.sub(r"[®™©]", "", re.split(r"[\s—|:-]+",
+                                              _h.unescape(t.group(1)).strip())[0])
+        old_raw = re.sub(r"[®™©]", "", re.split(r"[\s—|:-]+",
+                                                  t.group(1).strip())[0])
+        brand = brand or _brand_of(t.group(1), page, cfg)
+    except Exception:
+        return
+    if words[0] in (old, old_raw) and brand and brand != words[0]:
+        cfg["forbidden_words"] = [brand]
+        write_cfg(root, cfg)
+        print(f"forbidden_words corrected: {words[0]!r} was a word from the "
+              f"page title, the brand is {brand!r}")
+
+
 def cmd_inventory(_args):
     root = Path.cwd()
     cfg = read_cfg(root)
@@ -830,9 +903,11 @@ def cmd_inventory(_args):
                         (root / "pristine" / home).read_text(
                             encoding="utf-8", errors="ignore"))
     if title_m:
-        brand = re.split(r"[\s—|:-]+", title_m.group(1).strip())[0]
-        brand = re.sub(r"[®™©]", "", brand)  # "Nexmind®" must mop up "Nexmind"
+        brand = _brand_of(title_m.group(1),
+                          (root / "pristine" / home).read_text(
+                              encoding="utf-8", errors="ignore"), cfg)
         # the old brand must not survive the build — police it by default
+        _heal_brand_word(root, cfg, brand)
         if brand and not cfg.get("forbidden_words"):
             cfg["forbidden_words"] = [brand]
             write_cfg(root, cfg)
@@ -6165,9 +6240,11 @@ def cmd_probe(args):
                         fails += 1
                 # an image the ORIGINAL site is missing too cannot decode in
                 # a copy either — carried, not caused
-                _up = set(cfg.get("missing_upstream", []))
+                _up = {urllib.parse.unquote(x.split("?")[0])
+                       for x in cfg.get("missing_upstream", [])}
                 _gone = [u for u in (vis.get("images_broken") or [])
-                         if urllib.parse.urlparse(u).path in _up]
+                         if urllib.parse.unquote(
+                             urllib.parse.urlparse(u).path) in _up]
                 if _gone:
                     n_img -= len(_gone)
                     print(f"NOTE {len(_gone)} image(s) are missing on the "
@@ -6243,9 +6320,10 @@ def cmd_probe(args):
             needs = {k: v for k, v in bad.items()
                      if k.split("?")[0] in server}
             bad = {k: v for k, v in bad.items() if k not in needs}
-            upstream = set(cfg.get("missing_upstream", []))
+            upstream = {urllib.parse.unquote(x.split("?")[0])
+                        for x in cfg.get("missing_upstream", [])}
             gone = {k: v for k, v in bad.items()
-                    if k.split("?")[0] in upstream}
+                    if urllib.parse.unquote(k.split("?")[0]) in upstream}
             bad = {k: v for k, v in bad.items() if k not in gone}
             if gone:
                 print(f"NOTE {len(gone)} request(s) are missing on the "
@@ -6495,6 +6573,7 @@ def cmd_verify(_args):
     site = root / "site"
     if not site.exists():
         die("no site/ — run build first")
+    _heal_brand_word(root, cfg)
     fails = 0
 
     # 1. forbidden words gone from every generated file. Webflow embeds
@@ -6604,9 +6683,12 @@ def cmd_verify(_args):
     missing_refs = _ref_audit(site)
     # what the ORIGINAL site is missing too is carried, not caused — a
     # copy cannot contain a file its source never had
-    upstream = set(cfg.get("missing_upstream", []))
+    # compared decoded: the same file is "a%20b.svg" in one place and
+    # "a b.svg" in another, and only one spelling was ever recorded
+    _uq = lambda u: urllib.parse.unquote(u.split("?")[0].split("#")[0])
+    upstream = {_uq(u) for u in cfg.get("missing_upstream", [])}
     carried = {r: v for r, v in missing_refs.items()
-               if r.split("?")[0] in upstream}
+               if _uq(r) in upstream}
     missing_refs = {r: v for r, v in missing_refs.items() if r not in carried}
     if carried:
         print(f"NOTE {len(carried)} referenced file(s) are missing on the "

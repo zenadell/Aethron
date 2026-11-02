@@ -178,10 +178,48 @@ def pdir(name: str) -> Path:
     return d
 
 
+def page_path(raw) -> Path:
+    """A page given as a file, a folder holding site.html, a rebuilt
+    page's name, or the "aethron-page: <name>" line Aethron itself hands
+    the agent — which change_page used to refuse as "no such page"."""
+    t = str(raw or "").strip()
+    t = re.sub(r"^aethron-page:\s*", "", t)
+    p = Path(t).expanduser()
+    if p.is_dir() and (p / "site.html").is_file():
+        return p / "site.html"
+    if p.is_file():
+        return p
+    if t and "/" not in t and "\\" not in t:
+        q = PAGES / t / "site.html"
+        if q.is_file():
+            return q
+    return p
+
+
 def run_forge(project: str, *args, timeout=900):
-    r = subprocess.run([*_FORGE_CMD, *args],
-                       cwd=pdir(project), capture_output=True, text=True,
-                       timeout=timeout)
+    d = pdir(project)
+    if "--all" in args and args and args[0] == "probe":
+        # a browser check per page: 27 pages ran past a flat 15 minutes
+        try:
+            n = len(json.loads((d / "forge.json").read_text())["pages"])
+        except Exception:
+            n = 10
+        timeout = max(timeout, min(3600, 90 * n))
+    try:
+        r = subprocess.run([*_FORGE_CMD, *args],
+                           cwd=d, capture_output=True, text=True,
+                           timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        # what it did before running out of time is still worth reading
+        part = e.stdout or ""
+        if isinstance(part, bytes):
+            part = part.decode("utf-8", "replace")
+        return False, (part.strip() + f"\nTIMED OUT after {int(timeout)}s "
+                       f"while running `{' '.join(args)}`. The lines above "
+                       f"are what finished. "
+                       + ("Probe the remaining pages one at a time with "
+                          "`page`." if args and args[0] == "probe" else
+                          "Run it again; if it keeps timing out, report it."))
     return r.returncode == 0, (r.stdout + r.stderr).strip()
 
 
@@ -306,9 +344,17 @@ def t_create_project(a):
     if url:
         if not url.startswith(("http://", "https://")):
             raise ValueError("url must start with http(s)://")
-        r = subprocess.run([*_FORGE_CMD, "init", url,
-                            "--name", name], cwd=PROJECTS,
-                           capture_output=True, text=True, timeout=300)
+        try:                 # a 40-page site on a slow link ran past 300s
+            r = subprocess.run([*_FORGE_CMD, "init", url,
+                                "--name", name], cwd=PROJECTS,
+                               capture_output=True, text=True, timeout=1200)
+        except subprocess.TimeoutExpired:
+            half = PROJECTS / name
+            if half.is_dir() and not (half / "copy_map.json").exists():
+                shutil.rmtree(half, ignore_errors=True)
+            raise ValueError(f"reading {url} took over 20 minutes and was "
+                             f"stopped (nothing was kept). Check the site "
+                             f"opens in a browser, then try again.")
         if r.returncode:
             raise ValueError((r.stdout + r.stderr).strip())
         return (r.stdout.strip() + "\nNext: fetch, then inventory.")
@@ -451,6 +497,20 @@ def t_measure_screenshot(a):
         import aethron_vision
     except Exception as e:                       # pragma: no cover
         return f"FAILED the measurement pass is unavailable ({e})"
+    img = Path(str(a.get("image") or "")).expanduser()
+    if not img.is_file() and (HOME / "uploads" / img.name).is_file():
+        img = HOME / "uploads" / img.name          # a bare upload name
+        a = {**a, "image": str(img)}
+    if not img.is_file():
+        ups = sorted((HOME / "uploads").glob("*.png"),
+                     key=lambda f: f.stat().st_mtime)[-3:] \
+            if (HOME / "uploads").is_dir() else []
+        return (f"FAILED no such image: {a.get('image')!r}. Pass the exact "
+                f"path from the <aethron-attached> note"
+                + (f"; the newest uploads are: "
+                   + ", ".join(str(u) for u in reversed(ups)) if ups else
+                   "; no image has been attached — ask the person for one")
+                + ".")
     try:
         if a.get("against"):
             # THE WORK LIST. A percentage says a rebuild is wrong; this
@@ -714,9 +774,10 @@ def t_edit_page(a):
     import json as _j
     sys.path.insert(0, str(ROOT))
     import aethron_edit as AE
-    page = Path(str(a["page"]))
+    page = page_path(a["page"])
     if not page.is_file():
-        return f"FAILED no such page: {page}"
+        return (f"FAILED no such page: {page} — give the site.html path, "
+                f"or the page name from its aethron-page card")
     html = page.read_text()
     if a.get("list") or not a.get("edits"):
         return _j.dumps(AE.manifest(html), indent=1)[:60000]
@@ -751,9 +812,10 @@ def t_adopt_page(a):
     """Stamp measurable ids onto any page, and prove the stamping changed nothing."""
     sys.path.insert(0, str(ROOT))
     import aethron_adopt as AD
-    page = Path(str(a["page"]))
+    page = page_path(a["page"])
     if not page.is_file():
-        return f"FAILED no such page: {page}"
+        return (f"FAILED no such page: {page} — give the site.html path, "
+                f"or the page name from its aethron-page card")
     rep = AD.adopt(page, int(a.get("width") or 1414), int(a.get("height") or 900),
                    int(a.get("cap") or AD.MAX_ELEMENTS),
                    write=not a.get("dry_run"), log=lambda *x: None)
@@ -769,9 +831,10 @@ def t_change_page(a):
     import tempfile as _tf
     sys.path.insert(0, str(ROOT))
     import aethron_spec as CH
-    page = Path(str(a["page"]))
+    page = page_path(a["page"])
     if not page.is_file():
-        return f"FAILED no such page: {page}"
+        return (f"FAILED no such page: {page} — give the site.html path, "
+                f"or the page name from its aethron-page card")
     budget = float(a.get("budget_usd") or 0.05)
 
     # ANY PAGE, NOT ONLY THE ONES AETHRON BUILT. The measure reads [data-ae-id]; a page
@@ -960,6 +1023,36 @@ def t_search_brand(a):
                           for h in hits], indent=1, ensure_ascii=False))
 
 
+def _find_entry(idx: dict, sec: str, old: str):
+    """The entry an agent meant when it spelled the line a little
+    differently: the image address with another ?width=, the same text
+    with its quotes or spacing changed, or the right line under another
+    section. Only an UNAMBIGUOUS match is taken."""
+    if not old:
+        return sec, None
+    norm = lambda t: re.sub(r"\s+", " ", t).strip().strip("\"'“”‘’").strip()
+    bare = lambda u: u.split("?")[0].split("#")[0]
+    for s2 in [sec] + [x for x in ("strings", "images", "links") if x != sec]:
+        ents = idx.get(s2, {})
+        if old in ents:
+            return s2, ents[old]
+        if s2 in ("images", "links") and ("://" in old or old.startswith("/")):
+            hits = [e for k, e in ents.items() if bare(k) == bare(old)]
+            if len(hits) == 1:
+                return s2, hits[0]
+        hits = [e for k, e in ents.items() if norm(k) == norm(old)]
+        if len(hits) == 1:
+            return s2, hits[0]
+    return sec, None
+
+
+def _nearest(idx: dict, old: str) -> str:
+    import difflib
+    keys = [k for ents in idx.values() for k in ents]
+    m = difflib.get_close_matches(old, keys, n=1, cutoff=0.6) if old else []
+    return m[0] if m else ""
+
+
 def t_set_content_bulk(a):
     d = pdir(str(a["project"]))
     cm = load_cm(d)
@@ -972,8 +1065,17 @@ def t_set_content_bulk(a):
         sec = item.get("section", "strings")
         tgt = idx.get(sec, {}).get(item.get("old", ""))
         if tgt is None:
-            rejected.append(f"not found in {sec}: {item.get('old','')[:50]!r}")
-            refused.append({"old": item.get("old", ""), "reason": f"not found in {sec}"})
+            sec2, tgt = _find_entry(idx, sec, item.get("old", ""))
+            if tgt is not None:      # same line, spelled a little differently
+                item = {**item, "old": tgt["old"], "section": sec2}
+                sec = sec2
+        if tgt is None:
+            near = _nearest(idx, item.get("old", ""))
+            rejected.append(f"not found in {sec}: {item.get('old','')[:50]!r}"
+                            + (f" — closest line: {near[:70]!r}" if near else
+                               " — read it with get_content first"))
+            refused.append({"old": item.get("old", ""), "reason": f"not found in {sec}",
+                            **({"closest": near} if near else {})})
             continue
         old, new = item.get("old", ""), item.get("new", "")
         if sec == "strings" and old in frag and new not in ("", old):
@@ -1473,6 +1575,11 @@ def _br():
     global _BROWSER
     import aethron_browser as AB
     if _BROWSER is None or not _BROWSER.alive():
+        if _BROWSER is not None:          # a Chrome whose connection died
+            try:
+                _BROWSER.close()
+            except Exception:
+                pass
         _BROWSER = AB.Browser()
         import atexit
         atexit.register(lambda: _BROWSER and _BROWSER.close())
@@ -2462,7 +2569,21 @@ def dispatch(msg, run=None):
         try:
             if name not in HANDLERS:
                 raise ValueError(f"unknown tool {name!r}")
-            text = HANDLERS[name](args)
+            try:
+                text = HANDLERS[name](args)
+            except Exception as e1:      # Chrome died: open again, once
+                if name != "browser_open" or not (
+                        isinstance(e1, OSError)
+                        or "connection closed" in str(e1)
+                        or "not running" in str(e1)):
+                    raise
+                global _BROWSER
+                try:
+                    _BROWSER and _BROWSER.close()
+                except Exception:
+                    pass
+                _BROWSER = None
+                text = HANDLERS[name](args)
             res = {"content": [{"type": "text", "text": str(text)}]}
             if isinstance(text, Result):
                 res["structuredContent"] = text.data
@@ -2481,6 +2602,9 @@ def dispatch(msg, run=None):
             _report_tool(name, args, text)
             return ok(res)
         except Exception as e:
+            if isinstance(e, KeyError):   # was "ERROR: 'project'"
+                e = ValueError(f"missing argument {e.args[0]!r} — "
+                               f"{name} needs it")
             if run is not None:
                 run.call(name, args, f"ERROR: {e}", True,
                          (time.time() - t0) * 1000)

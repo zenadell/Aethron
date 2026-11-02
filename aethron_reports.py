@@ -202,6 +202,12 @@ def report_exception(kind: str, step: str = "", project=None,
                      extra: dict = None) -> dict:
     """Call inside an `except` block."""
     e = sys.exc_info()[1]
+    # the other side hung up (a tab reloaded while a file was being sent):
+    # not a fault, and it was most of what came in
+    if kind == "crash" and isinstance(e, (BrokenPipeError,
+                                          ConnectionResetError,
+                                          ConnectionAbortedError)):
+        return {}
     return report(kind, step, project, error=f"{type(e).__name__}: {e}",
                   trace=traceback.format_exc(), extra=extra)
 

@@ -7086,3 +7086,50 @@ the problem-reports notice linked to the website.
   allowance shows in the Model card.
 - PROBLEM REPORTS: a "What a report contains" list in Settings, no link out.
 Batteries: team_ui, news, page_preview, conversation, limits green.
+
+## READING THE FIELD LOGS, AND WHAT THEY SHOWED — 2026-11-02
+Owner: "it was never able to completely finish any project". Cloud
+sessions NEVER receive repository secrets (Actions secrets reach only
+workflow runs), so `.github/workflows/read-logs.yml` runs
+`tools/cloud_logs.py` with SUPABASE_SERVICE_KEY and prints failure
+reports, agent runs, events, managed-AI usage and devices to its job log;
+a session reads that log with the GitHub MCP (get_job_logs). It runs on a
+push that touches either file, or by dispatch once on main. FOR NEXT TIME:
+do that instead of asking the owner for keys.
+45 days: 135 reports / 54 problems, 34 agent runs, all one Mac (v1.1.72).
+What kept runs from finishing, each now fixed and in
+tests/fieldlog_battery.py (19 checks, fails on the old code):
+- THE BRAND WAS THE TITLE'S FIRST WORD. "Webdesign Beverwijk | … | MK
+  Vision Studio" made "Webdesign" a forbidden word; it lives in the site's
+  own script, so verify FAILED 25 times in a row and no fill could clear
+  it. `_brand_of`: a title part or og:site_name that spells the host name
+  wins ("MK Vision"); a title of "Home" takes the host; else the old rule.
+  `_heal_brand_word` corrects a saved list that is exactly the old guess
+  (inventory and verify); a list the person edited is never touched.
+- A DROPPED CHROME CONNECTION WAS FOREVER: alive() checked only the
+  process, so every later browser_open answered "Broken pipe". The pump
+  marks the browser dead, _br() replaces it, and browser_open retries once.
+- FALSE "N of M images did not load": lazy images not yet requested
+  (complete=false) and size-less SVGs (naturalWidth 0) counted as broken
+  ("29 of 60" on teamalldry with every request served). Lazy = waiting;
+  an SVG whose request returned 2xx (performance entry) is loaded. Same
+  in the preview check.
+- A FILE THE ORIGIN LACKS failed verify when spelled "%20" in one list and
+  a space in the other; upstream comparisons are now decoded.
+- set_content took no near-miss: another ?width=, quotes, or the right line
+  under another section is resolved when unambiguous; a refusal names the
+  closest line. A missing argument says which ("ERROR: 'project'" before).
+- "[ede_diagnostic] … stop_reason=tool_use" = the engine ended a turn after
+  a step, before the model answered. The screen now says so in words and
+  carries on (reconnectRun, at most RECOVER_MAX).
+- probe --all scales its limit with pages (90s each, up to 1h) and a
+  timeout returns what finished; create_project from a URL gets 20 min and
+  removes a half-made folder.
+- change_page/edit_page/adopt_page take "aethron-page: <name>"; a bad image
+  path to measure_screenshot lists the real uploads.
+- BrokenPipe/ConnectionReset in the studio (a tab reloading mid-send) are
+  no longer reported — they were ~50 of the 135.
+NOT a product fault, left as is: the agent asking for slugs/URLs that are
+not lines (refused correctly), remove_element on words not on the page.
+NOT reproduced here: fetch of mkvision took 29s on the Mac; in this
+container the learn pass ran past 25 min (container Chromium is slow).
