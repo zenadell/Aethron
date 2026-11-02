@@ -657,7 +657,14 @@ IMAGES_JS = r"""
     var im = list[i];
     if (!im.getAttribute('src') && !im.getAttribute('srcset')) continue;
     n++;
-    if (im.complete && im.naturalWidth === 0 && dead.length < 20) {
+    var svgOk = false;          // an SVG with no size decodes as width 0
+    try {
+     var u = im.currentSrc || im.src, es = performance.getEntriesByName(u);
+     for (var k = 0; k < es.length; k++)
+      if (es[k].responseStatus >= 200 && es[k].responseStatus < 300 &&
+          /\.svg(\?|#|$)/i.test(u)) svgOk = true;
+    } catch (e) {}
+    if (im.complete && im.naturalWidth === 0 && !svgOk && dead.length < 20) {
      var r = im.getBoundingClientRect();
      dead.push({src: im.currentSrc || im.src, w: Math.round(r.width),
                 h: Math.round(r.height), alt: im.alt || ''});

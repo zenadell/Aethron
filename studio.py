@@ -15542,6 +15542,22 @@ async function pollCode(){
          Running and the button stayed a stop long after the reply had
          failed. The client ends its own turn the moment a done, error or
          exit arrives; the server catching up later changes nothing. */
+      /* A TURN THAT STOPPED AFTER A STEP IS NOT FINISHED. The engine
+         ends with "[ede_diagnostic] … stop_reason=tool_use" when a step's
+         result was never answered (the model call after it was cut). 8 of
+         the reports were this; the run just halted mid-migration. Carry on,
+         like a stall: same conversation, at most RECOVER_MAX times. */
+      const cut=r.events.find(e=>e.type==='done'&&e.error
+        &&String(e.text||'').startsWith('[ede_diagnostic]'));
+      if(cut&&CODE.key&&(CODE.recoveries||0)<RECOVER_MAX){
+        const key=CODE.key;CODE.key='';
+        try{await api('/api/code/stop',{key});}catch(e){}
+        CODE.recoveries=(CODE.recoveries||0)+1;
+        CODE.events=CODE.events.filter(e=>e!==cut);
+        CODE.events.push({type:'recover',n:CODE.recoveries});
+        renderChat();
+        try{await reconnectRun();return;}catch(e){CODE.events.push(cut);}
+      }
       if(r.events.some(e=>['done','error','exit'].includes(e.type))){
         if(r.events.some(e=>e.type==='exit')||!r.alive)CODE.key='';
         endTurn();
@@ -18985,7 +19001,10 @@ function humanErr(raw){
   const t=String(raw||'');
   const has=(...k)=>k.every(x=>t.toLowerCase().includes(x));
   let msg=null;
-  if(/\b429\b/.test(t)&&has('quota'))
+  if(t.startsWith('[ede_diagnostic]'))
+    msg='The run stopped right after a step, before the model answered. '
+       +'Nothing that finished was lost; send “continue” to pick up from there.';
+  else if(/\b429\b/.test(t)&&has('quota'))
     msg="Today's free quota on this key is spent. Aethron will use the "
        +"next key automatically; to keep going now, switch provider or "
        +"key in Settings.";

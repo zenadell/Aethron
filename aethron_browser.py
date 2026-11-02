@@ -300,7 +300,8 @@ class Browser:
                 self.tmp = None
 
     def alive(self) -> bool:
-        return bool(self.ws and self.proc and self.proc.poll() is None)
+        return bool(self.ws and not getattr(self, "dead", False)
+                    and self.proc and self.proc.poll() is None)
 
     # ── protocol ───────────────────────────────────────────────────────
     def _pump(self):
@@ -316,6 +317,10 @@ class Browser:
                     self._event(m)
         except Exception:
             pass
+        # the connection is gone for good: say so, so the next tool call
+        # starts a new browser instead of writing into a dead socket
+        # (every browser_open answered "Broken pipe" until the app quit)
+        self.dead = True
         for q in list(self.waiting.values()):
             q.put({"error": {"message": "browser connection closed"}})
 
@@ -344,7 +349,7 @@ class Browser:
 
     def send(self, method, params=None, timeout=30, wait=True,
              session: bool = False):
-        if not self.ws:
+        if not self.ws or getattr(self, "dead", False):
             raise BrowserError("browser is not running")
         self.mid += 1
         mid = self.mid
@@ -354,7 +359,12 @@ class Browser:
         q = queue.Queue()
         if wait:
             self.waiting[mid] = q
-        self.ws.send(json.dumps(msg))
+        try:
+            self.ws.send(json.dumps(msg))
+        except OSError:                   # Chrome went away under us
+            self.dead = True
+            self.waiting.pop(mid, None)
+            raise BrowserError("browser connection closed")
         if not wait:
             return {}
         try:

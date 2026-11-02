@@ -168,9 +168,23 @@ VISIBLE_JS = r"""
     for (var i = 0; i < list.length; i++) {
       var im = list[i];
       if (!im.getAttribute('src')) continue;
+      // a lazy image below the fold has not been asked for yet: it is
+      // waiting, not broken (29 of 60 "did not load" on real sites)
+      if (!im.complete) continue;
       imgs++;
-      if (im.complete && im.naturalWidth > 0) ok++;
-      else if (broke.length < 8) broke.push(im.currentSrc || im.src);
+      if (im.naturalWidth > 0) { ok++; continue; }
+      // an SVG with no width/height decodes with naturalWidth 0 in
+      // Chrome; ask the network whether the file actually arrived
+      var u = im.currentSrc || im.src, got = false;
+      try {
+        var es = performance.getEntriesByName(u);
+        for (var k = 0; k < es.length; k++) {
+          var rs = es[k].responseStatus;
+          if (rs >= 200 && rs < 300 && /\.svg(\?|#|$)/i.test(u)) got = true;
+        }
+      } catch (e) {}
+      if (got) ok++;
+      else if (broke.length < 8) broke.push(u);
     }
   } catch (e) {}
   var out = {text_seen: seen, text_painted: painted, text_parked: parked,

@@ -66,6 +66,9 @@ SUITES = [
      [PY, "tests/browser_battery.py"], False),
     ("engine battery (copy changes, code and addresses do not)",
      [PY, "tests/engine_battery.py"], False),
+    # what the uploaded failure reports showed, held as checks
+    ("field-log battery (faults from real migrations)",
+     [PY, "tests/fieldlog_battery.py"], False),
     # Saved providers: a switch changes what runs, and nothing else.
     ("provider battery (one-click switch, no Gemini left behind)",
      [PY, "tests/provider_battery.py"], False),
