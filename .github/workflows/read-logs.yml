@@ -1,0 +1,20 @@
+name: Read app logs
+# Prints what installed copies uploaded (failure reports, agent runs, events)
+# so a cloud session, which never receives repository secrets, can read them
+# from this run's log.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["claude/**"]
+    paths: ["tools/cloud_logs.py", ".github/workflows/read-logs.yml"]
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read logs
+        env:
+          AETHRON_SUPABASE_URL: ${{ secrets.AETHRON_SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 tools/cloud_logs.py 45
