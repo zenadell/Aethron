@@ -6735,6 +6735,13 @@ or Webflow template Aethron finds itself.
   (tests/pages/templates/). Proven live: "calm dental clinic" -> Dentelle,
   Verde Clinic, ReoDental (Framer, free); Webflow free list read.
 NOT PROVEN: a whole live run of the agent choosing and migrating.
+FOLLOW-UP (#79, #80): the home rail (System / Live sites / Your work /
+Your projects) now STAYS beside a Home conversation; the talk is padded
+320px for it (min-width 1101px only), and renderChat no longer hides the
+project gallery. RELEASES 78-81 FAILED IN SECONDS: GitHub Actions minutes
+were used up, so the merged code reached main but no app was built; the
+owner built locally until the minutes reset. This connection cannot
+re-run a workflow (403) — a new merge to main is what starts a release.
 
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
