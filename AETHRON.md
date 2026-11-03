@@ -7140,3 +7140,25 @@ NOT a product fault, left as is: the agent asking for slugs/URLs that are
 not lines (refused correctly), remove_element on words not on the page.
 NOT reproduced here: fetch of mkvision took 29s on the Mac; in this
 container the learn pass ran past 25 min (container Chromium is slow).
+
+## "NO RESPONSE REQUESTED." — A RECONNECT THAT NEVER CONTINUED — 2026-11-03
+Owner, on 1.1.82 (gpt-6-luna, Aethron AI), a Home run of 134 steps: every
+reconnect drew "The connection to the model dropped while you were
+working. Carry on…" as if the PERSON had said it, and the model answered
+"No response requested." — so the run never continued, and reconnected
+again into the same answer. A model told only that something happened
+reads it as a notice. reconnectRun now sends the person's own last
+request as a task ("Continue the work now… My request was: …") inside
+<aethron-resume>…</aethron-resume>; the transcript reader drops text that
+starts with "<", so it is never drawn as theirs after a restart.
+Same report, two UI faults: NEW only went Home, and Home reopens its last
+conversation, so New showed the same chat — newProject() now stops a Home
+run, forgets Home's conversation (/api/code/forget console) and goes
+home; goHome() (the logo, restoring a view, Home in the palette, news)
+keeps the chat. And the right-rail projects gallery was rendered with
+`hidden` whenever a chat was on screen (#80 only fixed renderChat), so
+after any restart it never showed. tests/chatui_battery.py 12/12 (in
+run_all); the old studio fails 6.
+TEST-ENVIRONMENT NOTE: cloud containers may have NO Python playwright —
+every browser battery then reports SKIPPED (correctly). `pip install
+playwright` and the batteries fall back to /opt/pw-browsers/chromium.

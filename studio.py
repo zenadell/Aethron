@@ -13679,7 +13679,7 @@ input.sw:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .pubfoot .pubacct{font-size:12px}
 </style></head><body>
 <aside>
-  <div class="brand" onclick="newProject()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
+  <div class="brand" onclick="goHome()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
   <div class="find"><span data-ic="search" data-ics="13"></span>
     <input id="findq" placeholder="Search" autocomplete="off" spellcheck="false"
      oninput="runFind(this.value)"
@@ -14649,7 +14649,7 @@ async function goBack(){
   const open={settings:openSettings,library:openLibrary,runs:openRuns,
               code:openCode,design:openDesign}[view];
   if(open)return open();
-  newProject();
+  goHome();
 }
 document.addEventListener('keydown',e=>{
   const t=e.target,typing=t&&(t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
@@ -15365,9 +15365,21 @@ async function reconnectRun(){
   const r=await api('/api/code/start',body);
   CODE.key=r.key;CODE.since=0;
   CODE.permissionPolicy=r.permission_policy||CODE.permissionPolicy;
-  const text='The connection to the model dropped while you were working. '
-    +'Carry on from exactly where you stopped: do not repeat steps that already '
-    +'finished, and check the project with the tools before assuming anything changed.';
+  /* A NOTICE GETS A NOTICE BACK. Told only "the connection dropped", a
+     model answers "No response requested." and the run never continues
+     (seen live, twice in a row). So the person's own last request goes
+     with it, as a task. Tagged, so a restored conversation does not draw
+     it as something the person said. */
+  let ask='';
+  for(let i=CODE.events.length-1;i>=0;i--){
+    const e=CODE.events[i];
+    if(e.type==='you'&&!e.auto&&String(e.text||'').trim()){ask=String(e.text).trim();break;}
+  }
+  const text='<aethron-resume>The connection to the model dropped in the middle of my '
+    +'request, so this is a new session on the same conversation. Continue the work '
+    +'now and keep going until it is done: check the project with the tools first, do '
+    +'not repeat steps that already finished, and do not stop to ask.'
+    +(ask?'\n\nMy request was:\n'+ask.slice(0,4000):'')+'</aethron-resume>';
   CODE.lastEv=Date.now();
   await api('/api/code/send',{key:CODE.key,text});
   if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
@@ -15895,6 +15907,19 @@ async function signOut(){
    dead. It was doing its job and being overruled by one stale field.
    Everything that returns to the front door goes through here now. */
 function newProject(){
+  /* NEW MEANS A NEW CHAT. Home reopens its last conversation, so "New"
+     only going Home showed the same chat again. A run still going is
+     stopped first, or it would keep working on a conversation nobody can
+     see any more. */
+  if(CODE.poll){clearInterval(CODE.poll);CODE.poll=0;}
+  if(CODE.owner===''&&CODE.key)api('/api/code/stop',{key:CODE.key}).catch(()=>{});
+  CODE.loadTok=(CODE.loadTok||0)+1;          // a history read in flight is dropped
+  CODE.owner='';CODE.key='';CODE.events=[];CODE.since=0;CODE.slowNote='';
+  CODE.nudges=0;CODE.recoveries=0;CODE.known=true;CODE.runT0=0;
+  CODE.loading=api('/api/code/forget',{console:true}).catch(()=>{});
+  goHome();
+}
+function goHome(){
   S.view=''; S.cur=null; S.cm=null; S.panel=false; S.tab='chat';
   closePvw&&closePvw();
   const c=document.getElementById('content');
@@ -16208,7 +16233,7 @@ function homeGallery(){
   const all=S.projects||[];
   if(!all.length)return '';
   const ps=all.slice().sort((a,b)=>(b.edited||0)-(a.edited||0)).slice(0,6);
-  return `<section class="hgal" id="hgal" ${CODE.events.length?'hidden':''}>
+  return `<section class="hgal" id="hgal">
     <div class="hgal-h"><span>Your projects</span>
       ${all.length>ps.length?`<span class="hgal-n">${ps.length} of ${all.length} &middot; the rest are in the sidebar</span>`:''}</div>
     <div class="hgrid">${ps.map((p,i)=>{
@@ -16711,7 +16736,7 @@ function cmdkItems(){
     out.push({...P('hammer'),t:'Build the site',k:'rebuild apply',run:()=>runStep('build')});
     out.push({...P('compass'),t:'Open in browser',k:'browser tab',run:()=>openInBrowser()});
   }
-  out.push({g:'Go to',ic:'home',t:'Home',k:'start new project welcome',run:()=>newProject()});
+  out.push({g:'Go to',ic:'home',t:'Home',k:'home welcome',run:()=>goHome()});
   out.push({g:'Go to',ic:'plus',t:'New project',k:'create import template url',run:()=>newProject()});
   out.push({g:'Go to',ic:'terminal',t:'Code workspace',k:'ide code files',run:()=>openCode()});
   out.push({g:'Go to',ic:'library',t:'Design library',k:'library designs',run:()=>openLibrary()});
@@ -20780,7 +20805,7 @@ async function newsGo(go){
   newsClose();
   if(go==='runs'){ await openRuns(); return aeSpot('#runsbtn','Every agent call is listed here'); }
   if(go==='back'){ openSettings(); return aeSpot('#backbtn','This takes you back to where you were'); }
-  if(go==='home'){ newProject(); return aeSpot('#hgal','Your projects, with a picture of each site'); }
+  if(go==='home'){ goHome(); return aeSpot('#hgal','Your projects, with a picture of each site'); }
   if(go==='cmdk'){ return cmdkOpen(); }
   if(go==='publish'){
     const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);

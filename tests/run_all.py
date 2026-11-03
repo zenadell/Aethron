@@ -231,6 +231,8 @@ SUITES = [
     ("what's new card (real browser)", [PY, "tests/news_battery.py"], False),
     ("attached images are seen (engine + browser)", [PY, "tests/image_battery.py"], False),
     ("a stalled provider is retried, the run carries on", [PY, "tests/stall_battery.py"], False),
+    ("the Home chat: New, the projects rail, a reconnect that continues",
+     [PY, "tests/chatui_battery.py"], False),
     ("a conversation survives a restart, at Home and in its project",
      [PY, "tests/conversation_battery.py"], False),
     ("a rebuilt page opens in the preview (tool + browser)",
