@@ -7162,3 +7162,20 @@ run_all); the old studio fails 6.
 TEST-ENVIRONMENT NOTE: cloud containers may have NO Python playwright —
 every browser battery then reports SKIPPED (correctly). `pip install
 playwright` and the batteries fall back to /opt/pw-browsers/chromium.
+
+## AN INTRO VIDEO IS MEDIA TOO — 2026-11-03
+Owner asked how Aethron would change mkvision's opening loader. Measured:
+it is a VIDEO, not code (<video><source src=".../preloader-wide.mp4">
+and preloader-tall.mp4 for portrait). Inventory listed only pictures, so
+it could not be swapped, and image_problem refused any video address as
+"not an image". Now: inventory takes <video>/<source> src and poster,
+framerusercontent /assets/*.mp4|webm|mov from pages AND chunks (a Framer
+video component keeps its file in code), and recorded-data video URLs;
+image_problem accepts video/*. A static site spells one file differently
+per folder depth ("assets/…", "../assets/…"); set_content_bulk now fills
+a filled image's unfilled twins (same path without leading ./ ../).
+Proven on the mkvision capture: 14 video entries, wide intro swapped on
+all 41 pages. fieldlog battery 19 -> 25. NOT built yet: generating a new
+intro animation (render the brand wordmark to a short video) — the next
+step if the owner wants one; removing the intro already works via
+remove_element.

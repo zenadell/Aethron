@@ -301,11 +301,11 @@ def image_problem(url: str, _seen={}):
             head = r.read(16)
         magic = (head[:4] in (b"\x89PNG", b"GIF8", b"RIFF")
                  or head[:3] == b"\xff\xd8\xff" or b"ftyp" in head[:12])
-        ok = ctype.startswith("image/") or (
+        ok = ctype.startswith(("image/", "video/")) or (
             ctype in ("", "application/octet-stream", "binary/octet-stream")
             and magic)
         why = "" if ok else (f"the address answers with {ctype or 'no type'}, "
-                             "not an image")
+                             "not an image or video")
     except urllib.error.HTTPError as e:
         why = f"the address answers {e.code} — it does not load"
     except Exception:
@@ -1100,6 +1100,18 @@ def t_set_content_bulk(a):
             continue
         tgt["new"] = item.get("new", "")
         applied += 1
+        if sec == "images" and not re.match(r"[a-z]+:", old):
+            # ONE FILE, SEVERAL SPELLINGS. A page two folders deep writes
+            # "../../assets/media/intro.mp4" for the same file the home
+            # page calls "assets/media/intro.mp4"; filling one spelling
+            # left the deeper pages showing the old one. Its unfilled
+            # twins (same path once the leading ./ and ../ are gone)
+            # take the same new value.
+            key = re.sub(r"^(?:\.\.?/)+", "", old.lstrip("/"))
+            for e in cm.get("images", []):
+                if e is not tgt and not e.get("new") and \
+                        re.sub(r"^(?:\.\.?/)+", "", e["old"].lstrip("/")) == key:
+                    e["new"] = tgt["new"]
     save_cm(d, cm)
     out = f"applied {applied}, rejected {len(rejected)}"
     if rejected:
