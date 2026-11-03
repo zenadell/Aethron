@@ -304,6 +304,38 @@ def main():
     sleeper2.kill()
     J.update("north", status="done", pid=0)
 
+    print("H2. Aethron's own chat agent does not fill a template")
+    import aethron_access
+    secret = "chat-test-secret-0123456789"
+    (Path(os.environ["AETHRON_HOME"]) / ".mcp_internal").write_text(secret)
+    os.environ[aethron_access.INTERNAL_ENV] = secret
+    cmn = json.loads((d0 := home / "projects" / "north" / "copy_map.json").read_text())
+    saved = d0.read_text()
+    for e in cmn["strings"]:
+        e["new"] = ""
+    while len(cmn["strings"]) < 30:
+        cmn["strings"].append({"old": f"Filler line number {len(cmn['strings'])}", "new": ""})
+    d0.write_text(json.dumps(cmn))
+    many = [{"old": e["old"], "new": "x"} for e in cmn["strings"][:12]]
+    def call(name, args):
+        return json.dumps(forge_mcp.dispatch({"jsonrpc": "2.0", "id": 9,
+            "method": "tools/call", "params": {"name": name, "arguments": args}}))
+    big = call("set_content_bulk", {"project": "north", "entries": many, "build": False})
+    ck("writing many empty lines from the chat is refused, pointing at start_migration",
+       "NOT DONE" in big and "start_migration" in big, big[:300])
+    one = call("set_content", {"project": "north", "old": many[0]["old"], "new": "Hello", "build": False})
+    ck("one named line is still written", "NOT DONE" not in one, one[:300])
+    inv = call("inventory", {"project": "north"})
+    ck("inventory from the chat is refused", "NOT DONE" in inv and "start_migration" in inv, inv[:200])
+    os.environ["AETHRON_JOB_SELF"] = "north"
+    job = call("set_content_bulk", {"project": "north", "entries": many[1:], "build": False})
+    del os.environ["AETHRON_JOB_SELF"]
+    ck("the job itself writes them", "NOT DONE" not in job, job[:300])
+    del os.environ[aethron_access.INTERNAL_ENV]
+    ext = call("set_content_bulk", {"project": "north", "entries": many, "build": False})
+    ck("an outside agent over MCP is not limited", "NOT DONE" not in ext, ext[:300])
+    d0.write_text(saved)
+
     import aethron_healer
     d = home / "projects" / "north"
     keep = sum(1 for e in json.loads((d / "copy_map.json").read_text())
@@ -444,7 +476,13 @@ def ui(home, src, J):
                 api=async(u,b)=>{if(u==='/api/job/start'){hit=b;return{status:'running'}}return real(u,b)};
                 const was=[S.cur,S.info];S.cur='north';S.info={total:10,filled:3,built:true};
                 const a=await routeToJob('finish up then'),c=await routeToJob('change the hero colour to blue');
-                [S.cur,S.info]=was;api=real;return [a,c,hit&&hit.project]}""")
+                [S.cur,S.info]=was;api=real;
+                const yes=['Done? Finish up','ok continue','are we done? keep going','Finish it','wrap it up'].map(isWholeJob);
+                const no=['finish up but change the logo','continue with the hero title','what is left?'].map(isWholeJob);
+                return [a,c,hit&&hit.project,yes,no]}""")
+            ck("'Done? Finish up' and its kin are whole-job requests",
+               all(r[3]), str(r[3]))
+            ck("a request that names a change is not", not any(r[4]), str(r[4]))
             ck("'finish up' goes straight to the background job, not the model",
                r[0] is True and r[2] == "north", str(r))
             ck("a real request still goes to the agent", r[1] is False, str(r))

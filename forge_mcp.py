@@ -2644,6 +2644,53 @@ def _job_busy(name, args) -> str:
         return ""
 
 
+# THE CHAT DOES NOT MIGRATE. Writing a project's empty copy, scraping and
+# reading a template in are the background job's work (start_migration):
+# done from the chat, a model filled lines 40 at a time for hours, on every
+# token of the conversation, beside a job doing the same. Aethron's own
+# agent may still change the lines a person names.
+CHAT_FILL_MAX = 5        # empty lines one chat call may write ...
+CHAT_FILL_LEFT = 20      # ... while more than this many are still empty
+
+
+def _chat_does_job(name, args) -> str:
+    try:
+        import aethron_access
+        if not aethron_access._is_internal(os.environ) \
+                or os.environ.get("AETHRON_JOB_SELF"):
+            return ""
+    except Exception:
+        return ""
+    a = args or {}
+    go = ("Call start_migration instead (project=<name>, and url=<address> "
+          "for a new one): the background job reads the template in, writes "
+          "every empty line, builds and checks, and resumes on its own. Then "
+          "tell the person it is running; its card shows the progress.")
+    if name == "create_project" or (name in ("fetch", "inventory")):
+        return (f"NOT DONE: {name} is part of a migration, which the "
+                "background job runs, not the chat. " + go)
+    if name not in ("set_content", "set_content_bulk"):
+        return ""
+    try:
+        d = pdir(str(a.get("project") or ""))
+        cm = load_cm(d)
+    except Exception:
+        return ""
+    empty = {e.get("old") for e in cm.get("strings", []) if not e.get("new")}
+    if len(empty) <= CHAT_FILL_LEFT:
+        return ""
+    items = a.get("entries") if name == "set_content_bulk" else [a]
+    new = sum(1 for it in (items or [])
+              if (it.get("section") or "strings") == "strings"
+              and it.get("old") in empty)
+    if new <= CHAT_FILL_MAX:
+        return ""
+    return (f"NOT DONE: this writes {new} empty lines of {d.name}, and "
+            f"{len(empty)} are still empty. Filling the copy is the "
+            "background job's work, not the chat's. " + go +
+            " Change the lines the person names one by one with set_content.")
+
+
 def dispatch(msg, run=None):
     """One JSON-RPC message in, its reply out (None for a notification).
     The same answers whether the message came over stdio or HTTP. `run`
@@ -2676,7 +2723,7 @@ def dispatch(msg, run=None):
             if not allowed:
                 return ok({"content": [{"type": "text", "text": why}],
                            "isError": True})
-        busy = _job_busy(name, args)
+        busy = _job_busy(name, args) or _chat_does_job(name, args)
         if busy:
             if run is not None:
                 run.call(name, args, busy, False, 0, None)
