@@ -40,7 +40,11 @@ STEPS = [("create_project", {"name": NAME, "url": URL}, 900),
          ("learn_brand", {"project": NAME, "max_pages": 3,
                           "sources": ["https://www.jomiez.com/"]}, 300),
          ("search_brand", {"project": NAME,
-                           "query": "What services does the studio offer?"}, 120)]
+                           "query": "What services does the studio offer?"}, 120),
+         # the background job, inside the bundle: `Aethron --job` must run
+         # the pipeline. With no brief and no key it stops at the brief and
+         # asks, which proves the role without spending anything.
+         ("start_migration", {"project": NAME}, 120)]
 
 
 def stray_apps(own_pid):
@@ -55,6 +59,7 @@ def stray_apps(own_pid):
             continue
         pid, cmd = int(parts[0]), parts[2]
         if pid == own_pid or " --forge" in cmd or " --mcp" in cmd \
+                or " --job" in cmd \
                 or " --permission-mcp" in cmd:
             continue
         bad.append(cmd[:160])
@@ -121,6 +126,23 @@ def main():
         if bad:
             ok_all = False
             break
+    job = {}
+    jf = home / "jobs" / NAME / "state.json"
+    t = time.time()
+    while ok_all and time.time() - t < 600:
+        try:
+            job = json.loads(jf.read_text())
+        except (OSError, ValueError):
+            job = {}
+        if job.get("status") in ("waiting", "done", "failed"):
+            break
+        time.sleep(2)
+    job_ok = job.get("status") == "waiting" and all(
+        (job.get("steps") or {}).get(k, {}).get("status") == "done"
+        for k in ("source", "fetch", "inventory"))
+    print(f"  background job ran in the bundle: {job.get('status')} "
+          f"— {job.get('question') or job.get('error') or ''}"[:200])
+    ok_all = ok_all and job_ok
     stop.set()
     p.stdin.close()
     try:

@@ -147,6 +147,10 @@ def main():
         run_forge_mode(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "--mcp":
         run_mcp_mode()
+    if len(sys.argv) > 1 and sys.argv[1] == "--job":
+        # a background migration job (aethron_jobs): same binary, own role
+        import aethron_jobs
+        sys.exit(aethron_jobs.run(sys.argv[2]) if len(sys.argv) > 2 else 2)
     if len(sys.argv) > 1 and sys.argv[1] == "--permission-mcp":
         run_permission_mcp_mode()
 
