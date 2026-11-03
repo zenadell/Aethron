@@ -18,6 +18,7 @@ Proves:
   * the MCP tool starts it and says it runs in the background.
 """
 import json
+import subprocess
 import os
 import shutil
 import signal
@@ -264,6 +265,45 @@ def main():
     ck("and it finishes", s.get("status") == "done", s.get("error"))
     ck("migration_status reads the result",
        "DONE" in forge_mcp.t_migration_status({"project": "north5"}))
+
+    print("G. alive but wedged in the check, and a repair that undoes")
+    sleeper = subprocess.Popen(["sleep", "600"], start_new_session=True)
+    J.update("north5", status="running", pid=sleeper.pid,
+             heartbeat=time.time(), step="check",
+             steps={"check": {"status": "live"}})
+    old = time.time() - J.HUNG - 60
+    os.utime(J._jdir("north5") / "log.txt", (old, old))
+    acted = J.supervise()
+    time.sleep(0.5)
+    ck("a runner whose heart beats but whose log is silent is replaced",
+       ("north5", "resumed") in acted and sleeper.poll() is not None,
+       str(acted))
+    s = wait(J, "north5")
+    ck("and the replacement finishes the check", s.get("status") == "done",
+       f"{s.get('status')}: {s.get('error')}")
+    import aethron_healer
+    d = home / "projects" / "north"
+    keep = sum(1 for e in json.loads((d / "copy_map.json").read_text())
+               ["strings"] if e.get("new"))
+    real = aethron_healer.heal
+
+    def undoing(proj, **kw):
+        cm = json.loads((Path(proj) / "copy_map.json").read_text())
+        for e in cm["strings"]:
+            e["new"] = ""
+        (Path(proj) / "copy_map.json").write_text(json.dumps(cm))
+        return {"ok": False, "stage": "agent-round-1", "evidence": {}}
+    aethron_healer.heal = undoing
+    try:
+        J.step_check("north", {})
+    finally:
+        aethron_healer.heal = real
+    got = sum(1 for e in json.loads((d / "copy_map.json").read_text())
+              ["strings"] if e.get("new"))
+    ck("lines a repair round wiped are put back", got == keep and keep > 0,
+       f"{got} of {keep}")
+    ck("and the log says so", "put them back" in "\n".join(
+        J.log_tail("north", 20)))
 
     print("F. the card in the app")
     ui(home, src, J)

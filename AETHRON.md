@@ -7244,3 +7244,18 @@ all 41 pages. fieldlog battery 19 -> 25. NOT built yet: generating a new
 intro animation (render the brand wordmark to a short video) — the next
 step if the owner wants one; removing the intro already works via
 remove_element.
+
+## STUCK ON "CHECKING IT IN A BROWSER" — 2026-11-03
+Owner, bloop-ai on 1.1.87: fill wrote 1110 of 1264, build done, then the
+check step sat for ages and the project read 0/1264 filled. Their Mac's
+job log could not be read from the cloud session; from the code:
+- the check ran the healer with 2 agent rounds of up to 30 min each, plus
+  a build/verify/probe around each, all hidden behind one card line;
+- the watchdog judged "stuck" by the HEARTBEAT, a thread that keeps
+  beating while the work is wedged, so it never replaced it;
+- a repair agent can call undo, which walks back through the fill's own
+  snapshots (the likely 0/1264; "edited 54 min ago" fits a restored file).
+FIXED: one agent round, 10 min (AETHRON_JOB_AGENT_SECONDS); the card's
+check line shows the healer's stage; stuck = no log line for HUNG while
+the heart still beats; copy lost during the check is put back and rebuilt.
+job battery 32 -> 36.
