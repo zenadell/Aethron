@@ -7272,3 +7272,18 @@ the update first ("Finding the update…" until the feed answers). Clears
 itself when the version is fine. Animates once on arrival only — a
 repaint re-ran the entrance, and the first screenshot caught it blank.
 team_ui battery 21 -> 25.
+
+## "FINISH UP" RAN THE OLD WAY BESIDE THE NEW ONE — 2026-11-03
+Owner, bloop-ai: while the background job was on its check step, "finish
+up then" made deepseek-flash do the work itself in the chat (heal,
+rebuild, verify, read the copy) — rule 8 says call start_migration, and a
+cheap model ignored it. Two workers on one project undo each other.
+- THE WINDOW ROUTES IT: a short whole-job request (finish up / continue /
+  keep going / carry on / go ahead / do the rest…, WHOLE_JOB in studio)
+  in a project with work left starts or continues the job directly;
+  the model is not asked. Anything longer still goes to the agent.
+- THE TOOLS REFUSE IT: while a job runs on a project, MCP tools that
+  write, build or undo it (JOB_OWNED) answer "NOT DONE: a background
+  migration job is working on…"; reads still answer. The job's own
+  process sets AETHRON_JOB_SELF, so it and its repair agent pass.
+job battery 36 -> 41.

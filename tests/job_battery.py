@@ -281,6 +281,29 @@ def main():
     s = wait(J, "north5")
     ck("and the replacement finishes the check", s.get("status") == "done",
        f"{s.get('status')}: {s.get('error')}")
+    print("H. a second worker on the same project is refused")
+    import forge_mcp
+    sleeper2 = subprocess.Popen(["sleep", "600"], start_new_session=True)
+    J.update("north", status="running", pid=sleeper2.pid,
+             heartbeat=time.time(), step="fill")
+    msg = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+           "params": {"name": "set_content_bulk", "arguments": {
+               "project": "north", "entries": [], "build": False}}}
+    out = json.dumps(forge_mcp.dispatch(msg))
+    ck("the chat agent cannot write lines while the job works",
+       "NOT DONE" in out and "background migration job" in out, out[:300])
+    rd = json.dumps(forge_mcp.dispatch({"jsonrpc": "2.0", "id": 2,
+         "method": "tools/call", "params": {"name": "migration_status",
+         "arguments": {"project": "north"}}}))
+    ck("but it can still read where the job is", "NOT DONE" not in rd)
+    os.environ["AETHRON_JOB_SELF"] = "north"
+    own = json.dumps(forge_mcp.dispatch(msg))
+    del os.environ["AETHRON_JOB_SELF"]
+    ck("and the job's own process is let through", "NOT DONE" not in own,
+       own[:300])
+    sleeper2.kill()
+    J.update("north", status="done", pid=0)
+
     import aethron_healer
     d = home / "projects" / "north"
     keep = sum(1 for e in json.loads((d / "copy_map.json").read_text())
@@ -417,6 +440,14 @@ def ui(home, src, J):
             except Exception:
                 drawn = False
             ck("a start_migration step in the chat shows the job's card", drawn)
+            r = pg.evaluate("""async()=>{const real=api;let hit=null;
+                api=async(u,b)=>{if(u==='/api/job/start'){hit=b;return{status:'running'}}return real(u,b)};
+                const was=[S.cur,S.info];S.cur='north';S.info={total:10,filled:3,built:true};
+                const a=await routeToJob('finish up then'),c=await routeToJob('change the hero colour to blue');
+                [S.cur,S.info]=was;api=real;return [a,c,hit&&hit.project]}""")
+            ck("'finish up' goes straight to the background job, not the model",
+               r[0] is True and r[2] == "north", str(r))
+            ck("a real request still goes to the agent", r[1] is False, str(r))
             ck("no page errors", not errs, "; ".join(errs[:3]))
             b.close()
     finally:

@@ -714,6 +714,7 @@ def run(project: str):
         print(f"another runner ({other}) has this job")
         return 0
     update(project, pid=me, status="running", heartbeat=time.time())
+    os.environ["AETHRON_JOB_SELF"] = project   # its own tools are let through
     beat = threading.Event()
 
     def heart():

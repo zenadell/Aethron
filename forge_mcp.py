@@ -2607,6 +2607,43 @@ def _control_why():
         return ""
 
 
+# TWO WORKERS ON ONE PROJECT UNDO EACH OTHER. While the background
+# migration job works on a project, anything that writes, builds or undoes
+# it from outside the job is refused — the job's own process (and the
+# repair agent it starts) carries AETHRON_JOB_SELF and is let through.
+JOB_OWNED = {"set_content", "set_content_bulk", "build", "heal", "undo",
+             "fetch", "inventory", "set_plan", "remove_element",
+             "remove_page", "add_style", "replace_image_slots",
+             "localize_assets", "set_link", "hide_text", "learn_brand"}
+
+
+def _job_busy(name, args) -> str:
+    if name not in JOB_OWNED:
+        return ""
+    proj = str((args or {}).get("project") or "")
+    if not proj:
+        return ""
+    try:
+        import aethron_jobs as J
+        p = J.slug(proj)
+        if os.environ.get("AETHRON_JOB_SELF") == p:
+            return ""
+        st = J.read(p)
+        if not (st and J.running(st)):
+            return ""
+        s = J.summary(p) or {}
+        pr = s.get("progress") or {}
+        done = f", {pr.get('done', 0)} of {pr.get('total', 0)} lines written" \
+            if pr.get("total") else ""
+        return (f"NOT DONE: a background migration job is working on {p} "
+                f"right now (step: {st.get('step') or 'starting'}{done}). It "
+                "writes the copy, builds and checks by itself — do not do it "
+                "by hand. Tell the person it is running and that its card in "
+                "the app shows the progress; migration_status reads it.")
+    except Exception:
+        return ""
+
+
 def dispatch(msg, run=None):
     """One JSON-RPC message in, its reply out (None for a notification).
     The same answers whether the message came over stdio or HTTP. `run`
@@ -2639,6 +2676,11 @@ def dispatch(msg, run=None):
             if not allowed:
                 return ok({"content": [{"type": "text", "text": why}],
                            "isError": True})
+        busy = _job_busy(name, args)
+        if busy:
+            if run is not None:
+                run.call(name, args, busy, False, 0, None)
+            return ok({"content": [{"type": "text", "text": busy}]})
         try:
             if name not in HANDLERS:
                 raise ValueError(f"unknown tool {name!r}")
