@@ -238,8 +238,8 @@ else:
                 check("C: on the same conversation (not a fresh one)",
                       starts and starts[0][1].get("fresh") is False)
                 check("C: and the agent is told to carry on from where it was",
-                      sends and "Carry on from exactly where you stopped"
-                      in sends[-1][1].get("text", ""))
+                      sends and "Continue the work now" in sends[-1][1].get("text", "")
+                      and sends[-1][1].get("text", "").startswith("<aethron-resume>"))
                 check("C: the person is told it reconnected",
                       any(e.get("type") == "recover"
                           for e in pg.evaluate("CODE.events")))
