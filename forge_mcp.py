@@ -1733,6 +1733,40 @@ def t_browser_screenshot(a):
 
 
 
+def t_start_migration(a):
+    """THE FAST PATH. The whole migration as one background job: the agent
+    starts it and reports; the job writes the copy in parallel batches,
+    builds, checks, and resumes on its own after a crash or a restart."""
+    import aethron_jobs as J
+    name = J.slug(a.get("project") or a.get("name") or "")
+    src = str(a.get("url") or a.get("source") or "").strip()
+    brand = a.get("brand_sources") or []
+    if isinstance(brand, str):
+        brand = [brand]
+    J.start(name, request=str(a.get("request") or ""), url=src,
+            brand=brand, restart=bool(a.get("restart")))
+    return Result("started — this runs in the background and does not need "
+                  "you or the chat to stay open. Tell the person it is "
+                  "running and that the progress shows in the app; do not "
+                  "fill lines yourself while it runs. Check with "
+                  "migration_status only when asked.\n\n"
+                  + J.describe(name), J.summary(name))
+
+
+def t_migration_status(a):
+    import aethron_jobs as J
+    name = J.slug(a["project"])
+    return Result(J.describe(name), J.summary(name))
+
+
+def t_stop_migration(a):
+    import aethron_jobs as J
+    name = J.slug(a["project"])
+    J.stop(name)
+    return Result("stopped. start_migration continues from the step it "
+                  "was on.\n" + J.describe(name), J.summary(name))
+
+
 def S(props, req):
     return {"type": "object", "properties": props, "required": req}
 
@@ -2475,6 +2509,33 @@ TOOLS = [
      t_browser_back),
     ("browser_screenshot", "A picture of the current screen (shown to the "
      "person in the chat).", S({}, []), t_browser_screenshot),
+    ("start_migration", "THE WAY TO MIGRATE, REBRAND OR FINISH A PROJECT. "
+     "Runs the whole job in the background — create (from url), fetch, "
+     "inventory, read the brand's material, write the brief, write EVERY "
+     "line in parallel batches, build, verify, check in a browser, repair — "
+     "and resumes on its own if anything stops it. Minutes, not hours. Call "
+     "it ONCE with the person's request in their words; then tell them it is "
+     "running. Calling it again on a finished or stopped job continues it, "
+     "and a new request rewrites what it changes. If it comes back "
+     "'waiting', ask the person its question and call it again with the "
+     "answer as request.",
+     S({"project": {"type": "string", "description": "project name (new "
+                    "or existing)"},
+        "url": {"type": "string", "description": "the template or site to "
+                "start from, when the project does not exist yet"},
+        "request": {"type": "string", "description": "what the person wants, "
+                    "in their words: the brand, what it does, tone, details"},
+        "brand_sources": {"type": "array", "items": {"type": "string"},
+                          "description": "the brand's own website or "
+                          "documents, read for real facts"},
+        "restart": {"type": "boolean", "description": "redo every step not "
+                    "already finished from the start"}}, ["project"]),
+     t_start_migration),
+    ("migration_status", "Where a background migration job is: each step, "
+     "how many lines are written, any question it needs answered, and the "
+     "measured result.", S(P, ["project"]), t_migration_status),
+    ("stop_migration", "Stop a background migration job (start_migration "
+     "continues it later).", S(P, ["project"]), t_stop_migration),
 ]
 
 TOOL_DEFS = [{"name": n, "description": d, "inputSchema": s}

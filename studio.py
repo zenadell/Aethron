@@ -606,10 +606,34 @@ def _on_control_change(s: dict) -> None:
 HEARTBEAT = None
 
 
+JOB_WATCH = None
+
+
+def start_job_watchdog():
+    """Background migration jobs (aethron_jobs) outlive the window and the
+    chat; this restarts one whose process died — a crash, a quit, a Mac
+    restart — from the step it was on. On launch, and every 30 seconds."""
+    global JOB_WATCH
+    if JOB_WATCH is not None:
+        return
+
+    def loop():
+        import aethron_jobs
+        while True:
+            try:
+                aethron_jobs.supervise()
+            except Exception:
+                pass
+            time.sleep(30)
+    JOB_WATCH = threading.Thread(target=loop, daemon=True)
+    JOB_WATCH.start()
+
+
 def start_heartbeat():
     """Check in now and once a minute. Called by whoever serves the studio
     (desktop.py, or this file's __main__), never on import."""
     global HEARTBEAT
+    start_job_watchdog()
     if HEARTBEAT is None:
         HEARTBEAT = _control.Heartbeat(token=_latest_token, activity=_activity,
                                        on_change=_on_control_change).start()
@@ -777,6 +801,20 @@ def project_status(d: Path) -> str:
                            + ".")
             else:
                 out.append(f"Browser check: clean on {pj.get('probed', 0)} pages.")
+    try:                    # a background job doing the work right now
+        import aethron_jobs
+        j = aethron_jobs.summary(d.name)
+        if j.get("status") in ("queued", "running", "resuming"):
+            out.append(f"A BACKGROUND MIGRATION JOB IS RUNNING on this project "
+                       f"(step: {j.get('step') or 'starting'}). Do not write "
+                       "lines or build while it runs — it does that; tell the "
+                       "person it is running. migration_status reads it.")
+        elif j.get("status") == "waiting":
+            out.append("The background migration job is WAITING for the "
+                       f"person: {j.get('question')} Ask it, then call "
+                       "start_migration with the answer as request.")
+    except Exception:
+        pass
     return ("Measured by Aethron from the project just now — this is the "
             "current state, whatever earlier messages in this conversation "
             "said:\n" + "\n".join(out))
@@ -955,48 +993,8 @@ def _kill_previews():
 # The default is now inverted. Every string is rewritten unless it is
 # genuinely generic, and the model is told what "generic" means so the
 # exception cannot swallow the rule.
-PROMPT_RULES = """Rules:
-1. REWRITE EVERYTHING. This is a rebrand, not a find-and-replace. Every
-   heading, paragraph, feature name, testimonial, blog title, changelog
-   line, FAQ, dashboard label and micro-copy must describe the OWNER'S
-   business. A visitor reading the finished site must not be able to tell
-   what the template originally sold.
-2. The ONLY entries you may leave as "" are ones that are already true of
-   any business: navigation words (Home, Blog, Contact), UI verbs (Submit,
-   Close, Next), country, city and browser names, dates, statistics and
-   numbers, and legal boilerplate that names no industry. If a string
-   mentions the original industry, its products, its jargon or its example
-   data, it MUST be rewritten. When in doubt, rewrite it.
-2b. SHORT STRINGS ARE NOT EXEMPT. Most of what a visitor reads is short —
-   pricing tier names, feature labels, section eyebrows, card titles, job
-   titles, chart legends. A two-word label naming the template's industry
-   ("Predict your income", "Smart Expense Sorting", "AI-Powered Finance")
-   is exactly as wrong as a paragraph and must be rewritten into the
-   owner's equivalent. Never answer "" merely because a string is short or
-   because you cannot see where it appears; write the label this owner's
-   site would use in that slot.
-2c. NEVER answer "" for a string containing the template's own brand name.
-   That name must not survive anywhere, in any form — including possessive
-   forms, tier names ("Brand Pro"), page titles, email addresses and URL
-   slugs. In a slug or an address use one lowercase word, not the full
-   name with spaces.
-3. Map the original's domain onto the owner's, concept for concept, and
-   keep it consistent across the whole site. Do not translate word by word:
-   "invoice" -> "migration" produces sentences that parse and mean nothing.
-   Read what the sentence is FOR, then write that sentence for this owner.
-4. If max_bytes is set, the UTF-8 byte length of "new" must be <= it.
-   Em-dashes and curly quotes are 3 bytes each. When unsure, write shorter.
-   A shorter true sentence beats a longer one that is rejected. When
-   max_bytes cannot hold the full brand name, use the SHORT BRAND given in
-   the plan — never invent an abbreviation or an acronym of your own.
-5. Never use backticks or ${ in any "new" value.
-6. Keep the same shape as the original (a 3-word button stays ~3 words; a
-   one-line subtitle stays one line). Shape is layout; words are yours.
-7. Links: retarget emails, phone numbers and socials per the plan; leave
-   internal anchors (#...) alone unless the plan says otherwise.
-8. Images: leave "new" empty unless the plan supplies a replacement URL.
-Return the complete JSON you were given, nothing else."""
-
+from aethron_fill import (PROMPT_RULES, PLAN_POLISH_PROMPT,  # noqa: E402
+                          build_prompt, extract_json)
 
 AI_EDIT_PROMPT = """You are editing ONE element of a live website on the \
 owner's instruction. Reply with ONLY a JSON object, nothing else:
@@ -1023,30 +1021,6 @@ Project plan (brand voice/details):
 %(plan)s
 """
 
-PLAN_POLISH_PROMPT = """The owner of a website-template migration tool \
-wrote a rough, incomplete migration plan. Rewrite it into the exact \
-format below. Rules: never drop or contradict anything the owner wrote; \
-infer sensible specifics for gaps (domain = brand.com, email = \
-hello@<domain>, social handles from the brand name) — those are \
-placeholders the owner can edit; if the BRAND NAME itself is missing, \
-write <FILL: brand name> so the owner sees it. Return ONLY the plan.
-
-Format:
-Brand: <name>
-Domain: <domain>
-What it is: <one or two sentences>
-Tone: <short guidance>
-Replace every mention of the template's old brand (any casing, with or
-without the (R) symbol) with <write the ACTUAL brand name here, not a
-placeholder>. Keep all numbers, stats and pricing the same.
-Email: <email>
-Socials: <links>
-Keep internal anchors (#...) unchanged.
-<each extra owner instruction, restated clearly on its own line>
-
-Owner's rough plan:
-"""
-
 MATCH_PROMPT = """You match a site owner's project idea against a \
 library of saved template DESIGN CARDS (fingerprints: palette, fonts, \
 section structure, motion features, scale — extracted from real \
@@ -1064,13 +1038,6 @@ OWNER'S PROJECT:
 LIBRARY CARDS:
 %(cards)s
 """
-
-
-def build_prompt(plan: str, batch: dict) -> str:
-    return (f"You are rebranding a website template. PROJECT PLAN from "
-            f"the owner:\n\n{plan.strip()}\n\nFill the \"new\" field of "
-            f"each entry in this JSON per the plan. {PROMPT_RULES}\n\n"
-            + json.dumps(batch, indent=1, ensure_ascii=False))
 
 
 def make_batches(cm: dict, size=40):
@@ -1119,14 +1086,6 @@ def call_model(st: dict, prompt: str) -> str:
                                  headers=headers)
     with urllib.request.urlopen(req, timeout=300) as r:
         return pick(json.loads(r.read()))
-
-
-def extract_json(text: str) -> dict:
-    text = re.sub(r"```(?:json)?", "", text)
-    s, e = text.find("{"), text.rfind("}")
-    if s < 0 or e <= s:
-        raise ValueError("no JSON object in model output")
-    return json.loads(text[s:e + 1])
 
 
 def merge_fill(proj: Path, filled: dict):
@@ -2229,6 +2188,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(updater.check(timeout=8) if updater else
                                {"available": False,
                                 "why": "updater unavailable"})
+            elif u.path == "/api/job":
+                # A BACKGROUND MIGRATION JOB, as the screen draws it
+                import aethron_jobs
+                name = (q.get("project") or [""])[0]
+                try:
+                    return self.send_json(aethron_jobs.summary(name) or {})
+                except ValueError as e:
+                    return self.fail(str(e))
             elif u.path == "/api/project/truth":
                 # WHAT THE PROJECT SAYS, NOT WHAT THE MODEL SAYS. A console
                 # turn ended with Gemini reporting "verify PASSED, probe
@@ -3343,6 +3310,27 @@ class Handler(BaseHTTPRequestHandler):
                                      + str(act.get("explain", ""))[:100] + ")")
                 self.send_json({"did": did, "errors": errs,
                                 "explain": act.get("explain", "")})
+            elif u.path in ("/api/job/start", "/api/job/stop"):
+                import aethron_jobs
+                name = aethron_jobs.slug(body.get("project", ""))
+                try:
+                    if u.path.endswith("stop"):
+                        aethron_jobs.stop(name)
+                    else:
+                        why = _control.why("agent")
+                        if why:
+                            return self.fail(why, 423)
+                        d = PROJECTS / name
+                        if d.is_dir() and (d / "copy_map.json").exists():
+                            snapshot(d)
+                        aethron_jobs.start(
+                            name, request=str(body.get("request") or ""),
+                            url=str(body.get("url") or ""),
+                            brand=body.get("brand") or [],
+                            restart=bool(body.get("restart")))
+                    return self.send_json(aethron_jobs.summary(name))
+                except ValueError as e:
+                    return self.fail(str(e))
             elif u.path == "/api/ai/fill":
                 name = body.get("project", "")
                 d = self.project_dir({"name": [name]})
@@ -11871,6 +11859,37 @@ color:#d9d4cc;white-space:pre-wrap;word-break:break-word;-webkit-user-select:tex
 .truth-rows em{font-style:normal;color:var(--tx)}
 .truth-why{margin-top:9px;font-size:11.5px;color:var(--lo)}
 .truth .ghost{margin-top:10px}
+/* A BACKGROUND MIGRATION JOB (aethron_jobs). It runs without the chat, so
+   the card reads the job's own state from disk, not the conversation. */
+.jobc{margin:6px 0 4px;padding:14px 16px;border-radius:14px;
+  border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025)}
+.jobc.done{border-color:rgba(121,227,154,.26)}
+.jobc.failed,.jobc.waiting{border-color:rgba(232,160,90,.32);background:rgba(232,160,90,.05)}
+.jobc-h{display:flex;align-items:center;gap:8px;font-size:13px}
+.jobc-h b{font-weight:600}
+.jobc-h .jst{margin-left:auto;color:var(--lo);font-size:11.5px;font-variant-numeric:tabular-nums}
+.jobc-steps{display:grid;gap:6px;margin:12px 0 4px}
+.jobc-steps div{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--lo)}
+.jobc-steps div.done{color:var(--tx)}.jobc-steps div.live{color:var(--tx)}
+.jobc-steps i{width:14px;height:14px;flex:none;border-radius:99px;
+  border:1.5px solid rgba(255,255,255,.22);display:grid;place-items:center}
+.jobc-steps .done i{border-color:#79e39a;background:#79e39a}
+.jobc-steps .done i:after{content:"";width:6px;height:3px;border:solid #10140f;
+  border-width:0 0 1.6px 1.6px;transform:rotate(-45deg) translate(1px,-1px)}
+.jobc-steps .live i{border-color:var(--acc);border-top-color:transparent;
+  animation:jobspin .9s linear infinite}
+.jobc-steps .failed i{border-color:#e8a05a;background:#e8a05a}
+.jobc-steps em{font-style:normal;margin-left:auto;font-size:11.5px;color:var(--lo);
+  max-width:55%;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes jobspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.jobc-steps .live i{animation:none}}
+.jobc-bar{height:4px;border-radius:99px;background:rgba(255,255,255,.07);margin:10px 0 2px;overflow:hidden}
+.jobc-bar span{display:block;height:100%;background:var(--acc);border-radius:99px;transition:width .6s ease}
+.jobc-msg{margin-top:10px;font-size:12.5px;color:var(--tx);line-height:1.5}
+.jobc-msg.lo{color:var(--lo)}
+.jobc-ask{display:flex;gap:8px;margin-top:10px}
+.jobc-ask input{flex:1;min-width:0}
+.jobc-act{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
 #ptitle .ptnote{font-size:12px;font-weight:500;color:var(--lo);margin-left:8px;letter-spacing:0}
 /* THE CHAT BOX IS THE FRAME; THE TEXT INSIDE IT HAS NONE. The global
    input:focus rule draws a 3px ring and a border, and it reached into the
@@ -13930,6 +13949,7 @@ async function select(name){
   await refresh();
   try{S.cm=await api('/api/copymap?project='+name);}catch(e){}
   renderTab();renderSidebar();
+  jobRead(name).then(()=>{if(JOBUI[name])renderChat();if(jobActive(name))jobWatch(name);});
 }
 async function delProject(name){
   if(!confirm(`Delete project "${name}"? pristine/, copy_map and site/ all go.`))return;
@@ -15459,6 +15479,16 @@ async function checkTruth(){
   const {names,migrating}=turnProjects();
   const name=names[names.length-1];
   if(!name)return;
+  /* a job is doing the work: its card is the verdict, and sending the
+     agent back to fill lines would race the job writing them */
+  let from=0;
+  for(let i=CODE.events.length-1;i>=0;i--)
+    if(CODE.events[i].type==='you'&&!CODE.events[i].auto){from=i;break;}
+  if(CODE.events.slice(from).some(e=>e.type==='tool'&&/start_migration$/.test(e.name||'')))
+    {jobWatch(name);return;}
+  try{const j=await api('/api/job?project='+encodeURIComponent(name));
+    if(j&&['queued','running','resuming','waiting'].includes(j.status)){JOBUI[name]=j;jobWatch(name);return;}}
+  catch(e){}
   let t;
   try{t=await api('/api/project/truth?project='+encodeURIComponent(name));}
   catch(e){return;}
@@ -15491,6 +15521,82 @@ async function checkTruth(){
   try{await api('/api/code/send',{key:CODE.key,text});
     if(!CODE.poll)CODE.poll=setInterval(pollCode,900);}
   catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
+}
+/* BACKGROUND MIGRATION JOBS. The whole migration runs as one job beside
+   the chat (aethron_jobs): it writes the copy in parallel, builds, checks,
+   and resumes by itself. The card reads the job, never the conversation,
+   so it is right even after a restart, and it never sends the agent back
+   to fill lines while the job is doing exactly that. */
+const JOBUI={}, JOB_ACTIVE=new Set(['queued','running','resuming']);
+let JOBPOLL=null;
+function jobActive(n){const j=JOBUI[n];return !!(j&&JOB_ACTIVE.has(j.status));}
+async function jobRead(n){
+  try{const j=await api('/api/job?project='+encodeURIComponent(n));
+    const was=JOBUI[n]&&JOBUI[n].status;
+    JOBUI[n]=j&&j.status?j:null;
+    if(was&&JOB_ACTIVE.has(was)&&JOBUI[n]&&!JOB_ACTIVE.has(JOBUI[n].status))
+      refresh(true).catch(()=>{});
+  }catch(e){}
+  jobPaint(n);
+}
+function jobWatch(n){
+  if(!n)return;
+  if(!(n in JOBUI))JOBUI[n]=JOBUI[n]||undefined;
+  jobRead(n);
+  if(JOBPOLL)return;
+  JOBPOLL=setInterval(()=>{
+    const live=Object.keys(JOBUI).filter(k=>JOBUI[k]===undefined||jobActive(k)
+      ||document.querySelector(`.jobc[data-job="${CSS.escape(k)}"]`));
+    if(!live.length){clearInterval(JOBPOLL);JOBPOLL=null;return;}
+    live.forEach(jobRead);
+  },2500);
+}
+function jobPaint(n){
+  document.querySelectorAll(`.jobc[data-job="${CSS.escape(n)}"]`).forEach(el=>{
+    const h=jobCardHtml(n);
+    if(el.outerHTML!==h)el.outerHTML=h;});
+}
+function jobMins(j){
+  const end=j.finished||(Date.now()/1000), s=Math.max(0,end-(j.started||end));
+  return s<60?Math.round(s)+'s':Math.floor(s/60)+' min'+(s>=120?'':'')+(s%60>=1&&s<600?' '+Math.round(s%60)+'s':'');
+}
+function jobCardHtml(n){
+  const j=JOBUI[n];
+  if(!j)return `<section class="jobc" data-job="${esc(n)}"><div class="jobc-h">${I('clock',14)}<b>Starting the migration</b><span class="jst">${esc(n)}</span></div></section>`;
+  const st=j.status, word={queued:'Starting',running:'Working',resuming:'Picking up again',
+    waiting:'Needs you',done:'Finished',failed:'Stopped on an error',stopped:'Stopped'}[st]||st;
+  const p=j.progress||{}, pct=p.total?Math.round(100*(p.done||0)/p.total):0;
+  const steps=(j.steps||[]).filter(x=>!(x.id==='brand'&&x.status==='done'&&/skipped/.test(x.note||'')))
+    .map(x=>`<div class="${esc(x.status)}"><i></i><span>${esc(x.label)}</span>${
+      x.id==='fill'&&x.status==='live'&&p.total?`<em>${p.done||0} of ${p.total}</em>`
+      :x.note?`<em title="${esc(x.note)}">${esc(x.note)}</em>`:''}</div>`).join('');
+  const r=j.result||{};
+  let msg='';
+  if(st==='waiting')msg=`<div class="jobc-msg">${esc(j.question||'It needs an answer to go on.')}</div>
+    <div class="jobc-ask"><input id="jobans-${esc(n)}" placeholder="Your answer" onkeydown="if(event.key==='Enter')jobAnswer('${esc(n)}')">
+    <button class="btn primary" onclick="jobAnswer('${esc(n)}')">Continue</button></div>`;
+  else if(st==='failed')msg=`<div class="jobc-msg">${esc(j.error||'The job stopped.')}</div>`;
+  else if(st==='done')msg=`<div class="jobc-msg">${esc(r.verdict||'Finished.')}${r.total?` — ${r.filled} of ${r.total} lines written.`:''}</div>${
+      (r.problems||[]).length?`<div class="jobc-msg lo">${r.problems.slice(0,4).map(esc).join('<br>')}</div>`:''}`;
+  else msg=`<div class="jobc-msg lo">This runs in the background — you can close this window, and it picks up again on its own if anything stops it.</div>`;
+  const act=JOB_ACTIVE.has(st)?`<button class="btn" onclick="jobStop('${esc(n)}')">Stop</button>`
+    : st==='done'?`<button class="btn primary" onclick="select('${esc(n)}')">Open ${esc(n)}</button>`
+    : st==='waiting'?'' : `<button class="btn primary" onclick="jobGo('${esc(n)}')">${st==='stopped'?'Continue':'Try again'}</button>`;
+  return `<section class="jobc ${esc(st)}" data-job="${esc(n)}">
+    <div class="jobc-h">${I(st==='done'?'check':st==='failed'||st==='waiting'?'alert':'clock',14)}<b>${esc(word)}</b>
+      <span>${esc(n)}</span><span class="jst">${jobMins(j)}</span></div>
+    ${JOB_ACTIVE.has(st)&&p.total?`<div class="jobc-bar"><span style="width:${pct}%"></span></div>`:''}
+    <div class="jobc-steps">${steps}</div>${msg}
+    ${act?`<div class="jobc-act">${act}</div>`:''}</section>`;
+}
+async function jobGo(n,request){
+  try{const j=await api('/api/job/start',{project:n,request:request||''});JOBUI[n]=j;jobPaint(n);jobWatch(n);}
+  catch(e){toast(e.message||String(e));}
+}
+function jobAnswer(n){const el=$('jobans-'+n);const v=el&&el.value.trim();if(v)jobGo(n,v);}
+async function jobStop(n){
+  try{const j=await api('/api/job/stop',{project:n});JOBUI[n]=j;jobPaint(n);}
+  catch(e){toast(e.message||String(e));}
 }
 function truthHtml(b){
   const t=b.t||{}, ok=!b.gaps.length;
@@ -18927,6 +19033,14 @@ function convBlocks(evs){
         const made=(/(?:^|\n)aethron-page: ([a-z0-9-]+)/.exec(e.text||'')||[])[1]
           ||(s&&/^(Write|Edit)$/.test(s.name||'')&&s.input
              &&(/\/pages\/([a-z0-9-]+)\/site\.html$/.exec(String(s.input.file_path||''))||[])[1]);
+        /* A JOB WAS STARTED: its live card stands under the run */
+        if(s&&/start_migration$/.test(s.name||'')){
+          const jn=String((s.input&&s.input.project)||'').trim().toLowerCase()
+            .replace(/[^\w-]+/g,'-').replace(/^-+|-+$/g,'');
+          if(jn&&!out.some(x=>x.kind==='job'&&x.project===jn)){
+            out.push({kind:'job',project:jn}); run=null;
+            if(!(jn in JOBUI))setTimeout(()=>jobWatch(jn),0);}
+        }
         if(made&&!out.some(x=>x.kind==='page'&&x.name===made)){
           out.push({kind:'page',name:made}); run=null;
           if(!(S.pages||[]).some(p=>p.name===made)&&!PAGE_SEEN.has(made)){
@@ -18940,6 +19054,7 @@ function convBlocks(evs){
     if(e.type==='recover'){out.push({kind:'sys',text:'The model went quiet, so Aethron reconnected and is carrying on from where it was'
       +(e.n>1?' (try '+e.n+' of '+RECOVER_MAX+')':'')+'.'});continue;}
     if(e.type==='truth'){out.push({kind:'truth',project:e.project,t:e.t,gaps:e.gaps||[]});continue;}
+    if(e.type==='jobcard'){out.push({kind:'job',project:e.project});continue;}
     if(e.type==='team'){out.push({kind:'team',text:e.text});continue;}
     if(e.type==='you'&&e.auto){out.push({kind:'sys',text:'Aethron sent the agent back: the project on disk is not finished.'});continue;}
     if(e.type==='you')out.push({kind:'you',text:e.text,images:youImages(e)});
@@ -19216,7 +19331,8 @@ function timingText(t){
 function renderChat(){
   if(CODE.pending&&CODE.pending.length)renderPending();
   const box=$('chatlog');if(!box)return;
-  const talking=!!CODE.events.length;
+  /* a project with a background job has something to show: its card */
+  const talking=!!CODE.events.length||!!(S.cur&&JOBUI[S.cur]);
   box.hidden=!talking;
   /* THE WELCOME BECOMES THE CONVERSATION. Openers, suggestions and the
      file picker are scaffolding for the first message; once there IS a
@@ -19228,7 +19344,11 @@ function renderChat(){
   syncHero();
   document.querySelectorAll('.conv-dock .startmeta,.conv-dock .qrows')
     .forEach(e=>{e.hidden=talking});
-  box.innerHTML=convBlocks(CODE.events).map(b=>
+  const _blocks=convBlocks(CODE.events);
+  /* a project with a job shows its card even when the chat did not start it */
+  if(S.cur&&JOBUI[S.cur]&&!_blocks.some(b=>b.kind==='job'&&b.project===S.cur))
+    _blocks.push({kind:'job',project:S.cur});
+  box.innerHTML=_blocks.map(b=>
       b.kind==='you' ?`<div class="turn you">${(b.images||[]).length?`<div class="youpics">${
           b.images.map(u=>`<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="attached image" loading="lazy"></a>`).join('')}</div>`:''}${
           b.text&&b.text!=='(image attached)'?youHtml(b.text):''}</div>`
@@ -19238,6 +19358,7 @@ function renderChat(){
     : b.kind==='run' ? runHtml(b)
     : b.kind==='permission' ? permissionHtml(b)
     : b.kind==='truth' ? truthHtml(b)
+    : b.kind==='job' ? jobCardHtml(b.project)
     : b.kind==='page' ? pageCardHtml(b)
     : b.kind==='earlier' ? `<div class="turn sys earlier"><span>Your last conversation${
         b.when?' · '+esc(new Date(b.when*1000).toLocaleString([],

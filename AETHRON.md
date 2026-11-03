@@ -6743,6 +6743,52 @@ were used up, so the merged code reached main but no app was built; the
 owner built locally until the minutes reset. This connection cannot
 re-run a workflow (403) — a new merge to main is what starts a release.
 
+## A MIGRATION IS A BACKGROUND JOB, NOT A CONVERSATION — `aethron_jobs.py`
+## — 2026-11-03
+Owner: a template takes 1-3 hours and often stops half-way; "do we expect
+users to wait 2-3 hours and it still never finishes?" The cause was the
+shape, not the model: the agent filled 40 lines per turn for ~20 turns,
+every request carrying the whole run, and a dropped connection or a closed
+window ended it. Taken from DeepSeek's super-agent design (router + isolated
+workers + a watchdog; their code is DSH-only and was not used):
+- start_migration (MCP) / POST /api/job/start runs the pipeline as ONE
+  detached process (`aethron_jobs.py run <p>`, frozen `Aethron --job <p>`):
+  source (create from url or a local export) -> fetch -> inventory -> brand
+  (learn_brand when sources are given) -> plan (polished from the request;
+  no brief = WAIT with a question) -> fill -> build -> check (aethron_healer:
+  deterministic heal, then a bounded agent round, verify + probe).
+- FILL: batches of 40, 4 at a time (AETHRON_JOB_PARALLEL/_BATCH), each a
+  fresh small prompt (aethron_fill — the same rules the studio's AI fill
+  uses, moved there from studio.py), written through set_content_bulk's
+  guardrails, saved per batch. A reply that is not JSON is split in half
+  and asked again; a refused line goes back once with its reason; lines
+  already asked are never re-sent (<home>/jobs/<p>/asked.json).
+- STATE in <home>/jobs/<p>/ (state.json, log.txt), NEVER inside the
+  project: the engine refuses to create into an existing folder, which was
+  the first bug the battery found. Each step retried 3x with back-off.
+- WATCHDOG: supervise() (studio, every 30s and at launch) restarts a job
+  whose process died from the step it was on; replaces one silent for 30
+  min; gives up after 6 restarts and says so. A sleeping Mac pauses it,
+  nothing more. Team switches (aethron_control) and the session limit make
+  it WAIT with the reason.
+- the chat agent is told to call start_migration ONCE and stop; the
+  status block says when a job is running (do not fill); the truth-check
+  push-back is skipped while a job works. The chat shows a live card
+  (steps, n of m lines, answer box, Stop / Try again / Open).
+MEASURED: real lewius.framer.website, stand-in model at 20s per batch:
+whole job 186s (create 37s, fill 687 entries in 105s at 4 parallel, build
+17s, check 21s). The 1-3 h was the conversation, not the work.
+tests/job_battery.py 30/30 (fake site + fake model: finishes untouched,
+parallel, split on garbage, killed mid-fill and resumed at the fill without
+re-asking, waits for a brief, stop/continue, the MCP tool, the card in a
+real browser incl. answering its question). frozen_migration.py now also
+proves `--job` inside the bundle (it stops at the brief with no key).
+NOT YET: a cheaper model for the chat than for the job (both use the active
+provider); the chat's own stall recovery is still in the window's JS. Seen
+on lewius: inventory offers one chunk code string
+(");for(let r of await this.google.importFonts…") as a line — replaced
+nothing, pre-existing, worth fixing in inventory.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -6951,6 +6997,9 @@ re-run a workflow (403) — a new merge to main is what starts a release.
   called is the token's label, never what the agent says it is.
 - A PICTURE THAT DOES NOT LOAD IS A FAILURE, NOT A DETAIL. Ask an image
   address before taking it; ask the page whether each picture decoded.
+- A WHOLE MIGRATION IS A JOB, NEVER A CONVERSATION. It runs detached,
+  records every step on disk, resumes where it stopped, and the chat only
+  starts it and shows it.
 - A PICTURE THE TEMPLATE SHOWED AND THE PREVIEW DOES NOT IS MISSING,
   error or no error. Compare with the template, rendered the same way.
 - A PROVIDER-SPECIFIC FIELD GOES ONLY TO MODELS THAT ACCEPT IT. Gate it on
