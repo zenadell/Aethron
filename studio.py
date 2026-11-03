@@ -15394,6 +15394,26 @@ document.addEventListener('drop',ev=>{
     }
   }).catch(()=>{});
 },true);
+/* A WHOLE-JOB REQUEST IS NOT LEFT TO THE MODEL. "Finish up", "continue",
+   "keep going" in a project with work left start (or continue) the
+   background job directly; asked to the model, a cheap one did the work
+   itself the old slow way, beside a job doing the same. */
+const WHOLE_JOB=/^\s*(?:ok(?:ay)?|yes|yeah|sure|alright|great|good|cool|then|so|now|please|pls|just|go|and)?[\s,.!]*(?:please\s+)?(?:finish(?:\s+(?:it|up|this|the\s+(?:job|migration|rest|copy)))?|continue|keep\s+going|carry\s+on|go\s+on|go\s+ahead|resume|proceed|complete(?:\s+(?:it|this|the\s+(?:job|migration)))?|do\s+it|do\s+the\s+rest|finish\s+(?:it\s+)?all)(?:\s+(?:then|now|please|pls|it|up|everything|all))*[\s,.!]*$/i;
+async function routeToJob(text){
+  const n=S.cur; if(!n||!WHOLE_JOB.test(text||''))return false;
+  const info=S.info||{}, j=JOBUI[n]||{};
+  const left=(info.total&&info.filled<info.total)||!info.built
+    ||['running','queued','waiting','failed','stopped'].includes(j.status);
+  if(!left)return false;
+  try{
+    const r=await api('/api/job/start',{project:n,request:''});
+    JOBUI[n]=r; jobWatch(n);
+    CODE.events.push({type:'text',text:r.status==='running'&&j.status==='running'
+      ?'It is already running in the background — its card below shows where it is.'
+      :'Running it in the background: the copy that is still empty, then the build and the checks. Its card below shows where it is; you can close the window.'});
+    renderChat(); return true;
+  }catch(e){ return false; }
+}
 async function sendCode(){
   CODE.nudges=0;CODE.recoveries=0;
   const ta=$('chatta'),text=ta.value.trim();
@@ -15403,6 +15423,7 @@ async function sendCode(){
   const pics=takePending();
   ta.value='';
   CODE.events.push({type:'you',text,images:pics.map(p=>p.url)});renderChat();
+  if(!pics.length&&await routeToJob(text))return;
   CODE.lastEv=Date.now();CODE.slowNote='';
   try{await api('/api/code/send',{key:CODE.key,text,images:pics.map(p=>p.name)});}
   catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
