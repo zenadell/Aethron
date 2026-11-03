@@ -6789,6 +6789,12 @@ on lewius: inventory offers one chunk code string
 (");for(let r of await this.google.importFonts…") as a line — replaced
 nothing, pre-existing, worth fixing in inventory.
 
+NOTE (same day): the card repainted every 2.5s by replacing its HTML, which
+wiped what a person typed into its question and took the cursor. jobPaint now
+carries the value, cursor and focus across a repaint, and a waiting job's clock
+stops, so a waiting card does not repaint at all. job battery 30 -> 32 (the old
+studio fails both: '' and no focus).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
