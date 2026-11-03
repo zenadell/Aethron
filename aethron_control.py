@@ -219,8 +219,31 @@ def control() -> dict:
     return state().get("control") or {}
 
 
+def _vtuple(v: str) -> tuple:
+    out = []
+    for part in str(v or "").strip().split("."):
+        try:
+            out.append(int(part))
+        except ValueError:
+            return ()
+    return tuple(out)
+
+
+def needs_update() -> bool:
+    """Decided HERE, from the version that is actually running. The admin's
+    answer was computed for whatever version last checked in, so after an
+    update it stays "too old" until the next ping; this copy knows better."""
+    need, have = _vtuple(control().get("min_version")), _vtuple(version())
+    if not need or not have:
+        return bool((state().get("me") or {}).get("update_required"))
+    n = max(len(need), len(have))
+    return have + (0,) * (n - len(have)) < need + (0,) * (n - len(need))
+
+
 def me() -> dict:
-    return state().get("me") or {}
+    m = dict(state().get("me") or {})
+    m["update_required"] = needs_update()
+    return m
 
 
 def ai_mode() -> str:
@@ -240,7 +263,7 @@ def why(action: str = "any") -> str:
     if m.get("blocked"):
         r = m.get("block_reason") or ""
         return "Your Aethron account is on hold" + (f": {r}" if r else ".")
-    if m.get("update_required"):
+    if needs_update():
         return (f"This version of Aethron is too old (the team needs {c.get('min_version')} or newer). "
                 "Update from the top bar to continue.")
     feats = c.get("features") or {}
@@ -299,7 +322,7 @@ def announcement_art(aid: str) -> bytes:
 def summary() -> dict:
     """What the studio's screen needs, with no token in it."""
     s = state()
-    m = dict(s.get("me") or {})
+    m = me()
     return {"configured": bool(base_url()), "control": s.get("control") or {}, "me": m,
             "ai_mode": ai_mode(), "managed": bool(managed()), "checked_at": s.get("at"),
             "error": s.get("error") or "", "has_device": bool(s.get("device_token")),

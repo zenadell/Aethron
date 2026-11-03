@@ -640,6 +640,24 @@ def start_heartbeat():
     return HEARTBEAT
 
 
+_CTRL_BUSY = threading.Lock()
+
+
+def _refresh_control_soon() -> None:
+    """One background check-in at a time."""
+    if not _CTRL_BUSY.acquire(blocking=False):
+        return
+
+    def run():
+        try:
+            _control.refresh(20, _latest_token())
+        except Exception:
+            pass
+        finally:
+            _CTRL_BUSY.release()
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _checkin_now(token: str = "") -> None:
     """Right after a sign-in: get this copy its device token without waiting
     a minute (the managed AI needs it)."""
@@ -1901,6 +1919,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 return self.wfile.write(body)
             if u.path == "/api/control":
+                # the screen asks every 15s; an answer older than 20s is
+                # refreshed in the background, so a switch the team flips
+                # reaches the screen in well under a minute, not at relaunch
+                if time.time() - float(_control.state().get("at") or 0) > 20:
+                    _refresh_control_soon()
                 return self.send_json(_control.summary())
             if u.path == "/api/announcement/art":
                 # the team's announcement picture, shown as an <img>: an SVG
@@ -15398,9 +15421,18 @@ document.addEventListener('drop',ev=>{
    "keep going" in a project with work left start (or continue) the
    background job directly; asked to the model, a cheap one did the work
    itself the old slow way, beside a job doing the same. */
-const WHOLE_JOB=/^\s*(?:ok(?:ay)?|yes|yeah|sure|alright|great|good|cool|then|so|now|please|pls|just|go|and)?[\s,.!]*(?:please\s+)?(?:finish(?:\s+(?:it|up|this|the\s+(?:job|migration|rest|copy)))?|continue|keep\s+going|carry\s+on|go\s+on|go\s+ahead|resume|proceed|complete(?:\s+(?:it|this|the\s+(?:job|migration)))?|do\s+it|do\s+the\s+rest|finish\s+(?:it\s+)?all)(?:\s+(?:then|now|please|pls|it|up|everything|all))*[\s,.!]*$/i;
+/* A short message that asks for the whole job and nothing else: "finish up",
+   "Done? Finish up", "ok continue", "are we done? keep going". Anything that
+   names a change ("finish up but change the logo") goes to the agent. */
+const WHOLE_JOB_ASK=/\b(?:finish(?:\s+(?:it|up|this|off|everything|the\s+(?:job|migration|rest|copy)))?|continue|keep\s+going|carry\s+on|go\s+on|go\s+ahead|resume|proceed|complete\s+(?:it|this|the\s+(?:job|migration))|do\s+the\s+rest|wrap\s+(?:it\s+)?up)\b/i;
+const WHOLE_JOB_OTHER=/\b(?:change|make|add|remove|delete|replace|swap|rename|use|set|turn|fix|logo|colou?r|image|picture|photo|font|headline|title|button|page|section|text|but|except|instead|without|with|why|how|what)\b/i;
+function isWholeJob(t){
+  t=String(t||'').trim(); if(!t||t.length>80)return false;
+  if(t.split(/\s+/).length>8)return false;
+  return WHOLE_JOB_ASK.test(t)&&!WHOLE_JOB_OTHER.test(t);
+}
 async function routeToJob(text){
-  const n=S.cur; if(!n||!WHOLE_JOB.test(text||''))return false;
+  const n=S.cur; if(!n||!isWholeJob(text))return false;
   const info=S.info||{}, j=JOBUI[n]||{};
   const left=(info.total&&info.filled<info.total)||!info.built
     ||['running','queued','waiting','failed','stopped'].includes(j.status);
@@ -15569,7 +15601,6 @@ function bridgeNote(br){
    shows that as the verdict. If the migration stopped short, it sends the
    agent back with the measured gap — at most twice per request, so a
    model that cannot finish is reported honestly instead of looping. */
-const NUDGE_MAX=2;
 function turnProjects(){
   /* the projects this request touched, newest last */
   let from=0;
@@ -15621,17 +15652,17 @@ async function checkTruth(){
      finished lines. That goes to the person, with the card. */
   const work=gaps.filter(g=>!/^the browser check/.test(g));
   if(!work.length||!migrating.has(name))return;
+  /* the copy is the background job's work, never the chat's: start it
+     (once per request) instead of sending the agent back to fill lines */
   CODE.nudges=(CODE.nudges||0)+1;
-  if(CODE.nudges>NUDGE_MAX)return;
-  const text=`Aethron checked the project "${name}" on disk and the migration is not finished: `
-    +work.join('; ')+'. Continue now: fill the entries with set_content_bulk using the brand '
-    +'plan, then build, verify and probe. Report only what those tools actually return — '
-    +'do not describe any step you have not run.';
-  CODE.events.push({type:'you',text,auto:true});renderChat();
-  CODE.lastEv=Date.now();CODE.slowNote='';
-  try{await api('/api/code/send',{key:CODE.key,text});
-    if(!CODE.poll)CODE.poll=setInterval(pollCode,900);}
-  catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
+  if(CODE.nudges>1)return;
+  try{
+    const r=await api('/api/job/start',{project:name,request:''});
+    JOBUI[name]=r; jobWatch(name);
+    CODE.events.push({type:'text',text:'The migration was not finished, so Aethron is finishing it in the background: '
+      +work.join('; ')+'. Its card below shows where it is.'});
+    renderChat();
+  }catch(e){}
 }
 /* BACKGROUND MIGRATION JOBS. The whole migration runs as one job beside
    the chat (aethron_jobs): it writes the copy in parallel, builds, checks,
@@ -21168,7 +21199,7 @@ let TEAM={};
 async function teamCheck(force){
   let t;try{t=await api('/api/control');}catch(e){return}
   const key=()=>JSON.stringify([TEAM.control&&TEAM.control.banner,TEAM.control&&TEAM.control.banner_level,TEAM.blocked_why,
-    TEAM.me&&TEAM.me.notice,TEAM.managed,TEAM.control&&TEAM.control.updated_at]);
+    TEAM.me&&TEAM.me.notice,TEAM.me&&TEAM.me.update_required,TEAM.managed,TEAM.control&&TEAM.control.updated_at]);
   const was=key(); TEAM=t||{};
   if(force===true||was!==key()){teamRender(); if(AI&&AI.control!==undefined){loadAi().then(()=>{try{rerenderAi&&rerenderAi()}catch(e){}});}}
   annCheck();
@@ -21320,7 +21351,7 @@ function openAdmin(){
   const url=(TEAM.admin_url)||'https://aethron.jomiez.com/admin/';
   api('/api/open',{url}).catch(()=>window.open(url,'_blank'));
 }
-teamCheck(); setInterval(teamCheck,30*1000);
+teamCheck(); setInterval(teamCheck,15*1000);
 window.addEventListener('focus',teamCheck);
 window.addEventListener('focus',updMaybeCheck);
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden)updMaybeCheck(); });

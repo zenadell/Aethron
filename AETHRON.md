@@ -7287,3 +7287,26 @@ cheap model ignored it. Two workers on one project undo each other.
   migration job is working on…"; reads still answer. The job's own
   process sets AETHRON_JOB_SELF, so it and its repair agent pass.
 job battery 36 -> 41.
+
+## THE CHAT NO LONGER MIGRATES; THE UPDATE SHEET TRUSTS THE RUNNING
+## VERSION — 2026-11-04
+Owner, after 1.1.90:
+1. "Done? Finish up" went to the model and came back empty: the whole-job
+   pattern had a fixed list of lead-in words and "Done?" was not one.
+   isWholeJob(): a short message (<=8 words) with a whole-job phrase and
+   no word that names a change goes to the job.
+2. The update sheet came late, and after updating it stayed until a
+   relaunch. The admin computes update_required for whatever version last
+   checked in, so the new copy carried the old copy's "too old" until it
+   pinged again. aethron_control.needs_update() decides from the running
+   version against control.min_version; me()/why()/summary() use it.
+   /api/control now refreshes an answer older than 20s in the background
+   and the screen asks every 15s, so a switch reaches it in under a minute.
+3. The old way (the chat agent filling a template 40 lines at a time) is
+   gone for Aethron's own agent: create_project, fetch and inventory are
+   refused for it, and so is any call writing more than 5 empty lines
+   while more than 20 are empty (_chat_does_job); each points at
+   start_migration. Named lines still change one by one. The after-turn
+   check starts the job instead of sending the agent back to fill. Outside
+   agents over MCP and the job itself are not limited. Rules rewritten.
+job battery 41 -> 48, control battery +1.

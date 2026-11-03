@@ -188,6 +188,11 @@ try:
     admin("set_min_version", version="99.0.0")
     C.ping()
     check("an old version is told to update", "too old" in C.why("agent"))
+    real_v = C.version
+    C.version = lambda: "99.0.1"       # the same copy, just updated
+    check("updated past it: free at once, before the next check-in",
+          C.why("agent") == "" and C.summary()["me"].get("update_required") is False)
+    C.version = real_v
     admin("set_min_version", version="")
     C.ping()
     studio.SESSIONS["sess-test"] = {"id": me["id"], "email": "una@example.com", "token": me["token"], "_seen": time.time()}
