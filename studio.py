@@ -10049,6 +10049,53 @@ INDEX_HTML = r"""<!doctype html>
 .tcpop b{display:block;color:var(--t-1);font-size:14px;font-weight:600;margin-bottom:4px}
 .tcpop .tcf{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;
   border-top:1px solid var(--edge-1);font-size:12px;color:var(--t-3)}
+/* ── THE UPDATE GATE ──────────────────────────────────────────────
+   When the team needs a newer version, nothing else in the app works —
+   so nothing else is reachable. One sheet over a blurred, inert app:
+   the mark, one sentence, the two versions, one button. It turns into
+   its own progress bar while it installs, and never offers a way past. */
+#updgate{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:24px;
+  background:rgba(8,8,10,.55);-webkit-backdrop-filter:blur(26px) saturate(1.3);backdrop-filter:blur(26px) saturate(1.3);
+}
+#updgate.ugnew{animation:ugIn .42s cubic-bezier(.23,1,.32,1) both}
+@keyframes ugIn{from{opacity:0}to{opacity:1}}
+@keyframes ugCard{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}
+.ugc{width:min(420px,100%);padding:38px 34px 28px;border-radius:28px;text-align:center;color:#f4f2ef;
+  background:linear-gradient(180deg,rgba(40,38,36,.92),rgba(24,23,22,.94));
+  box-shadow:0 0 0 1px rgba(255,255,255,.08) inset,0 1px 0 rgba(255,255,255,.07) inset,0 40px 120px -20px rgba(0,0,0,.75),0 8px 30px rgba(0,0,0,.35);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;
+}
+#updgate.ugnew .ugc{animation:ugCard .6s cubic-bezier(.23,1,.32,1) .06s both}
+.ugm{width:76px;height:76px;margin:0 auto 22px;border-radius:20px;display:grid;place-items:center;position:relative;
+  background:linear-gradient(160deg,#2a2725,#141312);
+  box-shadow:0 0 0 1px rgba(255,255,255,.09) inset,0 18px 40px -10px rgba(217,119,87,.45)}
+.ugm svg{width:38px;height:38px}
+.ugm i{position:absolute;right:-6px;bottom:-6px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;
+  background:#d97757;color:#fff;box-shadow:0 0 0 4px #1c1b1a}
+.ugm i svg{width:15px;height:15px}
+.ugc h2{margin:0 0 10px;font:650 22px/1.2 -apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",sans-serif;letter-spacing:-.022em}
+.ugc p{margin:0 auto 22px;max-width:320px;text-wrap:pretty;font:400 14px/1.5 inherit;color:rgba(244,242,239,.62);letter-spacing:-.006em}
+.ugv{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 0 26px}
+.ugv span{padding:6px 12px;border-radius:999px;font:560 12.5px/1 ui-monospace,"SF Mono",Menlo,monospace;
+  background:rgba(255,255,255,.06);color:rgba(244,242,239,.6);box-shadow:0 0 0 1px rgba(255,255,255,.07) inset}
+.ugv span.new{background:rgba(217,119,87,.14);color:#f0a988;box-shadow:0 0 0 1px rgba(217,119,87,.34) inset}
+.ugv svg{width:14px;height:14px;color:rgba(244,242,239,.35)}
+.ugb{position:relative;width:100%;height:46px;border:0;border-radius:14px;cursor:pointer;overflow:hidden;
+  background:#d97757;color:#fff;font:600 15px/1 inherit;letter-spacing:-.01em;
+  box-shadow:0 1px 0 rgba(255,255,255,.22) inset,0 10px 26px -8px rgba(217,119,87,.7);
+  transition:transform .12s,filter .18s}
+.ugb:hover{filter:brightness(1.07)}.ugb:focus{outline:none}.ugb:focus-visible{outline:2px solid rgba(240,169,136,.55);outline-offset:3px}.ugb:active{transform:scale(.985)}
+.ugb:disabled{cursor:default;filter:none;transform:none}
+.ugb.busy{background:rgba(255,255,255,.07);color:#f4f2ef;box-shadow:0 0 0 1px rgba(255,255,255,.08) inset}
+.ugb .ugf{position:absolute;left:0;top:0;bottom:0;width:0;background:#d97757;transition:width .45s cubic-bezier(.23,1,.32,1)}
+.ugb .ugf.ind{width:34%;animation:ugInd 1.3s ease-in-out infinite}
+@keyframes ugInd{from{left:-34%}to{left:100%}}
+.ugb .ugt{position:relative}
+.ugs{margin:14px 0 0;min-height:18px;font:400 12.5px/1.45 inherit;color:rgba(244,242,239,.45)}
+.ugs.err{color:#ee8a80}
+.ugk{margin:18px 0 0;padding-top:16px;border-top:1px solid rgba(255,255,255,.07);
+  font:400 12px/1.5 inherit;color:rgba(244,242,239,.38)}
+@media (prefers-reduced-motion:reduce){#updgate,.ugc{animation:none}.ugb .ugf.ind{animation:none;left:0;width:100%;opacity:.5}}
 .teamhold{display:flex;gap:14px;align-items:flex-start;margin:0 0 10px;padding:14px 16px;border-radius:var(--r-lg);
   background:linear-gradient(180deg,rgba(229,105,94,.09),rgba(229,105,94,.03));
   box-shadow:inset 0 0 0 1px rgba(229,105,94,.26);animation:thIn .4s var(--eo) both}
@@ -21119,6 +21166,55 @@ function teamState(){
     icon:c.banner_level==='info'?'sparkles':'alert',txt:c.banner,key:'b:'+c.banner,chip:c.banner};
   return null;
 }
+/* THE UPDATE GATE — see its CSS. Shown the moment the team's answer says
+   this version is too old, on any screen, before anything is pressed. */
+let UG=null;   // {mode:'ready'|'wait'|'busy'|'fail', line, pct}
+function updGate(){
+  const m=TEAM.me||{}, need=!!m.update_required;
+  let g=$('updgate');
+  if(!need){ if(g){g.remove();document.querySelectorAll('body>*').forEach(x=>x.inert=false);} UG=null; return; }
+  if(!UG)UG={mode:'wait'};
+  if(UG.mode==='wait'&&UPD&&UPD.available)UG.mode='ready';
+  if(UG.mode==='wait'&&!UG.asked){UG.asked=1;checkUpdate().then(()=>{UG.asked=0;if(UPD&&UPD.available&&UG.mode==='wait'){UG.mode='ready';updGate();}else setTimeout(()=>{if(UG&&UG.mode==='wait')updGate()},15000);});}
+  const have=esc((UPD&&UPD.version)||''), want=esc((UPD&&UPD.available&&UPD.latest)||(TEAM.control&&TEAM.control.min_version)||'');
+  if(!g){g=document.createElement('div');g.id='updgate';g.className='ugnew';g.setAttribute('role','alertdialog');g.setAttribute('aria-modal','true');
+    g.setAttribute('aria-labelledby','ugh');g.innerHTML='<div class="ugc"></div>';document.body.appendChild(g);
+    setTimeout(()=>g.classList.remove('ugnew'),900);}
+  document.querySelectorAll('body>*').forEach(x=>{if(x!==g)x.inert=true;});
+  const ico=(document.querySelector('link[rel=icon]')||{}).href;
+  const mark=ico?`<img src="${esc(ico)}" alt="" style="width:44px;height:44px;border-radius:10px">`
+    :`<svg viewBox="0 0 24 24" fill="none"><path d="M12 3.2 20 20.5h-3.4L12 10.4 7.4 20.5H4z" fill="#f4f2ef"/></svg>`;
+  const busy=UG.mode==='busy', p=UG.pct;
+  const btn=busy?`<button class="ugb busy" disabled><span class="ugf ${p==null?'ind':''}" style="${p==null?'':'width:'+p+'%'}"></span><span class="ugt">${p!=null&&p<100?'Downloading · '+p+'%':esc(UG.line||'Installing…')}</span></button>`
+    :UG.mode==='wait'?`<button class="ugb busy" disabled><span class="ugf ind"></span><span class="ugt">Finding the update…</span></button>`
+    :`<button class="ugb" id="ugbtn" onclick="updGateGo()">${UG.mode==='fail'?'Try again':'Update now'}</button>`;
+  g.firstChild.innerHTML=`
+    <div class="ugm">${mark}<i>${I('download',15)}</i></div>
+    <h2 id="ugh">Update Aethron to continue</h2>
+    <p>This version is no longer supported. The update takes a minute or two — your projects, conversations and settings stay exactly as they are.</p>
+    ${have||want?`<div class="ugv">${have?`<span>${have}</span>`:''}${have&&want?I('arrowr',14):''}${want?`<span class="new">${want}${UPD&&UPD.available?'':'+'}</span>`:''}</div>`:''}
+    ${btn}
+    <div class="ugs ${UG.mode==='fail'?'err':''}">${UG.mode==='fail'?esc((UG.line||'The update did not finish.')+' Your app is untouched.')+(/permi|not permitted|operation/i.test(UG.line||'')?'<br>If macOS said it stopped Aethron changing apps, allow it in System Settings → Privacy &amp; Security → App Management.':''):busy?'Aethron restarts by itself when it is done.':''}</div>
+    <div class="ugk">Required by the Aethron team</div>`;
+}
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&$('ugbtn')&&$('updgate')){e.preventDefault();updGateGo();}},true);
+async function updGateGo(){
+  UG={mode:'busy',pct:0,line:'Starting…'}; updGate();
+  let j;
+  try{
+    const r=await api('/api/update/apply',{});
+    if(r.job===undefined){ if(!r.ok)throw new Error(r.why||'unknown'); j={done:true,ok:true}; }
+    else do{
+      await new Promise(s=>setTimeout(s,700));
+      try{ j=await api('/api/job?id='+r.job); }catch(e){ break; }
+      const line=(j.log||'').trim().split('\n').pop()||'';
+      UG={mode:'busy',pct:updPct(line),line:/restarting/i.test(line)?'Restarting…':/verif|unpack|install/i.test(line)?'Installing…':line}; updGate();
+    }while(!j.done);
+  }catch(e){ UG={mode:'fail',line:e.message}; return updGate(); }
+  if(j&&j.done&&!j.ok){ UG={mode:'fail',line:((j.log||'').match(/update failed: (.*)/)||[])[1]}; return updGate(); }
+  UG={mode:'busy',pct:100,line:'Restarting…'}; updGate();
+  setTimeout(()=>location.reload(),6000);
+}
 function teamHidden(){try{return JSON.parse(localStorage.ae_team_hidden||'[]')}catch(e){return[]}}
 function teamHoldHtml(text,inChat){
   const st=teamState()||{title:'Stopped by the Aethron team',icon:'alert',lvl:'critical'};
@@ -21129,6 +21225,7 @@ function teamHoldHtml(text,inChat){
 }
 let TEAMPOP=false;
 function teamRender(){
+  try{updGate();}catch(e){}
   const old=$('teambar'); if(old)old.remove();          // the old floating pill, if a page still has one
   const chip=$('teamchip'), st=teamState();
   const show=st&&(st.lock||!teamHidden().includes(st.key));
