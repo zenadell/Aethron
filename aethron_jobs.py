@@ -126,6 +126,13 @@ def log(project: str, text: str):
             f.write(f"{stamp} {line}\n")
 
 
+def _last_activity(project: str) -> float:
+    try:
+        return (_jdir(project) / "log.txt").stat().st_mtime
+    except OSError:
+        return time.time()
+
+
 def log_tail(project: str, n=40) -> list:
     try:
         lines = (_jdir(project) / "log.txt").read_text(
@@ -259,8 +266,14 @@ def supervise() -> list:
         age = time.time() - float(st.get("heartbeat") or 0)
         pid = st.get("pid")
         if alive(pid):
-            if age < HUNG:
-                continue             # alive: a sleeping Mac pauses it too
+            # THE HEARTBEAT IS A THREAD, SO IT BEATS WHILE THE WORK IS
+            # WEDGED. Stuck is judged by the log: nothing written for
+            # HUNG seconds while the heart still beats (a sleeping Mac
+            # stops both, and is not stuck).
+            quiet = time.time() - _last_activity(project)
+            if quiet < HUNG or age > STALE:
+                continue
+            age = quiet
             try:
                 os.killpg(int(pid), signal.SIGKILL)
             except OSError:
@@ -626,28 +639,50 @@ def step_build(project, st):
     return "built"
 
 
+def _filled(d) -> int:
+    allx, _ = _entries(d)
+    return sum(1 for _, x in allx if x.get("new"))
+
+
 def step_check(project, st):
     """The healer: deterministic repair first, then — only for what it
-    cannot express — an agent round with a fresh, small context. The
-    verdict is measured from disk and from a real browser."""
+    cannot express — ONE agent round with a fresh, small context and a
+    hard time limit. The verdict is measured from disk and from a real
+    browser. Copy the job wrote is never lost to a repair round."""
     import aethron_healer
     d = _pdir(project)
+    cm_f = d / "copy_map.json"
+    before = cm_f.read_text(encoding="utf-8") if cm_f.exists() else ""
+    n_before = _filled(d)
 
     def ev(kind, data):
         t = (data or {}).get("text") if isinstance(data, dict) else data
         if t:
             log(project, f"  {t}")
+            if kind in ("stage", "heal", "retry", "error", "stuck"):
+                update(project, steps={"check": {"note": str(t)[:120]}})
     agent = os.environ.get("AETHRON_JOB_AGENT", "1") != "0"
-    r = aethron_healer.heal(d, rounds=2, use_agent=agent, on_event=ev,
-                            live=True)
+    limit = int(os.environ.get("AETHRON_JOB_AGENT_SECONDS", "600"))
+    r = aethron_healer.heal(d, rounds=1, use_agent=agent, on_event=ev,
+                            live=True, agent_timeout=limit)
+    # A REPAIR ROUND MUST NOT UNDO THE JOB. An agent that reaches for
+    # undo walks back through the fill's own snapshots: the lines vanish
+    # while the card still says they were written.
+    lost = n_before - _filled(d)
+    if before and lost > 0:
+        cm_f.write_text(before, encoding="utf-8")
+        log(project, f"  the repair round lost {lost} written line(s) — "
+            "put them back and rebuilt")
+        _forge(project, "build")
+        r = dict(r, ok=False)
     e = r.get("evidence") or {}
     problems = []
     for src in ("verify", "probe"):
         for line in str(e.get(src, "")).splitlines():
             if line.strip().startswith(("FAIL", "✗", "ERROR")):
                 problems.append(line.strip()[:200])
+    done = _filled(d)
     allx, _ = _entries(d)
-    done = sum(1 for _, x in allx if x.get("new"))
     ok = bool(r.get("ok"))
     verdict = ("finished — verify and the browser check pass" if ok else
                "finished with problems the checks name" if problems else

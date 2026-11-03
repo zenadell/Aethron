@@ -194,7 +194,7 @@ def evidence_text(ev: dict, heal_log: str = "") -> str:
 
 
 def heal(project, rounds=2, use_agent=True, on_event=None, cfg=None,
-         home=None, live=False) -> dict:
+         home=None, live=False, agent_timeout=1800) -> dict:
     """-> {ok, stage, attempts, evidence, log, actions}"""
     project = Path(project).resolve()
     if not (project / "forge.json").exists():
@@ -278,7 +278,8 @@ def heal(project, rounds=2, use_agent=True, on_event=None, cfg=None,
             prompt += ("\n\nYour previous attempt did NOT clear the checks. "
                        "The evidence above is the CURRENT state — do not "
                        "repeat what did not work.")
-        res = code.run_once(project, prompt, cfg=cfg, home=home, timeout=1800,
+        res = code.run_once(project, prompt, cfg=cfg, home=home,
+                            timeout=agent_timeout,
                             on_event=lambda e: _stream(e, say, actions))
         if res.get("error"):
             note("error", f"agent: {res['error'][:200]}")
