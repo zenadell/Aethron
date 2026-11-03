@@ -7259,3 +7259,16 @@ FIXED: one agent round, 10 min (AETHRON_JOB_AGENT_SECONDS); the card's
 check line shows the healer's stage; stuck = no log line for HUNG while
 the heart still beats; copy lost during the check is put back and rebuilt.
 job battery 32 -> 36.
+
+## TOO OLD MEANS NOTHING WORKS, SO NOTHING IS REACHABLE — 2026-11-03
+Owner set a minimum version; the app said so only as a red pill and a
+card above the chat box, and the card appeared only once a message had
+been sent and refused (Home has no dock until it talks). Now: the moment
+the team's answer says update_required, one sheet covers the whole app
+(#updgate, every other body child `inert`): the mark, "Update Aethron to
+continue", installed -> required version, one Update now button that
+becomes its own download bar, restarts, never offers a way past. Finds
+the update first ("Finding the update…" until the feed answers). Clears
+itself when the version is fine. Animates once on arrival only — a
+repaint re-ran the entrance, and the first screenshot caught it blank.
+team_ui battery 21 -> 25.

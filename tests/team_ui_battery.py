@@ -151,6 +151,27 @@ try:
         check("and it can be hidden", True)
         admin("set_banner", text="")
 
+        # ── too old: the whole app is behind one update sheet ──
+        admin("set_min_version", version="9.9.9")
+        C.ping()
+        pg.goto(app)
+        pg.wait_for_selector("#updgate .ugc", timeout=15000)
+        check("too old: the update sheet is up before anything is sent",
+              "Update Aethron to continue" in pg.inner_text("#updgate"))
+        check("and the rest of the app cannot be used",
+              pg.evaluate("[...document.body.children].filter(x=>x.id!=='updgate').every(x=>x.inert)"))
+        pg.evaluate("UPD={available:true,latest:'9.9.9',version:'1.0.8'};UG=null;updGate()")
+        check("with one button that updates, and both versions",
+              pg.inner_text("#ugbtn") == "Update now" and "1.0.8" in pg.inner_text("#updgate") and "9.9.9" in pg.inner_text("#updgate"))
+        pg.wait_for_timeout(1200)
+        pg.screenshot(path=str(Path(os.environ.get("AE_SHOTS") or HOME) / "update-gate.png"))
+        admin("set_min_version", version="")
+        C.ping()
+        pg.evaluate("teamCheck(true)")
+        pg.wait_for_function("!document.querySelector('#updgate')", timeout=10000)
+        check("and it goes away, the app usable again, once the version is fine",
+              pg.evaluate("![...document.body.children].some(x=>x.inert)"))
+
         # ── an announcement, once ──
         admin("publish_announcement", title="Screenshots now build whole sites",
               body="Drop a screenshot into Aethron and get a real, responsive website back.")
