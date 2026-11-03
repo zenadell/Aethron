@@ -290,6 +290,8 @@ def ui(home, src, J):
     for k in list(env):
         if k.startswith("AETHRON_SUPABASE"):
             env.pop(k)
+    import aethron_news                 # its pop-up would take the focus
+    aethron_news.mark_seen(home, [n["id"] for n in aethron_news.NEWS])
     log = open(home / "studio.log", "w")
     st = subprocess.Popen([sys.executable, str(ROOT / "studio.py"), str(port)],
                           cwd=str(ROOT), env=env, stdout=log,
@@ -340,7 +342,20 @@ def ui(home, src, J):
                + repr(pg.evaluate("()=>[...document.querySelectorAll('.jobc')]"
                                   ".map(e=>e.className+': '+e.innerText.slice(0,120))")))
             if asked:
-                pg.fill(".jobc.waiting input", "Northwind, coffee in Oslo")
+                # typing is not wiped by the card's own refresh
+                pg.click(".jobc.waiting input")
+                pg.keyboard.type("Northwind, coffee")
+                pg.evaluate("jobRead('north6')")        # force a repaint
+                pg.wait_for_timeout(6000)               # and two polls
+                kept = pg.evaluate("""()=>{const i=document.querySelector(
+                    '.jobc.waiting input');return i&&[i.value,
+                    document.activeElement===i]}""")
+                ck("what you type survives the card refreshing, cursor too",
+                   kept == ["Northwind, coffee", True], repr(kept))
+                pg.keyboard.type(" in Oslo")
+                ck("and typing carries on where the cursor was",
+                   pg.input_value(".jobc.waiting input")
+                   == "Northwind, coffee in Oslo")
                 pg.click(".jobc.waiting .btn.primary")
                 try:
                     pg.wait_for_selector(".jobc.done", timeout=180000)

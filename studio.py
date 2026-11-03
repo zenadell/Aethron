@@ -15552,12 +15552,27 @@ function jobWatch(n){
   },2500);
 }
 function jobPaint(n){
+  /* THE ANSWER BOX IS NEVER REDRAWN UNDER SOMEONE'S FINGERS. The card is
+     repainted every poll; replacing it wholesale threw away what a person
+     was typing into the question and took the cursor with it. What they
+     typed, where the cursor was and the focus carry across the repaint. */
   document.querySelectorAll(`.jobc[data-job="${CSS.escape(n)}"]`).forEach(el=>{
     const h=jobCardHtml(n);
-    if(el.outerHTML!==h)el.outerHTML=h;});
+    if(el.outerHTML===h)return;
+    const inp=el.querySelector('.jobc-ask input');
+    const keep=inp?{v:inp.value,f:document.activeElement===inp,
+      s:inp.selectionStart,e:inp.selectionEnd}:null;
+    el.outerHTML=h;
+    if(!keep)return;
+    const now=document.querySelector(`.jobc[data-job="${CSS.escape(n)}"] .jobc-ask input`);
+    if(!now)return;
+    now.value=keep.v;
+    if(keep.f){now.focus();try{now.setSelectionRange(keep.s,keep.e);}catch(e){}}
+  });
 }
 function jobMins(j){
-  const end=j.finished||(Date.now()/1000), s=Math.max(0,end-(j.started||end));
+  const end=j.finished||(j.status==='waiting'||j.status==='stopped'||j.status==='failed'
+    ?(j.heartbeat||Date.now()/1000):Date.now()/1000), s=Math.max(0,end-(j.started||end));
   return s<60?Math.round(s)+'s':Math.floor(s/60)+' min'+(s>=120?'':'')+(s%60>=1&&s<600?' '+Math.round(s%60)+'s':'');
 }
 function jobCardHtml(n){
