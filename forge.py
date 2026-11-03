@@ -831,6 +831,15 @@ def cmd_inventory(_args):
         images |= set(re.findall(r'https://[a-z0-9.-]*website-files\.com/[^"\s?]+', t))
         images |= {m for m in re.findall(r'<img[^>]*?\ssrc="([^"]+)"', t)
                    if not m.startswith("data:")}  # local files in multi-file exports
+        # VIDEOS ARE MEDIA TOO. An intro loader is often a video (mkvision
+        # plays preloader-wide.mp4 / preloader-tall.mp4), and nothing
+        # listed it, so it could not be swapped. <video src>, <source src>
+        # and the poster frame go in the same section as pictures.
+        images |= {m for m in re.findall(
+            r'<(?:video|source)\b[^>]*?\s(?:src|poster)="([^"]+)"', t)
+            if not m.startswith(("data:", "blob:"))}
+        images |= set(re.findall(r'https://framerusercontent\.com/assets/'
+                                 r'[^"\s?`]+\.(?:mp4|webm|mov)', t))
         links |= {h for h in re.findall(r'href="([^"]+)"', t)
                   if h.startswith(("tel:", "mailto:", "http", "./", "#"))
                   # stylesheets/favicons/fonts are assets, not links to
@@ -839,13 +848,17 @@ def cmd_inventory(_args):
                       (".css", ".js", ".ico", ".png", ".webp", ".svg",
                        ".jpg", ".jpeg", ".woff", ".woff2"))}
 
+    for ct in chunk_texts:     # a Framer video component keeps its file in code
+        images |= set(re.findall(r'https://framerusercontent\.com/assets/'
+                                 r'[^"\s?`\'\\]+\.(?:mp4|webm|mov)', ct))
+
     # DATA THE SITE'S OWN SCRIPTS FETCH (recorded by learn). A live site's
     # services, FAQs, case studies and counters often arrive from its API
     # after the page opens, so none of it is in the HTML — and a rebrand
     # that cannot see it leaves every one of those sections the old
     # company's. Readable words become copy; image and page URLs become
     # images and links, the same three sections as everything else.
-    _img_ext = re.compile(r"\.(png|jpe?g|webp|avif|gif|svg)(\?|$)", re.I)
+    _img_ext = re.compile(r"\.(png|jpe?g|webp|avif|gif|svg|mp4|webm|mov)(\?|$)", re.I)
     _id_like = re.compile(r"[0-9a-f]{8,}|[\w-]{20,}|\d+([.,]\d+)?%?|"
                           r"#?[0-9A-Fa-f]{3,8}|\S+@\S+\.\w+")
 

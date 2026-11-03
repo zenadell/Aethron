@@ -139,5 +139,38 @@ check("and continues it on the same conversation",
       "String(e.text||'').startsWith('[ede_diagnostic]')" in src
       and "reconnectRun" in src)
 
+# 9. an intro video is media that can be swapped, under every spelling
+import subprocess, http.server, threading, functools
+src = TMP / "vsite"; src.mkdir(); M.PROJECTS.mkdir(parents=True, exist_ok=True)
+(src / "index.html").write_text('<html><head><title>Acme</title></head><body><h1>Hello there</h1>'
+    '<video muted><source src="assets/media/intro.mp4" type="video/mp4"></video></body></html>')
+(src / "about.html").write_text('<html><head><title>About Acme</title></head><body><h1>About us</h1>'
+    '<video muted poster="../assets/media/poster.jpg"><source src="../assets/media/intro.mp4"></video></body></html>')
+subprocess.run([sys.executable, str(ROOT / "forge.py"), "init", str(src), "--name", "vproj"],
+               cwd=M.PROJECTS, capture_output=True, timeout=120)
+vp = M.PROJECTS / "vproj"
+subprocess.run([sys.executable, str(ROOT / "forge.py"), "inventory"], cwd=vp,
+               capture_output=True, timeout=120)
+imgs = [e["old"] for e in json.loads((vp / "copy_map.json").read_text())["images"]]
+check("inventory lists the intro video", "assets/media/intro.mp4" in imgs)
+check("and its other spelling", "../assets/media/intro.mp4" in imgs)
+check("and the poster frame", "../assets/media/poster.jpg" in imgs)
+out = call("set_content_bulk", {"project": "vproj", "build": False, "entries": [
+    {"section": "images", "old": "assets/media/intro.mp4", "new": "/assets/mine.mp4"}]})
+cm = json.loads((vp / "copy_map.json").read_text())
+news = {e["old"]: e["new"] for e in cm["images"]}
+check("filling one spelling fills its twin",
+      news.get("../assets/media/intro.mp4") == "/assets/mine.mp4")
+check("and nothing else", news.get("../assets/media/poster.jpg") == "")
+vd = TMP / "vserve"; vd.mkdir()
+(vd / "a.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64)
+H = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(vd))
+H.log_message = lambda *a: None
+srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+check("a video address is accepted as media",
+      M.image_problem(f"http://127.0.0.1:{srv.server_port}/a.mp4") == "")
+srv.shutdown()
+
 print(f"\n{ok}/{ok + bad} field-log checks passed")
 sys.exit(1 if bad else 0)
