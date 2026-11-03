@@ -11859,37 +11859,80 @@ color:#d9d4cc;white-space:pre-wrap;word-break:break-word;-webkit-user-select:tex
 .truth-rows em{font-style:normal;color:var(--tx)}
 .truth-why{margin-top:9px;font-size:11.5px;color:var(--lo)}
 .truth .ghost{margin-top:10px}
-/* A BACKGROUND MIGRATION JOB (aethron_jobs). It runs without the chat, so
-   the card reads the job's own state from disk, not the conversation. */
-.jobc{margin:6px 0 4px;padding:14px 16px;border-radius:14px;
-  border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.025)}
-.jobc.done{border-color:rgba(121,227,154,.26)}
-.jobc.failed,.jobc.waiting{border-color:rgba(232,160,90,.32);background:rgba(232,160,90,.05)}
-.jobc-h{display:flex;align-items:center;gap:8px;font-size:13px}
-.jobc-h b{font-weight:600}
-.jobc-h .jst{margin-left:auto;color:var(--lo);font-size:11.5px;font-variant-numeric:tabular-nums}
-.jobc-steps{display:grid;gap:6px;margin:12px 0 4px}
-.jobc-steps div{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--lo)}
-.jobc-steps div.done{color:var(--tx)}.jobc-steps div.live{color:var(--tx)}
-.jobc-steps i{width:14px;height:14px;flex:none;border-radius:99px;
-  border:1.5px solid rgba(255,255,255,.22);display:grid;place-items:center}
-.jobc-steps .done i{border-color:#79e39a;background:#79e39a}
-.jobc-steps .done i:after{content:"";width:6px;height:3px;border:solid #10140f;
-  border-width:0 0 1.6px 1.6px;transform:rotate(-45deg) translate(1px,-1px)}
-.jobc-steps .live i{border-color:var(--acc);border-top-color:transparent;
-  animation:jobspin .9s linear infinite}
-.jobc-steps .failed i{border-color:#e8a05a;background:#e8a05a}
-.jobc-steps em{font-style:normal;margin-left:auto;font-size:11.5px;color:var(--lo);
-  max-width:55%;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@keyframes jobspin{to{transform:rotate(360deg)}}
-@media (prefers-reduced-motion:reduce){.jobc-steps .live i{animation:none}}
-.jobc-bar{height:4px;border-radius:99px;background:rgba(255,255,255,.07);margin:10px 0 2px;overflow:hidden}
-.jobc-bar span{display:block;height:100%;background:var(--acc);border-radius:99px;transition:width .6s ease}
-.jobc-msg{margin-top:10px;font-size:12.5px;color:var(--tx);line-height:1.5}
-.jobc-msg.lo{color:var(--lo)}
-.jobc-ask{display:flex;gap:8px;margin-top:10px}
-.jobc-ask input{flex:1;min-width:0}
-.jobc-act{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+/* A BACKGROUND MIGRATION JOB — one quiet row. A ring that fills with the
+   whole job, one line of what it is doing, the time. The steps fold away
+   underneath (click the row); a question opens one field in place. */
+.jobc{--jr:var(--acc);margin:8px 0 4px;max-width:520px;border-radius:18px;
+  background:rgba(255,255,255,.035);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.09),
+  0 1px 0 rgba(255,255,255,.03),0 10px 30px -18px rgba(0,0,0,.7);
+  -webkit-backdrop-filter:blur(20px) saturate(1.4);backdrop-filter:blur(20px) saturate(1.4);
+  overflow:hidden;animation:jobin .42s cubic-bezier(.2,.8,.2,1) both}
+@keyframes jobin{from{opacity:0;transform:translateY(6px) scale(.985)}}
+.jobc.done{--jr:#30d158}.jobc.waiting{--jr:#ff9f0a}.jobc.failed{--jr:#ff453a}
+.jobc.stopped{--jr:rgba(255,255,255,.45)}
+.jobc-row{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px 11px 12px;
+  background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.jobc-row:hover{background:rgba(255,255,255,.025)}
+.jobc-row:focus-visible{outline:2px solid var(--acc);outline-offset:-2px;border-radius:18px}
+.jobc-ring{position:relative;width:30px;height:30px;flex:none}
+.jobc-ring>svg{width:30px;height:30px;transform:rotate(-90deg);display:block}
+.jobc-ring .tr{fill:none;stroke:rgba(255,255,255,.1);stroke-width:2.5}
+.jobc-ring .fg{fill:none;stroke:var(--jr);stroke-width:2.5;stroke-linecap:round;
+  transition:stroke-dashoffset .7s cubic-bezier(.2,.8,.2,1),stroke .3s}
+.jobc-ring .gl{position:absolute;inset:0;display:grid;place-items:center;color:var(--jr);
+  font-size:12px;font-weight:700}
+.jobc-ring .gl .ic{width:13px;height:13px;stroke-width:2.6}
+.jobc.running .jobc-ring>svg,.jobc.queued .jobc-ring>svg,.jobc.resuming .jobc-ring>svg{
+  animation:jobspin 2.6s linear infinite}
+@keyframes jobspin{from{transform:rotate(-90deg)}to{transform:rotate(270deg)}}
+.jobc-tx{flex:1;min-width:0;display:grid;gap:2px}
+.jobc-tx b{font-size:13.5px;font-weight:600;letter-spacing:-.01em;color:var(--tx);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.jobc-tx span{font-size:12px;color:var(--lo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums}
+.jobc-tx span i{font-style:normal;color:var(--tx);opacity:.8}
+.jobc-end{display:flex;align-items:center;gap:8px;flex:none;color:var(--lo);font-size:11.5px;
+  font-variant-numeric:tabular-nums}
+.jobc-cv{width:14px;height:14px;transition:transform .3s cubic-bezier(.2,.8,.2,1);opacity:.55}
+.jobc.open .jobc-cv{transform:rotate(180deg)}
+.jobc .jbtn{height:26px;padding:0 12px;border-radius:999px;border:0;cursor:pointer;
+  font-family:inherit;font-size:12px;font-weight:600;line-height:26px;color:var(--jr);
+  background:color-mix(in srgb,var(--jr) 16%,transparent);transition:background .2s}
+.jobc .jbtn.ghost{background:rgba(255,255,255,.08);color:var(--tx)}
+.jobc .jbtn:hover{background:color-mix(in srgb,var(--jr) 26%,transparent)}
+.jobc-x{width:24px;height:24px;border-radius:999px;border:0;display:grid;place-items:center;
+  background:transparent;color:var(--lo);cursor:pointer;opacity:0;transition:opacity .2s,background .2s}
+.jobc-row:hover .jobc-x,.jobc-x:focus-visible{opacity:1}
+.jobc-x:hover{background:rgba(255,255,255,.08);color:var(--tx)}
+.jobc-x .ic{width:12px;height:12px}
+.jobc-more{display:grid;grid-template-rows:0fr;transition:grid-template-rows .35s cubic-bezier(.2,.8,.2,1)}
+.jobc.open .jobc-more{grid-template-rows:1fr}
+.jobc-more>div{overflow:hidden}
+.jobc-steps{list-style:none;margin:0;padding:2px 16px 12px 54px;display:grid;gap:1px}
+.jobc-steps li{position:relative;display:flex;align-items:baseline;gap:10px;font-size:12px;
+  line-height:22px;color:rgba(255,255,255,.32)}
+.jobc-steps li:before{content:"";position:absolute;left:-24px;top:8px;width:6px;height:6px;
+  border-radius:99px;background:rgba(255,255,255,.16)}
+.jobc-steps li.done{color:rgba(255,255,255,.62)}
+.jobc-steps li.done:before{background:#30d158}
+.jobc-steps li.live{color:var(--tx)}
+.jobc-steps li.live:before{background:var(--acc);box-shadow:0 0 0 4px color-mix(in srgb,var(--acc) 25%,transparent);
+  animation:jobbeat 1.6s ease-in-out infinite}
+.jobc-steps li.failed{color:#ff6961}.jobc-steps li.failed:before{background:#ff453a}
+.jobc-steps em{font-style:normal;margin-left:auto;font-size:11px;color:var(--lo);
+  max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes jobbeat{50%{box-shadow:0 0 0 7px transparent}}
+.jobc-note{padding:0 16px 12px 54px;font-size:12px;color:var(--lo);line-height:1.5}
+.jobc-ask{display:flex;align-items:center;gap:6px;margin:0 12px 12px 54px;padding:4px 4px 4px 12px;
+  border-radius:999px;background:rgba(0,0,0,.25);box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12)}
+.jobc-ask:focus-within{box-shadow:inset 0 0 0 1px var(--jr)}
+.jobc-ask input{flex:1;min-width:0;border:0!important;background:transparent!important;
+  color:var(--tx);font:inherit;font-size:13px;padding:5px 0;box-shadow:none!important;outline:none!important}
+.jobc-ask .btn.primary{width:28px;height:28px;min-width:0;padding:0;border-radius:999px;border:0;
+  display:grid;place-items:center;background:var(--jr);color:#1a1205;cursor:pointer}
+.jobc-ask .btn.primary .ic{width:14px;height:14px;stroke-width:2.6}
+@media (prefers-reduced-motion:reduce){.jobc,.jobc-ring>svg,.jobc-steps li.live:before{animation:none!important}
+  .jobc-more,.jobc-cv,.jobc-ring .fg{transition:none}}
 #ptitle .ptnote{font-size:12px;font-weight:500;color:var(--lo);margin-left:8px;letter-spacing:0}
 /* THE CHAT BOX IS THE FRAME; THE TEXT INSIDE IT HAS NONE. The global
    input:focus rule draws a 3px ring and a border, and it reached into the
@@ -15552,22 +15595,31 @@ function jobWatch(n){
   },2500);
 }
 function jobPaint(n){
-  /* THE ANSWER BOX IS NEVER REDRAWN UNDER SOMEONE'S FINGERS. The card is
-     repainted every poll; replacing it wholesale threw away what a person
-     was typing into the question and took the cursor with it. What they
-     typed, where the cursor was and the focus carry across the repaint. */
+  /* PATCHED IN PLACE, NEVER REDRAWN WHOLE. The card is re-read every poll;
+     replacing it wiped what a person was typing, took the cursor away and
+     restarted the ring's spin. Only the parts that changed are rewritten,
+     and the question's field is never touched while it stays a question. */
   document.querySelectorAll(`.jobc[data-job="${CSS.escape(n)}"]`).forEach(el=>{
-    const h=jobCardHtml(n);
-    if(el.outerHTML===h)return;
-    const inp=el.querySelector('.jobc-ask input');
-    const keep=inp?{v:inp.value,f:document.activeElement===inp,
-      s:inp.selectionStart,e:inp.selectionEnd}:null;
-    el.outerHTML=h;
-    if(!keep)return;
-    const now=document.querySelector(`.jobc[data-job="${CSS.escape(n)}"] .jobc-ask input`);
-    if(!now)return;
-    now.value=keep.v;
-    if(keep.f){now.focus();try{now.setSelectionRange(keep.s,keep.e);}catch(e){}}
+    const t=document.createElement('template'); t.innerHTML=jobCardHtml(n).trim();
+    const nw=t.content.firstElementChild; if(!nw||el.outerHTML===nw.outerHTML)return;
+    const same=el.dataset.shape&&el.dataset.shape===nw.dataset.shape;
+    if(!same){
+      const inp=el.querySelector('.jobc-ask input');
+      const keep=inp?{v:inp.value,f:document.activeElement===inp}:null;
+      el.replaceWith(nw);
+      const now=nw.querySelector('.jobc-ask input');
+      if(keep&&now){now.value=keep.v;if(keep.f)now.focus();}
+      return;
+    }
+    el.className=nw.className;
+    for(const sel of ['.jobc-tx','.jobc-end','.jobc-ring .gl','.jobc-more>div']){
+      const a=el.querySelector(sel), b=nw.querySelector(sel);
+      if(a&&b&&a.innerHTML!==b.innerHTML)a.innerHTML=b.innerHTML;
+    }
+    const fa=el.querySelector('.jobc-ring .fg'), fb=nw.querySelector('.jobc-ring .fg');
+    if(fa&&fb)fa.setAttribute('stroke-dashoffset',fb.getAttribute('stroke-dashoffset'));
+    const ra=el.querySelector('.jobc-row'), rb=nw.querySelector('.jobc-row');
+    if(ra&&rb)ra.setAttribute('aria-expanded',rb.getAttribute('aria-expanded'));
   });
 }
 function jobMins(j){
@@ -15575,34 +15627,63 @@ function jobMins(j){
     ?(j.heartbeat||Date.now()/1000):Date.now()/1000), s=Math.max(0,end-(j.started||end));
   return s<60?Math.round(s)+'s':Math.floor(s/60)+' min'+(s>=120?'':'')+(s%60>=1&&s<600?' '+Math.round(s%60)+'s':'');
 }
+const JOBOPEN=new Set();
+function jobToggle(n){JOBOPEN.has(n)?JOBOPEN.delete(n):JOBOPEN.add(n);jobPaint(n);}
 function jobCardHtml(n){
-  const j=JOBUI[n];
-  if(!j)return `<section class="jobc" data-job="${esc(n)}"><div class="jobc-h">${I('clock',14)}<b>Starting the migration</b><span class="jst">${esc(n)}</span></div></section>`;
-  const st=j.status, word={queued:'Starting',running:'Working',resuming:'Picking up again',
-    waiting:'Needs you',done:'Finished',failed:'Stopped on an error',stopped:'Stopped'}[st]||st;
-  const p=j.progress||{}, pct=p.total?Math.round(100*(p.done||0)/p.total):0;
-  const steps=(j.steps||[]).filter(x=>!(x.id==='brand'&&x.status==='done'&&/skipped/.test(x.note||'')))
-    .map(x=>`<div class="${esc(x.status)}"><i></i><span>${esc(x.label)}</span>${
+  const j=JOBUI[n], q=esc(n);
+  const C=2*Math.PI*12.5;
+  const ring=(f,glyph)=>`<div class="jobc-ring" aria-hidden="true"><svg viewBox="0 0 30 30">
+    <circle class="tr" cx="15" cy="15" r="12.5"/><circle class="fg" cx="15" cy="15" r="12.5"
+    stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${(C*(1-Math.max(.04,Math.min(1,f)))).toFixed(2)}"/></svg>
+    <div class="gl">${glyph||''}</div></div>`;
+  if(!j)return `<section class="jobc queued" data-job="${q}" data-shape="none"><div class="jobc-row">${ring(.08)}
+    <div class="jobc-tx"><b>Starting</b><span>${q}</span></div></div></section>`;
+  const st=j.status, p=j.progress||{}, r=j.result||{};
+  const steps=(j.steps||[]).filter(x=>!(x.id==='brand'&&/skipped/.test(x.note||'')));
+  const nd=steps.filter(x=>x.status==='done').length;
+  const live=steps.find(x=>x.status==='live');
+  const fillF=p.total?(p.done||0)/p.total:0;
+  const frac=st==='done'?1:(nd+(live&&live.id==='fill'?fillF:live?.35:0))/Math.max(1,steps.length);
+  const open=JOBOPEN.has(n);
+  let title, sub, glyph='', end='';
+  if(st==='done'){
+    title=`Finished`; glyph=I('check',13);
+    sub=`${q} · ${r.total?`${r.filled} of ${r.total} lines`:'ready'}${r.ok?' · checked in a browser':(r.problems||[]).length?` · ${r.problems.length} to look at`:''}`;
+    end=`<button class="jbtn" onclick="event.stopPropagation();select('${q}')">Open ${q}</button>`;
+  }else if(st==='waiting'){
+    title=`${q} needs one answer`; glyph='?';
+    sub=esc(j.question||'Answer to continue');
+  }else if(st==='failed'){
+    title=`Stopped on an error`; glyph='!';
+    sub=`${q} · ${esc((j.error||'').slice(0,120))}`;
+    end=`<button class="jbtn" onclick="event.stopPropagation();jobGo('${q}')">Try again</button>`;
+  }else if(st==='stopped'){
+    title=`Paused`; sub=`${q} · picks up where it stopped`;
+    end=`<button class="jbtn ghost" onclick="event.stopPropagation();jobGo('${q}')">Continue</button>`;
+  }else{
+    title=st==='resuming'?`Picking up again`:`Migrating ${q}`;
+    sub=live?esc(live.label)+(live.id==='fill'&&p.total?` · <i>${p.done||0} of ${p.total}</i>`:''):'Starting';
+    end=`<span>${jobMins(j)}</span><button class="jobc-x" title="Stop" aria-label="Stop the migration"
+      onclick="event.stopPropagation();jobStop('${q}')">${I('x',12)}</button>`;
+  }
+  const cv=`<svg class="jobc-cv" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
+  /* only what has happened, and what is happening: a list of pending steps is noise */
+  const shown=JOB_ACTIVE.has(st)?steps:steps.filter(x=>x.status!=='todo');
+  const list=shown.map(x=>`<li class="${esc(x.status)}"><span>${esc(x.label)}</span>${
       x.id==='fill'&&x.status==='live'&&p.total?`<em>${p.done||0} of ${p.total}</em>`
-      :x.note?`<em title="${esc(x.note)}">${esc(x.note)}</em>`:''}</div>`).join('');
-  const r=j.result||{};
-  let msg='';
-  if(st==='waiting')msg=`<div class="jobc-msg">${esc(j.question||'It needs an answer to go on.')}</div>
-    <div class="jobc-ask"><input id="jobans-${esc(n)}" placeholder="Your answer" onkeydown="if(event.key==='Enter')jobAnswer('${esc(n)}')">
-    <button class="btn primary" onclick="jobAnswer('${esc(n)}')">Continue</button></div>`;
-  else if(st==='failed')msg=`<div class="jobc-msg">${esc(j.error||'The job stopped.')}</div>`;
-  else if(st==='done')msg=`<div class="jobc-msg">${esc(r.verdict||'Finished.')}${r.total?` — ${r.filled} of ${r.total} lines written.`:''}</div>${
-      (r.problems||[]).length?`<div class="jobc-msg lo">${r.problems.slice(0,4).map(esc).join('<br>')}</div>`:''}`;
-  else msg=`<div class="jobc-msg lo">This runs in the background — you can close this window, and it picks up again on its own if anything stops it.</div>`;
-  const act=JOB_ACTIVE.has(st)?`<button class="btn" onclick="jobStop('${esc(n)}')">Stop</button>`
-    : st==='done'?`<button class="btn primary" onclick="select('${esc(n)}')">Open ${esc(n)}</button>`
-    : st==='waiting'?'' : `<button class="btn primary" onclick="jobGo('${esc(n)}')">${st==='stopped'?'Continue':'Try again'}</button>`;
-  return `<section class="jobc ${esc(st)}" data-job="${esc(n)}">
-    <div class="jobc-h">${I(st==='done'?'check':st==='failed'||st==='waiting'?'alert':'clock',14)}<b>${esc(word)}</b>
-      <span>${esc(n)}</span><span class="jst">${jobMins(j)}</span></div>
-    ${JOB_ACTIVE.has(st)&&p.total?`<div class="jobc-bar"><span style="width:${pct}%"></span></div>`:''}
-    <div class="jobc-steps">${steps}</div>${msg}
-    ${act?`<div class="jobc-act">${act}</div>`:''}</section>`;
+      :x.note?`<em title="${esc(x.note)}">${esc(x.note)}</em>`:''}</li>`).join('');
+  const notes=st==='done'&&(r.problems||[]).length
+      ?`<div class="jobc-note">${r.problems.slice(0,3).map(esc).join('<br>')}</div>`
+    : JOB_ACTIVE.has(st)?`<div class="jobc-note">Runs in the background. You can close this window; it picks up on its own if anything stops it.</div>`:'';
+  const ask=st==='waiting'?`<div class="jobc-ask"><input id="jobans-${q}" placeholder="Type your answer"
+      autocomplete="off" onkeydown="if(event.key==='Enter')jobAnswer('${q}')">
+      <button class="btn primary" aria-label="Continue" title="Continue" onclick="jobAnswer('${q}')">${I('up',14)}</button></div>`:'';
+  return `<section class="jobc ${esc(st)}${open?' open':''}" data-job="${q}" data-shape="${esc(st)}">
+    <div class="jobc-row" role="button" tabindex="0" aria-expanded="${open}"
+      onclick="jobToggle('${q}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();jobToggle('${q}')}">
+      ${ring(frac,glyph)}<div class="jobc-tx"><b>${title}</b><span>${sub}</span></div>
+      <div class="jobc-end">${end}${cv}</div></div>${ask}
+    <div class="jobc-more"><div><ol class="jobc-steps">${list}</ol>${notes}</div></div></section>`;
 }
 async function jobGo(n,request){
   try{const j=await api('/api/job/start',{project:n,request:request||''});JOBUI[n]=j;jobPaint(n);jobWatch(n);}
@@ -19053,6 +19134,9 @@ function convBlocks(evs){
           const jn=String((s.input&&s.input.project)||'').trim().toLowerCase()
             .replace(/[^\w-]+/g,'-').replace(/^-+|-+$/g,'');
           if(jn&&!out.some(x=>x.kind==='job'&&x.project===jn)){
+            /* the card IS the step: a run of just this one call is not drawn */
+            const last=out[out.length-1];
+            if(last&&last.kind==='run'&&last.steps&&last.steps.length===1&&last.steps[0]===s)out.pop();
             out.push({kind:'job',project:jn}); run=null;
             if(!(jn in JOBUI))setTimeout(()=>jobWatch(jn),0);}
         }

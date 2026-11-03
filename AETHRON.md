@@ -6795,6 +6795,16 @@ carries the value, cursor and focus across a repaint, and a waiting job's clock
 stops, so a waiting card does not repaint at all. job battery 30 -> 32 (the old
 studio fails both: '' and no focus).
 
+REDESIGN (same day, owner: "too bulky, old, not Apple"): the card is one
+quiet row — a ring that fills with the whole job (steps done + the copy's
+share), the doing-now line with "712 of 1264", the time, a chevron. Steps
+fold underneath (click the row); pending steps are hidden once a job ends;
+a question opens one pill field with a round send button; Open / Try again
+are tinted pills. The run pill for the start_migration call is not drawn
+(the card is that step). jobPaint now PATCHES the card in place (ring
+offset, text, end, steps) and redraws whole only when its state changes
+(data-shape), so the spin and the typing both survive the 2.5s poll.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
