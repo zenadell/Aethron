@@ -7559,3 +7559,18 @@ the preview's page and width; 169s searching every page with no hint (this
 container's Chromium is slow; a Mac is faster).
 tests/locate_battery.py 12/12 (in run_all): right page, right card not its
 twin, line, route refusals, the MCP tool, the chat wiring.
+
+## SAFARI RUNS FRAMER'S AVATAR TICKER ACROSS THE PAGE — 2026-11-04
+chaka's "Trusted by" avatar strip ran across the whole hero in Safari and in
+Aethron's own preview (WKWebView, the same engine), and was right in Chrome.
+Not ours: makro.framer.website itself does it in Safari (owner's screenshot).
+The ticker sits in a column sized to its content (width:min-content); Safari
+counts the ticker's duplicated items in that size, so the ticker measures
+itself wider and adds more. HIDE_CSS now carries
+`*:has(> ul > li.ticker-item){contain:inline-size;min-width:0}` — size
+containment keeps the ticker out of its column's width, which is what Chrome
+does already. Measured on a Makro build in Chromium and Playwright WebKit at
+1000-1800px: every ticker exactly as before (146px). Playwright's Linux
+WebKit does NOT reproduce the Safari bug, so the fix itself is proven only
+on the owner's Safari after the update. Lesson: headless WebKit is not
+Safari; a Safari-only report needs the owner's eyes or the original site.
