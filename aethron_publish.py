@@ -320,6 +320,24 @@ def badge_choice():
         return True, ""
 
 
+def _pages(files, badge, origin) -> dict:
+    """The bytes each page is uploaded as: the badge when it is on, and
+    the link-preview picture as a full address on this site (a preview
+    with "/assets/share.png" shows nothing in a chat app)."""
+    import aethron_share
+    out = {}
+    for k, p in files.items():
+        if not k.lower().endswith((".html", ".htm")):
+            continue
+        b = p.read_bytes()
+        b2 = aethron_share.absolute(b, origin)
+        if badge:
+            b2 = with_badge(b2)
+        if b2 != b:
+            out[k] = b2
+    return out
+
+
 def with_badge(html: bytes) -> bytes:
     """The page with the badge before its closing body tag (once)."""
     if b"data-aethron-badge" in html:
@@ -520,8 +538,7 @@ def _publish_aethron(key, files, name, log, title, badge):
                 raise
         if not site_name:
             raise PublishError(f"Every address like {base}.{HOSTING_ROOT} is taken. Choose another name.")
-    blobs = {k: with_badge(p.read_bytes()) for k, p in files.items()
-             if badge and k.lower().endswith((".html", ".htm"))}
+    blobs = _pages(files, badge, f"https://{site_name}.{HOSTING_ROOT}")
     log(f"checking {len(files)} files …")
     digests = {k: (hashlib.sha1(blobs[k]).hexdigest() if k in blobs else _sha1(p))
                for k, p in files.items()}
@@ -621,8 +638,7 @@ def publish(key, files, name="", log=print, title="", badge=True, host=None):
         log(badge_choice()[1] + " The badge stays on.")
         badge = True
     # pages carry the badge; their bytes are what is hashed and uploaded
-    blobs = {k: with_badge(p.read_bytes()) for k, p in files.items()
-             if badge and k.lower().endswith((".html", ".htm"))}
+    blobs = _pages(files, badge, site.get("ssl_url") or site.get("url") or "")
     log(f"checking {len(files)} files …")
     digests = {k: (hashlib.sha1(blobs[k]).hexdigest() if k in blobs else _sha1(p))
                for k, p in files.items()}

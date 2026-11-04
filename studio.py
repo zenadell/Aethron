@@ -1856,6 +1856,15 @@ class Handler(BaseHTTPRequestHandler):
                                 append("  " + line)
                             return False
                         append("built")
+                        try:     # the link preview shows THIS site
+                            import aethron_share
+                            aethron_share.ensure(
+                                Path(build_dir), log=append,
+                                rebuild=lambda: subprocess.run(
+                                    forge_argv("build"), cwd=build_dir,
+                                    capture_output=True, text=True))
+                        except Exception as e:
+                            append(f"link preview not made ({type(e).__name__})")
                     try:
                         rec = P.publish(key, files_fn(), want or title,
                                         log=append, title=title, badge=badge, host=host)

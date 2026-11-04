@@ -1880,6 +1880,12 @@ def t_publish_site(a):
         return Result("NOT PUBLISHED: the build failed:\n" + out[-1500:],
                       {"published": False, "reason": "build failed"})
     log = []
+    try:                 # the link preview shows THIS site, not the template's
+        import aethron_share
+        aethron_share.ensure(d, log=log.append,
+                             rebuild=lambda: run_forge(name, "build"))
+    except Exception as e:
+        log.append(f"link preview not made ({type(e).__name__})")
     try:
         rec = Pub.publish(f"project:{d.name}", Pub.folder_files(d / "site"),
                           a.get("site_name") or d.name, log=log.append, title=d.name,

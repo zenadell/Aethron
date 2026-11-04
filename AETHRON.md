@@ -7366,3 +7366,25 @@ downloaded.
 job battery 48 -> 54 (a provider that never answers: the job finishes,
 says which lines stayed, builds; a forge call inside the check is held to
 its deadline).
+
+## THE LINK PREVIEW IS THE BRAND'S — `aethron_share.py` — 2026-11-04
+Owner, sharing jarin.aethron.site: the chat preview showed the TEMPLATE's
+own marketplace picture (bloop). A migrated site kept the template's
+og:image (its preview or its logo). Now:
+- after the build, the job's new optional step "share" opens the migrated
+  home page in a real browser (CDP, real time, so entrances have played),
+  takes it at 1200x630 into assets/share.png and sets cfg.share_image
+  (share_auto); build then replaces every og:image/twitter:image the
+  template set (and its og:image:width/height) with that one, adding
+  twitter:card when missing. A flat-colour shot is retried once, then
+  given up on (said, never shipped). Taken again only when copy_map or the
+  plan changed; a picture the person set (share_auto false) is never
+  replaced.
+- publish (studio + MCP) makes it too when missing, and both hosts turn a
+  "/" address into a full one on the site (previews ignore relative
+  pictures).
+tests/share_battery.py 13/13 (in run_all; no browser -> SKIPPED);
+job 54/54, publish 37/37.
+FIELD LOGS, same day, for "the task card is gone": on 1.1.94 the agent's
+last request in bloop-ai went to start_migration (the job). The runs where
+the chat rebuilt/verified by itself were all on 1.1.91 and older.
