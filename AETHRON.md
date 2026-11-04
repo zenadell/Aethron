@@ -7609,3 +7609,23 @@ NOT PROVEN until the first Windows run: the build itself, pywebview's
 Edge window, and a real install/update on a person's PC. The workflow's
 own checks (engine answers over a pipe, a real migration through the
 packaged app's MCP tools) decide whether anything is published.
+
+## EACH SYSTEM ITS OWN LOOK, AND THE FIRST GREEN WINDOWS BUILD — 2026-11-04
+Owner: the Mac and Windows apps should each look native, "like these
+companies do". studio.py sets html.os-win when the window runs on Windows
+(?os=win shows it anywhere) and a FLUENT block, scoped entirely under it,
+restyles the app: Segoe UI Variable, Windows 11 dark (Mica #202020, layers
+#272727/#2b2b2b, hairline strokes), the content as one layer with a rounded
+top-left corner like Settings, 4px controls, 8px cards/dialogs, the accent
+New button, a 3px accent pill on the selected project, Body Strong section
+headers instead of tracked capitals, no metal shine. The Mac look is
+untouched (screenshots before/after differ only in the animated shine).
+WINDOWS RELEASE: the engine always worked; two test-setup faults hid it.
+On Windows `shell: bash` runs with pipefail, so `Aethron.exe --forge |
+grep` failed on the engine's deliberate exit 1 although it printed the right
+answer; and a check built from the repo's own VERSION was (correctly)
+refused by the team's minimum-version switch. .github/workflows/
+windows-check.yml builds and checks Windows from a claude/** branch without
+cutting a release (a Mac minute costs ten) — use it to try Windows fixes.
+Its second run: built, engine answered, a real migration through the
+packaged Windows app's MCP tools PASSED.

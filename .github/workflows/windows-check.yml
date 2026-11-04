@@ -1,0 +1,52 @@
+# Build and check the Windows app from a claude/** branch, printing
+# everything, without publishing — so a Windows fix can be tried without
+# cutting a Mac release (a Mac minute costs ten).
+name: Windows check
+on:
+  push:
+    branches: ["claude/**"]
+    paths:
+      - "aethron.spec"
+      - "desktop.py"
+      - "aethron_update.py"
+      - ".github/workflows/windows-check.yml"
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      AETHRON_REPORTS: "off"
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build
+        run: |
+          # a real release number, so the team's minimum-version switch lets it run
+          python - <<'PY'
+          import pathlib, re
+          p = pathlib.Path("aethron_update.py")
+          p.write_text(re.sub(r'^VERSION = "[^"]*"', 'VERSION = "1.1.9999"', p.read_text(encoding="utf-8"), count=1, flags=re.M), encoding="utf-8")
+          PY
+          python -c "import json;json.dump(json.load(open('release_config.json',encoding='utf-8')),open('aethron_config.json','w',encoding='utf-8'))"
+          python -m pip install --quiet --upgrade pyinstaller fonttools brotli pywebview
+          python -m PyInstaller --version
+          python -m PyInstaller aethron.spec --noconfirm 2>&1 | tail -40
+          ls dist/Aethron | head -20
+      - name: The engine role
+        run: |
+          set +e
+          dist/Aethron/Aethron.exe --forge > out.txt 2> err.txt
+          echo "exit $?"
+          echo "--- stdout"; head -40 out.txt
+          echo "--- stderr"; head -40 err.txt
+          grep -q "known:" out.txt err.txt
+      - name: A real migration through the packaged tools
+        run: python tests/frozen_migration.py dist/Aethron

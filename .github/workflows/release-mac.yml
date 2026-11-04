@@ -237,8 +237,10 @@ jobs:
           test -f dist/Aethron/Aethron.exe
           python -c "import json,glob;f=glob.glob('dist/Aethron/**/aethron_config.json',recursive=True);assert f,'no config in the app';c=json.load(open(f[0],encoding='utf-8'));assert c.get('supabase_url');assert 'ai' not in c"
           # the engine role answers over a pipe (a windowed .exe would not)
-          dist/Aethron/Aethron.exe --forge 2>&1 | grep -q "known:" \
-            || { echo "::error::the packaged engine does not start or prints nothing"; exit 1; }
+          # (it exits 1 on purpose with no command; read what it said, not its code)
+          OUT="$(dist/Aethron/Aethron.exe --forge 2>&1 || true)"
+          echo "$OUT" | head -3
+          case "$OUT" in *known:*) ;; *) echo "::error::the packaged engine does not start or prints nothing"; exit 1;; esac
           # a real migration through the packaged app's own tools
           python tests/frozen_migration.py dist/Aethron
 
