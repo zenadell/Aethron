@@ -13812,6 +13812,68 @@ input.sw:disabled{opacity:.55;cursor:default}
 input.sw:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .pubfoot{display:flex;justify-content:center}
 .pubfoot .pubacct{font-size:12px}
+
+/* ── V4 publish sheet: quiet, monochrome, Apple-like ──
+   One light primary, grey glyphs instead of coloured tiles, inset
+   separators, a single small green dot for "live", and red only on the
+   word that takes the site down. */
+#pubov .pubcard{background:#1c1c1e!important;border:1px solid rgba(255,255,255,.07)!important;
+  border-radius:30px!important;box-shadow:0 40px 120px rgba(0,0,0,.55),0 0 0 .5px rgba(255,255,255,.04) inset!important;
+  width:min(500px,calc(100vw - 32px))!important}
+#pubov .nx{width:30px!important;height:30px!important;border-radius:50%!important;border:0!important;
+  background:rgba(255,255,255,.08)!important;color:rgba(235,235,245,.6)!important;box-shadow:none!important;
+  outline:none!important;top:18px!important;right:18px!important}
+#pubov .nx:hover{background:rgba(255,255,255,.14)!important;color:#fff!important}
+#pubov .pubhd{padding:26px 26px 4px!important;gap:14px!important}
+#pubov .pubhd .pubic{width:40px!important;height:40px!important;border-radius:50%!important;
+  background:rgba(255,255,255,.08)!important;color:#f5f5f7!important}
+#pubov .pubhd.islive .pubic{background:rgba(255,255,255,.08)!important;color:#f5f5f7!important}
+#pubov .pubhd h3{font:600 19px/1.2 var(--ui)!important;letter-spacing:-.022em!important;color:#f5f5f7!important}
+#pubov .pubhd .psub{font-size:13px!important;color:rgba(235,235,245,.5)!important;margin-top:3px!important}
+#pubov .pubbody{padding:18px 26px 24px!important;gap:14px!important}
+#pubov .publive{background:#2c2c2e!important;border:0!important;border-radius:20px!important;padding:18px 18px 16px!important}
+#pubov .pubstat{color:rgba(235,235,245,.5)!important;font-size:12.5px!important}
+#pubov .pubstat b{color:rgba(235,235,245,.85)!important;font-weight:500!important}
+#pubov .pubstat .pubdot{width:6px!important;height:6px!important;background:#30d158!important;box-shadow:none!important;animation:none!important}
+#pubov .publive .url{font:600 22px/1.25 var(--ui)!important;letter-spacing:-.025em!important;color:#f5f5f7!important;margin:4px 0 12px!important}
+#pubov .pubcard button{border-radius:999px!important;font-weight:500!important;box-shadow:none!important;
+  border:0!important;background:rgba(255,255,255,.1)!important;color:#f5f5f7!important;
+  transition:background .15s ease,transform .15s ease!important}
+#pubov .pubcard button:hover{background:rgba(255,255,255,.16)!important}
+#pubov .publive .pubacts{flex-wrap:nowrap!important;gap:8px!important}
+#pubov .publive .pubacts button{padding:8px 14px!important;font-size:13.5px!important;white-space:nowrap}
+#pubov .pubcard button:active{transform:scale(.97)}
+#pubov .pubcard button.primary{background:#f5f5f7!important;color:#1c1c1e!important}
+#pubov .pubcard button.primary:hover{background:#fff!important}
+#pubov .pubcard button.pubdanger{background:rgba(255,69,58,.14)!important;color:#ff6961!important}
+#pubov .pubgroup{background:#2c2c2e!important;border:0!important;border-radius:18px!important}
+#pubov .pubgroup>.pgrow+.pgrow{border-top:0!important;position:relative}
+#pubov .pubgroup>.pgrow+.pgrow::before{content:"";position:absolute;left:50px;right:0;top:0;height:1px;
+  transform:scaleY(.5);transform-origin:top;background:rgba(255,255,255,.14);pointer-events:none}
+#pubov .pubgroup .pubsec>summary,#pubov .pubbadge.pgrow{padding:13px 16px!important;gap:12px!important}
+#pubov .pubgroup .pubsec>summary:hover{background:rgba(255,255,255,.035)!important}
+#pubov .pgi{width:22px!important;height:22px!important;border-radius:0!important;background:transparent!important;
+  color:rgba(235,235,245,.6)!important}
+#pubov .pgi.t-acc img{width:17px!important;height:17px!important;filter:invert(1) brightness(.9)!important;opacity:.75}
+#pubov .pgl b{font-size:14.5px!important;font-weight:400!important;color:#f5f5f7!important;letter-spacing:-.01em}
+#pubov .pgl .pbtxt{font-size:12.5px!important;color:rgba(235,235,245,.5)!important}
+#pubov .pubgroup .pubsec>summary .hint{font-size:14px!important;color:rgba(235,235,245,.45)!important}
+#pubov .pubgroup .pubsec>summary::after{border-color:rgba(235,235,245,.3)!important}
+#pubov .pubgroup .pubsec[data-danger]>summary b{color:#ff6961!important}
+#pubov .pubgroup .pubsec[data-danger] .pgi{color:#ff6961!important}
+#pubov .pubgroup .pubsec .in{padding:2px 16px 16px 50px!important;color:rgba(235,235,245,.6)!important}
+#pubov input.sw{width:46px!important;height:28px!important;background:rgba(120,120,128,.32)!important}
+#pubov input.sw::after{width:24px;height:24px;top:2px;left:2px;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+#pubov input.sw:checked{background:#30d158!important}
+#pubov input.sw:checked::after{transform:translateX(18px)}
+#pubov .pubcard input:not(.sw){background:#1c1c1e!important;border:0!important;border-radius:12px!important;
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12)!important}
+#pubov .pubaddr{background:#1c1c1e!important;border:0!important;border-radius:12px!important;
+  box-shadow:inset 0 0 0 .5px rgba(255,255,255,.12)!important;overflow:hidden}
+#pubov .pubcard .pubaddr input:not(.sw){box-shadow:none!important;background:transparent!important;border-radius:0!important}
+#pubov .pubaddr span{background:transparent!important;border:0!important;color:rgba(235,235,245,.45)!important}
+#pubov .pubfoot .pubacct{color:rgba(235,235,245,.4)!important;font-size:12px!important}
+#pubov .pubfoot .pubacct svg{opacity:.7}
 </style></head><body>
 <aside>
   <div class="brand" onclick="goHome()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -20964,7 +21026,7 @@ function pubLive(acct,err){
       ${row('globe','t-blue','Custom domain',esc(s.custom_domain||'None'),dom,s.custom_domain?'open':'')}
       ${row('clock','t-violet','Versions','Restore any earlier one',vbody,'ontoggle="if(this.open&&!PUB.versions)pubVersions()"')}
       ${row('pencil','t-green','Address',esc(s.name)+pubSuffix(),abody)}
-      ${row('trash','t-red','Unpublish','Take the site down',ubody)}
+      ${row('trash','t-red','Unpublish','Take the site down',ubody,'data-danger')}
     </div>
     <div class="pubfoot">${acct}</div>`;
 }

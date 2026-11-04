@@ -7333,3 +7333,10 @@ and the chat still rebuilt and checked bloop-ai by itself.
 3. The chat agent may no longer build/heal/verify/probe a project that has
    a migration job; it is pointed at start_migration, which now always
    redoes fill (only what is empty), build and check on "continue".
+
+## THE PUBLISH SHEET, QUIET — 2026-11-04
+Owner: "too colored", wanted Apple style. CSS block "V4 publish sheet"
+(all scoped to #pubov): one light primary (Open site), grey glyphs instead
+of the blue/violet/green/red tiles, inset separators, #1c1c1e/#2c2c2e
+system greys, a single small green dot for Live, the iOS switch, and red
+only on the Unpublish row (data-danger). Publish battery 37/37.
