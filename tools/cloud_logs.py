@@ -95,6 +95,9 @@ for u in us:
     st[(u["provider"], u["model"], u["status"])] += 1
 for k, v in sorted(st.items(), key=lambda kv: -kv[1]):
     print(f"  {v:5d}  {k}")
+print("  latest that did not answer:")
+for u in [u for u in us if u.get("status") != "ok"][-15:]:
+    print(f"    {u['at']} {u['provider']} {u['model']} {u['status']} {u.get('ms')}ms")
 
 print("\n===== DEVICES =====")
 for d in rows("devices", "order=last_seen.desc&limit=50"):
