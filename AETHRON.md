@@ -7509,3 +7509,12 @@ WAITED, asking the person a question nothing they type could answer.
   switches, answer times and the latest requests that did not answer.
 job battery 54 -> 58 (a 546 time limit finishes the job; no credit waits as
 "blocked" with the provider's words; the card shows Paused + Try again).
+
+## "HUNG ON THE BROWSER AGENT" — A REPAIR ROUND NOBODY COULD SEE — 2026-11-04
+chaka sat on "Checking it in a browser · agent round 1/1" for 6+ minutes.
+Within budget (the round could run 10 min, the check 15), but the card
+updated only on stage changes, so a working round looked exactly like a
+hang. Now the card shows each step the repair round takes, the step count
+and "m:ss of up to N min"; the round is limited to 6 min, the whole check to
+11 min, and a model silent for 150s is given up on (a managed-AI answer is
+cut off at 150s on the server anyway). job battery 58/58.

@@ -322,6 +322,10 @@ def _heal(project, rounds, use_agent, on_event, cfg, home, live,
                        "repeat what did not work.")
         res = code.run_once(project, prompt, cfg=cfg, home=home,
                             timeout=agent_timeout,
+                            # a model silent for two minutes is not
+                            # thinking, it is gone (a managed-AI answer
+                            # is cut off at 150s on the server)
+                            idle=min(150, agent_timeout),
                             on_event=lambda e: _stream(e, say, actions))
         if res.get("error"):
             note("error", f"agent: {res['error'][:200]}")
