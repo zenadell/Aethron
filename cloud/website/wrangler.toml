@@ -1,4 +1,4 @@
-# The Aethron website (www.aethron.site), as static files on Cloudflare.
+# The Aethron website (aethron.jomiez.com), as static files on Cloudflare.
 # Deployed by .github/workflows/deploy-website.yml. Static asset requests on
 # Workers are free and unmetered, so the site costs nothing however many
 # people open it (it used to run on Render's free plan, which allows 5 GB a
@@ -7,8 +7,12 @@ name = "aethron-website"
 compatibility_date = "2026-10-01"
 workers_dev = false
 
+# A custom domain: Cloudflare makes the DNS record and the certificate
+# itself. Needs jomiez.com on this Cloudflare account and the API token
+# allowed to edit it; until then the workflow deploys wrangler.fallback.toml
+# (www.aethron.site) instead.
 routes = [
-  { pattern = "www.aethron.site/*", zone_name = "aethron.site" },
+  { pattern = "aethron.jomiez.com", custom_domain = true },
 ]
 
 [assets]
