@@ -3345,6 +3345,41 @@ class Handler(BaseHTTPRequestHandler):
                                      + str(act.get("explain", ""))[:100] + ")")
                 self.send_json({"did": did, "errors": errs,
                                 "explain": act.get("explain", "")})
+            elif u.path == "/api/share":
+                # THE LINK PREVIEW, IN ONE STEP. Asked in words, this used to
+                # send the agent digging through pages for a meta tag.
+                try:
+                    d = self.project_dir({"project": [str(body.get("project") or "")]})
+                except FileNotFoundError as e:
+                    return self.fail(str(e))
+                img = ""
+                n = Path(str(body.get("image") or "")).name
+                if n:
+                    up = (HOME / "uploads").resolve()
+                    if not (re.fullmatch(r"[0-9a-f]{16}\.(png|jpg|gif|webp)", n)
+                            and (up / n).is_file()):
+                        return self.fail("that picture was not attached here")
+                    img = str(up / n)
+                snapshot(d)
+
+                def job(append):
+                    import aethron_share
+                    append("making the link preview …" if not img
+                           else "setting your picture as the link preview …")
+
+                    def rebuild():
+                        p = subprocess.run(forge_argv("build"), cwd=d,
+                                           capture_output=True, text=True)
+                        if p.returncode != 0:
+                            raise RuntimeError("the build failed")
+                    try:
+                        append(aethron_share.set_image(d, img, log=append,
+                                                       rebuild=rebuild))
+                        return True
+                    except Exception as e:
+                        append(f"not changed: {e}")
+                        return False
+                return self.send_json({"job": start_fn_job(job, "")})
             elif u.path in ("/api/job/start", "/api/job/stop"):
                 import aethron_jobs
                 name = aethron_jobs.slug(body.get("project", ""))
@@ -15520,6 +15555,34 @@ async function routeToJob(text){
     renderChat(); return true;
   }catch(e){ return false; }
 }
+/* "Replace the link preview" is one action, not a conversation: it goes
+   straight to /api/share, with the attached picture when there is one. */
+const SHARE_ASK=/\b(?:og[:\s-]?image|(?:link|meta|share|sharing|social|og)(?:\s+(?!to\b|for\b|with\b)\w+){0,2}\s+(?:image|picture|photo|thumbnail|pr[ie]v\w*|card)|pr[ie]v\w*\s+(?:image|picture))\b/i;
+function isShareAsk(t){
+  t=String(t||'').trim();
+  if(!t||t.length>160)return false;
+  // a meta image request that also asks for something else goes to the agent
+  return SHARE_ASK.test(t)&&!/\b(?:and also|also|then)\b/i.test(t);
+}
+async function routeToShare(text,pics){
+  const n=S.cur; if(!n||!isShareAsk(text))return false;
+  try{
+    const r=await api('/api/share',{project:n,image:(pics[0]&&pics[0].name)||''});
+    CODE.events.push({type:'text',text:pics.length
+      ?'Setting your picture as the link preview and rebuilding.'
+      :'Taking a fresh picture of the migrated home page as the link preview and rebuilding.'});
+    renderChat();
+    let j;
+    do{await new Promise(res=>setTimeout(res,1000));
+       j=await api('/api/job?id='+r.job);}while(!j.done);
+    const last=(j.log||'').trim().split('\n').pop();
+    CODE.events.push({type:'text',text:j.ok
+      ?'Done — '+last+'. Publish again to put it live; chat apps can keep the old preview cached for a while.'
+      :'The link preview was not changed: '+last});
+    renderChat(); refresh(true).catch(()=>{});
+    return true;
+  }catch(e){return false;}
+}
 async function sendCode(){
   CODE.nudges=0;CODE.recoveries=0;
   const ta=$('chatta'),text=ta.value.trim();
@@ -15530,6 +15593,7 @@ async function sendCode(){
   ta.value='';
   CODE.events.push({type:'you',text,images:pics.map(p=>p.url)});renderChat();
   if(!pics.length&&await routeToJob(text))return;
+  if(await routeToShare(text,pics))return;
   CODE.lastEv=Date.now();CODE.slowNote='';
   try{await api('/api/code/send',{key:CODE.key,text,images:pics.map(p=>p.name)});}
   catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}

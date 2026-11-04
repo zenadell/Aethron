@@ -1366,6 +1366,31 @@ def t_hide_text(a):
                   {"hide_text": cur, "built": ok})
 
 
+def t_share_image(a):
+    """Replace the link preview (og:image) — the picture a chat app or a
+    social post shows for the site's link."""
+    import aethron_share
+    name = str(a["project"])
+    d = pdir(name)
+    snapshot(d)
+    built = {"ok": None}
+
+    def rebuild():
+        ok, log = run_forge(name, "build")
+        built["ok"] = ok
+        if not ok:
+            raise RuntimeError("build failed:\n" + log[-1500:])
+    msg = aethron_share.set_image(d, str(a.get("image") or ""),
+                                  log=lambda t: None, rebuild=rebuild)
+    cfg = json.loads((d / "forge.json").read_text(encoding="utf-8"))
+    return Result(msg + ". Every page now points its link preview "
+                  "(og:image, twitter:image) at it; publishing again turns "
+                  "it into a full address. Chat apps keep an old preview "
+                  "cached for a while.",
+                  {"share_image": cfg.get("share_image"),
+                   "auto": bool(cfg.get("share_auto")), "built": built["ok"]})
+
+
 def t_remove_element(a):
     d = pdir(str(a["project"]))
     cfg = json.loads((d / "forge.json").read_text())
@@ -2312,6 +2337,15 @@ TOOLS = [
      S({**P, "old": {"type": "string", "description": "the address it goes "
         "to now — read it with browser_click or browser_read"},
         "new": {"type": "string"}}, ["project", "old", "new"]), t_set_link),
+    ("share_image", "Replace the LINK PREVIEW picture (og:image / "
+     "twitter:image — what a chat app or social post shows for the site's "
+     "link). One call does all of it: no image = a fresh 1200x630 picture "
+     "of the migrated home page; image = a picture the person gave (an "
+     "attached file path or an https address). Builds after. Never look "
+     "for meta tags by hand.",
+     S({**P, "image": {"type": "string", "description": "OPTIONAL picture "
+        "path or https address; leave out to picture the migrated site"}},
+       ["project"]), t_share_image),
     ("hide_text", "Hide words a widget draws after the page loads (a "
      "'FRAMESHIP' or 'Powered by' tag inside a cart or embed) — no selector "
      "in the files can reach those. Hides the smallest element carrying "
@@ -2620,7 +2654,8 @@ def _control_why():
 JOB_OWNED = {"set_content", "set_content_bulk", "build", "heal", "undo",
              "fetch", "inventory", "set_plan", "remove_element",
              "remove_page", "add_style", "replace_image_slots",
-             "localize_assets", "set_link", "hide_text", "learn_brand"}
+             "localize_assets", "set_link", "hide_text", "learn_brand",
+             "share_image"}
 
 
 def _job_busy(name, args) -> str:

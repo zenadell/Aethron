@@ -43,6 +43,30 @@ def main():
     ck("no share image set -> the page is untouched",
        forge._set_share_image("<head></head>", {}) == "<head></head>")
 
+    print("A2. a request in words goes straight to the tool, not the model")
+    import subprocess as sp
+    src = (ROOT / "studio.py").read_text()
+    js = src[src.index("const SHARE_ASK="):src.index("async function routeToShare")]
+    cases = {"can you replace the link meta privew image?": True,
+             "replace the link preview": True,
+             "use this as the og:image": True,
+             "make the hero image bigger": False,
+             "change the link to the image page": False,
+             "update the share image and also change the logo": False}
+    prog = js + "\nconsole.log(JSON.stringify(" + json.dumps(list(cases)) \
+        + ".map(isShareAsk)))"
+    try:
+        out = sp.run(["node", "-e", prog], capture_output=True, text=True,
+                     timeout=30).stdout.strip()
+        got = json.loads(out)
+        ck("link-preview requests are recognised, other requests are not",
+           got == list(cases.values()), f"{got}")
+    except (OSError, ValueError):
+        print("  SKIPPED request matcher (no node on this machine)")
+    ck("the agent has one tool for it",
+       "share_image" in (ROOT / "forge_mcp.py").read_text()
+       and "share_image" in (ROOT / "aethron_code.py").read_text())
+
     if not forge._find_browser():
         print("SKIPPED — no browser on this machine; the picture was NOT checked")
         print(f"\nshare battery: {PASS} passed, {FAIL} failed (browser part SKIPPED)")
@@ -87,6 +111,28 @@ def main():
     cfg.update(share_image="/assets/mine.png", share_auto=False)
     forge.write_cfg(d, cfg)
     ck("a picture the person chose is kept", "kept" in SH.ensure(d, rebuild=rebuild, force=True))
+    print("C. the share_image tool")
+    import forge_mcp as M
+    pic = tmp / "mine.png"
+    pic.write_bytes(png.read_bytes())
+    r = M.t_share_image({"project": d.name, "image": str(pic)})
+    page = (d / "site/index.html").read_text(errors="ignore")
+    ck("a given picture becomes the preview and ships",
+       (d / "site/assets/share.png").read_bytes() == pic.read_bytes()
+       and 'content="/assets/share.png"' in page, getattr(r, "text", r))
+    ck("and is marked as the person's own", forge.read_cfg(d).get("share_auto") is False)
+    M.t_share_image({"project": d.name, "image": "https://example.com/og.jpg"})
+    page = (d / "site/index.html").read_text(errors="ignore")
+    ck("an https address is used as given", 'content="https://example.com/og.jpg"' in page)
+    M.t_share_image({"project": d.name})
+    cfg = forge.read_cfg(d)
+    ck("no picture -> a fresh one of the site, automatic again",
+       cfg.get("share_auto") is True and cfg.get("share_image") == "/assets/share.png")
+    try:
+        M.t_share_image({"project": d.name, "image": str(tmp / "nope.png")})
+        ck("a missing picture is refused", False)
+    except ValueError:
+        ck("a missing picture is refused", True)
     shutil.rmtree(tmp, ignore_errors=True)
     print(f"\nshare battery: {PASS} passed, {FAIL} failed")
     return 1 if FAIL else 0

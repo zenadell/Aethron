@@ -7388,3 +7388,20 @@ job 54/54, publish 37/37.
 FIELD LOGS, same day, for "the task card is gone": on 1.1.94 the agent's
 last request in bloop-ai went to start_migration (the job). The runs where
 the chat rebuilt/verified by itself were all on 1.1.91 and older.
+
+## "REPLACE THE LINK PREVIEW" IS ONE STEP, NOT A DIG — 2026-11-04
+Owner, on 1.1.95, asked the chat "can you replace the link meta preview
+image?" and watched deepseek-flash go page by page (find the og tag, read
+the copy, open index.html), asking whether the old line-by-line agent was
+still there. It was not the fill path: there was simply no tool for this,
+so the agent improvised. Now:
+- MCP tool `share_image` {project, image?}: no image = a fresh 1200x630
+  picture of the migrated home page (automatic again); a file path or an
+  https address = the person's picture, never replaced automatically.
+  Builds after; snapshotted; job-owned. PROJECT_RULES 9 names it.
+- the window answers it directly: isShareAsk() (typos like "privew"
+  included, "link to the image page" not) sends a short request to
+  POST /api/share with the attached picture if any; the model is not
+  asked.
+tests/share_battery.py 13 -> 20 (matcher, the tool with a file, a URL,
+none, and a missing file refused); chat-ui battery green.
