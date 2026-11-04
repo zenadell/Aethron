@@ -271,6 +271,15 @@ def guard_write(entry: dict, new: str):
     """The rules that keep migrations unbreakable. Returns error or None."""
     if "`" in new or "${" in new:
         return "backtick/${ forbidden (strings land inside JS template literals)"
+    import forge as _f
+    o = entry.get("old", "")
+    if new and _f.is_rich(new) and not _f.is_rich(o):
+        return ("this line is plain text — write only the words, not a "
+                '[1,[4,"p",…] structure (it would show on the page as '
+                "brackets)")
+    if new and _f.is_rich(o) and not _f.is_rich(new) \
+            and _f.fit_form(o, new)[0] is None:
+        return _f.fit_form(o, new)[1]
     mb = entry.get("max_bytes")
     if mb and len(new.encode()) > mb:
         return (f"over CMS byte budget: {len(new.encode())} > {mb} bytes "
