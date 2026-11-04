@@ -127,6 +127,14 @@ HIDE_CSS = (
     'a[href*="framer.link/"],[class$="-container"]:has(> a[href*="framer.link/"]),'
     'a[href*="webflow.com/templates"],a[href*="webflow.io/template"],'
     '.w-webflow-badge{display:none !important}'
+    # SAFARI: Framer's Ticker (the avatar/logo marquee) sits in a column
+    # sized to its CONTENT (width:min-content). Safari counts the ticker's
+    # duplicated items in that size, the ticker then measures itself wider
+    # and adds more items, and the strip runs across the whole page
+    # (makro.framer.website itself does this in Safari; Chrome does not).
+    # Size containment keeps the ticker out of its column's width, which
+    # is exactly what Chrome already does.
+    '*:has(> ul > li.ticker-item){contain:inline-size;min-width:0}'
     '</style>'
 )
 
