@@ -650,7 +650,7 @@ def _refresh_control_soon() -> None:
 
     def run():
         try:
-            _control.refresh(20, _latest_token())
+            _control.refresh(30, _latest_token())
         except Exception:
             pass
         finally:

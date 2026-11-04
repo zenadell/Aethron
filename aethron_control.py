@@ -36,6 +36,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 STALE_S = 120          # older than this, a process that can refresh does
 TIMEOUT_S = 6
+# A full check-in (/ping) is an edge-function call, and the free plan has a
+# monthly allowance of those. Between full check-ins a copy only asks the
+# control table when the team last changed a switch: a plain database read,
+# which is not a function call. A changed switch still reaches every copy
+# within a minute; who is online and per-person holds within FULL_S.
+FULL_S = 600
 
 LABELS = {"agent": "The coding agent", "ai": "Aethron's AI", "mcp": "Aethron's MCP tools",
           "migrate": "Migrating and building", "screenshot": "Screenshot to code",
@@ -194,15 +200,73 @@ def ping(token: str = "", activity: dict = None) -> dict:
         return new
 
 
-def refresh(max_age: float = STALE_S, token: str = "") -> dict:
-    """Ping only if the answer on disk is older than max_age."""
+def _rest_url() -> str:
+    """The database's own address, when the function's address is the usual one."""
+    b = base_url()
+    tail = "/functions/v1/aethron"
+    return b[: -len(tail)] + "/rest/v1" if b.endswith(tail) and _anon() else ""
+
+
+def switches_changed() -> bool | None:
+    """Did the team change a switch since our last full answer? One database
+    read, no function call. None when it cannot be asked."""
+    rest = _rest_url()
+    if not rest:
+        return None
+    req = urllib.request.Request(rest + "/control?select=updated_at&id=eq.1")
+    req.add_header("apikey", _anon())
+    req.add_header("Authorization", "Bearer " + _anon())
+    try:
+        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+            rows = json.loads(r.read().decode() or "[]")
+    except Exception:
+        return None
+    now = str((rows[0] if rows else {}).get("updated_at") or "")
+    had = str((state().get("control") or {}).get("updated_at") or "")
+    s = dict(state())
+    s["looked_at"] = time.time()
+    _save(s)
+    return _same_time(now, had) is False
+
+
+def _same_time(a: str, b: str) -> bool | None:
+    """Two timestamps from the database, written in slightly different forms."""
+    if not a or not b:
+        return False
+    def norm(t):
+        t = t.replace("Z", "+00:00").replace(" ", "T")
+        try:
+            from datetime import datetime
+            return datetime.fromisoformat(t).timestamp()
+        except ValueError:
+            return t
+    return norm(a) == norm(b)
+
+
+def check(token: str = "", activity: dict = None, full_every: float = FULL_S) -> dict:
+    """What a heartbeat does: a full check-in when one is due or a switch
+    changed, otherwise only the cheap question."""
     s = state()
-    if not base_url() or time.time() - float(s.get("at") or 0) <= max_age:
+    if not base_url():
+        return s
+    if time.time() - float(s.get("at") or 0) >= full_every or not s.get("control"):
+        return ping(token, activity)
+    changed = switches_changed()
+    if changed is None or changed:
+        return ping(token, activity)
+    return state()
+
+
+def refresh(max_age: float = STALE_S, token: str = "") -> dict:
+    """Ask again only if the answer on disk is older than max_age."""
+    s = state()
+    seen = max(float(s.get("at") or 0), float(s.get("looked_at") or 0))
+    if not base_url() or time.time() - seen <= max_age:
         return s
     # offline: do not make every call wait out a timeout; try again in a minute
     if time.time() - float(s.get("error_at") or 0) < 60:
         return s
-    return ping(token)
+    return check(token)
 
 
 def forget_device() -> None:
@@ -353,7 +417,7 @@ class Heartbeat:
             act = self.activity() or {}
         except Exception:
             act = {}
-        s = ping(tok, act)
+        s = check(tok, act)
         after = json.dumps(s.get("control"), sort_keys=True), json.dumps(s.get("me"), sort_keys=True)
         if self.on_change and after != before:
             try:

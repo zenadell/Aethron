@@ -532,9 +532,9 @@ const VIEWS = {};
 VIEWS.overview = async () => {
   const o = await T('overview'); SNAP=o;
   const c = o.control, tr=o.trend||{};
-  TICK = setInterval(()=>{ if(VIEW==='overview')refreshView() }, 30000);
+  TICK = setInterval(()=>{ if(VIEW==='overview'&&!document.hidden)refreshView() }, 120000);
   const hello=(ME.email||'').split('@')[0];
-  return head('Overview', `${hello?'Welcome back, '+esc(hello)+'. ':''}Updated ${ago(o.at)} · refreshes every 30 seconds.`,
+  return head('Overview', `${hello?'Welcome back, '+esc(hello)+'. ':''}Updated ${ago(o.at)} · refreshes every 2 minutes while this tab is open.`,
       `<span class="tag ${c.paused?'bad':'ok'}"><span class="dot ${c.paused?'':'on'}"></span>${c.paused?'Paused':'Running'}</span>
        <span class="tag">${ic('ai')}${esc(AIMODE[c.ai_mode]||c.ai_mode)}${o.managed.model&&c.ai_mode==='managed'?' · '+esc(o.managed.model):''}</span>`)+`
   ${c.paused?`<div class="kill on" style="margin-bottom:16px"><div class="kic">${ic('pause')}</div><div style="flex:1"><div class="big">Aethron is paused for everyone</div>
@@ -577,8 +577,8 @@ async function resumeAll(){ await act('resume_all',{},'Aethron is running again'
 
 VIEWS.live = async () => {
   const rows = await T('online_users');
-  TICK = setInterval(()=>{ if(VIEW==='live')refreshView() }, 10000);
-  return head('Live now', 'Every copy of Aethron that checked in during the last 2½ minutes. Refreshes every 10 seconds.',
+  TICK = setInterval(()=>{ if(VIEW==='live'&&!document.hidden)refreshView() }, 60000);
+  return head('Live now', 'Every copy of Aethron that checked in during the last 12 minutes. Refreshes every minute while this tab is open.',
     `<span class="tag ok"><span class="dot on"></span>${rows.length} open</span>`)+`
   <div class="card flush"><div class="tw">${rows.length?`<table><tr><th>Person</th><th>Where</th><th>What it is doing</th><th>Version</th><th>Device</th><th>Last check-in</th></tr>
   ${rows.map(d=>`<tr class="${d.user_id?'click':''}" ${d.user_id?`onclick="userDrawer(${jsq(d.user_id)})"`:''}>

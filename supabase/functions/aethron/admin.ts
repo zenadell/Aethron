@@ -21,7 +21,7 @@ export type Tool = {
   run: (args: Row, a: Admin) => Promise<unknown>;
 };
 
-const ONLINE_MS = 150_000;
+const ONLINE_MS = 720_000;   // a copy checks in fully every 10 minutes
 const S = (description: string, extra: Row = {}) => ({ type: "string", description, ...extra });
 const N = (description: string) => ({ type: "number", description });
 const B = (description: string) => ({ type: "boolean", description });

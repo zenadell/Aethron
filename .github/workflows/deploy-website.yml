@@ -1,0 +1,78 @@
+# Ships the Aethron website (www.aethron.site) to Cloudflare as static files.
+# Static asset requests on Workers are free and unmetered, which is why the
+# site moved off Render's free plan (5 GB a month, then $0.15 a GB).
+#
+# Runs when the website changes, after every Mac release (so /download points
+# at the newest build), and by hand. Uses the same two secrets as the hosting:
+# CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+name: Deploy Aethron website (Cloudflare)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "projects/aethron-web/**"
+      - "cloud/website/**"
+      - ".github/workflows/deploy-website.yml"
+  workflow_run:
+    workflows: ["Release Aethron for Mac"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-website
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      AETHRON_REPORTS: "off"
+      AETHRON_RUNLOG: "off"
+      AETHRON_NO_RELEARN: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the site
+        working-directory: projects/aethron-web
+        run: |
+          python3 ../../forge.py build
+          python3 post_build.py
+          echo "files: $(find site -type f | wc -l), size: $(du -sh site | cut -f1)"
+          # fit the redirects to Cloudflare, drop the self-hosting notes
+          python3 ../../cloud/website/prepare.py site
+      - name: Secrets present?
+        id: have
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID are not set — nothing was deployed"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.have.outputs.ok == 'true'
+        with:
+          node-version: "20"
+      - name: Deploy
+        if: steps.have.outputs.ok == 'true'
+        working-directory: cloud/website
+        run: npx --yes wrangler@3 deploy
+      - name: Live check
+        if: steps.have.outputs.ok == 'true'
+        run: |
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://www.aethron.site/ || true)
+            echo "www.aethron.site -> $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::https://www.aethron.site/ did not answer 200"
+          exit 1

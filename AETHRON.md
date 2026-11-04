@@ -7457,3 +7457,27 @@ chat-ui, conversation, job 54/54, publish 37/37 green.
 NOT CHANGED: Home (console) sessions keep their tools — they write a page
 by hand when OCR cannot run; the job's repair agent keeps its own deny
 rules.
+
+## THE FREE PLANS RAN OUT — Supabase function calls, Render bandwidth — 2026-11-04
+Supabase: 595,599 edge-function calls against a 550,000 limit (Fair Use
+from 2026-12-04). Field logs: ~1,000 managed-AI requests and 45 events in
+45 days, so it was CHECK-INS — every open copy pinged once a minute and
+the screen asked /api/control every 15s (refresh at 20s), and the admin
+console polled every 10-30s even in a background tab. Now:
+- aethron_control.check(): between full check-ins (FULL_S = 600) a copy
+  reads only control.updated_at from the database (PostgREST, not a
+  function call); a changed switch triggers a full ping at once, so the
+  kill switch still lands within a minute. refresh() counts that look.
+  An always-open copy: ~4,300 function calls a month instead of ~150,000.
+- admin "online" window 150s -> 12 min; console refreshes every 2 min
+  (live: 1 min) and not at all while its tab is hidden.
+tests/quota_battery.py 9/9 (in run_all).
+Render: the website used its 5 GB free bandwidth (then $0.15/GB). It now
+deploys to Cloudflare Workers static assets (free, unmetered) at
+www.aethron.site: cloud/website/ + .github/workflows/deploy-website.yml
+(on website changes and after every Mac release, so /download is current).
+prepare.py fits Netlify _redirects to Cloudflare (a rewrite to x.html
+LOOPS there: Cloudflare strips .html and the rule adds it back). The bare
+aethron.site redirects to www, keeping the path. OWNER: suspend the Render
+site and point aethron.jomiez.com at https://www.aethron.site (Namecheap
+URL redirect, or wherever jomiez.com's DNS lives).
