@@ -328,6 +328,7 @@ def summary(project: str) -> dict:
     return {"project": st.get("project"), "status": st.get("status"),
             "step": st.get("step"), "steps": steps,
             "progress": st.get("progress", {}), "question": st.get("question"),
+            "ask_kind": st.get("ask_kind", "question"),
             "error": st.get("error"), "result": st.get("result", {}),
             "started": st.get("created"), "heartbeat": st.get("heartbeat"),
             "finished": st.get("finished"), "requests": st.get("requests", []),
@@ -366,7 +367,43 @@ def describe(project: str) -> str:
 # ───────────────────────────── the runner ────────────────────────────
 
 class Wait(Exception):
-    """The job needs the person: one concrete question."""
+    """The job needs the person. kind "question": one concrete question,
+    answered in the card. kind "blocked": something only the person (or
+    the team) can clear — credit, a sign-in, a switch — shown as a reason
+    with Try again, never as a question to type an answer to."""
+    def __init__(self, msg, kind="question"):
+        super().__init__(msg)
+        self.kind = kind
+
+
+# Words that mean the provider or the team truly said no: waiting or
+# asking again will not help until someone acts. Everything else that goes
+# wrong with one batch (a time limit, a busy server, a dropped connection)
+# is passing, and the batch is asked again in smaller pieces instead.
+HARD_NO = ("credit", "balance", "insufficient", "quota is spent",
+           "out of quota", "api key", "unauth", "sign in", "signed out",
+           "permission", "allowance", "on hold", "paused", "switched off",
+           "too old", "not switched on", "billing")
+
+
+def _hard_no(msg: str) -> bool:
+    m = (msg or "").lower()
+    return any(w in m for w in HARD_NO) and "json" not in m
+
+
+def _batch_size() -> int:
+    """Aethron's own AI runs through a server that cuts any request off at
+    150 seconds, and a thinking model takes ~1.5s a line. Smaller batches
+    there, so each answer comes back well inside that."""
+    if os.environ.get("AETHRON_JOB_BATCH"):
+        return BATCH
+    try:
+        import aethron_brain
+        if aethron_brain.resolve().get("provider") == "aethron":
+            return min(BATCH, 20)
+    except Exception:
+        pass
+    return BATCH
 
 
 class Stopped(Exception):
@@ -395,7 +432,7 @@ def _stopping(project):
     except Exception:
         why = ""
     if why:
-        raise Wait(why)
+        raise Wait(why, "blocked")
 
 
 def step_source(project, st):
@@ -534,7 +571,8 @@ def step_fill(project, st):
     update(project, progress={"total": total, **state})
     if not todo:
         return f"{state['done']} of {total} written"
-    log(project, f"writing {len(todo)} line(s) in batches of {BATCH}, "
+    size = _batch_size()
+    log(project, f"writing {len(todo)} line(s) in batches of {size}, "
         f"{PARALLEL} at a time")
     write_lock = threading.Lock()
     notes_ok = (d / "brand" / "pack.json").exists()
@@ -556,7 +594,7 @@ def step_fill(project, st):
         _stopping(project)
         why = brain.session_check() if hasattr(brain, "session_check") else ""
         if why:
-            raise Wait(why)
+            raise Wait(why, "blocked")
         payload = {}
         for s, e in batch:
             slim = {"old": e["old"], "new": ""}
@@ -572,15 +610,26 @@ def step_fill(project, st):
             got = fill.extract_json(out)
         except ValueError as ex:
             msg = str(ex)
-            if any(w in msg.lower() for w in ("credit", "quota", "balance",
-                                               "limit", "api key", "unauth",
-                                               "permission")) \
-                    and "json" not in msg.lower():
-                raise Wait(f"The AI provider refused: {msg[:300]}")
+            if _hard_no(msg):
+                raise Wait(f"The AI provider refused: {msg[:300]}", "blocked")
+            log(project, f"  a batch did not come back ({msg[:160]}) — "
+                "asking again in smaller pieces")
+            time.sleep(min(30, 5 * (depth + 1)))
             got = None
         except Exception as ex:
+            msg = str(ex)
+            try:
+                import urllib.error
+                if isinstance(ex, urllib.error.HTTPError):
+                    import aethron_bridge
+                    msg = (f"{brain.resolve().get('label', 'the AI provider')}: "
+                           f"{aethron_bridge._upstream_error(ex)}")
+            except Exception:
+                pass
+            if _hard_no(msg):
+                raise Wait(f"The AI provider refused: {msg[:300]}", "blocked")
             log(project, f"  a batch failed: {type(ex).__name__}: "
-                f"{str(ex)[:160]}")
+                f"{msg[:160]}")
             got = None
         if got is None:
             if len(batch) > 5 and depth < 3:     # smaller is more reliable
@@ -631,7 +680,7 @@ def step_fill(project, st):
             state["rejected"] += len(refused)
             update(project, progress={"total": total, **state})
 
-    batches = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
+    batches = [todo[i:i + size] for i in range(0, len(todo), size)]
 
     def one(b):          # brand notes are looked up inside the pool, so
         notes(b)         # they no longer hold every batch up in a queue
@@ -849,7 +898,16 @@ def run(project: str):
         log(project, "── job finished")
         return 0
     except Wait as w:
+        if getattr(w, "kind", "question") == "blocked":
+            try:
+                import aethron_reports
+                aethron_reports.report("job", "blocked", _pdir(project),
+                                       log="\n".join(log_tail(project, 40)),
+                                       error=str(w))
+            except Exception:
+                pass
         update(project, status="waiting", question=str(w), pid=0,
+               ask_kind=getattr(w, "kind", "question"),
                steps={read(project).get("step", ""): {"status": "todo",
                                                      "note": "waiting for "
                                                      "you"}})

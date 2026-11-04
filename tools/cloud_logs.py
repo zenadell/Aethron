@@ -95,6 +95,26 @@ for u in us:
     st[(u["provider"], u["model"], u["status"])] += 1
 for k, v in sorted(st.items(), key=lambda kv: -kv[1]):
     print(f"  {v:5d}  {k}")
+spend = defaultdict(float)
+for u in us:
+    if str(u.get("at", ""))[:10] == dt.datetime.utcnow().strftime("%Y-%m-%d"):
+        spend[str(u.get("user_id"))[:8]] += float(u.get("cost_usd") or 0)
+print("  spent today (UTC) by account:", {k: round(v, 4) for k, v in spend.items()})
+ctl = rows("control", "id=eq.1")
+if ctl:
+    c = ctl[0]
+    print("  control:", {k: c.get(k) for k in ("ai_mode", "managed_provider", "managed_model",
+                                            "default_daily_usd", "global_daily_usd", "paused")})
+for uc in rows("user_controls", "limit=20"):
+    print("  user control:", {k: uc.get(k) for k in uc if k not in ("note",)})
+ms = sorted(int(u.get("ms") or 0) for u in us)
+if ms:
+    print(f"  answer time ms: median {ms[len(ms)//2]}, 90% {ms[int(len(ms)*.9)]}, max {ms[-1]}")
+    print("  longest:", [(u["at"][11:19], u["purpose"], u["ms"], u["output_tokens"]) for u in sorted(us, key=lambda u: -(u.get("ms") or 0))[:8]])
+    print("  last 5:", [(u["at"][11:19], u["purpose"], u["ms"]) for u in us[-5:]])
+print("  latest that did not answer:")
+for u in [u for u in us if u.get("status") != "ok"][-15:]:
+    print(f"    {u['at']} {u['provider']} {u['model']} {u['status']} {u.get('ms')}ms")
 
 print("\n===== DEVICES =====")
 for d in rows("devices", "order=last_seen.desc&limit=50"):

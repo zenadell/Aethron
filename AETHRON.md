@@ -7488,3 +7488,24 @@ certificate); the deploy uses it only when jomiez.com is ACTIVE on the
 Cloudflare account and the token can see it, else wrangler.fallback.toml
 (www.aethron.site) — a deploy never breaks the site. Hosting HOME_URL is
 aethron.jomiez.com, so aethron.site and www.aethron.site send people there.
+
+## "CHAKA NEEDS ONE ANSWER" — A SERVER TIME LIMIT READ AS A REFUSAL — 2026-11-04
+Owner's chaka migration (Aethron AI, deepseek-flash) stopped with a card
+asking for an answer: "The AI provider refused: Aethron AI…: upstream …".
+Field logs: no failed request reached the gateway's ledger, no allowance or
+hold applied, and answers took up to 99s (fill batches of 40, six at a
+time). Supabase cuts an edge function off at 150s, and that platform error
+never reaches our code — so a slow batch came back as an HTTP error whose
+text says "limit", and the job matched "limit" as a provider refusal and
+WAITED, asking the person a question nothing they type could answer.
+- aethron_jobs: only words that mean someone must act (credit, balance,
+  sign in, allowance, hold, paused, too old…: HARD_NO) stop a job; a time
+  limit, a busy server or a dropped connection is passing — the batch is
+  asked again in smaller pieces. A real stop is Wait(kind="blocked"),
+  reported to the field logs, and the card shows "Paused" + the reason +
+  Try again (no answer box). On Aethron's own AI, batches are 20 lines so
+  each answer comes back well inside the server's 150s.
+- tools/cloud_logs.py now prints today's spend per account, the AI
+  switches, answer times and the latest requests that did not answer.
+job battery 54 -> 58 (a 546 time limit finishes the job; no credit waits as
+"blocked" with the provider's words; the card shows Paused + Try again).
