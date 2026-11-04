@@ -7574,3 +7574,38 @@ does already. Measured on a Makro build in Chromium and Playwright WebKit at
 WebKit does NOT reproduce the Safari bug, so the fix itself is proven only
 on the owner's Safari after the update. Lesson: headless WebKit is not
 Safari; a Safari-only report needs the owner's eyes or the original site.
+
+## WINDOWS — built, checked and published beside the Mac — 2026-11-04
+Owner: build for Windows too; the site asks which computer before the
+download. Shipped as a second job (`windows`, windows-latest) in
+release-mac.yml, so both builds carry the SAME version (1.1.<run>). The two
+jobs are independent: a Windows failure never holds back a Mac release.
+- ONE .exe, SEVERAL ROLES, NEEDS A CONSOLE. A windowed Windows program gets
+  no stdout, so `Aethron.exe --forge/--mcp/--job` would answer nothing to
+  the app (or to an outside agent) that started it. The Windows .exe is a
+  console program with hide_console="hide-early": a double-click shows no
+  window, pipes still work, and the engine runs it starts share its hidden
+  console (no window flashes per build). UTF-8 mode (`X utf8_mode=1`) is
+  baked in: Windows' default cp1252 would break every open() and every
+  "✓"/"—" read through a pipe.
+- SELF-UPDATE ON WINDOWS (aethron_update). Windows will not rename the
+  folder of a running .exe, so the new folder waits beside it
+  (Aethron.new) and a small .cmd waits for the app to exit, swaps the
+  folders, starts the new copy, and on failure puts the old one back and
+  starts that. The Mac path is unchanged. Selftest runs the real .cmd on
+  the Windows runner.
+- POSIX-ONLY CALLS: os.kill(pid, 0) on Windows is not a question — 0 is
+  CTRL_C_EVENT and any other number terminates the process. Job liveness
+  asks OpenProcess/GetExitCodeProcess there; stopping a job is
+  `taskkill /T`; signal.SIGKILL (absent on Windows) is no longer named
+  bare. Edge/Chrome and the claude CLI are looked for in their Windows
+  places too.
+- /download asks first: Mac or Windows (this computer preselected, ?os=win
+  and /download/windows choose for you), then starts the file and shows
+  that system's steps (Extract All -> Aethron.exe; SmartScreen: More info
+  -> Run anyway). Until the first Windows release is in releases/win.json
+  its card says "Coming soon".
+NOT PROVEN until the first Windows run: the build itself, pywebview's
+Edge window, and a real install/update on a person's PC. The workflow's
+own checks (engine answers over a pipe, a real migration through the
+packaged app's MCP tools) decide whether anything is published.

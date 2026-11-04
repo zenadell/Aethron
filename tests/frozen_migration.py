@@ -28,7 +28,9 @@ from pathlib import Path
 APP = Path(sys.argv[1] if len(sys.argv) > 1 else
            "/Applications/Aethron.app").resolve()
 URL = sys.argv[2] if len(sys.argv) > 2 else "https://lewius.framer.website/"
-EXE = APP / "Contents" / "MacOS" / "Aethron"
+# a Mac .app, or the Windows/Linux folder holding Aethron(.exe)
+EXE = (APP / "Contents" / "MacOS" / "Aethron" if APP.suffix == ".app" else
+       APP / ("Aethron.exe" if os.name == "nt" else "Aethron"))
 NAME = "frozen-migration-test"
 STEPS = [("create_project", {"name": NAME, "url": URL}, 900),
          ("fetch", {"project": NAME}, 900),
@@ -50,8 +52,15 @@ STEPS = [("create_project", {"name": NAME, "url": URL}, 900),
 def stray_apps(own_pid):
     """Aethron processes that are neither this MCP server nor an engine
     run it spawned — i.e. a whole new copy of the app."""
-    out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
-                         capture_output=True, text=True).stdout
+    if os.name == "nt":
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process | ForEach-Object "
+             "{ \"$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)\" }"],
+            capture_output=True, text=True).stdout
+    else:
+        out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
+                             capture_output=True, text=True).stdout
     bad = []
     for line in out.splitlines():
         parts = line.strip().split(None, 2)

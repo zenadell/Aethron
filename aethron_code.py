@@ -529,9 +529,13 @@ def find_claude() -> str:
         p = shutil.which(name)
         if p:
             return p
+    import os as _o
     for p in (Path.home() / ".local/bin/claude",
               Path("/usr/local/bin/claude"),
-              Path.home() / ".claude/local/claude"):
+              Path.home() / ".claude/local/claude",
+              # Windows: npm's global folder and the native installer
+              Path(_o.environ.get("APPDATA", "~")).expanduser() / "npm" / "claude.cmd",
+              Path.home() / ".local" / "bin" / "claude.exe"):
         if p.exists():
             return str(p)
     return ""
@@ -1184,7 +1188,7 @@ class CodeSession:
             try:
                 self.proc.wait(timeout=5)
             except Exception:
-                self._signal_group(signal.SIGKILL)
+                self._signal_group(getattr(signal, "SIGKILL", signal.SIGTERM))
                 self.proc.kill()
         if self._tmp:
             shutil.rmtree(self._tmp, ignore_errors=True)

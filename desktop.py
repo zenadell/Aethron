@@ -334,10 +334,14 @@ def main():
             _log(f"liquid glass: skipped ({type(e).__name__}: {e})")
 
     try:
-        install_liquid_glass()
-        webview.create_window(APP_NAME, url + "?glass=1",
+        mac = sys.platform == "darwin"
+        if mac:
+            install_liquid_glass()
+        # the page gives its ground to the Mac's glass; elsewhere there is
+        # no glass behind it, so it paints its own
+        webview.create_window(APP_NAME, url + ("?glass=1" if mac else ""),
                               width=1280, height=840,
-                              min_size=(940, 620), transparent=True)
+                              min_size=(940, 620), transparent=mac)
         # THE REASON LOGIN NEVER STUCK. pywebview defaults
         # private_mode=True, and on macOS that branch CLEARS every
         # website data type from epoch on each launch (read the cocoa

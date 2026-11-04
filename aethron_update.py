@@ -109,6 +109,9 @@ def app_bundle() -> Path | None:
     if not getattr(sys, "frozen", False):
         return None
     p = Path(sys.executable).resolve()
+    if sys.platform != "darwin":
+        # Windows/Linux ship the onedir folder itself: Aethron/Aethron.exe
+        return p.parent
     for parent in [p] + list(p.parents):
         if parent.suffix == ".app":
             return parent
@@ -256,11 +259,25 @@ def check(timeout=TIMEOUT) -> dict:
 
 # ─────────────────────────── download + verify ───────────────────────
 
+EXE_NAME = "Aethron.exe" if os.name == "nt" else "Aethron"
+
+
 def _verify_bundle(path: Path) -> bool:
-    """A real .app, not a zip of something else."""
-    return (path.suffix == ".app"
-            and (path / "Contents" / "MacOS").is_dir()
-            and any((path / "Contents" / "MacOS").iterdir()))
+    """A real app, not a zip of something else: a .app on a Mac, the
+    onedir folder holding Aethron(.exe) and its _internal/ elsewhere."""
+    if path.suffix == ".app":
+        return ((path / "Contents" / "MacOS").is_dir()
+                and any((path / "Contents" / "MacOS").iterdir()))
+    return (path.is_dir() and (path / EXE_NAME).is_file()
+            and (path / "_internal").is_dir())
+
+
+def _bundles_in(into: Path) -> list:
+    if sys.platform == "darwin":
+        found = list(into.rglob("*.app"))
+    else:
+        found = [x.parent for x in into.rglob(EXE_NAME)]
+    return [p for p in found if _verify_bundle(p)]
 
 
 def _extract(zpath: Path, into: Path):
@@ -381,7 +398,7 @@ def stage(url, into: Path, timeout=180, progress=None, note=None) -> Path:
     _extract(zpath, into)
     zpath.unlink(missing_ok=True)
 
-    apps = [p for p in into.rglob("*.app") if _verify_bundle(p)]
+    apps = _bundles_in(into)
     if not apps:
         raise ValueError("the download did not contain a usable app")
     app = sorted(apps, key=lambda p: len(p.parts))[0]
@@ -408,6 +425,8 @@ def apply(new_app: Path, current: Path | None = None) -> Path:
     if not _verify_bundle(new_app):
         raise ValueError("refusing to install: not a valid app bundle")
 
+    if os.name == "nt" and new_app.suffix != ".app":
+        return _stage_windows_swap(new_app, current)
     backup = current.with_name(current.name + ".old")
     if backup.exists():
         shutil.rmtree(backup, ignore_errors=True)
@@ -435,12 +454,71 @@ def apply(new_app: Path, current: Path | None = None) -> Path:
     return current
 
 
+# WINDOWS CANNOT REPLACE A RUNNING PROGRAM'S FOLDER. A Mac moves the open
+# .app aside and the new one into place while it runs; Windows refuses to
+# rename a folder holding a running .exe. So the new folder waits beside
+# the old one (<name>.new) and a small script swaps them the moment this
+# process has exited, then starts the new copy. If the swap fails it puts
+# the old folder back and starts that, so a person is never left with no
+# app at all.
+_PENDING: dict = {}
+
+SWAP_CMD = r"""@echo off
+setlocal
+:wait
+tasklist /FI "PID eq {pid}" 2>NUL | find "{pid}" >NUL
+if not errorlevel 1 (
+  timeout /t 1 /nobreak >NUL
+  goto wait
+)
+if exist "{old}" rmdir /s /q "{old}"
+move "{cur}" "{old}" >NUL || goto keep
+move "{new}" "{cur}" >NUL || goto undo
+start "" "{cur}\{exe}"
+rmdir /s /q "{old}"
+goto end
+:undo
+move "{old}" "{cur}" >NUL
+:keep
+start "" "{cur}\{exe}"
+:end
+del "%~f0"
+"""
+
+
+def _stage_windows_swap(new_app: Path, current: Path) -> Path:
+    nxt = current.with_name(current.name + ".new")
+    if nxt.exists():
+        shutil.rmtree(nxt, ignore_errors=True)
+    shutil.move(str(new_app), str(nxt))
+    if not _verify_bundle(nxt):
+        shutil.rmtree(nxt, ignore_errors=True)
+        raise ValueError("the downloaded app failed verification")
+    _PENDING.update(new=nxt, cur=current)
+    return current
+
+
+def swap_script(pid: int, cur: Path, new: Path, exe: str = EXE_NAME) -> str:
+    return SWAP_CMD.format(pid=int(pid), cur=cur, new=new,
+                           old=cur.with_name(cur.name + ".old"), exe=exe)
+
+
 def relaunch(app: Path):
     """Start the updated app and let this process exit."""
     if sys.platform == "darwin":
         subprocess.Popen(["open", "-n", str(app)], start_new_session=True)
     elif os.name == "nt":
-        subprocess.Popen([str(app)], close_fds=True)
+        if _PENDING.get("new"):
+            bat = Path(tempfile.gettempdir()) / f"aethron-update-{os.getpid()}.cmd"
+            bat.write_text(swap_script(os.getpid(), _PENDING["cur"],
+                                       _PENDING["new"]), encoding="utf-8")
+            flags = (getattr(subprocess, "DETACHED_PROCESS", 0x8)
+                     | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
+                     | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+            subprocess.Popen(["cmd", "/c", str(bat)], creationflags=flags,
+                             close_fds=True)
+        else:
+            subprocess.Popen([str(app / EXE_NAME)], close_fds=True)
     else:
         subprocess.Popen([str(app)], start_new_session=True)
 
@@ -574,7 +652,49 @@ def _selftest() -> int:
            (live / "Contents" / "MacOS" / "Aethron").read_text()
            == "STILL WORKING")
 
+    print("── Windows: the folder app, swapped after it exits")
+    wapp = tmp / "win" / "Aethron"
+    (wapp / "_internal").mkdir(parents=True)
+    (wapp / EXE_NAME).write_text("OLD")
+    check_("a folder app verifies", _verify_bundle(wapp))
+    check_("a folder without its _internal/ is refused",
+           not _verify_bundle(tmp / "win"))
+    wnew = tmp / "wstage" / "Aethron"
+    (wnew / "_internal").mkdir(parents=True)
+    (wnew / EXE_NAME).write_text("NEW")
+    check_("it is found inside an unpacked download",
+           sys.platform == "darwin" or _bundles_in(tmp / "wstage") == [wnew])
+    _PENDING.clear()
+    _stage_windows_swap(wnew, wapp)
+    nxt = wapp.with_name("Aethron.new")
+    check_("the new copy waits beside the running one",
+           (nxt / EXE_NAME).read_text() == "NEW"
+           and (wapp / EXE_NAME).read_text() == "OLD")
+    scr = swap_script(4242, wapp, nxt)
+    check_("the swap waits for this process, then puts the new one in",
+           "PID eq 4242" in scr and f'move "{wapp}" "{wapp}.old"' in scr
+           and f'move "{nxt}" "{wapp}"' in scr)
+    check_("a failed swap puts the old one back and starts it",
+           ":undo" in scr and f'move "{wapp}.old" "{wapp}"' in scr)
+    if os.name == "nt":
+        # run it for real: a process that has already exited, and a harmless
+        # stand-in for the program it starts
+        (nxt / "started.cmd").write_text("@echo started> started.txt\r\n")
+        dead = subprocess.Popen(["cmd", "/c", "exit"])
+        dead.wait()
+        bat = tmp / "swap.cmd"
+        bat.write_text(swap_script(dead.pid, wapp, nxt, exe="started.cmd"))
+        subprocess.run(["cmd", "/c", str(bat)], timeout=60)
+        check_("on Windows the folders were swapped",
+               (wapp / EXE_NAME).read_text() == "NEW"
+               and not nxt.exists()
+               and not wapp.with_name("Aethron.old").exists())
+    _PENDING.clear()
+
     print("── symlinks survive the download (the bricked-update bug)")
+    if os.name == "nt":
+        print("  (skipped on Windows: the Mac bundle's symlinks)")
+        return 0 if ok else 1
     src = tmp / "src" / "Aethron.app"
     (src / "Contents" / "MacOS").mkdir(parents=True)
     (src / "Contents" / "MacOS" / "Aethron").write_text("#!/bin/sh\n")
