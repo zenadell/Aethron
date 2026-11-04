@@ -42,11 +42,17 @@ LABEL = {"source": "Reading the site", "fetch": "Downloading its files",
          "fill": "Writing the new copy", "build": "Building the site",
          "check": "Checking it in a browser"}
 BATCH = max(5, int(os.environ.get("AETHRON_JOB_BATCH", "40")))
-PARALLEL = max(1, min(8, int(os.environ.get("AETHRON_JOB_PARALLEL", "4"))))
+PARALLEL = max(1, min(8, int(os.environ.get("AETHRON_JOB_PARALLEL", "6"))))
 TRIES = 3                  # per step, inside one runner
 RELAUNCHES = 6             # runner processes the watchdog may start
 STALE = 120                # seconds without a heartbeat = the runner is gone
 HUNG = 1800                # alive, but silent this long = stuck; replace it
+CHECK_SECONDS = 900        # the whole check, agent round included, ends here
+# A JOB ALWAYS FINISHES. These steps help the site but are not the site:
+# when they cannot be done, the job says so and carries on.
+OPTIONAL = {"brand", "check"}
+TRIES_FOR = {"check": 1}   # a check is long; a second identical one is not
+                           # more likely to pass
 _JOB_CMD = ([sys.executable, "--job"] if getattr(sys, "frozen", False)
             else [sys.executable, str(ROOT / "aethron_jobs.py"), "run"])
 
@@ -366,6 +372,14 @@ class Stopped(Exception):
     pass
 
 
+class Leftover(RuntimeError):
+    """Some lines got no answer. After the last try they stay as the
+    template wrote them and the job goes on to build."""
+
+
+_PRE = {}        # step -> thread started early (brand runs beside fetch)
+
+
 def _forge(project: str, *args, timeout=1800):
     import forge_mcp
     return forge_mcp.run_forge(project, *args, timeout=timeout)
@@ -424,6 +438,15 @@ def step_inventory(project, st):
 
 
 def step_brand(project, st):
+    pre = _PRE.pop("brand", None)
+    if pre is not None:        # started while the site was downloading
+        pre["t"].join(timeout=900)
+        if "out" in pre:
+            return pre["out"]
+    return _brand_work(project, st)
+
+
+def _brand_work(project, st):
     srcs = st.get("brand") or []
     d = _pdir(project)
     if not srcs:
@@ -608,10 +631,12 @@ def step_fill(project, st):
             update(project, progress={"total": total, **state})
 
     batches = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
-    for b in batches:
-        notes(b)
+
+    def one(b):          # brand notes are looked up inside the pool, so
+        notes(b)         # they no longer hold every batch up in a queue
+        ask(b)
     with ThreadPoolExecutor(PARALLEL) as ex:
-        futs = [ex.submit(ask, b) for b in batches]
+        futs = [ex.submit(one, b) for b in batches]
         err = None
         for f in futs:
             try:
@@ -624,8 +649,8 @@ def step_fill(project, st):
             raise err
     if state["failed"]:
         # they were never marked asked, so the next attempt sends only these
-        raise RuntimeError(f"{state['failed']} line(s) got no answer from "
-                           "the AI provider")
+        raise Leftover(f"{state['failed']} line(s) got no answer from "
+                       "the AI provider")
     allx, _ = _entries(d)
     done = sum(1 for _, e in allx if e.get("new"))
     return f"{done} of {total} written"
@@ -664,8 +689,11 @@ def step_check(project, st):
                 update(project, steps={"check": {"note": str(t)[:120]}})
     agent = os.environ.get("AETHRON_JOB_AGENT", "1") != "0"
     limit = int(os.environ.get("AETHRON_JOB_AGENT_SECONDS", "600"))
+    budget = int(os.environ.get("AETHRON_JOB_CHECK_SECONDS",
+                                str(CHECK_SECONDS)))
     r = aethron_healer.heal(d, rounds=1, use_agent=agent, on_event=ev,
-                            live=True, agent_timeout=limit)
+                            live=True, agent_timeout=limit,
+                            deadline=time.time() + budget)
     # A REPAIR ROUND MUST NOT UNDO THE JOB. An agent that reaches for
     # undo walks back through the fill's own snapshots: the lines vanish
     # while the card still says they were written.
@@ -689,11 +717,33 @@ def step_check(project, st):
                "finished with problems the checks name" if problems else
                "finished, but it could not be checked in a browser"
                if r.get("stage") in ("unproven",) else
+               "finished — the check ran out of time on what is left"
+               if r.get("stage") == "out-of-time" else
                "finished with problems")
     update(project, result={"ok": ok, "verdict": verdict,
                             "problems": problems[:20], "filled": done,
                             "total": len(allx), "stage": r.get("stage")})
     return "pass" if ok else f"{len(problems) or 'some'} problem(s)"
+
+
+def _start_brand_early(project):
+    """Reading the brand's site does not need the template's files, so it
+    runs while they download instead of after."""
+    st = read(project)
+    if not st.get("brand") or \
+            st.get("steps", {}).get("brand", {}).get("status") == "done":
+        return
+    box = {}
+
+    def go():
+        try:
+            box["out"] = _brand_work(project, st)
+        except Exception as e:
+            box["err"] = e      # the step itself runs again and reports
+    box["t"] = threading.Thread(target=go, daemon=True)
+    _PRE["brand"] = box
+    log(project, "  reading the brand material alongside")
+    box["t"].start()
 
 
 RUNNERS = {"source": step_source, "fetch": step_fetch,
@@ -738,7 +788,8 @@ def run(project: str):
                                                "t0": time.time()}})
             log(project, f"▶ {LABEL[s]}")
             note = None
-            for attempt in range(1, TRIES + 1):
+            tries = TRIES_FOR.get(s, TRIES)
+            for attempt in range(1, tries + 1):
                 try:
                     note = RUNNERS[s](project, read(project))
                     break
@@ -746,19 +797,35 @@ def run(project: str):
                     raise
                 except Exception as e:
                     msg = f"{type(e).__name__}: {e}"
-                    log(project, f"  attempt {attempt}/{TRIES} failed — "
+                    log(project, f"  attempt {attempt}/{tries} failed — "
                         f"{msg[:400]}")
-                    if attempt == TRIES:
+                    if attempt == tries:
+                        if s in OPTIONAL or isinstance(e, Leftover):
+                            # not the site itself: say so, carry on
+                            note = (f"{e} — left as the template wrote them"
+                                    if isinstance(e, Leftover) else
+                                    f"could not finish ({msg[:140]}) — "
+                                    "carried on without it")
+                            if s == "check":
+                                update(project, result={
+                                    "ok": False, "filled": _filled(
+                                        _pdir(project)),
+                                    "verdict": "finished — the check "
+                                    "could not run to the end",
+                                    "problems": [msg[:200]]})
+                            break
                         update(project, steps={s: {"status": "failed",
                                                    "t1": time.time(),
                                                    "note": msg[:200]}})
                         raise
                     update(project, steps={s: {"note": f"retrying "
-                                               f"({attempt}/{TRIES})"}})
+                                               f"({attempt}/{tries})"}})
                     time.sleep(min(60, 10 * attempt * attempt))
             update(project, steps={s: {"status": "done", "t1": time.time(),
                                        "note": note or ""}})
             log(project, f"  ✓ {note or 'done'}")
+            if s == "source":
+                _start_brand_early(project)
         update(project, status="done", step="", finished=time.time(), pid=0,
                question="", error="")
         log(project, "── job finished")

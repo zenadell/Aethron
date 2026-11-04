@@ -46,6 +46,7 @@ def ck(name, ok, detail=""):
 class Fake:
     delay = 0.0
     garbage_first = True
+    garbage_all = False     # the provider never answers a fill properly
     lock = threading.Lock()
     live = 0
     peak = 0
@@ -90,7 +91,9 @@ class Model(BaseHTTPRequestHandler):
                             new = new.encode()[:mb].decode("utf-8", "ignore")
                         e["new"] = new
                 out = json.dumps(data)
-                if Fake.garbage_first and len(data.get("strings", [])) > 5:
+                if Fake.garbage_all:
+                    out = "Sorry, I cannot do that."
+                elif Fake.garbage_first and len(data.get("strings", [])) > 5:
                     Fake.garbage_first = False
                     out = "Sorry, I cannot do that."   # not JSON at all
         finally:
@@ -236,6 +239,36 @@ def main():
     s = wait(J, "north3")
     ck("answered, it carries on and finishes", s.get("status") == "done",
        f"{s.get('status')}: {s.get('error')}")
+
+    print("C2. a provider that never answers: the job still finishes")
+    Fake.garbage_all = True
+    os.environ["AETHRON_JOB_PARALLEL"] = "4"
+    t0 = time.time()
+    J.start("north5", request="Northwind, a coffee roaster in Oslo",
+            url=str(src))
+    s = wait(J, "north5")
+    Fake.garbage_all = False
+    ck("the job finishes instead of failing", s.get("status") == "done",
+       f"{s.get('status')}: {s.get('error')}")
+    fn = s.get("steps", {}).get("fill", {})
+    ck("the fill says which lines stayed as the template wrote them",
+       fn.get("status") == "done" and "template" in fn.get("note", ""),
+       json.dumps(fn))
+    ck("and the site is built anyway",
+       s.get("steps", {}).get("build", {}).get("status") == "done"
+       and (home / "projects/north5/site/index.html").exists())
+    ck("in minutes", time.time() - t0 < 300, f"{time.time() - t0:.0f}s")
+
+    print("C3. the check never runs past its deadline")
+    import aethron_healer as H
+    H._DEADLINE.t = time.time() + 1
+    t0 = time.time()
+    rc, out = H._forge(home / "projects/north", "verify", timeout=1800)
+    H._DEADLINE.t = 0
+    ck("a forge call inside the check is held to the deadline",
+       time.time() - t0 < 30 and isinstance(rc, int), f"{rc} {out[-120:]}")
+    ck("a long job's check has a budget", J.CHECK_SECONDS <= 1200
+       and "check" in J.OPTIONAL)
 
     print("D. stop and continue")
     Fake.delay = 3.0

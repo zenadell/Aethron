@@ -7340,3 +7340,29 @@ Owner: "too colored", wanted Apple style. CSS block "V4 publish sheet"
 of the blue/violet/green/red tiles, inset separators, #1c1c1e/#2c2c2e
 system greys, a single small green dot for Live, the iOS switch, and red
 only on the Unpublish row (data-danger). Publish battery 37/37.
+
+## A JOB ALWAYS FINISHES — 2026-11-04
+Owner: a migration ran 8-10 min, then sat on its check; with a brand site
+to read it would run far longer and still might not finish. Why, from the
+code: every step failure after 3 tries failed the WHOLE job (a provider
+that dropped a few lines, a check that timed out); the check could run
+heal + verify + probe + a 10-min agent round + verify + probe with no
+total limit (and a forge call that timed out raised, so the check retried
+three times); brand notes were looked up one batch at a time BEFORE any
+batch was asked; and the brand site was read only after the template had
+downloaded.
+- OPTIONAL = {brand, check}: when they cannot be done the job says so and
+  carries on. Lines the provider never answered (Leftover) stay as the
+  template wrote them after the last try; the site is built anyway. Only
+  source/fetch/inventory/build can fail a job.
+- the check has one budget (CHECK_SECONDS 900, AETHRON_JOB_CHECK_SECONDS),
+  passed to aethron_healer.heal(deadline=): every forge call inside is held
+  to it (a timeout answers 124, never raises), the agent round gets what is
+  left minus RECHECK (240s) and is skipped under 90s ("out-of-time"). One
+  try for the check, not three.
+- the brand site is read in a thread from the moment the project exists,
+  beside fetch and inventory; brand notes are looked up inside the fill
+  pool; PARALLEL default 4 -> 6.
+job battery 48 -> 54 (a provider that never answers: the job finishes,
+says which lines stayed, builds; a forge call inside the check is held to
+its deadline).
