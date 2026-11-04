@@ -7518,3 +7518,14 @@ hang. Now the card shows each step the repair round takes, the step count
 and "m:ss of up to N min"; the round is limited to 6 min, the whole check to
 11 min, and a model silent for 150s is given up on (a managed-AI answer is
 cut off at 150s on the server anyway). job battery 58/58.
+
+## BRACKETS ON THE PAGE — a rich-text structure in a plain line — 2026-11-04
+chaka's hero read '[1,[4,"p",null,[5,"Chaka is an AI that…"]]]'. Framer keeps
+rich text in its CMS as that serialized tree and inventory offers it in that
+form; the copy model copied the shape into a PLAIN line, which renders as
+text. Now: set_content(_bulk) and the job refuse a structure written into a
+plain line (and plain words into a multi-part structure), and build fits any
+existing fill to its line's form (forge.fit_form) — a structure in a plain
+line is unwrapped to its words, plain words into a one-part structure are
+wrapped. So the next build of an affected project fixes it with no undo.
+engine battery 43 -> 47.

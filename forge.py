@@ -1868,6 +1868,52 @@ def _frag_pad(n):
     return "#" if n == 1 else "#a" + "0" * (n - 2)
 
 
+# A RICH-TEXT NODE IS STRUCTURE, NOT WORDS. Framer stores rich text in its
+# CMS as a serialized tree ([1,[4,"p",null,[5,"words"]]]) and inventory
+# offers it in that form; a model that copies the shape into a PLAIN line
+# ships the brackets as visible text (chaka's hero read
+# '[1,[4,"p",null,[5,"Chaka is an AI…"]]]'). Either side of a pair must
+# match the other's form.
+RICH_RE = re.compile(r'^\s*\[1,\s*\[4,\s*"')
+RICH_RUN = re.compile(r'\[5,\s*"((?:[^"\\]|\\.)*)"\s*\]')
+
+
+def is_rich(s) -> bool:
+    return bool(RICH_RE.match(s or ""))
+
+
+def rich_words(s) -> list:
+    """The text runs of a serialized rich-text node, decoded."""
+    out = []
+    for m in RICH_RUN.finditer(s or ""):
+        try:
+            out.append(json.loads('"' + m.group(1) + '"'))
+        except ValueError:
+            out.append(m.group(1))
+    return out
+
+
+def fit_form(old: str, new: str):
+    """(new, note): new made the same form as old, or (None, why)."""
+    if is_rich(new) and not is_rich(old):
+        words = rich_words(new)
+        if not words:
+            return None, "a rich-text structure written into a plain line"
+        return " ".join(w.strip() for w in words if w.strip()), \
+            "unwrapped a rich-text structure written into a plain line"
+    if is_rich(old) and not is_rich(new):
+        runs = list(RICH_RUN.finditer(old))
+        if len(runs) == 1:
+            m = runs[0]
+            enc = json.dumps(new, ensure_ascii=False)[1:-1]
+            return old[:m.start(1)] + enc + old[m.end(1):], \
+                "kept the rich-text structure around plain words"
+        return None, ("this line is a rich-text structure with several "
+                      "parts — keep its [1,[4,…[5,\"…\"]]] form and change "
+                      "only the words inside the quotes")
+    return new, ""
+
+
 def _pairs_from_map(root: Path, cms_blobs):
     cm = _copy_map(root)
     try:
@@ -1904,6 +1950,16 @@ def _pairs_from_map(root: Path, cms_blobs):
             new = derived[old]
         if not new or new == old:
             continue
+        if id(entry) in strings:
+            fitted, why = fit_form(old, new)
+            if fitted is None:
+                print(f"  SKIPPED a line: {why}: {old[:60]!r}")
+                continue
+            if why:
+                print(f"  NOTE {why}: {old[:60]!r}")
+            new = fitted
+            if new == old:
+                continue
         # A BARE NUMBER IS NOT COPY. "100%" -> "0" rewrote every
         # width:100% in the runtime (pages collapsed to 64px), "18" -> "0"
         # rewrote SVG path data. The same characters are code everywhere

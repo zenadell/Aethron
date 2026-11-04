@@ -328,6 +328,19 @@ ck("a whole-node number fill changes the text and the prop, never CSS",
    _c == "hXpXGYb5L:`5`,height:`92%`,transform:`92%`"
    and _held == ["5"] and "width:92%" in _h, (_c, _h))
 
+# chaka: a rich-text structure written into a plain line showed as brackets
+_rt = '[1,[4,"p",null,[5,"Chaka runs your WhatsApp."]]]'
+ck("a rich-text structure in a plain line is unwrapped to its words",
+   F.fit_form("Old hero line", _rt)[0] == "Chaka runs your WhatsApp.")
+ck("plain words into a rich-text line keep its structure",
+   F.fit_form('[1,[4,"p",null,[5,"Old"]]]', "New")[0]
+   == '[1,[4,"p",null,[5,"New"]]]')
+import forge_mcp as _M
+ck("writing a structure into a plain line is refused",
+   bool(_M.guard_write({"old": "Old hero line"}, _rt)))
+ck("a structure into a structure is allowed",
+   _M.guard_write({"old": _rt}, _rt.replace("Chaka", "Aethron")) is None)
+
 bad = [n for n, ok in checks if not ok]
 print(f"\n{len(checks) - len(bad)}/{len(checks)} green")
 sys.exit(1 if bad else 0)
