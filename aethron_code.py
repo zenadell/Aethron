@@ -407,6 +407,8 @@ instinct you have about editing files here:
    in its own code is changed with `set_link`; words a widget draws
    after loading are hidden with `hide_text`. If a site shows a bot
    check, say so; do not try to get around it.
+   The LINK PREVIEW (og:image, the picture a shared link shows) is
+   changed with `share_image` in one call — never by reading the pages.
 
 10. "MAKE MY SITE BETTER". When someone brings their OWN site (a URL or
    files) and wants it improved, do not polish their markup: move their

@@ -111,6 +111,43 @@ def ensure(d: Path, log=print, rebuild=None, force=False) -> str:
     return "made the link preview from the migrated home page"
 
 
+def set_image(d: Path, image: str = "", log=print, rebuild=None) -> str:
+    """The person's own request: "replace the link preview".
+    No image -> take the migrated home page again now. A local picture
+    (png/jpg/webp) or an https address -> use that one, and never replace
+    it automatically afterwards."""
+    import shutil
+    sys.path.insert(0, str(ROOT))
+    import forge
+    d = Path(d)
+    image = (image or "").strip()
+    if not image:
+        cfg = forge.read_cfg(d)
+        cfg.pop("share_image", None)
+        cfg["share_auto"] = True
+        forge.write_cfg(d, cfg)
+        return ensure(d, log=log, rebuild=rebuild, force=True)
+    cfg = forge.read_cfg(d)
+    if image.startswith(("http://", "https://")):
+        cfg.update(share_image=image, share_auto=False)
+    else:
+        src = Path(image).expanduser()
+        if not src.is_file():
+            raise ValueError(f"no picture at {image}")
+        ext = src.suffix.lower()
+        if ext not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+            raise ValueError("a link preview must be a png, jpg, webp or gif")
+        (d / "assets").mkdir(exist_ok=True)
+        dest = d / "assets" / ("share" + (".jpg" if ext == ".jpeg" else ext))
+        shutil.copyfile(src, dest)
+        cfg.update(share_image="/assets/" + dest.name, share_auto=False)
+    forge.write_cfg(d, cfg)
+    if rebuild:
+        rebuild()
+    log(f"link preview set to {cfg['share_image']}")
+    return f"link preview set to {cfg['share_image']}"
+
+
 def absolute(html: bytes, origin: str) -> bytes:
     """og:image / twitter:image that start with "/" get the site's address:
     link previews ignore a relative picture."""
