@@ -2114,6 +2114,39 @@ CDN_URL_RE = re.compile(
 # url(...) paren is harmless (vault+restore is byte-exact either way)
 
 
+_IDENT_RE = re.compile(r"^[A-Za-z_$][\w$]*$")
+
+
+def _brand_in_copy(text, w):
+    """Does `w` appear in a script as something a visitor could READ?
+    A VARIABLE IS NOT A LEFTOVER. Templates name their own code after the
+    brand (`bloopLabel`, `bloopProp`); verify counted those, every check
+    failed, and the job and the agent went round trying to rewrite code
+    that must not be touched. Only text inside a string literal counts, and
+    not a string that is itself one bare identifier (an object key)."""
+    lw = w.lower()
+    low = text.lower()
+    mask, trusted = _js_literal_mask(text)
+    i = low.find(lw)
+    while i != -1:
+        if not trusted:
+            a = text[i - 1] if i else " "
+            b = text[i + len(w)] if i + len(w) < len(text) else " "
+            if not (a.isalnum() or a in "_$") and not (b.isalnum() or b in "_$"):
+                return True
+        elif mask[i]:
+            lo = i
+            while lo > 0 and mask[lo - 1]:
+                lo -= 1
+            hi = i
+            while hi < len(text) and mask[hi]:
+                hi += 1
+            if not _IDENT_RE.match(text[lo:hi].strip("'\"`")):
+                return True
+        i = low.find(lw, i + 1)
+    return False
+
+
 def _js_literal_mask(s):
     """-> (mask, trustworthy). mask[i] is 1 where s[i] is inside a JS string.
 
@@ -6607,7 +6640,7 @@ def cmd_verify(_args):
             over_slot = set()
 
     for w in words:
-        hits, url_only = [], []
+        hits, url_only, code_only = [], [], []
         for f in site.rglob("*"):
             # `sources/` is the AUTHORED SOURCE recovered from the
             # platform's own source maps — reference material for whoever
@@ -6627,10 +6660,13 @@ def cmd_verify(_args):
                 if not present:
                     continue
                 masked = cdn_b.sub(b"", blob)
-                if w.encode() in masked or w.lower().encode() in masked:
-                    hits.append(str(f.relative_to(site)))
-                else:
+                if not (w.encode() in masked or w.lower().encode() in masked):
                     url_only.append(str(f.relative_to(site)))
+                elif f.suffix in (".mjs", ".js") and not _brand_in_copy(
+                        masked.decode("utf-8", "replace"), w):
+                    code_only.append(str(f.relative_to(site)))
+                else:
+                    hits.append(str(f.relative_to(site)))
         # A LEFTOVER THAT PHYSICALLY CANNOT BE REPLACED IS NOT A DEFECT.
         #
         # A CMS slot is byte-locked, so a replacement longer than the
@@ -6655,7 +6691,10 @@ def cmd_verify(_args):
         else:
             print(f"PASS no leftover '{w}'" + (
                 f" (remains only inside CDN asset filenames in "
-                f"{len(url_only)} file(s) — never rendered)" if url_only else ""))
+                f"{len(url_only)} file(s) — never rendered)" if url_only else "")
+                + (f" (remains only as code names in {len(code_only)} script(s), "
+                   f"e.g. a variable — never shown, and renaming it breaks the "
+                   f"page)" if code_only else ""))
 
     # 1.5 pristine integrity: hand-edits to the sealed original corrupt
     # every build (and hydration reverts them anyway — the classic trap)

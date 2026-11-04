@@ -2211,8 +2211,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(updater.check(timeout=8) if updater else
                                {"available": False,
                                 "why": "updater unavailable"})
-            elif u.path == "/api/job":
-                # A BACKGROUND MIGRATION JOB, as the screen draws it
+            elif u.path == "/api/job" and not q.get("id"):
+                # A BACKGROUND MIGRATION JOB, as the screen draws it.
+                # ?id= is a studio task (publish, update, heal…) and is
+                # answered further down — this route once swallowed it, so
+                # every publish and every in-app update waited forever.
                 import aethron_jobs
                 name = (q.get("project") or [""])[0]
                 try:
