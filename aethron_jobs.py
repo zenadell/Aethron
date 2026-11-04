@@ -150,9 +150,47 @@ def log_tail(project: str, n=40) -> list:
     return lines[-n:]
 
 
+def _win_alive(pid: int) -> bool:
+    # os.kill(pid, 0) on Windows is not a question: 0 is CTRL_C_EVENT, and
+    # any other number terminates the process. Ask the system instead.
+    import ctypes
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, int(pid))   # QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+    k.CloseHandle(h)
+    return bool(ok) and code.value == 259          # STILL_ACTIVE
+
+
+def kill_tree(pid, hard=False):
+    """Stop a runner and everything it started (engine runs, the agent)."""
+    if not pid:
+        return
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(int(pid)), "/T"]
+                       + (["/F"] if hard else []),
+                       capture_output=True, timeout=20)
+        return
+    sig = signal.SIGKILL if hard else signal.SIGTERM
+    try:
+        os.killpg(int(pid), sig)
+    except OSError:
+        try:
+            os.kill(int(pid), sig)
+        except OSError:
+            pass
+
+
 def alive(pid) -> bool:
     if not pid:
         return False
+    if os.name == "nt":
+        try:
+            return _win_alive(int(pid))
+        except Exception:
+            return False
     try:
         os.kill(int(pid), 0)
     except (OSError, ValueError):
@@ -242,13 +280,7 @@ def stop(project: str) -> dict:
         return {}
     pid = st.get("pid")
     if alive(pid):
-        try:
-            os.killpg(int(pid), signal.SIGTERM)
-        except OSError:
-            try:
-                os.kill(int(pid), signal.SIGTERM)
-            except OSError:
-                pass
+        kill_tree(pid)
     log(project, "── stopped by the person")
     return update(project, status="stopped", pid=0)
 
@@ -283,10 +315,7 @@ def supervise() -> list:
             if quiet < HUNG or age > STALE:
                 continue
             age = quiet
-            try:
-                os.killpg(int(pid), signal.SIGKILL)
-            except OSError:
-                pass
+            kill_tree(pid, hard=True)
             log(project, f"── the runner went silent for {int(age // 60)} "
                 f"min — replacing it")
         elif age < 10:

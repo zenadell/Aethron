@@ -2,6 +2,7 @@
 # One binary that is both the Studio launcher and (via --forge) the engine.
 # fontTools/brotli are lazy imports inside forge.cmd_logo — declare them.
 import os as _os
+import sys
 # bake the cloud config (Supabase URL + anon key) into the bundle if the
 # developer created it — never committed (gitignored). Absent = the app
 # ships fully local/offline (no login gate).
@@ -84,6 +85,7 @@ a = Analysis(
         # native window; the pywebview PyInstaller hook pulls the pyobjc
         # cocoa/WebKit backend, but name the entry points explicitly too.
         "webview", "webview.platforms.cocoa",
+        "webview.platforms.winforms", "webview.platforms.edgechromium",
     ],
     excludes=["tkinter", "test", "unittest", "pydoc_data"],
 )
@@ -93,14 +95,28 @@ pyz = PYZ(a.pure)
 # hides the folder from users entirely. Windows ships the dist folder
 # zipped (users run Aethron.exe inside it).
 _icon = "brand/Aethron.icns" if _os.path.isfile("brand/Aethron.icns") else None
+# WINDOWS: one binary, several roles (window, --forge engine, --mcp server,
+# --job). A windowed .exe gets NO stdout, so the engine and the MCP server
+# would answer nothing to the app that started them. So the Windows .exe is
+# a console program whose console is hidden at once when it was opened for
+# it (a double-click): nobody sees a window, the roles still talk over
+# pipes, and the engine runs the app starts share its hidden console, so
+# no window flashes per build.
+_win = sys.platform == "win32"
+_win_icon = "brand/Aethron.ico" if _os.path.isfile("brand/Aethron.ico") else None
 exe = EXE(
     pyz,
     a.scripts,
+    # UTF-8 everywhere on Windows: its default text encoding is cp1252, so
+    # every open() and every engine line read through a pipe ("✓", "—",
+    # any copy in another language) would fail or garble.
+    [("X utf8_mode=1", None, "OPTION")] if _win else [],
     exclude_binaries=True,
     name=_BUILD_NAME,
-    console=False,          # no terminal window on double-click
+    console=_win,           # Mac: no terminal window on double-click
+    hide_console="hide-early" if _win else None,
     upx=False,
-    icon=_icon,
+    icon=_win_icon if _win else _icon,
 )
 coll = COLLECT(exe, a.binaries, a.datas, name=_BUILD_NAME, upx=False)
 # macOS: wrap in a proper .app bundle so Finder/dock treat it right

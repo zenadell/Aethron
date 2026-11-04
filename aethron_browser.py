@@ -288,7 +288,7 @@ class Browser:
             if self.proc and self.proc.poll() is None:
                 try:
                     os.killpg(self.proc.pid, 15)
-                except OSError:
+                except (OSError, AttributeError):
                     self.proc.terminate()
                 try:
                     self.proc.wait(5)

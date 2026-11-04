@@ -5558,6 +5558,10 @@ BROWSER_CANDIDATES = (
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    # Chrome installed for one person, not the machine
+    str(Path.home() / "AppData" / "Local" / "Google" / "Chrome"
+        / "Application" / "chrome.exe"),
 )
 BROWSER_ON_PATH = ("google-chrome", "google-chrome-stable", "chromium",
                    "chromium-browser", "chrome", "msedge", "brave-browser")

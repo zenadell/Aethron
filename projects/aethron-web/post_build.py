@@ -25,6 +25,18 @@ except Exception as e:  # a feed outage must not take the website down
     print("feed unreadable, using the pinned build:", e)
     url, ver = FALLBACK, "pinned"
 
+# Windows: its own feed. Until the first Windows release is published there
+# is none, and the page says "Coming soon" rather than offering a dead link.
+win = "null"
+try:
+    with urllib.request.urlopen(FEED.replace("/mac.json", "/win.json"),
+                                timeout=20) as r:
+        wf = json.load(r)
+    if str(wf.get("url", "")).startswith("https://"):
+        win = json.dumps({"url": wf["url"], "ver": str(wf.get("version", ""))})
+except Exception as e:
+    print("no Windows release yet:", e)
+
 site = pathlib.Path("site")
 u = html.escape(url, quote=True)
 # /download: Aethron's own page (download.html), not a bare redirect. It
@@ -32,9 +44,10 @@ u = html.escape(url, quote=True)
 # send the link to a Mac instead of dropping a zip there.
 page = (pathlib.Path("download.html").read_text()
         .replace("{{URL_JSON}}", json.dumps(url).replace("</", "<\\/"))
+        .replace("{{WIN_JSON}}", win.replace("</", "<\\/"))
         .replace("{{URL}}", u).replace("{{VER}}", html.escape(str(ver))))
 assert "{{" not in page
-for d in ("download", "download/mac"):
+for d in ("download", "download/mac", "download/windows"):
     (site / d).mkdir(parents=True, exist_ok=True)
     (site / d / "index.html").write_text(page)
 # The build turns the template's own download links into /download.html.

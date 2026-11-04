@@ -295,8 +295,10 @@ def publish(version, zip_path: Path, notes="", platform="mac") -> dict:
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         raise SystemExit(__doc__.strip().splitlines()[-6].strip())
+    import os
     out = publish(sys.argv[1], Path(sys.argv[2]),
-                  sys.argv[3] if len(sys.argv) > 3 else "")
+                  sys.argv[3] if len(sys.argv) > 3 else "",
+                  platform=os.environ.get("RELEASE_PLATFORM", "mac"))
     print(f"  feed  {out['feed']}")
     print(f"  asset {out['asset']}  ({out['size']/1e6:.1f} MB)")
     print(f"\n✓ v{out['version']} is live — verified by anonymous read, "
