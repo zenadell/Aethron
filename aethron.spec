@@ -39,7 +39,7 @@ a = Analysis(
     pathex=["."],
     datas=_datas,
     binaries=_binaries,
-    hiddenimports=['aethron_jobs', 'aethron_fill', 'aethron_access', 'aethron_reports', 'aethron_publish', 'aethron_browser', 'aethron_templates', 'aethron_control', 
+    hiddenimports=['aethron_jobs', 'aethron_share', 'aethron_fill', 'aethron_access', 'aethron_reports', 'aethron_publish', 'aethron_browser', 'aethron_templates', 'aethron_control', 
         "forge", "studio", "aethron_cloud",
         # THE AGENT'S TOOLS. Spawned as a SUBPROCESS entry point
         # (`Aethron --mcp`), not merely imported, so it must be in the

@@ -3243,6 +3243,7 @@ def cmd_build(_args):
         t = _localize_refs(t, cfg.get("localized", {}))
         t = _inject_runtime_map(t, cfg, pairs)
         t = _inject_link_routes(t, cfg, pairs)
+        t = _set_share_image(t, cfg)
         if live:
             m = re.search(r"<head\b[^>]*>", t, re.I)
             t = (t[:m.end()] + live + t[m.end():]) if m else live + t
@@ -4383,6 +4384,37 @@ def _link_map(cm: dict) -> dict:
                 and re.match(r"(https?:|mailto:|tel:|/|#)", new)):
             out[old] = new
     return out
+
+
+SHARE_META_RE = re.compile(
+    r'<meta\b[^>]*(?:property|name)=["\'](?:og:image(?::secure_url)?|'
+    r'twitter:image(?::src)?)["\'][^>]*>', re.I)
+SHARE_SIZE_RE = re.compile(
+    r'<meta\b[^>]*(?:property|name)=["\']og:image:(?:width|height|type|alt)'
+    r'["\'][^>]*>\s*', re.I)
+
+
+def _set_share_image(t: str, cfg: dict) -> str:
+    """THE LINK PREVIEW IS THE BRAND'S. cfg["share_image"] (a file the
+    build ships, e.g. "/assets/share.png") replaces every og:image and
+    twitter:image the template set — its own marketplace preview or its
+    logo — and is added when the page has none. Root-relative here;
+    publishing makes it absolute, because link previews need a full
+    address and only publishing knows the site's."""
+    img = str(cfg.get("share_image") or "").strip()
+    if not img or "<head" not in t.lower():
+        return t
+    if not img.startswith(("/", "http://", "https://")):
+        img = "/" + img
+    t = SHARE_SIZE_RE.sub("", SHARE_META_RE.sub("", t))
+    tags = (f'<meta property="og:image" content="{img}">'
+            '<meta property="og:image:width" content="1200">'
+            '<meta property="og:image:height" content="630">'
+            f'<meta name="twitter:image" content="{img}">')
+    if not re.search(r'<meta\b[^>]*name=["\']twitter:card', t, re.I):
+        tags += '<meta name="twitter:card" content="summary_large_image">'
+    return t.replace("</head>", tags + "</head>", 1) if "</head>" in t \
+        else t
 
 
 def _live_fixes(cm: dict, cfg: dict) -> str:

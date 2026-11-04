@@ -35,11 +35,12 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 STEPS = ["source", "fetch", "inventory", "brand", "plan", "fill", "build",
-         "check"]
+         "share", "check"]
 LABEL = {"source": "Reading the site", "fetch": "Downloading its files",
          "inventory": "Finding every line, image and link",
          "brand": "Reading the brand's material", "plan": "Writing the brief",
          "fill": "Writing the new copy", "build": "Building the site",
+         "share": "Making the link preview",
          "check": "Checking it in a browser"}
 BATCH = max(5, int(os.environ.get("AETHRON_JOB_BATCH", "40")))
 PARALLEL = max(1, min(8, int(os.environ.get("AETHRON_JOB_PARALLEL", "6"))))
@@ -50,7 +51,7 @@ HUNG = 1800                # alive, but silent this long = stuck; replace it
 CHECK_SECONDS = 900        # the whole check, agent round included, ends here
 # A JOB ALWAYS FINISHES. These steps help the site but are not the site:
 # when they cannot be done, the job says so and carries on.
-OPTIONAL = {"brand", "check"}
+OPTIONAL = {"brand", "share", "check"}
 TRIES_FOR = {"check": 1}   # a check is long; a second identical one is not
                            # more likely to pass
 _JOB_CMD = ([sys.executable, "--job"] if getattr(sys, "frozen", False)
@@ -665,6 +666,22 @@ def step_build(project, st):
     return "built"
 
 
+def step_share(project, st):
+    """The link preview shows the migrated site, not the template's own
+    marketplace picture or logo (aethron_share)."""
+    if os.environ.get("AETHRON_BROWSER", "").lower() in ("none", "off", "0"):
+        return "skipped (no browser)"
+    import aethron_share
+    d = _pdir(project)
+
+    def rebuild():
+        ok, out = _forge(project, "build")
+        if not ok:
+            raise RuntimeError("rebuild after the link preview failed")
+    return aethron_share.ensure(d, log=lambda t: log(project, "  " + t),
+                                rebuild=rebuild)
+
+
 def _filled(d) -> int:
     allx, _ = _entries(d)
     return sum(1 for _, x in allx if x.get("new"))
@@ -749,6 +766,7 @@ def _start_brand_early(project):
 RUNNERS = {"source": step_source, "fetch": step_fetch,
            "inventory": step_inventory, "brand": step_brand,
            "plan": step_plan, "fill": step_fill, "build": step_build,
+           "share": step_share,
            "check": step_check}
 
 
