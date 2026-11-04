@@ -119,7 +119,7 @@ def app_bundle() -> Path | None:
 
 
 def _translocated(p: Path) -> bool:
-    return "/AppTranslocation/" in str(p)
+    return "/AppTranslocation/" in Path(p).as_posix()
 
 
 def _original_of(p: Path) -> Path | None:
