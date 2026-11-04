@@ -91,6 +91,8 @@ SUITES = [
         os.path.expanduser("~/.bun/bin/bun")) else "bun", "test", "tests/cloud"], False),
     ("control battery (kill switch, holds, sign-out, managed AI, offline)",
      [PY, "tests/control_battery.py"], False),
+    ("free-plan quota (no function call per minute)",
+     [PY, "tests/quota_battery.py"], False),
     ("admin console battery (real browser, real function)",
      [PY, "tests/admin_console_battery.py"], False),
     ("team messages in the app (paused card, chip, announcement card)",

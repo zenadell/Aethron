@@ -374,7 +374,11 @@ export default {
         return await api(req, env, url.pathname.slice("/__api".length).replace(/\/+$/, ""));
       }
       if (host === root || host === "www." + root) {
-        return Response.redirect(env.HOME_URL || "https://aethron.jomiez.com/", 302);
+        // The website lives at www.<root> (its own Worker answers there);
+        // the bare domain sends people to it, keeping the page they asked for.
+        const home = new URL(env.HOME_URL || "https://www." + root + "/");
+        if (home.hostname === host) return PAGE("Not found", "This address is not an Aethron site.", 404);
+        return Response.redirect(home.origin + url.pathname + url.search, 301);
       }
       if (!host.endsWith("." + root)) return PAGE("Not found", "This address is not an Aethron site.", 404);
       const name = host.slice(0, -(root.length + 1));
