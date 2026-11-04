@@ -7405,3 +7405,23 @@ so the agent improvised. Now:
   asked.
 tests/share_battery.py 13 -> 20 (matcher, the tool with a file, a URL,
 none, and a missing file refused); chat-ui battery green.
+
+## NOTHING IS DONE TWICE — build, verify and probe remember — 2026-11-04
+Owner: "aethron should never waste anything". The field logs showed the
+agent running build (21s) + verify + probe (60-66s) again and again with
+nothing changed in between. forge `_remembered()` wraps build/verify/probe:
+- build's inputs = engine + copy_map.json + forge.json + assets/ and
+  pristine/ (path, size, mtime); verify/probe add site/. Same inputs ->
+  the recorded output and exit code are printed with "(unchanged since
+  HH:MM … not run again. --force runs it anyway)". Record in
+  <project>/.forge-cache/runs.json.
+- a probe that FAILED or was SKIPPED is never served from the record (a
+  failure always gets a fresh look); a build that rewrote its own inputs
+  is not recorded (it runs once more).
+- only the OUTERMOST call is remembered: builds inside `learn` read an
+  empty copy map in memory and must never answer for the real one; and a
+  project owed a relearn (no runtime_urls) never takes a recorded build —
+  the reveal battery caught that exact case (a build with
+  AETHRON_NO_RELEARN=1 was recorded and the next build skipped its learn).
+tests/cache_battery.py 9/9 (in run_all); engine 43/43, reveal 13/13,
+site 16/16, fieldlog 27/27.

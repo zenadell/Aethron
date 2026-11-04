@@ -7684,6 +7684,180 @@ def cmd_convert(argv):
         sys.exit(2)
 
 
+# ─────────────────────── nothing is done twice ───────────────────────
+# A build reads copy_map, forge.json, assets/ and pristine/; verify and
+# probe read what that build wrote. When none of those changed since the
+# last run, running again costs 20s (build) or a minute (probe) and gives
+# the same answer — so the answer on record is given instead, with a line
+# saying so. --force always runs. A probe that FAILED or was SKIPPED is
+# never served from the record: a failure gets a fresh look every time.
+
+def _tree_stamp(d: Path, h, skip=()):
+    if not d.is_dir():
+        h.update(b"-none-")
+        return
+    for p in sorted(d.rglob("*")):
+        if any(part in skip for part in p.relative_to(d).parts):
+            continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        if p.is_file():
+            h.update(f"{p.relative_to(d)}|{st.st_size}|{st.st_mtime_ns}\n"
+                     .encode("utf-8", "surrogateescape"))
+
+
+def _engine_id() -> str:
+    try:
+        return hashlib.sha1(Path(__file__).read_bytes()).hexdigest()
+    except OSError:
+        try:
+            import aethron_update
+            return "v" + aethron_update.VERSION
+        except Exception:
+            return "unknown"
+
+
+def _inputs_fp(root: Path) -> str:
+    h = hashlib.sha1(_engine_id().encode())
+    for n in ("copy_map.json", "forge.json"):
+        f = root / n
+        h.update(n.encode() + (f.read_bytes() if f.exists() else b"-"))
+    _tree_stamp(root / "assets", h)
+    _tree_stamp(root / "pristine", h)
+    return h.hexdigest()
+
+
+def _output_fp(root: Path) -> str:
+    h = hashlib.sha1(_inputs_fp(root).encode())
+    _tree_stamp(root / "site", h, skip=(".forge-probe.json",))
+    return h.hexdigest()
+
+
+def _cache_file(root: Path) -> Path:
+    return root / ".forge-cache" / "runs.json"
+
+
+def _cache_read(root: Path) -> dict:
+    try:
+        return json.loads(_cache_file(root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _cache_write(root: Path, key: str, rec: dict):
+    data = _cache_read(root)
+    data[key] = rec
+    f = _cache_file(root)
+    try:
+        f.parent.mkdir(exist_ok=True)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.replace(f)
+    except OSError:
+        pass
+
+
+class _Tee:
+    def __init__(self, real):
+        self.real, self.buf = real, []
+
+    def write(self, s):
+        self.buf.append(s)
+        return self.real.write(s)
+
+    def flush(self):
+        self.real.flush()
+
+    def __getattr__(self, n):
+        return getattr(self.real, n)
+
+
+_REMEMBER_DEPTH = [0]
+
+
+def _remembered(name: str, fn, fp_of, keep=lambda out, rc: True):
+    """Run `fn(args)` unless the same inputs already gave an answer.
+    Only the outermost call is remembered: a build inside `learn` reads an
+    empty copy map in memory, and must never answer for the real one."""
+    def run(args):
+        if _REMEMBER_DEPTH[0] or globals().get("_LEARNING"):
+            return fn([a for a in args if a != "--force"])
+        _REMEMBER_DEPTH[0] += 1
+        try:
+            return _run(args)
+        finally:
+            _REMEMBER_DEPTH[0] -= 1
+
+    def _run(args):
+        root = Path.cwd()
+        force = "--force" in args
+        args = [a for a in args if a != "--force"]
+        key = name + " " + " ".join(sorted(args))
+        if not (root / "forge.json").exists():
+            return fn(args)
+        try:
+            fp = fp_of(root)
+        except Exception:
+            fp = None
+        if name == "build":
+            try:
+                c = read_cfg(root)
+                pending = (c.get("platform") != "framer"
+                           and bool(c.get("source_url"))
+                           and "runtime_urls" not in c)
+            except Exception:
+                pending = False
+            if pending:     # a learn is owed; its answer is not on record
+                fp = None
+        rec = _cache_read(root).get(key) if fp else None
+        if rec and rec.get("fp") == fp and not force \
+                and (name != "build" or (root / "site" / "index.html").exists()
+                     or (root / "site").is_dir()):
+            when = time.strftime("%H:%M", time.localtime(rec.get("at", 0)))
+            sys.stdout.write(rec.get("out", ""))
+            print(f"(unchanged since {when}: nothing {name} reads has changed, "
+                  f"so this is the result of that run — not run again. "
+                  f"--force runs it anyway)")
+            sys.stdout.flush()
+            sys.exit(rec.get("rc", 0))
+        tee = _Tee(sys.stdout)
+        sys.stdout = tee
+        rc = 0
+        try:
+            fn(args)
+        except SystemExit as e:
+            rc = e.code if isinstance(e.code, int) else (0 if e.code is None
+                                                         else 1)
+            raise
+        finally:
+            sys.stdout = tee.real
+            out = "".join(tee.buf)
+            try:
+                after = fp_of(root) if fp else None
+            except Exception:
+                after = None
+            # an answer is kept only when the run left its own inputs as it
+            # found them (a build that rewrites forge.json is run again once)
+            same = after == fp if name != "build" else \
+                _inputs_fp(root) == fp
+            if fp and same and keep(out, rc):
+                _cache_write(root, key, {"fp": after if name != "build"
+                                         else fp, "rc": rc, "out": out,
+                                         "at": time.time()})
+    return run
+
+
+cmd_build = _remembered("build", cmd_build, _inputs_fp,
+                        keep=lambda out, rc: rc == 0)
+cmd_verify = _remembered("verify", cmd_verify, _output_fp)
+cmd_probe = _remembered("probe", cmd_probe, _output_fp,
+                        keep=lambda out, rc: rc == 0
+                        and "VERDICT: SKIPPED" not in out
+                        and "CLEAN" in out)
+
+
 COMMANDS = {"init": cmd_init, "fetch": cmd_fetch, "inventory": cmd_inventory,
             "convert": cmd_convert, "figma": cmd_figma,
             "vision": cmd_vision, "screenshot": cmd_screenshot,
