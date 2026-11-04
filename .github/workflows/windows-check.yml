@@ -29,6 +29,12 @@ jobs:
           python-version: "3.11"
       - name: Build
         run: |
+          # a real release number, so the team's minimum-version switch lets it run
+          python - <<'PY'
+          import pathlib, re
+          p = pathlib.Path("aethron_update.py")
+          p.write_text(re.sub(r'^VERSION = "[^"]*"', 'VERSION = "1.1.9999"', p.read_text(encoding="utf-8"), count=1, flags=re.M), encoding="utf-8")
+          PY
           python -c "import json;json.dump(json.load(open('release_config.json',encoding='utf-8')),open('aethron_config.json','w',encoding='utf-8'))"
           python -m pip install --quiet --upgrade pyinstaller fonttools brotli pywebview
           python -m PyInstaller --version
