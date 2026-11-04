@@ -13951,6 +13951,100 @@ input.sw:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 #pubov .pubaddr span{background:transparent!important;border:0!important;color:rgba(235,235,245,.45)!important}
 #pubov .pubfoot .pubacct{color:rgba(235,235,245,.4)!important;font-size:12px!important}
 #pubov .pubfoot .pubacct svg{opacity:.7}
+
+/* ══ WINDOWS 11 — FLUENT ═══════════════════════════════════════════════
+   Everything below applies only under html.os-win. The Mac look above is
+   untouched. Tokens follow Windows 11's dark theme: Mica base #202020,
+   layers a step lighter, 1px subtle strokes, 4px controls, 8px cards and
+   panes, Segoe UI Variable type, a 3px accent pill on the selected nav
+   item, and the Fluent focus ring. Aethron's orange stays the accent. */
+html.os-win{--frame:#202020;--tray:#272727;--tray2:#2d2d2d;--hair:rgba(255,255,255,.07);
+  --hair2:rgba(255,255,255,.1);--tx:#fff;--dim:rgba(255,255,255,.79);--lo:rgba(255,255,255,.55);
+  --g-0:#202020;--g-1:#272727;--g-2:#2b2b2b;--g-3:#2d2d2d;--g-4:#323232;--g-5:#383838;
+  --t-1:#fff;--t-2:rgba(255,255,255,.79);--t-3:rgba(255,255,255,.55);--t-4:rgba(255,255,255,.36);
+  --edge-1:rgba(255,255,255,.07);--edge-2:rgba(255,255,255,.1);--edge-3:rgba(255,255,255,.16);
+  --r-sm:4px;--r-md:4px;--r-lg:8px;--r-xl:8px;--trayr:8px;--r:4px;
+  --ui:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  --display:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif}
+html.os-win body{font-family:var(--ui)!important;background:#202020!important;padding:0!important;gap:0!important}
+html.os-win body::before,html.os-win body::after{display:none!important}
+/* the side pane sits on Mica; the content is one layer with a rounded
+   top-left corner, the way Windows Settings is built */
+html.os-win body>aside{background:transparent!important;border:0!important;border-radius:0!important}
+html.os-win body>main{background:#272727!important;border:0!important;border-top:1px solid var(--hair)!important;
+  border-left:1px solid var(--hair)!important;border-radius:8px 0 0 0!important;margin-top:12px}
+html.os-win .brand{font:600 14px var(--ui)!important;letter-spacing:0!important}
+html.os-win .find,html.os-win .find input{border-radius:4px!important}
+html.os-win .find{background:rgba(255,255,255,.06)!important;border:1px solid rgba(255,255,255,.07)!important;
+  border-bottom-color:rgba(255,255,255,.54)!important;box-shadow:none!important}
+html.os-win .find:focus-within{background:#1c1c1c!important;border-bottom:2px solid var(--acc)!important}
+html.os-win .newbtn{border-radius:4px!important;height:32px!important;margin:12px 12px 4px!important;
+  background:var(--acc)!important;border:1px solid rgba(255,255,255,.08)!important;color:#000!important;
+  font:600 14px var(--ui)!important;letter-spacing:0!important;text-transform:none!important;justify-content:center!important;gap:8px}
+html.os-win .newbtn .ic{color:#000!important}
+html.os-win .newbtn:hover{background:var(--acc2)!important;transform:none!important}
+html.os-win .slabel,html.os-win .hrail .hgal-h,html.os-win .hrail [class$="-h"]{font:600 14px var(--ui)!important;
+  letter-spacing:0!important;text-transform:none!important;color:#fff!important}
+html.os-win .slabel{margin:18px 16px 6px!important}
+html.os-win .srows .qrow{position:relative;border-radius:4px!important;margin:2px 4px!important;padding:8px 12px!important;
+  border:0!important;font-size:14px!important}
+html.os-win .srows .qrow:hover{background:rgba(255,255,255,.06)!important}
+html.os-win .pitem{border-radius:4px!important;border-color:transparent!important;position:relative}
+html.os-win .pitem:hover{background:rgba(255,255,255,.06)!important}
+html.os-win .pitem.sel{background:rgba(255,255,255,.06)!important}
+html.os-win .pitem.sel::before{content:"";position:absolute;left:0;top:50%;width:3px;height:16px;margin-top:-8px;
+  border-radius:2px;background:var(--acc)}
+/* type ramp: Title / Subtitle / Body, sentence case */
+html.os-win body.homev #welcome h1,html.os-win .focal h1,html.os-win #welcome h1{font:600 40px/1.2 var(--display)!important;
+  letter-spacing:0!important}
+html.os-win .setwrap h1,html.os-win .setwrap h2,html.os-win .seth,html.os-win #ptitle{font-family:var(--display)!important;
+  font-weight:600!important;letter-spacing:0!important}
+/* controls: 4px, a subtle fill and the Fluent bottom edge */
+html.os-win .btn{border-radius:4px!important;background:rgba(255,255,255,.06)!important;
+  border:1px solid rgba(255,255,255,.07)!important;border-bottom-color:rgba(255,255,255,.04)!important;font-family:var(--ui)!important}
+html.os-win .btn:hover{background:rgba(255,255,255,.08)!important}
+html.os-win .btn.primary{background:var(--acc)!important;color:#000!important;border-color:rgba(255,255,255,.08)!important}
+html.os-win .btn.primary:hover{background:var(--acc2)!important}
+html.os-win .cbtn{border-radius:4px!important;background:var(--acc)!important;color:#000!important;box-shadow:none!important}
+html.os-win .cbtn .ic{color:#000!important}
+/* cards and flyouts: 8px, layered, a hairline instead of a glow */
+html.os-win .rcard,html.os-win .hcard,html.os-win .prail .rcard{border-radius:8px!important;background:#2b2b2b!important;
+  border:1px solid rgba(255,255,255,.06)!important;box-shadow:none!important}
+html.os-win .hcard:hover,html.os-win .rcard:hover{background:#323232!important}
+html.os-win .plat{border-radius:4px!important}
+html.os-win :focus-visible{outline:2px solid #fff!important;outline-offset:1px!important}
+html.os-win ::-webkit-scrollbar{width:6px;height:6px}
+html.os-win ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.3);border-radius:3px}
+html.os-win ::-webkit-scrollbar-track{background:transparent}
+/* the prompt is the headline: Fluent's Display weight, not hairline type */
+html.os-win .conv-shell:not(.talking) #npurl,html.os-win .conv-shell:not(.talking) .cghost{
+  font:600 40px/1.2 var(--display)!important;letter-spacing:0!important}
+html.os-win body:not(.homev) .conv-shell:not(.talking) #npurl,
+html.os-win body:not(.homev) .conv-shell:not(.talking) .cghost{font-size:32px!important}
+html.os-win .composer .cbtn,html.os-win .composer .cbtn:not(.stop){border-radius:4px!important;width:40px!important;
+  height:32px!important;box-shadow:none!important}
+html.os-win .composer .cbar .cpill{border-radius:4px!important}
+html.os-win .hrc{border-radius:8px!important;background:#2b2b2b!important;border:1px solid rgba(255,255,255,.06)!important;
+  box-shadow:none!important}
+html.os-win .hrc-tag{font:600 12px var(--ui)!important;letter-spacing:0!important;text-transform:none!important;
+  color:rgba(255,255,255,.79)!important}
+/* dialogs, flyouts, cards and the conversation: Fluent's 8px everywhere a
+   surface floats, 4px on anything you press */
+html.os-win .newscard,html.os-win .pubcard,html.os-win .tcpop,html.os-win .cmdk-box,html.os-win .ugc,
+html.os-win .tcard,html.os-win .teamcard,html.os-win .heldcard,html.os-win .setwrap .card,html.os-win .pcard,
+html.os-win .publive,html.os-win .pubgroup,html.os-win #pubov .publive,html.os-win #pubov .pubgroup,
+html.os-win .jobc,html.os-win .composer,html.os-win .run.open,html.os-win .run[open],html.os-win .pvw-stage,
+html.os-win .hcard .hshot{border-radius:8px!important}
+html.os-win .turn.you .bubble{border-radius:8px!important}
+html.os-win .newscard,html.os-win .pubcard,html.os-win .cmdk-box,html.os-win .tcpop{background:#2b2b2b!important;
+  border:1px solid rgba(255,255,255,.08)!important;box-shadow:0 32px 64px rgba(0,0,0,.37),0 2px 21px rgba(0,0,0,.37)!important}
+html.os-win .pubcard input[type=checkbox].sw,html.os-win input.sw{border-radius:999px}
+/* section headers read as Fluent's Body Strong, not tracked capitals */
+html.os-win .rhead span,html.os-win .ptag{font:600 14px var(--ui)!important;letter-spacing:0!important;
+  text-transform:none!important;color:#fff!important}
+html.os-win .qrows .qrow{border-radius:4px!important;background:rgba(255,255,255,.06)!important;
+  border:1px solid rgba(255,255,255,.07)!important}
+html.os-win .qrows .qrow:hover{background:rgba(255,255,255,.08)!important}
 </style></head><body>
 <aside>
   <div class="brand" onclick="goHome()" title="Home" style="cursor:pointer"><img class="bmark" src="__MARK__" alt=""><b>Aethron</b> <span>Studio</span></div>
@@ -14060,6 +14154,11 @@ const $=id=>document.getElementById(id);
 /* set before anything renders, so no frame is painted opaque first */
 if(location.search.indexOf('glass=1')>=0)
   document.documentElement.classList.add('native-glass');
+/* EACH SYSTEM ITS OWN LOOK. On Windows the app wears Windows 11's Fluent
+   design (Segoe UI, Mica surfaces, 4px controls, a NavigationView side
+   pane); on a Mac it keeps its own. ?os=win shows the Windows look anywhere. */
+if(/Windows/.test(navigator.userAgent)||/[?&]os=win\b/.test(location.search))
+  document.documentElement.classList.add('os-win');
 const ICONS={
 globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
 link:'<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>',
@@ -17144,7 +17243,7 @@ function watchMetal(){
   if(dock)seen.observe(dock,{childList:true,subtree:true});
 }
 function mountMetal(){
-  if(!window.metalWrap)return;      /* not loaded yet — a later pass gets it */
+  if(!window.metalWrap||document.documentElement.classList.contains('os-win'))return;      /* not loaded yet — a later pass gets it */
   /* An element re-rendered away takes its wrapper with it, but the
      shared renderer would keep compositing for an instance nobody can
      see. Sweep first, mount second. */
