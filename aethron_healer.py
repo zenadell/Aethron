@@ -36,6 +36,8 @@ import json
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -57,9 +59,25 @@ FORGE = ROOT / "forge.py"
 MAX_EVIDENCE = 6000
 
 
+_DEADLINE = threading.local()
+
+
 def _forge(project: Path, *args, timeout=1800):
-    r = subprocess.run([*_FORGE_CMD, *args], cwd=project,
-                       capture_output=True, text=True, timeout=timeout)
+    # a caller with a deadline (the migration job) never waits past it:
+    # a step that runs out of time answers like a failed one, it does not
+    # raise and take the whole check down with it
+    end = getattr(_DEADLINE, "t", 0)
+    if end:
+        timeout = max(15, min(timeout, int(end - time.time())))
+    try:
+        r = subprocess.run([*_FORGE_CMD, *args], cwd=project,
+                           capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as e:
+        part = e.stdout or ""
+        if isinstance(part, bytes):
+            part = part.decode("utf-8", "replace")
+        return 124, (part.strip() + f"\nTIMED OUT after {int(timeout)}s "
+                     f"running `{' '.join(args)}`").strip()
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -194,8 +212,23 @@ def evidence_text(ev: dict, heal_log: str = "") -> str:
 
 
 def heal(project, rounds=2, use_agent=True, on_event=None, cfg=None,
-         home=None, live=False, agent_timeout=1800) -> dict:
-    """-> {ok, stage, attempts, evidence, log, actions}"""
+         home=None, live=False, agent_timeout=1800, deadline=0) -> dict:
+    """-> {ok, stage, attempts, evidence, log, actions}
+    deadline: an epoch time nothing here runs past. The agent round is
+    skipped when too little time is left for it AND the re-check."""
+    _DEADLINE.t = float(deadline or 0)
+    try:
+        return _heal(project, rounds, use_agent, on_event, cfg, home, live,
+                     agent_timeout, float(deadline or 0))
+    finally:
+        _DEADLINE.t = 0
+
+
+RECHECK = 240     # seconds kept back after an agent round: build+verify+probe
+
+
+def _heal(project, rounds, use_agent, on_event, cfg, home, live,
+          agent_timeout, deadline) -> dict:
     project = Path(project).resolve()
     if not (project / "forge.json").exists():
         return {"ok": False, "error": f"not an Aethron project: {project}"}
@@ -270,6 +303,15 @@ def heal(project, rounds=2, use_agent=True, on_event=None, cfg=None,
 
     actions, attempts = [], 0
     for attempt in range(1, max(1, rounds) + 1):
+        if deadline:
+            left = int(deadline - time.time()) - RECHECK
+            if left < 90:
+                note("stuck", "out of time for an agent round — "
+                              "finishing with what the checks report")
+                return {"ok": False, "stage": "out-of-time",
+                        "attempts": attempts, "evidence": ev,
+                        "log": "\n".join(log), "actions": actions}
+            agent_timeout = min(agent_timeout, left)
         attempts = attempt
         note("stage", f"agent round {attempt}/{rounds} "
                       f"({prov.get('why') or prov.get('label')})")
