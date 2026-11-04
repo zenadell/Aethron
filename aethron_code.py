@@ -414,6 +414,10 @@ instinct you have about editing files here:
    check, say so; do not try to get around it.
    The LINK PREVIEW (og:image, the picture a shared link shows) is
    changed with `share_image` in one call — never by reading the pages.
+   A PICTURE OF PART OF THE SITE: when the person attaches a screenshot
+   of a piece of their site, the window usually locates it for you and
+   says where it is; if it did not, call `locate_screenshot` first. Then
+   change THAT element — never guess which one they meant.
 
 11. EVERYTHING GOES THROUGH mcp__aethron__* TOOLS. In a project chat you
    have no shell and no file tools: you do not need them. To READ:

@@ -1437,6 +1437,22 @@ def t_hide_text(a):
                   {"hide_text": cur, "built": ok})
 
 
+def t_locate_screenshot(a):
+    """Which page, where, and which element a cropped screenshot shows."""
+    import aethron_locate
+    d = pdir(str(a["project"]))
+    img = Path(str(a.get("image") or "")).expanduser()
+    if not img.is_file() and (HOME / "uploads" / img.name).is_file():
+        img = HOME / "uploads" / img.name
+    if not img.is_file():
+        return (f"FAILED no such image: {a.get('image')!r}. Pass the path "
+                "from the <aethron-attached> note.")
+    w = a.get("width")
+    r = aethron_locate.locate(d, img, page=a.get("page") or None,
+                              width=int(w) if w else None)
+    return Result(aethron_locate.describe(r), r)
+
+
 def t_share_image(a):
     """Replace the link preview (og:image) — the picture a chat app or a
     social post shows for the site's link."""
@@ -2417,6 +2433,19 @@ TOOLS = [
      "gains a tool for it. Then tell the person, in one line, what you can "
      "do instead.",
      S({**P, "need": {"type": "string"}}, ["need"]), t_report_gap),
+    ("locate_screenshot", "Find WHERE on the site a cropped screenshot "
+     "the person attached comes from: the page, its place on the page, and "
+     "the element in the code (file, line, opening tag, CSS path, Framer "
+     "name, the words in it). Measured by matching the picture against "
+     "every built page in a real browser — call it FIRST whenever a person "
+     "sends a picture of part of their site, then change that element.",
+     S({**P, "image": {"type": "string", "description": "the attached "
+        "file's path"},
+        "page": {"type": "string", "description": "OPTIONAL page to try "
+                 "first (about.html)"},
+        "width": {"type": "integer", "description": "OPTIONAL window width "
+                  "the picture was taken at"}}, ["project", "image"]),
+     t_locate_screenshot),
     ("share_image", "Replace the LINK PREVIEW picture (og:image / "
      "twitter:image — what a chat app or social post shows for the site's "
      "link). One call does all of it: no image = a fresh 1200x630 picture "
