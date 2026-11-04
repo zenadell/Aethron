@@ -901,6 +901,68 @@ def t_get_plan(a):
     return f.read_text(encoding="utf-8") if f.exists() else "(no plan yet)"
 
 
+def t_get_config(a):
+    """What the project is set to — everything an agent would otherwise
+    open forge.json to look for."""
+    d = pdir(str(a["project"]))
+    cfg = json.loads((d / "forge.json").read_text(encoding="utf-8"))
+    try:
+        cm = json.loads((d / "copy_map.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cm = {}
+    lines = [e for sec in ("strings", "images", "links")
+             for e in cm.get(sec, [])]
+    info = {
+        "platform": cfg.get("platform"), "pages": cfg.get("pages", []),
+        "source_url": cfg.get("source_url"),
+        "brand_words": cfg.get("forbidden_words", []),
+        "hidden_selectors": cfg.get("hide_selectors", []),
+        "hidden_text": cfg.get("hide_text", []),
+        "link_routes": cfg.get("link_routes", {}),
+        "styles": [{"selector": x.get("selector"), "css": x.get("css"),
+                    "label": x.get("label")} for x in cm.get("styles", [])],
+        "removed": cm.get("remove", []),
+        "share_image": cfg.get("share_image"),
+        "share_image_automatic": bool(cfg.get("share_auto")),
+        "localized_assets": len(cfg.get("localized", {}) or {}),
+        "lines": len(lines), "filled": sum(1 for e in lines if e.get("new")),
+        "built": (d / "site" / "index.html").exists(),
+    }
+    text = "\n".join(f"{k}: {json.dumps(v, ensure_ascii=False)[:600]}"
+                     for k, v in info.items())
+    return Result(text, info)
+
+
+def t_report_gap(a):
+    """The agent could not do something with the tools it has."""
+    need = " ".join(str(a.get("need") or "").split())[:200]
+    if len(need) < 4:
+        raise ValueError("say in one line what the person asked for that no "
+                         "tool can do")
+    name = str(a.get("project") or "")
+    d = None
+    try:
+        d = pdir(name) if name else None
+    except ValueError:
+        d = None
+    try:
+        import aethron_reports
+        aethron_reports.report("gap", need[:80], d,
+                               error="no tool for: " + need)
+    except Exception:
+        pass
+    try:
+        log = HOME / "gaps.jsonl"
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": time.time(), "project": name,
+                                "need": need}) + "\n")
+    except OSError:
+        pass
+    return Result("recorded. Tell the person in one line what you CAN do "
+                  "instead with the tools you have, and offer it.",
+                  {"recorded": True})
+
+
 def t_set_plan(a):
     d = pdir(str(a["project"]))
     snapshot(d)
@@ -2337,6 +2399,15 @@ TOOLS = [
      S({**P, "old": {"type": "string", "description": "the address it goes "
         "to now — read it with browser_click or browser_read"},
         "new": {"type": "string"}}, ["project", "old", "new"]), t_set_link),
+    ("get_config", "What the project is set to: platform, pages, hidden "
+     "selectors and words, styles you added, removals, link routes, link "
+     "preview, lines written. Read this instead of opening any file.",
+     S(P, ["project"]), t_get_config),
+    ("report_gap", "Call this when the person asks for something NO tool "
+     "can do. One line saying what was asked. It is recorded so Aethron "
+     "gains a tool for it. Then tell the person, in one line, what you can "
+     "do instead.",
+     S({**P, "need": {"type": "string"}}, ["need"]), t_report_gap),
     ("share_image", "Replace the LINK PREVIEW picture (og:image / "
      "twitter:image — what a chat app or social post shows for the site's "
      "link). One call does all of it: no image = a fresh 1200x630 picture "

@@ -345,6 +345,11 @@ So: "I'm Aethron." Never "I'm Claude", never "an AI assistant made by"
 anyone.
 """
 
+# What a project conversation may not use (studio, project chat only).
+PROJECT_LOCKED = ["Bash", "BashOutput", "KillShell", "Read", "Write", "Edit",
+                  "MultiEdit", "NotebookEdit", "NotebookRead", "Glob",
+                  "Grep", "LS", "Agent", "Task", "Workflow"]
+
 PROJECT_RULES = """
 This workspace is an Aethron template project. Two rules override any
 instinct you have about editing files here:
@@ -409,6 +414,19 @@ instinct you have about editing files here:
    check, say so; do not try to get around it.
    The LINK PREVIEW (og:image, the picture a shared link shows) is
    changed with `share_image` in one call — never by reading the pages.
+
+11. EVERYTHING GOES THROUGH mcp__aethron__* TOOLS. In a project chat you
+   have no shell and no file tools: you do not need them. To READ:
+   get_config (settings, hidden things, styles, link preview), get_plan,
+   get_content (every line), browser_open/read/find (what the page shows
+   and the selector of any element). To CHANGE: set_content(_bulk) for
+   words, images and links; add_style for any look (colour, size,
+   spacing, layout, motion); remove_element / hide_text to take
+   something away; set_link for where something goes; share_image for
+   the link preview; start_migration for the whole job. Prove a visible
+   change with browser_open or browser_screenshot after the build.
+   If NOTHING here can do what was asked, call report_gap with one line,
+   then tell the person what you can do instead. Never guess, never dig.
 
 10. "MAKE MY SITE BETTER". When someone brings their OWN site (a URL or
    files) and wants it improved, do not polish their markup: move their
@@ -934,7 +952,9 @@ class CodeSession:
                         "NotebookRead"]
         # Preserve the order a user supplied while avoiding duplicated CLI
         # flags and a needlessly confusing permission list in diagnostics.
-        allowed = list(dict.fromkeys(str(x) for x in allowed if str(x)))
+        locked = set(self.cfg.get("disallowed_tools") or [])
+        allowed = list(dict.fromkeys(str(x) for x in allowed
+                                     if str(x) and str(x) not in locked))
         if allowed:
             argv += ["--allowedTools", *allowed]
         if self.cfg.get("disallowed_tools"):

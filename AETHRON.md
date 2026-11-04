@@ -7425,3 +7425,35 @@ nothing changed in between. forge `_remembered()` wraps build/verify/probe:
   AETHRON_NO_RELEARN=1 was recorded and the next build skipped its learn).
 tests/cache_battery.py 9/9 (in run_all); engine 43/43, reveal 13/13,
 site 16/16, fieldlog 27/27.
+
+## EVERYTHING GOES THROUGH A TOOL — 2026-11-04
+Owner: "why not make everything go through the tool?… no trade-off".
+Three parts, shipped together (they share studio.py and were tested
+together):
+1. CLEAR REQUESTS ARE ACTIONS. studio `directIntent()` recognises publish
+   / undo / rebuild / check / preview / stop / status ("how far is it?",
+   "are we done?") — politeness and "again/now" ignored, anything naming
+   another wish ("publish but change the logo") goes to the agent — and
+   `runDirect()` does it before any session is asked: no model, no cost.
+   publish opens the sheet and publishes a site already live; check runs
+   verify + probe and shows the truth card; status reads the project and
+   its job.
+2. A PROJECT CHAT WORKS THROUGH TOOLS ONLY. /api/code/start with a
+   project (not the Code workspace) passes aethron_code.PROJECT_LOCKED as
+   disallowed tools: no Bash, Read/Write/Edit, Grep/Glob, Agent/Task.
+   Proven with the real engine + a mock that reads the tool list: offered
+   unlocked, absent locked. The reads it used the shell for have tools:
+   get_config (new: platform, pages, hidden selectors/words, styles,
+   removals, link routes, link preview, lines filled), get_plan,
+   get_content, browser_*. PROJECT_RULES 11 lists read/change tools.
+   The "general change" is the agent composing the safe primitives
+   (set_content, add_style, remove_element, hide_text, set_link,
+   share_image) and proving it in the browser — no extra model call.
+3. GAPS FIND THEMSELVES. `report_gap` {need}: when no tool can do it, the
+   agent records one line (HOME/gaps.jsonl + a failure report kind "gap",
+   so it reaches the field logs) and offers what it CAN do instead.
+tests/tools_only_battery.py 9/9 (in run_all); code selftest 35/35,
+chat-ui, conversation, job 54/54, publish 37/37 green.
+NOT CHANGED: Home (console) sessions keep their tools — they write a page
+by hand when OCR cannot run; the job's repair agent keeps its own deny
+rules.

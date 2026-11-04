@@ -2905,6 +2905,18 @@ class Handler(BaseHTTPRequestHandler):
                     cfg.setdefault("append_system", codelayer.CONSOLE_RULES)
                 else:
                     d = self.ws_dir(body)
+                    if body.get("project") and (d / "forge.json").exists():
+                        # A PROJECT CONVERSATION WORKS THROUGH AETHRON'S
+                        # TOOLS ONLY. With a shell and file access the agent
+                        # dug through pages for minutes whenever no tool
+                        # fitted; every read it needs has a tool
+                        # (get_content, get_plan, get_config, browser_*),
+                        # and what no tool does is reported (report_gap).
+                        # The Code workspace keeps the shell: there the
+                        # person is writing their own code.
+                        cfg["disallowed_tools"] = list(dict.fromkeys(
+                            list(cfg.get("disallowed_tools") or [])
+                            + codelayer.PROJECT_LOCKED))
                 key = str(d)
                 old = CODE_SESSIONS.pop(key, None)
                 if old:
@@ -15583,11 +15595,76 @@ async function routeToShare(text,pics){
     return true;
   }catch(e){return false;}
 }
+/* CLEAR REQUESTS ARE ACTIONS, NOT CONVERSATIONS. "publish", "undo",
+   "rebuild", "check it", "preview", "stop", "how far is it?" have one
+   meaning; the model is never asked, so they cost nothing and take no time.
+   Anything that adds another wish ("publish but change the logo") goes to
+   the agent. */
+function directIntent(t){
+  if(!S.cur)return '';
+  t=String(t||'').toLowerCase().replace(/[.!?,]+/g,' ')
+    .replace(/\b(?:please|pls|plz|now|for me|thanks|thank you|again|aethron|can you|could you|would you)\b/g,' ')
+    .replace(/\s+/g,' ').trim();
+  if(!t||t.split(' ').length>6)return '';
+  if(/\b(?:but|and|also|then|change|make|add|remove|with|without|instead|except|logo|colou?r|font|image)\b/.test(t))return '';
+  if(/^(?:publish|deploy|go live|ship it|make it live|put (?:it|this|the site) (?:live|online|on the web))(?: it| this| the site| my site| changes| the changes)?$/.test(t))return 'publish';
+  if(/^(?:undo|undo (?:that|it|this|the last (?:change|edit|one))|revert(?: that| it| the last change)?)$/.test(t))return 'undo';
+  if(/^(?:re ?build|build)(?: it| this| the site)?$/.test(t))return 'build';
+  if(/^(?:check|verify|test|probe)(?: it| this| the site| everything| the pages)?$|^is it (?:working|broken|ok|okay|fine)$/.test(t))return 'check';
+  if(/^(?:preview|show(?: me)?(?: it| the site| the preview)?|open(?: the)? preview|let me see(?: it)?)$/.test(t))return 'preview';
+  if(/^(?:stop|cancel|stop it|stop that|stop everything)$/.test(t))return 'stop';
+  if(/^(?:status|progress|how far(?: is it| are we| along)?|how is it going|is it done|are we done|are you done|what'?s left|what is left)$/.test(t))return 'status';
+  return '';
+}
+function statusLine(){
+  const i=S.info||{}, j=JOBUI[S.cur];
+  const parts=[];
+  if(j&&JOB_ACTIVE.has(j.status))parts.push('The background run is working on it'+(j.step?' ('+j.step+')':'')+'.');
+  else if(j&&j.status==='waiting')parts.push('The background run is waiting for you: '+(j.question||'it has a question')+'.');
+  if(i.total)parts.push(`${i.filled||0} of ${i.total} lines are written`+(i.filled<i.total?` (${i.total-i.filled} still read as the template)`:'')+'.');
+  parts.push(i.built?'The site is built.':'The site has not been built yet.');
+  if(i.published)parts.push('It is published.');
+  return parts.join(' ');
+}
+async function runDirect(kind,text){
+  const say=t=>{CODE.events.push({type:'text',text:t});renderChat();};
+  CODE.events.push({type:'you',text});renderChat();
+  try{
+    if(kind==='publish'){
+      await openPublish('project',S.cur);
+      if(PUB.site&&PUB.acct!==undefined&&!PUB.err){say('Publishing your latest changes.');await pubGo();}
+      else say('Choose the address and press Publish — it goes live in one step.');
+    }else if(kind==='undo'){
+      say('Undoing the last change and rebuilding.');await doUndo();say('Done — the last change is undone.');
+    }else if(kind==='build'){
+      say('Building.');const ok=await runStep('build');
+      say(ok===false?'The build did not finish — the log above says why.':'Built.');
+    }else if(kind==='check'){
+      say('Checking the files, then every page in a browser.');
+      await runStep('verify');await runStep('probe');
+      try{const t=await api('/api/project/truth?project='+encodeURIComponent(S.cur));
+        CODE.events.push({type:'truth',project:S.cur,t,gaps:[]});renderChat();}catch(e){}
+    }else if(kind==='preview'){
+      openPreviewPane(false);say('Opened the preview.');
+    }else if(kind==='stop'){
+      if(CODE.key&&CODE.poll)await stopTurn();
+      const j=JOBUI[S.cur];
+      if(j&&JOB_ACTIVE.has(j.status)){try{JOBUI[S.cur]=await api('/api/job/stop',{project:S.cur});jobPaint(S.cur);}catch(e){}}
+      say('Stopped. Say "continue" to pick up from where it was.');
+    }else if(kind==='status'){
+      try{await refresh(true);}catch(e){}
+      try{await jobRead(S.cur);}catch(e){}
+      say(statusLine());
+    }
+  }catch(e){say('That did not work: '+e.message);}
+}
 async function sendCode(){
   CODE.nudges=0;CODE.recoveries=0;
   const ta=$('chatta'),text=ta.value.trim();
   if(!text&&!CODE.pending.some(p=>p.name))return;
   if(CODE.pending.some(p=>p.busy))return;     // still attaching
+  {const k=!CODE.pending.length&&directIntent(text);
+   if(k){ta.value='';await runDirect(k,text);return;}}
   if(!CODE.key)return alert('start a session first');
   const pics=takePending();
   ta.value='';
