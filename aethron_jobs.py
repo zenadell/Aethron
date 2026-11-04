@@ -22,6 +22,7 @@ builds, verifies and runs the page in a browser, and the result reported is
 measured from disk.
 """
 import json
+import re
 import os
 import signal
 import subprocess
@@ -48,7 +49,7 @@ TRIES = 3                  # per step, inside one runner
 RELAUNCHES = 6             # runner processes the watchdog may start
 STALE = 120                # seconds without a heartbeat = the runner is gone
 HUNG = 1800                # alive, but silent this long = stuck; replace it
-CHECK_SECONDS = 900        # the whole check, agent round included, ends here
+CHECK_SECONDS = 660        # the whole check, agent round included, ends here
 # A JOB ALWAYS FINISHES. These steps help the site but are not the site:
 # when they cannot be done, the job says so and carries on.
 OPTIONAL = {"brand", "share", "check"}
@@ -747,14 +748,33 @@ def step_check(project, st):
     before = cm_f.read_text(encoding="utf-8") if cm_f.exists() else ""
     n_before = _filled(d)
 
+    t0 = {"agent": 0.0, "calls": 0}
+
     def ev(kind, data):
+        # THE CARD SAYS WHAT THE REPAIR ROUND IS DOING, AND FOR HOW LONG.
+        # It used to show "agent round 1/1" for up to ten minutes with
+        # nothing moving, which reads exactly like a hang.
         t = (data or {}).get("text") if isinstance(data, dict) else data
-        if t:
-            log(project, f"  {t}")
-            if kind in ("stage", "heal", "retry", "error", "stuck"):
-                update(project, steps={"check": {"note": str(t)[:120]}})
+        if not t:
+            return
+        log(project, f"  {t}")
+        if kind == "stage" and str(t).startswith("agent round"):
+            t0["agent"], t0["calls"] = time.time(), 0
+            note = f"fixing what the checks found · up to {limit // 60} min"
+        elif kind == "tool" and t0["agent"]:
+            t0["calls"] += 1
+            m = re.match(r"→\s*(?:mcp__aethron__)?([\w.-]+)", str(t))
+            what = (m.group(1) if m else "a step").replace("_", " ")
+            el = int(time.time() - t0["agent"])
+            note = (f"fixing: {what} · step {t0['calls']} · "
+                    f"{el // 60}:{el % 60:02d} of up to {limit // 60} min")
+        elif kind in ("stage", "heal", "retry", "error", "stuck"):
+            note = str(t)
+        else:
+            return
+        update(project, steps={"check": {"note": note[:120]}})
     agent = os.environ.get("AETHRON_JOB_AGENT", "1") != "0"
-    limit = int(os.environ.get("AETHRON_JOB_AGENT_SECONDS", "600"))
+    limit = int(os.environ.get("AETHRON_JOB_AGENT_SECONDS", "360"))
     budget = int(os.environ.get("AETHRON_JOB_CHECK_SECONDS",
                                 str(CHECK_SECONDS)))
     r = aethron_healer.heal(d, rounds=1, use_agent=agent, on_event=ev,
