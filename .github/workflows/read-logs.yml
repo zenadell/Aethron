@@ -17,4 +17,4 @@ jobs:
         env:
           AETHRON_SUPABASE_URL: ${{ secrets.AETHRON_SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python3 tools/cloud_logs.py 45
+        run: python3 tools/cloud_logs.py 2
