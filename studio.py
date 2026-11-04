@@ -2616,6 +2616,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(result)
             if u.path in ("/api/auth/login", "/api/auth/signup"):
                 return self.api_auth(u.path, body)
+            if u.path == "/api/locate":
+                # A PICTURE OF PART OF THE SITE, FOUND ON THE SITE. The crop
+                # is matched against every built page in a real browser,
+                # and the element there is named: page, file, line, tag.
+                import aethron_locate
+                nm = str(body.get("image") or "")
+                proj = str(body.get("project") or "")
+                if not re.fullmatch(r"[0-9a-f]{16}\.[a-z0-9]{2,5}", nm):
+                    return self.fail("bad image name", 400)
+                img = HOME / "uploads" / nm
+                d = (PROJECTS / proj).resolve()
+                if not proj or not str(d).startswith(str(PROJECTS.resolve())) \
+                        or not (d / "forge.json").exists() or not img.is_file():
+                    return self.fail("no such project or image", 404)
+                try:
+                    w = int(body.get("width") or 0) or None
+                except (TypeError, ValueError):
+                    w = None
+                r = aethron_locate.locate(d, img, page=str(body.get("page") or "")
+                                          or None, width=w)
+                return self.send_json({**r, "text": aethron_locate.describe(r)})
             if u.path == "/api/pickshot":
                 # WHAT YOU POINTED AT, PHOTOGRAPHED AND LOCATED. A card
                 # with no words in it could not be described to the agent
@@ -15658,6 +15679,30 @@ async function runDirect(kind,text){
     }
   }catch(e){say('That did not work: '+e.message);}
 }
+/* A PICTURE OF PART OF THE SITE IS FOUND ON THE SITE before the agent sees
+   it: which page, where, and which element in the code. Point-and-edit can
+   only name what was clicked; a picture can name a row, a gap, a card under
+   an overlay. The page open in the preview is tried first. */
+async function locateShots(pics){
+  const shots=(pics||[]).filter(p=>p.label!=='the selected element');
+  if(!S.cur||!shots.length)return '';
+  const note={type:'sysnote',text:'Finding the screenshot on the site\u2026'};
+  CODE.events.push(note);renderChat();
+  let page='',width=0;
+  try{const f=$('pvwframe');
+    if(f&&f.contentWindow){page=f.contentWindow.location.pathname.split('/').slice(3).join('/');
+      width=f.clientWidth;}}catch(e){}
+  let r=null;
+  try{r=await Promise.race([api('/api/locate',{project:S.cur,image:shots[0].name,page,width}),
+    new Promise(ok=>setTimeout(()=>ok(null),120000))]);}catch(e){}
+  if(!r){note.text='Could not search the site in time \u2014 the picture goes as it is.';renderChat();return '';}
+  const el=r.element||{};
+  note.text=r.ok?`Found it on ${r.page}`+(el.frname?` \u00b7 \u201c${el.frname}\u201d`:'')
+      +(r.line?` (line ${r.line})`:'')+'.'
+    :'Could not place the screenshot on the site for certain \u2014 the agent gets the closest match.';
+  renderChat();
+  return r.text?'\n\n'+r.text:'';
+}
 async function sendCode(){
   CODE.nudges=0;CODE.recoveries=0;
   const ta=$('chatta'),text=ta.value.trim();
@@ -15671,8 +15716,9 @@ async function sendCode(){
   CODE.events.push({type:'you',text,images:pics.map(p=>p.url)});renderChat();
   if(!pics.length&&await routeToJob(text))return;
   if(await routeToShare(text,pics))return;
+  const sendText=text+await locateShots(pics);
   CODE.lastEv=Date.now();CODE.slowNote='';
-  try{await api('/api/code/send',{key:CODE.key,text,images:pics.map(p=>p.name)});}
+  try{await api('/api/code/send',{key:CODE.key,text:sendText,images:pics.map(p=>p.name)});}
   catch(e){CODE.events.push({type:'error',text:e.message});renderChat();}
 }
 /* One place stops a turn, so the log, the composer and the field can
@@ -19470,6 +19516,7 @@ function convBlocks(evs){
     }
     run=null;
     if(e.type==='earlier'){out.push({kind:'earlier',when:e.when||0});continue;}
+    if(e.type==='sysnote'){out.push({kind:'sys',text:e.text});continue;}
     if(e.type==='recover'){out.push({kind:'sys',text:'The model went quiet, so Aethron reconnected and is carrying on from where it was'
       +(e.n>1?' (try '+e.n+' of '+RECOVER_MAX+')':'')+'.'});continue;}
     if(e.type==='truth'){out.push({kind:'truth',project:e.project,t:e.t,gaps:e.gaps||[]});continue;}

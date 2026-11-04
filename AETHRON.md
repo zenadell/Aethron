@@ -7529,3 +7529,33 @@ existing fill to its line's form (forge.fit_form) — a structure in a plain
 line is unwrapped to its words, plain words into a one-part structure are
 wrapped. So the next build of an affected project fixes it with no undo.
 engine battery 43 -> 47.
+
+## A SCREENSHOT OF PART OF THE SITE IS FOUND ON THE SITE — `aethron_locate.py`
+## — 2026-11-04
+Owner: point-and-edit only names what was clicked, which "doesn't always give
+it the clear context"; a person should be able to crop a piece of their site,
+send it, and have Aethron know exactly what and where it is. Built:
+- locate(project, image, page?, width?): each built page is opened in a real
+  browser (CDP), scrolled once so entrances have played, photographed whole;
+  the crop is searched for on the photograph by normalised correlation IN
+  THE BROWSER'S JS (pyramid: block-mean coarse scan, then full-size refine),
+  at the usual capture sizes first (2x, 1.5x, 1x) and a 0.3-1.25 sweep on the
+  three closest pages only when that is not strong. The element is the one
+  whose box overlaps the found area best; its line in site/<page> is found by
+  tag, Framer name or id. Below 62% alike it is reported as a guess, never as
+  found; a flat picture is never "found".
+- THE CHAT DOES IT FIRST: a picture attached in a project chat (not a
+  point-and-edit crop) goes to POST /api/locate with the page open in the
+  preview and its width; the chat shows "Found it on pricing.html · "Free"
+  (line 314)" and the agent gets page, file, line, tag, CSS path, Framer
+  name, what it sits inside and its words. MCP tool `locate_screenshot` for
+  the agent and outside agents; PROJECT_RULES 9 tells it to use it.
+- A BUG THE FIRST RUN SHOWED: the score read 1.5 on a plain card — the window
+  mean/spread came from the whole area while the crop was compared at sampled
+  points; both now use the same points, so it is a real correlation.
+MEASURED on the Aethron website project (32 pages, Framer): a 2x crop of the
+Free pricing card -> pricing.html, "Free", line 314, 97% alike, in 8s with
+the preview's page and width; 169s searching every page with no hint (this
+container's Chromium is slow; a Mac is faster).
+tests/locate_battery.py 12/12 (in run_all): right page, right card not its
+twin, line, route refusals, the MCP tool, the chat wiring.
