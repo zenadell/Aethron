@@ -172,5 +172,12 @@ check("a video address is accepted as media",
       M.image_problem(f"http://127.0.0.1:{srv.server_port}/a.mp4") == "")
 srv.shutdown()
 
+# A VARIABLE IS NOT A LEFTOVER (bloop-ai: verify failed on `bloopLabel`)
+code = 'const bloopLabel=1;x={bloopProp:2};y="bloopKey";'
+check("a brand used only as code names is not a leftover",
+      not forge._brand_in_copy(code, "Bloop"))
+check("the brand in readable text still is",
+      forge._brand_in_copy(code + 'z=`Powered by BloopAI`', "Bloop"))
+
 print(f"\n{ok}/{ok + bad} field-log checks passed")
 sys.exit(1 if bad else 0)

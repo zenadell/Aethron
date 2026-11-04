@@ -189,9 +189,10 @@ def start(project: str, request: str = "", url: str = "", brand=None,
         for s in ("plan", "fill", "build", "check"):
             steps.pop(s, None)
     else:
-        for s in ("build", "check"):
-            if steps.get(s, {}).get("status") != "done":
-                steps.pop(s, None)
+        # "finish up" on a finished job still means: write what is still
+        # empty, rebuild and check again — things may have changed since
+        for s in ("fill", "build", "check"):
+            steps.pop(s, None)
     for s in list(steps):
         if steps[s].get("status") != "done":
             steps.pop(s)

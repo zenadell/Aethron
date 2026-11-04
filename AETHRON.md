@@ -7310,3 +7310,26 @@ Owner, after 1.1.90:
    check starts the job instead of sending the agent back to fill. Outside
    agents over MCP and the job itself are not limited. Rules rewritten.
 job battery 41 -> 48, control battery +1.
+
+## PUBLISH AND IN-APP UPDATES HAD BEEN WAITING FOREVER SINCE 1.1.85
+## — 2026-11-04
+Owner: "publish is no more working, can't even change the publish name",
+and the chat still rebuilt and checked bloop-ai by itself.
+1. MY OWN ROUTE SWALLOWED ANOTHER. The background-job card (#85) added
+   GET /api/job?project=… ABOVE the old GET /api/job?id=…, which every
+   studio task uses for progress: publish, the in-app update download,
+   heal, steps. Since 1.1.85 they all got {} and waited forever. The
+   migration route now answers only when there is no ?id=. Found by the
+   publish battery timing out on the live step; the same battery fails on
+   1.1.91 — it was not run when #85 shipped. Run every battery that drives
+   the studio when a route is added.
+2. A VARIABLE IS NOT A LEFTOVER. verify failed bloop-ai on 'Bloop' inside
+   `bloopLabel`/`bloopProp` (the template's own code names), so the job's
+   check and the agent went round trying to fix code that must not change.
+   _brand_in_copy: in a script only text inside a string literal counts,
+   and not a literal that is one bare identifier; such cases are a PASS
+   with a note. Read from the field logs (read-logs workflow on a
+   claude/** push — dispatch is refused to this integration).
+3. The chat agent may no longer build/heal/verify/probe a project that has
+   a migration job; it is pointed at start_migration, which now always
+   redoes fill (only what is empty), build and check on "continue".

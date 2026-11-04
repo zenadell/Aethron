@@ -2669,6 +2669,20 @@ def _chat_does_job(name, args) -> str:
     if name == "create_project" or (name in ("fetch", "inventory")):
         return (f"NOT DONE: {name} is part of a migration, which the "
                 "background job runs, not the chat. " + go)
+    if name in ("build", "heal", "verify", "probe"):
+        try:
+            import aethron_jobs as J
+            if J.read(J.slug(str(a.get("project") or ""))):
+                return (f"NOT DONE: {a.get('project')} is a migration, and its "
+                        "background job builds, heals and checks it. Call "
+                        "start_migration with project=<name> and no request: "
+                        "it writes anything still empty, rebuilds, verifies and "
+                        "checks every page in a browser, and its card shows the "
+                        "result. Tell the person it is running and stop. "
+                        "(set_content already rebuilds after a named change.)")
+        except Exception:
+            pass
+        return ""
     if name not in ("set_content", "set_content_bulk"):
         return ""
     try:
