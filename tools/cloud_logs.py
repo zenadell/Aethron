@@ -107,6 +107,11 @@ if ctl:
                                             "default_daily_usd", "global_daily_usd", "paused")})
 for uc in rows("user_controls", "limit=20"):
     print("  user control:", {k: uc.get(k) for k in uc if k not in ("note",)})
+ms = sorted(int(u.get("ms") or 0) for u in us)
+if ms:
+    print(f"  answer time ms: median {ms[len(ms)//2]}, 90% {ms[int(len(ms)*.9)]}, max {ms[-1]}")
+    print("  longest:", [(u["at"][11:19], u["purpose"], u["ms"], u["output_tokens"]) for u in sorted(us, key=lambda u: -(u.get("ms") or 0))[:8]])
+    print("  last 5:", [(u["at"][11:19], u["purpose"], u["ms"]) for u in us[-5:]])
 print("  latest that did not answer:")
 for u in [u for u in us if u.get("status") != "ok"][-15:]:
     print(f"    {u['at']} {u['provider']} {u['model']} {u['status']} {u.get('ms')}ms")
