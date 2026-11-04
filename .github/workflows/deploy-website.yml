@@ -1,4 +1,4 @@
-# Ships the Aethron website (www.aethron.site) to Cloudflare as static files.
+# Ships the Aethron website (aethron.jomiez.com) to Cloudflare as static files.
 # Static asset requests on Workers are free and unmetered, which is why the
 # site moved off Render's free plan (5 GB a month, then $0.15 a GB).
 #
@@ -61,18 +61,37 @@ jobs:
         if: steps.have.outputs.ok == 'true'
         with:
           node-version: "20"
+      - name: Where to serve it
+        id: where
+        if: steps.have.outputs.ok == 'true'
+        run: |
+          # aethron.jomiez.com needs jomiez.com active on this Cloudflare
+          # account AND the token allowed to edit it. Until both are true the
+          # site stays at www.aethron.site, so a deploy never breaks it.
+          z=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+               "https://api.cloudflare.com/client/v4/zones?name=jomiez.com" || true)
+          if echo "$z" | grep -q '"status":"active"'; then
+            echo "jomiez.com is on Cloudflare: serving at aethron.jomiez.com"
+            echo "config=wrangler.toml" >> "$GITHUB_OUTPUT"
+            echo "url=https://aethron.jomiez.com/" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::jomiez.com is not active on this Cloudflare account (or the API token cannot see it) — serving at www.aethron.site for now"
+            echo "config=wrangler.fallback.toml" >> "$GITHUB_OUTPUT"
+            echo "url=https://www.aethron.site/" >> "$GITHUB_OUTPUT"
+          fi
       - name: Deploy
         if: steps.have.outputs.ok == 'true'
         working-directory: cloud/website
-        run: npx --yes wrangler@3 deploy
+        run: npx --yes wrangler@3 deploy --config "${{ steps.where.outputs.config }}"
       - name: Live check
         if: steps.have.outputs.ok == 'true'
         run: |
-          for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' https://www.aethron.site/ || true)
-            echo "www.aethron.site -> $code"
+          u="${{ steps.where.outputs.url }}"
+          for i in $(seq 1 18); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$u" || true)
+            echo "$u -> $code"
             [ "$code" = "200" ] && exit 0
             sleep 10
           done
-          echo "::error::https://www.aethron.site/ did not answer 200"
+          echo "::error::$u did not answer 200"
           exit 1

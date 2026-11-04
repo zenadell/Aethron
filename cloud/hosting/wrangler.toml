@@ -15,5 +15,5 @@ bucket_name = "aethron-sites"
 
 [vars]
 ROOT_DOMAIN = "aethron.site"
-HOME_URL = "https://www.aethron.site/"
+HOME_URL = "https://aethron.jomiez.com/"
 AUTH_URL = "https://bnmiretrggdnoaskasxj.supabase.co/functions/v1/aethron"

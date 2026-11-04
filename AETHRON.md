@@ -7481,3 +7481,10 @@ LOOPS there: Cloudflare strips .html and the rule adds it back). The bare
 aethron.site redirects to www, keeping the path. OWNER: suspend the Render
 site and point aethron.jomiez.com at https://www.aethron.site (Namecheap
 URL redirect, or wherever jomiez.com's DNS lives).
+SAME DAY, owner: the website stays at aethron.jomiez.com; aethron.site is
+for published projects only. cloud/website/wrangler.toml is a Worker
+custom domain on aethron.jomiez.com (Cloudflare makes the record and the
+certificate); the deploy uses it only when jomiez.com is ACTIVE on the
+Cloudflare account and the token can see it, else wrangler.fallback.toml
+(www.aethron.site) — a deploy never breaks the site. Hosting HOME_URL is
+aethron.jomiez.com, so aethron.site and www.aethron.site send people there.

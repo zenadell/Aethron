@@ -1,0 +1,17 @@
+# Fallback while jomiez.com is not on Cloudflare: the website at www.aethron.site.
+# Deployed by .github/workflows/deploy-website.yml. Static asset requests on
+# Workers are free and unmetered, so the site costs nothing however many
+# people open it (it used to run on Render's free plan, which allows 5 GB a
+# month and then bills $0.15 a GB).
+name = "aethron-website"
+compatibility_date = "2026-10-01"
+workers_dev = false
+
+routes = [
+  { pattern = "www.aethron.site/*", zone_name = "aethron.site" },
+]
+
+[assets]
+directory = "../../projects/aethron-web/site"
+html_handling = "auto-trailing-slash"
+not_found_handling = "single-page-application"
