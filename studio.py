@@ -15964,6 +15964,11 @@ function jobCardHtml(n){
     title=`Finished`; glyph=I('check',13);
     sub=`${q} · ${r.total?`${r.filled} of ${r.total} lines`:'ready'}${r.ok?' · checked in a browser':(r.problems||[]).length?` · ${r.problems.length} to look at`:''}`;
     end=`<button class="jbtn" onclick="event.stopPropagation();select('${q}')">Open ${q}</button>`;
+  }else if(st==='waiting'&&jobBlocked(j)){
+    /* not a question: something only the person or the team can clear */
+    title=`Paused`; glyph='!';
+    sub=`${q} · ${esc((j.question||'').replace(/^The AI provider refused:\s*/,''))}`;
+    end=`<button class="jbtn" onclick="event.stopPropagation();jobGo('${q}')">Try again</button>`;
   }else if(st==='waiting'){
     title=`${q} needs one answer`; glyph='?';
     sub=esc(j.question||'Answer to continue');
@@ -15989,7 +15994,7 @@ function jobCardHtml(n){
   const notes=st==='done'&&(r.problems||[]).length
       ?`<div class="jobc-note">${r.problems.slice(0,3).map(esc).join('<br>')}</div>`
     : JOB_ACTIVE.has(st)?`<div class="jobc-note">Runs in the background. You can close this window; it picks up on its own if anything stops it.</div>`:'';
-  const ask=st==='waiting'?`<div class="jobc-ask"><input id="jobans-${q}" placeholder="Type your answer"
+  const ask=st==='waiting'&&!jobBlocked(j)?`<div class="jobc-ask"><input id="jobans-${q}" placeholder="Type your answer"
       autocomplete="off" onkeydown="if(event.key==='Enter')jobAnswer('${q}')">
       <button class="btn primary" aria-label="Continue" title="Continue" onclick="jobAnswer('${q}')">${I('up',14)}</button></div>`:'';
   return `<section class="jobc ${esc(st)}${open?' open':''}" data-job="${q}" data-shape="${esc(st)}">
@@ -16003,6 +16008,7 @@ async function jobGo(n,request){
   try{const j=await api('/api/job/start',{project:n,request:request||''});JOBUI[n]=j;jobPaint(n);jobWatch(n);}
   catch(e){toast(e.message||String(e));}
 }
+function jobBlocked(j){return j.ask_kind==='blocked'||/^The AI provider refused/.test(j.question||'');}
 function jobAnswer(n){const el=$('jobans-'+n);const v=el&&el.value.trim();if(v)jobGo(n,v);}
 async function jobStop(n){
   try{const j=await api('/api/job/stop',{project:n});JOBUI[n]=j;jobPaint(n);}

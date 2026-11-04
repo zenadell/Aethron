@@ -52,6 +52,7 @@ class Fake:
     peak = 0
     asked = []          # every fill line asked for, in order
     calls = 0
+    errors = []         # [(status, message)] answered to the next fill calls
 
 
 class Model(BaseHTTPRequestHandler):
@@ -75,6 +76,16 @@ class Model(BaseHTTPRequestHandler):
                 out = ("Brand: Northwind\nDomain: northwind.no\nWhat it is: a "
                        "coffee roaster in Oslo.\nTone: warm, plain.\n")
             else:
+                with Fake.lock:
+                    err = Fake.errors.pop(0) if Fake.errors else None
+                if err:
+                    b = json.dumps({"error": {"message": err[1]}}).encode()
+                    self.send_response(err[0])
+                    self.send_header("content-type", "application/json")
+                    self.send_header("content-length", str(len(b)))
+                    self.end_headers()
+                    self.wfile.write(b)
+                    return
                 time.sleep(Fake.delay)
                 i = prompt.rfind("\n{")
                 data = json.loads(prompt[i + 1:].split("\n\nThese were "
@@ -258,6 +269,25 @@ def main():
        s.get("steps", {}).get("build", {}).get("status") == "done"
        and (home / "projects/north5/site/index.html").exists())
     ck("in minutes", time.time() - t0 < 300, f"{time.time() - t0:.0f}s")
+
+    print("C2b. a server time limit is passing, not a refusal")
+    Fake.errors = [(546, "WORKER_LIMIT: the function reached its wall clock limit")] * 2
+    J.start("north8", request="Northwind, a coffee roaster in Oslo",
+            url=str(src))
+    s = wait(J, "north8")
+    ck("a time limit on one batch does not stop the job to ask a question",
+       s.get("status") == "done", f"{s.get('status')}: {s.get('question') or s.get('error')}")
+    print("C2c. a real refusal (no credit) pauses, and says so as a reason")
+    Fake.errors = [(402, "Insufficient Balance")] * 40
+    J.start("north7", request="Northwind, a coffee roaster in Oslo",
+            url=str(src))
+    s = wait(J, "north7")
+    Fake.errors = []
+    ck("no credit makes the job wait", s.get("status") == "waiting",
+       f"{s.get('status')}: {s.get('error')}")
+    ck("as something to clear, not a question to answer",
+       s.get("ask_kind") == "blocked" and "Insufficient" in (s.get("question") or ""),
+       f"{s.get('ask_kind')} {s.get('question')}")
 
     print("C3. the check never runs past its deadline")
     import aethron_healer as H
@@ -465,6 +495,20 @@ def ui(home, src, J):
                 asked = True
             except Exception:
                 asked = False
+            pg.evaluate("select('north7')")
+            try:
+                pg.wait_for_selector(".jobc.waiting", timeout=15000)
+                bt = pg.inner_text(".jobc.waiting")
+                box = pg.evaluate("()=>!!document.querySelector('.jobc.waiting input')")
+            except Exception:
+                bt, box = "", True
+            ck("a refusal shows as Paused with Try again, and no answer box",
+               "Paused" in bt and "Try again" in bt and not box, repr(bt[:200]))
+            pg.evaluate("select('north6')")
+            try:
+                pg.wait_for_selector(".jobc.waiting input", timeout=15000)
+            except Exception:
+                pass
             ck("a waiting job asks its question in the card", asked,
                f"job {J.read('north6').get('status')}; card: "
                + repr(pg.evaluate("()=>[...document.querySelectorAll('.jobc')]"
