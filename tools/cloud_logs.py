@@ -76,6 +76,24 @@ for (caller, run), g in runs.items():
             line += f"\n     result: {json.dumps(cut(rec.get('result') or rec.get('text'), 900))}"
         print(line)
 
+FOCUS = os.environ.get("FOCUS_PROJECT", "chaka")
+WRITES = ("add_style", "set_content", "set_content_bulk", "remove_element",
+          "hide_text", "replace_image_slots", "set_link", "add_block",
+          "remove_page", "undo", "heal", "start_migration")
+print(f"\n===== WHAT CHANGED {FOCUS} (every write, full arguments) =====")
+for x in ar:
+    if (x.get("project") or "") != FOCUS or x["tool"] not in WRITES:
+        continue
+    rec = x["record"]
+    a = rec.get("args") or {}
+    if x["tool"] == "set_content_bulk":
+        a = {**a, "items": [i for i in (a.get("items") or [])
+                            if any(w in json.dumps(i).lower() for w in
+                                   ("trust", "ticker", "avatar", "width",
+                                    "px", "%", "whatsapp option"))]}
+    print(f"  {x['received_at']} {x['tool']} [{x['status']}] "
+          f"{json.dumps(cut(a, 2500))}")
+
 print(f"\n===== EVENTS (last {DAYS} days) =====")
 ev = rows("events", f"created_at=gte.{q(since)}&order=created_at.asc&limit=3000")
 cnt = defaultdict(int)
