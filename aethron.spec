@@ -79,7 +79,7 @@ a = Analysis(
         "aethron_rag",
         "aethron_preview", "aethron_runlog", "aethron_news",
         # Ember, the companion: imported at studio start (its script is embedded).
-        "aethron_ember", "aethron_desktop",
+        "aethron_ember", "aethron_desktop", "aethron_voice",
         "aethron_thumbs",
         "statistics",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
@@ -88,7 +88,8 @@ a = Analysis(
         # cocoa/WebKit backend, but name the entry points explicitly too.
         "webview", "webview.platforms.cocoa",
         "webview.platforms.winforms", "webview.platforms.edgechromium",
-    ] + (["Quartz"] if __import__("sys").platform == "darwin" else []),  # Ember on the desktop reads window frames
+    ] + (["Quartz", "Speech", "AVFoundation", "Foundation"]   # Ember: window frames; speech on the device
+         if __import__("sys").platform == "darwin" else []),
     excludes=["tkinter", "test", "unittest", "pydoc_data"],
 )
 pyz = PYZ(a.pure)
@@ -137,5 +138,10 @@ if sys.platform == "darwin":
             "NSHighResolutionCapable": True,
             # the app opens the user's browser; it has no UI of its own
             "LSUIElement": False,
+            # Ember listens when you double-tap it; macOS asks once for each
+            "NSMicrophoneUsageDescription":
+                "Ember listens when you double-tap it, so you can tell Aethron what to do out loud.",
+            "NSSpeechRecognitionUsageDescription":
+                "Ember turns what you say into text on this Mac, so it can type your request for Aethron.",
         },
     )

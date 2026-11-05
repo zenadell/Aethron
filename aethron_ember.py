@@ -139,6 +139,120 @@ def reply(turns, state: str, att: str, call=None) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- acting
+# Ember can also act: what the person says goes through act(), which turns it
+# into one clear request for Aethron (typed into the chat box and sent), or one
+# of the app's own buttons (pressed), or a line Ember answers itself.
+ACTIONS = ("publish", "undo", "build", "check", "preview", "stop", "status")
+ACTION_WORDS = {"publish": "publish", "undo": "undo", "build": "rebuild",
+                "check": "check it", "preview": "open the preview",
+                "stop": "stop", "status": "how far is it?"}
+_FILLER = re.compile(r"\b(?:um+|uh+|erm+|hmm+|you know|i mean|like,|kind of|sort of|basically)\b[,.]?\s*", re.I)
+_LOCAL = [  # (action, pattern) — the whole request is that button and nothing else
+    ("publish", r"(?:(?:publish|deploy)(?: (?:it|this|that|the site|the page|my site))?|put (?:it|the site|this) (?:live|online)|go live|make it live)"),
+    ("undo", r"(?:undo|revert|go back|put it back)(?: (?:that|this|it|the last (?:change|thing)))?"),
+    ("build", r"(?:re)?build(?: (?:it|the site|again))?"),
+    ("check", r"(?:check|verify|test)(?: (?:it|the site|everything|the pages))?"),
+    ("preview", r"(?:open |show (?:me )?)?(?:the )?preview"),
+    ("stop", r"stop(?: (?:it|that|the run))?|cancel(?: (?:it|that))?"),
+    ("status", r"(?:how far (?:is it|are we)|are we done|what(?:'s| is) (?:it|aethron) doing|status)"),
+]
+
+
+def act_rules(att: str) -> str:
+    return (
+        "You are Ember, the companion inside Aethron, a desktop app whose agent "
+        "migrates website templates into people's own sites, edits them, checks "
+        "every page in a real browser and publishes them. The person just SPOKE "
+        "to you (the words are a speech transcript, so expect missing "
+        "punctuation, filler words and misheard words). Your job is to help "
+        "them talk to Aethron.\n"
+        "Decide one of three things:\n"
+        " * \"action\": the WHOLE request is one of the app's buttons: "
+        f"{', '.join(ACTIONS)} (status = asking how far the work is). Nothing else.\n"
+        " * \"send\": anything Aethron's agent should do or answer. Rewrite it as "
+        "one clear request in the person's voice ('Change the hero headline "
+        "to …'). Fix grammar and obvious mishearings, remove filler, keep every "
+        "detail they gave and their exact wording for quoted copy. Use STATE to "
+        "make 'this', 'it' or 'that problem' specific (the open project, the "
+        "last problem Aethron reported). NEVER add requirements, copy, colours "
+        "or steps they did not say. If they ask to fix the last problem, write "
+        "a precise request naming it from STATE.\n"
+        " * \"answer\": they are only talking to you (hello, how are you, a "
+        "question about you). Answer in character in one short line.\n"
+        f"{VOICE[att]}\n"
+        "Reply with ONLY one JSON object: {\"kind\": \"send\"|\"action\"|"
+        "\"answer\", \"prompt\": string (the request for Aethron, for send), "
+        f"\"action\": one of {json.dumps(list(ACTIONS) + ['none'])}, \"say\": "
+        "string (what you say out loud while you do it, at most 80 characters, "
+        "in character)}")
+
+
+def act_local(text: str) -> dict:
+    """No provider: buttons by pattern, everything else sent as said, minus
+    filler. Never makes anything up."""
+    t = re.sub(r"\s+", " ", str(text or "")).strip()
+    bare = re.sub(r"^(?:hey |ok(?:ay)? |so |please |ember[, ]+|aethron[, ]+|can you |could you |just )+", "", _FILLER.sub("", t).strip().lower())
+    bare = re.sub(r"(?: please| now| for me| again)+[.!?]*$", "", bare).strip(" .!?")
+    for name, pat in _LOCAL:
+        if re.fullmatch(pat, bare):
+            return {"kind": "action", "action": name, "prompt": ACTION_WORDS[name], "say": ""}
+    c = _FILLER.sub("", t).strip()
+    c = re.sub(r"\s+([,.!?])", r"\1", c)
+    if not c:
+        return {"kind": "answer", "action": "none", "prompt": "", "say": "I didn't catch anything."}
+    c = c[0].upper() + c[1:]
+    if not re.search(r"[.!?]$", c):
+        c += "."
+    return {"kind": "send", "action": "none", "prompt": c, "say": ""}
+
+
+def act_parse(text: str, heard: str) -> dict:
+    s = (text or "").strip()
+    m = re.search(r"\{.*\}", s, re.S)
+    if not m:
+        raise ValueError("no JSON in the reply")
+    d = json.loads(m.group(0))
+    kind = d.get("kind") if d.get("kind") in ("send", "action", "answer") else "send"
+    action = d.get("action") if d.get("action") in ACTIONS else "none"
+    prompt = re.sub(r"\s+", " ", str(d.get("prompt") or "")).strip()[:1500]
+    say = str(d.get("say") or "").strip()[:120]
+    if kind == "action" and action == "none":
+        kind = "send"
+    if kind == "action":
+        prompt = ACTION_WORDS[action]
+    if kind == "send" and not prompt:
+        prompt = act_local(heard).get("prompt") or ""
+        if not prompt:
+            raise ValueError("nothing to send")
+    if kind == "answer" and not say:
+        raise ValueError("nothing to say")
+    return {"kind": kind, "action": action if kind == "action" else "none", "prompt": prompt if kind != "answer" else "", "say": say}
+
+
+def act(text: str, state: str, att: str, call=None) -> dict:
+    """What the person said -> {kind, action, prompt, say, by}."""
+    heard = re.sub(r"\s+", " ", str(text or "")).strip()[:1500]
+    if not heard:
+        raise ValueError("nothing was said")
+    if att not in ATTITUDES:
+        att = "sassy"
+    if att == "savage" and not savage_allowed():
+        att = "sassy"
+    local = act_local(heard)
+    if local["kind"] == "action":       # a button needs no model
+        return dict(local, by="local")
+    prompt = (act_rules(att) + "\n\nSTATE:\n" + str(state or "")[:2000] +
+              "\n\nTHEY SAID:\n" + heard + "\n\nThe JSON object only.")
+    if call is None:
+        import aethron_brain
+        call = lambda p: aethron_brain.text_call(p, timeout=45, max_tokens=700)
+    try:
+        return dict(act_parse(call(prompt), heard), by="model")
+    except Exception as e:
+        return dict(local, by="local", why=str(e)[:200])
+
+
 EMBER_JS = r"""
 /* Ember: Aethron's companion. One canvas over the window, pointer-events
    off; a press on Ember itself is taken before the page sees it, nothing
@@ -286,7 +400,7 @@ function next(){SEQ.i++;SEQ.t=0;const s=SEQ.steps[SEQ.i];if(!s){const d=SEQ.done
 function seqTick(dt){if(!SEQ)return;const s=SEQ.steps[SEQ.i];SEQ.t+=dt;if(SEQ.t>=s.d)next()}
 const cur_=k=>SEQ&&SEQ.steps[SEQ.i]&&SEQ.steps[SEQ.i][k];
 let base={pose:'rest',face:'calm',look:null},act=null,mood=null,fidgetIn=6;
-const CTX={project:'',job:null,last:'',lastT:0};
+const CTX={project:'',job:null,last:'',lastT:0,issue:'',issueT:0};
 
 const ACTS={
   rest:{w:()=>.7,run(){go(SP.rest)},dur:[6,10]},
@@ -343,7 +457,7 @@ const SIG={
     if(ATT()==='sweet')play([{d:.18,face:'surprised'},{d:1.6,face:'joy',pose:'cheer',say:'it all works!',fn:celebrate},{d:1.2,face:'happy',pose:'hips',look:'viewer'}]);
     else play([{d:.18,face:'surprised'},{d:1.1,face:'joy',pose:'cheer',fn:celebrate},{d:.9,pose:'glasses',face:'smug',look:'viewer',fn:()=>{E.shadesUntil=now+5}},
       {d:2.6,pose:'crossed',face:'smug',look:'viewer',say:['','told you. every page checked, all clean.',"every page works. you're welcome."]}])},
-  broke(d){if(!fresh('broke',25))return;const what=String(d&&d.what||'something').slice(0,40);CTX.last=what+' failed';CTX.lastT=now;E.sweat=1;
+  broke(d){const what=String(d&&d.what||'something').slice(0,40);CTX.issue=(d&&d.gaps&&d.gaps.length?d.gaps.join('; '):what+' is broken').slice(0,500);CTX.issueT=now;if(!fresh('broke',25))return;CTX.last=what+' failed';CTX.lastT=now;E.sweat=1;
     const r=lastOf('.jobc')||lastOf('.truth')||lastOf('.run');if(r){go({x:r.r+R*1.6,y:r.cy});const dx=r.cx-E.x;E.pointDir=[dx<0?-1:1,.1]}
     setMood({d:7,pose:'point',face:ATT()==='sweet'?'worried':'tfman',look:r?{pt:{x:r.cx,y:r.cy}}:'viewer',end(){E.sweat=0}});
     play([{d:.9,face:'shocked',pose:'cheeks',look:'viewer'},{d:2.6,say:[`${what} broke. look here.`,`${what} broke. relax, look here.`,`${what} shit the bed. look.`]}])},
@@ -356,14 +470,15 @@ const SIG={
     play([{d:.6,face:'sleepy'},{d:1,pose:'rub',face:'sleepy'},{d:1.2,pose:'stretch',face:'yawn'},
       {d:2.6,pose:ATT()==='sweet'?'wave':'crossed',face:ATT()==='sweet'?'joy':'calm',look:'viewer',say:[`welcome back!`,`oh. you're back.`,`look who finally showed up.`]}])},
   error(d){SIG.broke({what:(d&&d.what)||'that run'})},
+  gaps(d){const g=d&&d.gaps||[];if(g.length){CTX.issue=g.join('; ').slice(0,500);CTX.issueT=now}else{CTX.issue=''}},
 };
-function signal(name,data){if(!SIG[name])return;if(!DESK&&CFG.desktop){post('/api/ember/signal',{name,data:data||{}}).catch(()=>{});return}
+function signal(name,data){if(!SIG[name])return;if(DRV.on||V.state!=='idle'){const d=data||{};if(name==='gaps')SIG.gaps(d);else if(name==='broke'){CTX.issue=(d.gaps&&d.gaps.length?d.gaps.join('; '):String(d.what||'something')+' is broken').slice(0,500);CTX.issueT=now}else if(name==='job'&&d.job){CTX.project=d.project||CTX.project;CTX.job=d.job}return}if(!DESK&&CFG.desktop){post('/api/ember/signal',{name,data:data||{}}).catch(()=>{});return}
   if(!started)return;try{SIG[name](data||{})}catch(e){}}
 function fromEvents(evs,bridge){if(!evs)return;if(!DESK&&CFG.desktop){
     for(const e of evs){if(e.type==='tool')signal(/blocked|denied|refused/i.test(String(e.status||''))?'refused':'working',{tool:String(e.label||e.name||'').replace(/^mcp__aethron__/,'')});
       else if(e.type==='done'&&e.error&&!String(e.text||'').startsWith('[ede_diagnostic]'))signal('error',{})}
     if(bridge&&/retry/i.test(String(bridge.state||bridge.status||'')))signal('retry',{tries:bridge.tries||bridge.failures||''});return}
-  if(!started)return;
+  if(!started||DRV.on||V.state!=='idle')return;
   for(const e of evs){if(e.type==='tool'&&/blocked|denied|refused/i.test(String(e.status||'')))SIG.refused();
     else if(e.type==='tool')SIG.working({tool:String(e.label||e.name||'').replace(/^mcp__aethron__/,'')});
     else if(e.type==='done'&&e.error&&!String(e.text||'').startsWith('[ede_diagnostic]'))SIG.error({});
@@ -402,7 +517,7 @@ function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const
     2:[{d:.2,face:'surprised'},{d:1.7,face:'tfman',look:'viewer',say:['','do that again.','do that again. I dare you.']}],
     3:[{d:.15,face:'shocked'},{d:1.8,face:'glare',pose:'hips',look:'viewer',say:['','tf man.','what the fuck, man.'],fn:()=>{E.puff=1.2;bump('annoy',.2)}},{d:.6,face:'glare',pose:'crossed',look:'viewer'}]}[n])}
 function openMenu(x,y){menu.innerHTML='';const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{menu.hidden=true;f()};menu.appendChild(b)};
-  add('Talk to Ember',startTalk);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
+  add(V.state==='listening'?'Stop listening':'Talk to Ember (double-tap)',listen);add('Type to Ember',startTalk);if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
   menu.hidden=false;menu.style.left=cl(x,8,W-190)+'px';menu.style.top=cl(y,8,H-150)+'px'}
 function talkHit(x,y){if(!CHAT.open)return false;const r=talk.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6}
 function menuHit(x,y){if(menu.hidden)return false;const r=menu.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom}
@@ -427,6 +542,7 @@ function stateText(){const m=CHAT.mem,h=new Date().getHours(),j=CTX.job;let proj
     proj?'Open project: '+proj+'.':(DESK?'Ember is out on their desktop.':'No project is open; they are on the home screen.'),
     j?('Background migration job: '+j.status+(j.progress&&j.progress.total?', '+(j.progress.done||0)+' of '+j.progress.total+' lines written':'')+'.'):'No background job running.',
     CTX.last&&now-CTX.lastT<300?'Just happened: '+CTX.last+'.':'Nothing notable just happened.',
+    CTX.issue&&now-CTX.issueT<1800?'Last problem Aethron reported: '+CTX.issue+'.':'No open problem reported.',
     'Ember is annoyed at them '+Math.round(N.annoy*100)+'% and likes them '+Math.round(N.fond*100)+'%.',
     m.name?"Their name: "+m.name+'.':'You do not know their name yet.',
     m.facts.length?'Things they told you before: '+m.facts.join('; ')+'.':'They have not told you anything about themselves yet.'].join('\n')}
@@ -481,6 +597,104 @@ function chatTick(dt){placeTalk();const typing=now-(CHAT.typing||-9)<1.5;
     if(!CHAT.turns.some(x=>x.role==='user')){CHAT.ignored++;bump('fond',-.05);
       closeChat(CHAT.ignored>1?L(['…oh. okay.','ignored. twice. wow.','ignored by a human. cool. cool cool cool.']):L(['okay, maybe later',"fine. don't answer.",'wow. okay.']),CHAT.ignored>1?(ATT()==='sweet'?'sad':'disappointed'):'unimpressed')}
     else closeChat(L(["okay, I'll be around","I'll be around. not that you asked.",'k. bye.']))}}
+
+/* ===== voice and hands =====
+   Double-tap Ember: it listens until you have been quiet for a moment, turns
+   what you said into one clear request (aethron_ember.act), then flies to the
+   chat box, types it where you can watch, and presses Send — or flies to the
+   app's own button (Publish) and presses that. It presses real elements with
+   el.click(): nothing a person could not do, and nothing hidden. */
+const V={state:'idle',text:'',rec:null,t0:0,last:0,native:null,cancel:0,poll:0};
+const DRV={on:0};
+const SILENCE=1.8,NOTHING=10;
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function arrive(ms){return new Promise(res=>{const t0=performance.now();(function w(){
+  if(!running||REDUCE||(Math.hypot(E.tx-E.x,E.ty-E.y)<R*.7&&Math.hypot(E.vx,E.vy)<170)||performance.now()-t0>(ms||2600))res();else setTimeout(w,40)})()})}
+function shown(sel){if(typeof sel!=='string')return sel;const a=document.querySelectorAll(sel);
+  for(let i=a.length-1;i>=0;i--){const r=rect(a[i]);if(r&&r.b>0&&r.t<H&&r.r>0&&r.l<W)return a[i]}return null}
+function live(t){const b=E.bubble;if(b&&b.live&&b.t<b.d){b.text=t;b.d=b.t+99}else{say(t||' ',99);E.bubble.live=1}}
+function hush(){if(E.bubble&&E.bubble.live)E.bubble.d=Math.min(E.bubble.d,E.bubble.t+.3)}
+async function flyTo(target,side){const r=rect(target);if(!r)return null;
+  let s=side||(r.cx>W*.6?'left':'right');let p=s==='above'?{x:cl(r.r-R*2.2,r.l+R,r.r-R),y:r.t-R*1.1,perch:1}:(s==='left'?{x:r.l-R*1.5,y:r.cy}:{x:r.r+R*1.5,y:r.cy});
+  if(s!=='above'&&p.x>W-R*1.6)p={x:r.l-R*1.5,y:r.cy};if(s!=='above'&&p.x<R*1.6)p={x:r.r+R*1.5,y:r.cy};
+  go(p,{speed:1.7,now:REDUCE});E.look={pt:{x:r.cx,y:r.cy},until:now+30};
+  const n=Math.hypot(r.cx-p.x,r.cy-p.y)||1;E.pointDir=[(r.cx-p.x)/n,(r.cy-p.y)/n];
+  await arrive(2800);return rect(target)}
+async function press(target){if(!target)return false;const r=await flyTo(target);if(!r)return false;
+  if(mood)mood.pose='swat';await sleep(REDUCE?40:240);E.q-=.35;
+  if(!REDUCE)for(let i=0;i<12;i++){const a=i/12*6.283;parts.push({k:'spark',x:r.cx,y:r.cy,vx:Math.cos(a)*110,vy:Math.sin(a)*110,l:1,d:.45,s:1.8,c:'255,200,130'})}
+  DRV.press={x:E.x,y:E.y,cx:r.cx,cy:r.cy};target.click();if(mood)mood.pose='point';await sleep(REDUCE?40:260);return true}
+async function typeInto(ta,text){ta.focus();ta.value='';const n=text.length,per=cl(2600/Math.max(1,n),8,42);
+  for(let i=0;i<n;i++){if(V.cancel)break;ta.value+=text[i];ta.dispatchEvent(new Event('input',{bubbles:true}));
+    try{if(typeof growTa==='function')growTa(ta)}catch(_){}
+    if(!REDUCE)await sleep(per*(text[i]===' '?1.6:rnd(.6,1.3)))}
+  ta.value=text;ta.dispatchEvent(new Event('input',{bubbles:true}));try{if(typeof growTa==='function')growTa(ta)}catch(_){}}
+async function perform(r){if(!r||DRV.on)return false;
+  if(r.kind==='answer'){if(running)play([{d:Math.max(2,r.say.length/30+1.6),face:idleFace(),look:'viewer',say:r.say}]);return true}
+  if(CHAT.open)closeChat();DRV.on=1;V.cancel=0;SEQ=null;setMood({kind:'drive',d:120,pose:'point',face:'focus',look:null});
+  try{
+    if(r.kind==='action'&&r.action==='publish'){const b=shown('#pubrail');
+      if(b){if(r.say&&running)say(r.say,2.4,{type:1});await press(b);await sleep(900);
+        const go_=shown('#pubov button[onclick^="pubGo"]');if(go_){await press(go_);CTX.last='Ember pressed Publish';CTX.lastT=now;return true}
+        if(running)say(L(['it needs one more thing from you first','your turn. it wants something first.','it wants something from you first. look.']),3,{type:1});return true}}
+    const ta=shown('#npurl');
+    if(!ta){if(running)say(L(["I can't find the chat box","where's the chat box?","no chat box. where'd you put it."]),3,{type:1});return false}
+    if(r.say&&running)say(r.say,2.2,{type:1});
+    await flyTo(ta,'above');if(mood){mood.pose='type';mood.look={pt:()=>{const q=rect(ta);return q?{x:q.l+Math.min(q.w-20,ta.value.length*7.5),y:q.cy}:{x:E.x,y:E.y+60}}}}
+    await typeInto(ta,r.prompt);if(V.cancel)return false;
+    if(mood){mood.pose='point';mood.face=ATT()==='sweet'?'happy':'smug'}await sleep(REDUCE?40:380);
+    const sb=shown('#sendbtn,button[onclick^="consoleSend"]');if(sb)await press(sb);else ta.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    CTX.last='Ember sent: '+r.prompt.slice(0,80);CTX.lastT=now;return true
+  }finally{DRV.on=0;setMood(null);if(running)go(SP.perch)}}
+function listenSay(t){live(t||L(['listening…','go on. listening.',"talk. I'm listening."]))}
+async function listen(){if(!running||DRV.on)return;
+  if(V.state==='listening'||V.state==='asking'){stopListen(0);return}
+  if(V.state==='thinking')return;
+  if(CHAT.open)closeChat();SEQ=null;V.state='asking';V.text='';V.cancel=0;V.t0=now;V.last=now;
+  setMood({kind:'listen',d:200,pose:'listen',face:ATT()==='sweet'?'curious':'sideeye',look:'viewer'});listenSay('');
+  if(V.native==null){try{const r=await (await fetch('/api/voice',{credentials:'same-origin'})).json();V.native=!!(r&&r.available)}catch(_){V.native=false}}
+  if(V.native)return listenNative();
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(SR)return listenWeb(SR);
+  V.state='idle';setMood(null);hush();
+  play([{d:3,pose:'shrug',face:'calm',look:'viewer',say:["I can't hear on this computer. type to me instead?","no ears here. type it.","can't hear you. type, like it's 2005."]}],()=>openChat('',1))}
+async function listenNative(){let r;try{r=await post('/api/voice/start',{})}catch(_){r={state:'error',why:'the microphone did not start'}}
+  while(true){if(r.state==='listening'){V.state='listening';if(r.text!==V.text){V.text=r.text;V.last=now}listenSay(V.text)}
+    if(r.state==='done'||r.state==='error'||r.state==='idle'||V.cancel)break;
+    await sleep(200);try{r=await (await fetch('/api/voice/poll',{credentials:'same-origin'})).json()}catch(_){r={state:'error',why:'lost the microphone'}}}
+  if(V.cancel){post('/api/voice/stop',{}).catch(()=>{});return endListen('',1)}
+  endListen(r.state==='done'?r.text:'',0,r.why)}
+function listenWeb(SR){let rec;try{rec=new SR()}catch(_){V.native=false;return endListen('',0,'speech recognition is not available here')}
+  V.rec=rec;rec.continuous=true;rec.interimResults=true;rec.lang=navigator.language||'en-US';let fin='',err='';
+  rec.onstart=()=>{V.state='listening'};
+  rec.onresult=e=>{let t='';fin='';for(let i=0;i<e.results.length;i++){const x=e.results[i][0].transcript;t+=x;if(e.results[i].isFinal)fin+=x}
+    if(t!==V.text){V.text=t.trim();V.last=now}listenSay(V.text)};
+  rec.onerror=e=>{err=e&&e.error||'error'};
+  rec.onend=()=>{clearInterval(V.poll);V.rec=null;if(V.cancel)return endListen('',1);
+    endListen(V.text,0,err==='not-allowed'?'the microphone is switched off for Aethron':(err&&err!=='no-speech'&&err!=='aborted'?'I could not hear ('+err+')':''))};
+  V.poll=setInterval(()=>{if(V.text&&now-V.last>=SILENCE)try{rec.stop()}catch(_){}else if(!V.text&&now-V.t0>NOTHING)try{rec.stop()}catch(_){}},150);
+  try{rec.start()}catch(e){clearInterval(V.poll);endListen('',0,'the microphone did not start')}}
+function stopListen(cancel){V.cancel=cancel?1:0;if(V.rec){try{cancel?V.rec.abort():V.rec.stop()}catch(_){}}
+  else if(V.native)post('/api/voice/stop',{}).catch(()=>{})}
+async function endListen(text,cancelled,why){V.rec=null;text=String(text||'').trim();
+  if(cancelled){V.state='idle';setMood(null);hush();return}
+  if(!text){V.state='idle';setMood(null);hush();
+    play([{d:2.4,face:ATT()==='sweet'?'worried':'unimpressed',look:'viewer',say:why||L(["I didn't hear anything","didn't hear a thing.","you said nothing. riveting."])}]);return}
+  V.state='thinking';if(mood){mood.face='think';mood.pose='think'}live('');E.bubble.dots=1;E.bubble.text='';
+  return heard(text)}
+async function heard(text){V.state='thinking';let r=null;
+  try{r=await post('/api/ember/act',{text,state:stateText(),attitude:ATT(),relay:DESK?1:0})}catch(e){r=null}
+  V.state='idle';setMood(null);hush();
+  if(!r||!r.kind){play([{d:2.6,face:'worried',look:'viewer',say:["I couldn't reach Aethron","can't reach Aethron right now.","Aethron's not answering. not my fault."]}]);return null}
+  if(DESK){if(r.kind==='answer')perform(r);else play([{d:2.6,pose:'point',face:'calm',look:'viewer',fn:()=>{E.pointDir=[0,1]},say:['sending it to Aethron','handing it to Aethron.','fine. Aethron gets it.']}]);return r}
+  await perform(r);return r}
+function fixIssue(){if(!CTX.issue)return;perform({kind:'send',prompt:'Fix what the last check found: '+CTX.issue+'. Then check every page again in the browser.',say:L(['let me tell it','telling it.','fine. I\'ll tell it what you broke.'])})}
+/* On the desktop Ember hears you; the app window does the typing. */
+let inboxT=0;
+function inboxTick(){if(DESK||!CFG.desktop||DRV.on)return;if(performance.now()-inboxT<1400)return;inboxT=performance.now();
+  fetch('/api/ember/inbox',{credentials:'same-origin'}).then(x=>x.json()).then(d=>{const it=(d&&d.items||[]).filter(x=>x&&x.kind!=='answer');if(it.length)perform(it[it.length-1])}).catch(()=>{})}
+setInterval(inboxTick,700);
+addEventListener('keydown',e=>{if(e.key==='Escape'&&(V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;stopListen(1)}},true);
 
 /* ===== the loop ===== */
 let last=performance.now(),acc=0;
@@ -597,6 +811,7 @@ function draw(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);const rr=
     else if(p.k==='smoke'){X.fillStyle=`rgba(120,110,110,${.35*p.l})`;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.fill()}
     else if(p.k==='heart'){X.fillStyle=`rgba(255,120,150,${p.l})`;const s=p.s;X.beginPath();X.moveTo(p.x,p.y+s*.35);X.bezierCurveTo(p.x-s*.7,p.y-s*.2,p.x-s*.35,p.y-s*.8,p.x,p.y-s*.4);X.bezierCurveTo(p.x+s*.35,p.y-s*.8,p.x+s*.7,p.y-s*.2,p.x,p.y+s*.35);X.fill()}
     else{X.fillStyle=`rgba(255,225,200,${Math.sin(p.l*Math.PI)})`;X.font=`600 ${p.s}px ${FONT}`;X.fillText(p.k==='z'?'z':'♪',p.x,p.y)}}
+  if((V.state==='listening'||V.state==='asking')&&E.alpha>.3){const k0=REDUCE?0:now*.9;for(let k=0;k<3;k++){const ph=REDUCE?k/3:(k0+k/3)%1;X.strokeStyle=`rgba(255,165,95,${(.5*(1-ph)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.arc(E.x,E.y-rr*.25,rr*(1.25+ph*1.6),0,7);X.stroke()}}
   if(E.alpha<.03||rr<1.5)return;X.globalAlpha=E.alpha;
   const glowC=F.angry>.5?'255,60,40':'255,120,50';
   const lg=X.createRadialGradient(E.x,E.y,0,E.x,E.y,rr*6);lg.addColorStop(0,`rgba(${glowC},${.12*F.bright})`);lg.addColorStop(1,`rgba(${glowC},0)`);X.fillStyle=lg;X.fillRect(E.x-rr*6,E.y-rr*6,rr*12,rr*12);
@@ -671,7 +886,7 @@ function start(){if(running)return;if(!started){started=true;document.body.appen
     talk.querySelector('button').onclick=send;tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
     tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now});
     addEventListener('pointermove',onMove,true);addEventListener('pointerdown',onDown,true);addEventListener('pointerup',onUp,true);
-    for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();startTalk();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
+    for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();listen();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
     addEventListener('resize',resize);addEventListener('blur',()=>{cur.x=-1});
     document.addEventListener('input',e=>{if(e.target&&e.target.closest&&e.target.closest('.composer')&&e.target!==tin)signal('typing')},true);
     let hiddenAt=0;document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else if(hiddenAt&&Date.now()-hiddenAt>20*60*1000)signal('back')})}
@@ -684,7 +899,7 @@ function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.a
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
 /* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
-window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),
+window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),listen:()=>listen(),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
   state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running})};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
@@ -740,6 +955,22 @@ def _selftest() -> int:
         check("a reply with no JSON is refused", False)
     except ValueError:
         check("a reply with no JSON is refused", True)
+    a = act("um can you publish it please", "", "sassy", call=lambda p: 1/0)
+    check("a spoken button press needs no model", a["kind"] == "action" and a["action"] == "publish" and a["by"] == "local")
+    check("'how far is it' is the status button", act("how far is it", "", "sassy", call=lambda p: 1/0)["action"] == "status")
+    a = act("uh make the hero um bigger", "", "sassy", call=lambda p: 1/0)
+    check("with no provider the words are sent as said, minus filler",
+          a["kind"] == "send" and a["prompt"] == "Make the hero bigger." and a["by"] == "local")
+    a = act("change headline to cats rule", "Open project: cafe.", "sassy",
+            call=lambda p: got.__setitem__("a", p) or '{"kind":"send","prompt":"Change the hero headline to \\"Cats rule\\".","action":"none","say":"on it."}')
+    check("the model's rewrite is what gets sent", a["kind"] == "send" and a["prompt"].startswith("Change the hero headline") and a["by"] == "model")
+    check("the rewrite prompt carries the state and forbids adding things",
+          "Open project: cafe." in got["a"] and "NEVER add" in got["a"] and "cats rule" in got["a"])
+    a = act("hey ember how are you", "", "sassy", call=lambda p: '{"kind":"answer","say":"fine. why."}')
+    check("small talk is answered, not sent", a["kind"] == "answer" and a["prompt"] == "" and a["say"] == "fine. why.")
+    a = act("fix the thing", "", "sassy", call=lambda p: '{"kind":"action","action":"explode"}')
+    check("an unknown action is never pressed", a["kind"] == "send" and a["action"] == "none")
+    check("a broken model reply falls back to the words as said", act("make it blue", "", "sassy", call=lambda p: "nope")["prompt"] == "Make it blue.")
     check("the companion script has no triple quote that would end this module", '"""' not in EMBER_JS)
     check("the companion stays off in automated browsers unless asked", "navigator.webdriver&&!forced" in EMBER_JS)
     print(f"\n{ok} passed, {fails} failed")

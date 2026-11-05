@@ -473,7 +473,23 @@ FOCUS_APP = None
 # Ember on the desktop (aethron_desktop, Mac only): desktop.py sets the switch;
 # signals the window sends while Ember is out there wait here for its pump.
 EMBER_DESKTOP = None
+EMBER_FOCUS = None    # brings the app window forward (set by desktop.py)
 EMBER_SIGNALS = []
+EMBER_INBOX = []      # requests Ember heard on the desktop, for the app window to type
+_VOICE = None         # aethron_voice.Listener, made on first use (Mac only)
+
+
+def voice_listener():
+    global _VOICE
+    try:
+        import aethron_voice
+    except Exception:
+        return None
+    if not aethron_voice.available():
+        return None
+    if _VOICE is None:
+        _VOICE = aethron_voice.Listener()
+    return _VOICE
 
 
 def focus_app():
@@ -1971,6 +1987,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(aethron_reports.status())
             if u.path == "/api/limits":
                 return self.send_json(limits_report())
+            if u.path == "/api/voice":
+                return self.send_json({"available": voice_listener() is not None})
+            if u.path == "/api/voice/poll":
+                v = voice_listener()
+                return self.send_json(v.poll() if v else {"state": "error", "text": "", "why": "no microphone here"})
+            if u.path == "/api/ember/inbox":
+                out = list(EMBER_INBOX)
+                del EMBER_INBOX[:]
+                return self.send_json({"items": out})
             if u.path == "/api/ember/desktop":
                 if EMBER_DESKTOP is None:
                     return self.send_json({"available": False, "on": False})
@@ -3331,6 +3356,31 @@ class Handler(BaseHTTPRequestHandler):
                     EMBER_SIGNALS.append({"name": name, "data": body.get("data") if isinstance(body.get("data"), dict) else {}})
                     del EMBER_SIGNALS[:-50]
                 self.send_json({"ok": True})
+            elif u.path in ("/api/voice/start", "/api/voice/stop"):
+                v = voice_listener()
+                if not v:
+                    return self.send_json({"state": "error", "text": "",
+                                           "why": "this computer's own speech recognition is not available"})
+                self.send_json(v.start() if u.path.endswith("start") else v.stop())
+            elif u.path == "/api/ember/act":
+                # what the person said -> a clear request typed into the chat,
+                # a button pressed, or a line Ember answers itself
+                if not _ember:
+                    return self.fail("the companion is not available")
+                try:
+                    out = _ember.act(body.get("text") or "", body.get("state") or "",
+                                     str(body.get("attitude") or "sassy"))
+                except ValueError as e:
+                    return self.fail(str(e))
+                if body.get("relay"):          # heard on the desktop: the app types it
+                    EMBER_INBOX.append(out)
+                    del EMBER_INBOX[:-5]
+                    try:
+                        if callable(EMBER_FOCUS):
+                            EMBER_FOCUS()
+                    except Exception:
+                        pass
+                self.send_json(out)
             elif u.path == "/api/ember/say":
                 # one line from the companion, in character, by the active
                 # provider; savage is refused unless the team says admin
@@ -16057,7 +16107,8 @@ async function checkTruth(){
     gaps.push(`${t.template_share}% of the page copy still reads word-for-word as the template's — rewrite it in the brand's words`);
   CODE.events.push({type:'truth',project:name,t,gaps});
   try{if(window.ember&&t.built){const br=t.broken||[];
-    if(br.length)ember.signal('broke',{what:br[0]});
+    ember.signal('gaps',{gaps});
+    if(br.length)ember.signal('broke',{what:br[0],gaps});
     else if(!gaps.length)ember.signal('pass',{project:name});}}catch(e){}
   renderChat(); refresh(true).catch(()=>{});
   /* A broken page is shown, never pushed back on: a fill cannot break a

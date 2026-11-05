@@ -84,6 +84,13 @@ NEWS = [
              "Double-click it to talk. On a Mac it can also live on your "
              "desktop: Settings, Companion.",
      "art": "ember", "go": "ember", "label": "Say hi"},
+    {"id": "2026-11-ember-voice",
+     "title": "Tell Ember, and watch it ask Aethron",
+     "body": "Double-tap Ember and say what you want. When you stop talking it "
+             "writes your words into one clear request, types it into the chat "
+             "box and presses Send. Say \"publish\" and it presses Publish. "
+             "Esc stops it. Right-click Ember to type instead.",
+     "art": "ember", "go": "ember", "label": "Try it"},
 ]
 
 SEEN = ".news-seen.json"
