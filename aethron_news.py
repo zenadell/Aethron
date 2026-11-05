@@ -77,6 +77,13 @@ NEWS = [
              "free Netlify account, at an address you choose. Add your own "
              "domain, restore an earlier version, or take it down any time.",
      "art": "publish", "go": "publish", "label": "Publish a site"},
+    {"id": "2026-11-ember",
+     "title": "Meet Ember",
+     "body": "A small flame now keeps you company. It reacts to what Aethron "
+             "is really doing, asks what you are making, and has opinions. "
+             "Double-click it to talk. On a Mac it can also live on your "
+             "desktop: Settings, Companion.",
+     "art": "ember", "go": "ember", "label": "Say hi"},
 ]
 
 SEEN = ".news-seen.json"
@@ -187,9 +194,9 @@ def _selftest() -> int:
     check("ids are unique", len(ids) == len(set(ids)))
     check("every entry names a known illustration and action",
           all(n["art"] in ("rail", "back", "runs", "gallery", "compare",
-                           "devices", "history", "cmdk", "publish")
+                           "devices", "history", "cmdk", "publish", "ember")
               and n["go"] in ("preview", "back", "runs", "home", "compare",
-                              "phone", "history", "cmdk", "publish")
+                              "phone", "history", "cmdk", "publish", "ember")
               for n in NEWS))
     print("ALL PASS" if ok else "FAILED")
     return 0 if ok else 1

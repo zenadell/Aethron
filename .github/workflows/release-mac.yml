@@ -138,6 +138,10 @@ jobs:
           python3 aethron_native.py --selftest | tee /tmp/native.log
           grep -q "VERDICT: PASS" /tmp/native.log \
             || { echo "::error::reading images off the Mac's pasteboard does not work"; exit 1; }
+          # Ember on the desktop reads window frames through Quartz
+          python3 aethron_desktop.py --selftest
+          python3 -c "import aethron_desktop,sys;sys.exit(0 if aethron_desktop.available() else 1)" \
+            || { echo "::error::Ember cannot reach the Mac's window server (pyobjc Quartz missing)"; exit 1; }
           # screenshot to code with the Mac's own OCR: pictures stay
           # pictures, type and placement fitted from the pixels
           python3 tests/pictures_fit_battery.py | tee /tmp/pictures.log
