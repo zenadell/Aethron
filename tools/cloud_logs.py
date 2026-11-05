@@ -146,4 +146,6 @@ for s in rows("secrets", "select=name,value&name=like.key_*"):
     n = len([k for k in str(s.get("value") or "").replace(",", "\n").split() if k.strip()])
     print(f"  {s['name']}: {n} key(s)")
 em = rows("usage_ledger", f"purpose=eq.ember&at=gte.{q(since)}&order=at.asc&limit=500")
+em_all = rows("usage_ledger", "purpose=eq.ember&order=at.desc&limit=20")
+print("  latest ember rows:", [(u['at'][:19], u['status'], u.get('ms'), u['model']) for u in em_all])
 print(f"  ember thoughts: {len(em)}", [(u['at'][11:19], u['provider'], u['model'], u['status']) for u in em[-10:]])
