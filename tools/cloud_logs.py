@@ -146,4 +146,32 @@ for s in rows("secrets", "select=name,value&name=like.key_*"):
     n = len([k for k in str(s.get("value") or "").replace(",", "\n").split() if k.strip()])
     print(f"  {s['name']}: {n} key(s)")
 em = rows("usage_ledger", f"purpose=eq.ember&at=gte.{q(since)}&order=at.asc&limit=500")
+em_all = rows("usage_ledger", "purpose=eq.ember&order=at.desc&limit=20")
+print("  latest ember rows:", [(u['at'][:19], u['status'], u.get('ms'), u['model']) for u in em_all])
 print(f"  ember thoughts: {len(em)}", [(u['at'][11:19], u['provider'], u['model'], u['status']) for u in em[-10:]])
+# why the mind's provider refuses (prints the key's 4-char kind + the provider's error, never the key)
+for s in rows("secrets", "select=name,value&name=eq.key_groq"):
+    k = [x for x in str(s.get("value") or "").replace(",", "\n").split() if x.strip()]
+    for key in k[:2]:
+        print("  groq key kind:", key[:4], "len", len(key))
+        try:
+            r = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", method="POST",
+                data=json.dumps({"model": "llama-3.1-8b-instant", "max_tokens": 5,
+                                 "messages": [{"role": "user", "content": "say ok in json"}],
+                                 "response_format": {"type": "json_object"}}).encode(),
+                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": "Aethron/1.1 (+https://aethron.jomiez.com)"})
+            with urllib.request.urlopen(r, timeout=30) as resp:
+                print("  groq answered", resp.status, resp.read()[:200])
+        except Exception as e:
+            print("  groq refused:", e, getattr(e, "read", lambda: b"")()[:300])
+
+for s in rows("secrets", "select=name,value,updated_at&name=eq.ember_last_error"):
+    print("  ember last error:", s.get("updated_at"), str(s.get("value"))[:400])
+for s in rows("secrets", "select=name,value&name=eq.key_groq"):
+    key = [x for x in str(s.get("value") or "").replace(",", "\n").split() if x.strip()][0]
+    try:
+        r = urllib.request.Request("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + key, "User-Agent": "Aethron/1.1"})
+        with urllib.request.urlopen(r, timeout=30) as resp:
+            print("  groq models:", sorted(m["id"] for m in json.loads(resp.read())["data"]))
+    except Exception as e:
+        print("  groq models failed:", e)

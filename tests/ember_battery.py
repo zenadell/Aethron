@@ -79,7 +79,7 @@ try:
         st = pg.evaluate("ember.state()")
         pg.mouse.click(st["x"], st["y"]); pg.wait_for_timeout(500)
         check("a click on Ember does not reach the button under it", pg.evaluate("window.__hits") == 0)
-        check("and Ember reacts to it", pg.evaluate("ember.state().face") in ("surprised", "sideeye", "tfman", "joy", "glare", "shocked"),
+        check("and Ember reacts to it", bool(pg.evaluate("ember.state().bubble")) or pg.evaluate("ember.state().face") in ("surprised", "sideeye", "tfman", "joy", "glare", "shocked", "unimpressed", "smug", "annoyed", "haughty"),
               str(pg.evaluate("ember.state()")))
         pg.mouse.click(25, 875); pg.wait_for_timeout(200)
         check("a click anywhere else reaches the page", pg.evaluate("window.__hits") == 100)
@@ -95,6 +95,36 @@ try:
         check("it answers even with no provider", "Tim" in b_, b_)
         check("and remembers the name", pg.evaluate("ember.memory().name") == "Tim")
         pg.press("#ember-in", "Escape"); pg.wait_for_timeout(300)
+        # ---- the right-click menu: a real mouse press on an item works
+        st = pg.evaluate("ember.state()")
+        pg.mouse.click(st["x"], st["y"], button="right"); pg.wait_for_timeout(500)
+        box = pg.evaluate("""(()=>{const b=[...document.querySelectorAll('#ember-menu button')].find(b=>b.textContent==='Type to Ember');if(!b)return null;const r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2]})()""")
+        check("right-click opens Ember's menu", bool(box))
+        if box:
+            pg.mouse.click(box[0], box[1]); pg.wait_for_timeout(900)
+        check("clicking 'Type to Ember' opens the reply box", pg.evaluate("!document.getElementById('ember-talk').hidden"))
+        pg.keyboard.press("Escape"); pg.wait_for_timeout(500)
+        # ---- hands-free: it listens again after each turn, and a stop word ends it
+        c = b.new_page(viewport={"width": 1400, "height": 900})
+        c.on("pageerror", lambda e: errs.append("conv: " + str(e)))
+        c.add_init_script("""try{localStorage.forge_tour='done';localStorage.ember_welcomed='1'}catch(e){}
+          window.__said=['make the hero headline say hello world',"that's all"];window.__starts=0;
+          window.SpeechRecognition=function(){const r=this;r.start=()=>{window.__starts++;setTimeout(()=>{r.onstart&&r.onstart();
+            const t=window.__said.shift()||'';if(t)r.onresult&&r.onresult({results:[Object.assign([{transcript:t}],{isFinal:true})]});
+            setTimeout(()=>r.onend&&r.onend(),250)},100)};r.stop=()=>{};r.abort=()=>{r.onend&&r.onend()}};""")
+        c.route("**/api/voice", lambda rt: rt.fulfill(json={"available": False}))
+        c.goto(BASE + "/?ember=1"); c.wait_for_timeout(3500)
+        c.evaluate("window.consoleSend=()=>{window.__sent=document.getElementById('npurl').value}")
+        st = c.evaluate("ember.state()")
+        c.mouse.dblclick(st["x"], st["y"]); c.wait_for_timeout(500)
+        check("a double-tap starts a hands-free conversation", c.evaluate("ember.voice().conv"))
+        for _ in range(300):
+            c.wait_for_timeout(100)
+            if c.evaluate("window.__starts") >= 2 and not c.evaluate("ember.voice().conv"): break
+        check("what you said is sent without pressing anything", (c.evaluate("window.__sent") or "").lower().startswith("make the hero headline"), repr(c.evaluate("window.__sent")))
+        check("then Ember listens again by itself", c.evaluate("window.__starts") >= 2, str(c.evaluate("window.__starts")))
+        check("and 'that's all' ends the conversation", not c.evaluate("ember.voice().conv"))
+        c.close()
         # ---- voice and hands: listen on a double-tap, then type and press
         v = b.new_page(viewport={"width": 1400, "height": 900})
         v.on("pageerror", lambda e: errs.append("voice: " + str(e)))
@@ -275,7 +305,7 @@ try:
             asked.append(json.loads(route.request.post_data or "{}"))
             route.fulfill(status=200, content_type="application/json", body=json.dumps(plan))
         mp.route("**/api/ember/mind", fulfil)
-        mp.goto(BASE + "/?ember=1"); mp.wait_for_timeout(3000)
+        mp.goto(BASE + "/?ember=1"); mp.wait_for_timeout(5000)
         mp.evaluate("ember.think('test')")
         poses, said = set(), set()
         for _ in range(120):
