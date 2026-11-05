@@ -596,6 +596,18 @@ describe("Ember's mind", () => {
     expect(st.body.result.thoughts_today).toBe(2);
   });
 
+  test("adding its provider's key is enough; switching it off still works", async () => {
+    fake.tables.secrets.push({ name: "base_groq", value: PROV });
+    await tool("set_provider_key", { provider: "groq", keys: "gsk_EMBERKEY123", base_url: PROV });
+    forget("");
+    const d = await deviceFor("ada@example.com");
+    fake.provider = () => fake.reply('{"plan":[{"do":"yawn"}]}');
+    expect((await ask(d.device)).status).toBe(200);
+    await tool("set_ember_mind", { on: false });
+    forget("");
+    expect((await ask(d.device)).status).toBe(503);
+  });
+
   test("not signed in, or paused: no thinking", async () => {
     expect((await call("POST", "/ember/mind", { body: { messages: [] } })).status).toBe(401);
   });

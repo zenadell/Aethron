@@ -235,6 +235,27 @@ try:
             check("dusting puts real dust on the row it chose", bool(lefts) and lefts[0][0] == lefts[0][1] > 10, str(lefts[:3]))
             check("and the wipe takes it off a little at a time as Ember sweeps", any(0 < l < n * .8 for l, n in lefts), str(lefts[::5]))
             check("until the row is clean", not v.evaluate("ember.state().grime") or v.evaluate("ember.state().grime.left") == 0)
+        # ---- sitting on the chat box when a page without it opens: Ember falls
+        v.evaluate("ember.hurry();ember.perch()")
+        for _ in range(60):
+            v.wait_for_timeout(200)
+            if v.evaluate("ember.state().seat"): break
+        check("Ember sits on the chat box and remembers it is sitting there", v.evaluate("ember.state().seat") is True, str(v.evaluate("ember.state()")))
+        v.evaluate("openSettings()")
+        modes, ys = [], []
+        for _ in range(60):
+            v.wait_for_timeout(100)
+            st = v.evaluate("ember.state()"); modes.append(st["mode"]); ys.append(st["y"])
+            if "fall" in modes and st["mode"] == "fly": break
+        check("opening a page without its seat makes it fall", "fall" in modes, str(modes[:10]))
+        check("and it lands at the bottom of the window", ys and ys[-1] > 900 - 60, str(ys[-3:]))
+        faces, said = set(), ""
+        for _ in range(60):
+            v.wait_for_timeout(100)
+            st = v.evaluate("ember.state()"); faces.add(st["face"]); said = said or (st["bubble"] if st["face"] != "shocked" else "")
+            if said and "dizzy" in faces: break
+        check("then it lies there dizzy and picks itself up with a line", "dizzy" in faces and bool(said), str(faces) + repr(said))
+        v.evaluate("goHome()"); v.wait_for_timeout(800)
         # ---- no mind switched on (not signed in here): Ember keeps its own behaviour
         v.evaluate("ember.think('test')"); v.wait_for_timeout(2500)
         mm = v.evaluate("ember.mind()")

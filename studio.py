@@ -3463,8 +3463,8 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"off": True, "retry": 1800, "why": str(e)})
                 got = _with_deadline(lambda: _ember.mind(body.get("state") or {}, str(body.get("attitude") or "sassy"),
                                                          body.get("known") or [], call), EMBER_MIND_S + 3)
-                if isinstance(got, PermissionError):
-                    return self.send_json({"off": True, "retry": 1800, "why": str(got)})
+                if isinstance(got, PermissionError):   # not switched on yet: look again soon
+                    return self.send_json({"off": True, "retry": 300, "why": str(got)})
                 if isinstance(got, Exception):
                     return self.fail(str(got) or "Ember's mind did not answer")
                 self.send_json(got)
