@@ -7048,6 +7048,27 @@ Tests: cloud 39 (key alone turns it on; off stays off), ember battery
 (sits and remembers its seat; Settings makes it fall to the bottom; dizzy,
 then a line).
 
+## THE MIND'S MODEL WAS RETIRED; THE MENU DID NOTHING; TALK HANDS-FREE — 2026-11-05
+Owner: Ember only cleans and repeats one line; right-click items (talk, type,
+close) do nothing; asked for a live voice conversation. Field logs: every
+thought failed in ~25ms. First a Cloudflare 1010 (Groq refuses a default
+script sender name), then 404 "llama-3.1-8b-instant does not exist" — the
+provider retired the default model. ember.ts sends a named User-Agent, and on
+model_not_found asks the provider for its models, picks a small fast one,
+saves it as ember_model and retries; the last error is kept in secret
+ember_last_error and printed by the read-logs workflow.
+THE MENU: Ember takes every press in the capture phase, and the menu sits over
+its body, so a press on an item was eaten (and onDown hid the menu first).
+mine(e) lets presses on the menu and reply box through.
+HANDS-FREE: double-tap Ember (or the menu's "Talk with Ember") starts a
+conversation: it listens, sends or answers when you go quiet, speaks the
+answer aloud, then listens again by itself. "that's all"/"bye"/"stop" or Esc
+ends it; two quiet rounds end it too.
+Also: boops/throws have several lines per attitude and tell the mind; acts done
+in the last 5 min weigh less; dust survives a list redraw and is wiped only
+during the sweep. Battery 81/81 (real-mouse menu click; a scripted recognizer
+proves it re-listens and that a stop word ends it), twice in a row.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

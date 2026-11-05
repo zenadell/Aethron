@@ -745,9 +745,12 @@ function sparkle(r,n){for(let i=0;i<(n||8);i++)parts.push({k:'spark',x:rnd(r.l,r
    it sweeps across, they fall, and a shine runs over the clean row */
 let GRIME=null;
 function grime(el){const r=rect(el);if(!r)return;const sp=[];const n=Math.round(cl(r.w/5,24,70));
-  for(let i=0;i<n;i++)sp.push({fx:rnd(.04,.96),fy:rnd(.12,.88),s:rnd(.8,2.3),a:rnd(.45,.85),smear:Math.random()<.22});GRIME={el,sp,n,born:now,glint:0}}
-function grimeTick(){if(!GRIME)return;const r=rect(GRIME.el);if(!r){GRIME=null;return}
-  if(E.pose==='dust')for(const p of GRIME.sp){if(p.dead)continue;const px=r.l+p.fx*r.w,py=r.t+p.fy*r.h;
+  for(let i=0;i<n;i++)sp.push({fx:rnd(.04,.96),fy:rnd(.12,.88),s:rnd(.8,2.3),a:rnd(.45,.85),smear:Math.random()<.22});GRIME={el,sp,n,born:now,glint:0,cls:el.className,txt:(el.textContent||'').slice(0,80)}}
+/* a list that is drawn again replaces its rows; the dust stays on the same row */
+function grimeEl(){const g=GRIME;if(g.el.isConnected)return g.el;const c=typeof g.cls==='string'&&g.cls.trim().split(/\s+/)[0];if(!c)return null;
+  const m=[...document.getElementsByClassName(c)].find(e=>(e.textContent||'').slice(0,80)===g.txt);if(m)g.el=m;return m||null}
+function grimeTick(){if(!GRIME)return;const r=rect(grimeEl());if(!r){if(!GRIME.lost)GRIME.lost=now;if(now-GRIME.lost>2.5)GRIME=null;return}GRIME.lost=0;
+  if(E.pose==='dust'&&GRIME.wipe)for(const p of GRIME.sp){if(p.dead)continue;const px=r.l+p.fx*r.w,py=r.t+p.fy*r.h;
     for(const h of E.hands)if(Math.abs(px-h.x)<R*.62&&Math.abs(py-h.y)<r.h*.6+6){p.dead=1;parts.push({k:'dust',x:px,y:py,vx:rnd(-30,30),vy:rnd(20,70),l:1,d:rnd(.7,1.2),s:p.s*.9});break}}
   if(GRIME.glint&&now-GRIME.glint>.9&&GRIME.sp.every(p=>p.dead))GRIME=null}
 function wipeAll(){if(!GRIME)return;const r=rect(GRIME.el);for(const p of GRIME.sp)if(!p.dead){p.dead=1;if(r)parts.push({k:'dust',x:r.l+p.fx*r.w,y:r.t+p.fy*r.h,vx:rnd(-30,30),vy:rnd(20,70),l:1,d:rnd(.6,1),s:p.s*.9})}}
@@ -762,10 +765,10 @@ function drawGrime(){if(!GRIME)return;const r=rect(GRIME.el);if(!r)return;const 
 /* an errand: where to go, then what to do there */
 const ERRANDS={
   dust:{w:()=>visible('.pitem,.rcard').length?.9:0,spot(){const el=pick(visible('.pitem,.rcard'));this.el=el;const r=rect(el);return r&&{x:cl(r.l+R*1.3,R*2,W-R*2),y:r.cy-R*.58}},
-    steps(){const el=this.el;const pt=()=>{const r=rect(el);return r?{x:cl(E.x+R*.4,r.l,r.r),y:r.cy}:{x:E.x,y:E.y+40}};
-      return[{d:1.1,look:{pt},face:'unimpressed',fn:()=>grime(el),say:maybe(['oh no, dust!','ugh. dusty.','who let it get this filthy?'],.5)},
+    steps(){const el0=this.el,EL=()=>GRIME&&GRIME.el===el0||!GRIME?el0:(grimeEl()||el0);const pt=()=>{const r=rect(EL());return r?{x:cl(E.x+R*.4,r.l,r.r),y:r.cy}:{x:E.x,y:E.y+40}};
+      return[{d:1.1,pose:'rest',look:{pt},face:'unimpressed',fn:()=>grime(el0),say:maybe(['oh no, dust!','ugh. dusty.','who let it get this filthy?'],.5)},
         {d:.35,pose:'rest',face:'focus',look:{pt}},
-        {d:3.6,pose:'dust',face:'focus',look:{pt},fn:()=>{const r=rect(el);if(r)go({x:cl(r.r-R*1.3,R*2,W-R*2),y:r.cy-R*.58},{now:1,speed:.2})}},
+        {d:3.6,pose:'dust',face:'focus',look:{pt},fn:()=>{if(GRIME)GRIME.wipe=1;const r=rect(EL());if(r)go({x:cl(r.r-R*1.3,R*2,W-R*2),y:r.cy-R*.58},{now:1,speed:.2})}},
         {d:.7,pose:'rest',face:'content',look:{pt},fn:()=>{wipeAll();if(GRIME)GRIME.glint=now}},
         {d:1.4,pose:'hips',face:'smug',look:'viewer',say:maybe(['all clean!','spotless.',"spotless. you're welcome."],.45)}]}},
   read:{w:()=>visible('.msg,.mtext,.atext').length?N.curiosity+.25:0,spot(){const el=pick(visible('.msg,.mtext,.atext').slice(-3));this.el=el;const r=rect(el),m=area();
@@ -1009,14 +1012,15 @@ function onMove(e){const x=e.clientX,y=e.clientY;const dx=x-cur.x,dist=Math.hypo
       if(annoyed()&&ATT()!=='sweet'){cur.rev=[];const n=Math.hypot(cur.x-E.x,cur.y-E.y)||1;E.pointDir=[(cur.x-E.x)/n,(cur.y-E.y)/n];bump('annoy',.05);
         play([{d:.25,pose:'swat',face:'glare',look:'cursor',say:['','no.','hands off.']},{d:1.2,pose:'crossed',face:'glare',look:'cursor'}])}
       else{E.purr=ATT()==='sweet'?3:2.4;SEQ=null;say('purrr')}}}}
-function onDown(e){if(e.button!==0&&e.button!==undefined&&e.pointerType==='mouse'){if(e.button===2&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();openMenu(e.clientX,e.clientY)}return}
+function mine(e){const t=e&&e.target;return !!(t&&t.nodeType===1&&(menu.contains(t)||talk.contains(t)))}
+function onDown(e){if(mine(e))return;if(e.button!==0&&e.button!==undefined&&e.pointerType==='mouse'){if(e.button===2&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();openMenu(e.clientX,e.clientY)}return}
   menu.hidden=true;if(!onBody(e.clientX,e.clientY)){tookDown=false;return}
   e.preventDefault();e.stopPropagation();tookDown=true;cur.down=1;cur.sx=e.clientX;cur.sy=e.clientY;cur.hist=[{x:e.clientX,y:e.clientY,t:now}]}
 function onUp(e){if(!cur.down)return;e.preventDefault();e.stopPropagation();cur.down=0;document.documentElement.classList.remove('ember-grab');
   if(cur.grab){cur.grab=0;const h=cur.hist,a=h[0],b=h[h.length-1],dt=Math.max(.016,b.t-a.t);E.vx=(b.x-a.x)/dt;E.vy=(b.y-a.y)/dt;const s=Math.hypot(E.vx,E.vy);
     E.mode='thrown';E.thrown=s;if(s>900){say(L(['wheeee!','AAAA','what the f—']));bump('annoy',.2)}else say(L(['thanks','…fine.','you done?']))}
   else boop()}
-function swallow(e){if(tookDown||onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();if(e.type==='click')tookDown=false}}
+function swallow(e){if(mine(e))return;if(tookDown||onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();if(e.type==='click')tookDown=false}}
 function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const n=cur.boops.length;E.q-=.4;bump('annoy',.13);bump('social',-.1);E.giggle=.3;
   if(ATT()==='sweet'){play(n>=3?[{d:1.1,face:'grumpy',pose:'hips',look:'viewer',say:'hey!'},{d:.8,face:'mischief'}]:[{d:.2,face:'surprised'},{d:.8,face:'joy',say:n===2?'boop!':''}]);return}
   if(n>=4){cur.boops=[];bump('annoy',.2);play([{d:1.6,face:'haughty',pose:'crossed',look:{dir:[1,-.5]},say:['','bye.',"I'm done with you."],fn:()=>{const m=area();go({x:E.x>m.cx?m.l+m.w*.62:m.r-R*2.4,y:rnd(m.t+m.h*.3,m.t+m.h*.6)},{now:1})}}]);return}
@@ -1025,7 +1029,7 @@ function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const
     2:[{d:.2,face:'surprised'},{d:1.7,face:pick(['tfman','glare','sideeye']),look:'viewer',say:['',['do that again.','I felt that.','again? really?','we talked about this.'],['do that again. I dare you.','one more time and I bite.','you poke like a toddler.','keep going, see what happens.']]}],
     3:[{d:.15,face:'shocked'},{d:1.8,face:'glare',pose:'hips',look:'viewer',say:['',['tf man.','okay, enough.','I am not a button.','I will remember this.'],['what the fuck, man.','are you done?','I swear to god.','you have a problem.']],fn:()=>{E.puff=1.2;bump('annoy',.2)}},{d:.6,face:'glare',pose:'crossed',look:'viewer'}]}[n])}
 function openMenu(x,y){menu.innerHTML='';const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{menu.hidden=true;f()};menu.appendChild(b)};
-  add(V.state==='listening'?'Stop listening':'Talk to Ember (double-tap)',listen);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
+  add(V.conv?'End the conversation':'Talk with Ember (hands-free)',converse);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
   menu.hidden=false;menu.style.left=cl(x,8,W-190)+'px';menu.style.top=cl(y,8,H-150)+'px'}
 function talkHit(x,y){if(!CHAT.open)return false;const r=talk.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6}
 function menuHit(x,y){if(menu.hidden)return false;const r=menu.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom}
@@ -1210,6 +1214,23 @@ async function perform(r){if(!r||DRV.on)return false;
     const sb=shown('#sendbtn,button[onclick^="consoleSend"]');if(sb)await press(sb);else ta.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
     CTX.last='Ember sent: '+r.prompt.slice(0,80);CTX.lastT=now;return true
   }finally{DRV.on=0;setMood(null);if(running)go(SP.perch,{speed:.8})}}
+/* A conversation: double-tap once and talk. Ember answers (out loud) or does
+   what you asked, then listens again by itself, until you say stop / bye,
+   press Esc, double-tap, or stay quiet twice in a row. */
+const STOP_WORDS=/^(?:ok(?:ay)?[, ]*)?(?:stop(?: listening)?|bye|goodbye|good night|that'?s all|that is all|we'?re done|i'?m done|thanks,? that'?s it|nothing|never ?mind|end(?: the)? conversation)[.!]*$/i;
+function converse(){if(V.conv){endConv(L(['okay, talk later!','okay. bye.','finally. bye.']));return}
+  if(DRV.on)return;V.conv=1;V.quiet=0;listen()}
+function endConv(line){V.conv=0;V.quiet=0;try{window.speechSynthesis&&speechSynthesis.cancel()}catch(_){}
+  if(V.state==='listening'||V.state==='asking')stopListen(1);if(line)play([{d:readTime(line),face:'calm',look:'viewer',say:line}])}
+function speakAloud(t){return new Promise(res=>{t=String(t||'').trim();let s;try{s=window.speechSynthesis}catch(_){}
+  if(!t||!s||!window.SpeechSynthesisUtterance||REDUCE_VOICE())return res();
+  try{const u=new SpeechSynthesisUtterance(t);u.rate=1.06;u.pitch=1.25;const v=s.getVoices().find(v=>/samantha|karen|daniel|female|zira|aria/i.test(v.name));if(v)u.voice=v;
+    u.onend=u.onerror=()=>res();s.cancel();s.speak(u);setTimeout(res,Math.min(25000,2000+t.length*80))}catch(_){res()}})}
+const REDUCE_VOICE=()=>CFG.voice===false;
+async function nextTurn(r){if(!V.conv)return;
+  for(let i=0;i<300&&DRV.on;i++)await sleep(100);
+  const line=r&&(r.say||r.text)||'';if(r&&(r.kind==='answer'||r.say))await speakAloud(line);
+  if(!V.conv||!running)return;await sleep(350);if(V.conv&&V.state==='idle'&&!DRV.on)listen()}
 function listenSay(t){live(t||L(['listening…','go on. listening.',"talk. I'm listening."]))}
 async function listen(){if(!running||DRV.on)return;
   if(V.state==='listening'||V.state==='asking'){stopListen(0);return}
@@ -1241,8 +1262,12 @@ function listenWeb(SR){let rec;try{rec=new SR()}catch(_){V.native=false;return e
 function stopListen(cancel){V.cancel=cancel?1:0;if(V.rec){try{cancel?V.rec.abort():V.rec.stop()}catch(_){}}
   else if(V.native)post('/api/voice/stop',{}).catch(()=>{})}
 async function endListen(text,cancelled,why){V.rec=null;text=String(text||'').trim();
-  if(cancelled){V.state='idle';setMood(null);hush();return}
-  if(!text){V.state='idle';setMood(null);hush();
+  if(cancelled){V.state='idle';setMood(null);hush();V.conv=0;return}
+  if(!text&&V.conv&&!why){V.state='idle';setMood(null);hush();if(++V.quiet<2){setTimeout(()=>{if(V.conv)listen()},300);return}
+    endConv(L(["I'll be here when you need me.","quiet, huh. I'll be around.","okay, silent treatment. bye."]));return}
+  if(text&&V.conv&&STOP_WORDS.test(text)){V.state='idle';setMood(null);hush();endConv(L(['okay, talk later!','okay. bye.','finally. peace.']));return}
+  if(text)V.quiet=0;
+  if(!text){V.state='idle';setMood(null);hush();V.conv=0;
     play([{d:2.4,face:ATT()==='sweet'?'worried':'unimpressed',look:'viewer',say:why||L(["I didn't hear anything","didn't hear a thing.","you said nothing. riveting."])}]);return}
   V.state='thinking';if(mood){mood.face='think';mood.pose='think'}live('');E.bubble.dots=1;E.bubble.text='';
   return heard(text)}
@@ -1251,16 +1276,16 @@ async function heard(text){V.state='thinking';let r=null;
   try{r=await Promise.race([post('/api/ember/act',Object.assign({text,state:stateText(),attitude:ATT(),relay:DESK?1:0},names?{projects:names}:{})),
     new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),34000))])}catch(e){r=null}
   V.state='idle';setMood(null);hush();
-  if(!r||!r.kind){play([{d:2.6,face:'worried',look:'viewer',say:["I couldn't reach Aethron","can't reach Aethron right now.","Aethron's not answering. not my fault."]}]);return null}
+  if(!r||!r.kind){V.conv=0;play([{d:2.6,face:'worried',look:'viewer',say:["I couldn't reach Aethron","can't reach Aethron right now.","Aethron's not answering. not my fault."]}]);return null}
   if(DESK){if(r.kind==='answer')perform(r);else play([{d:2.6,pose:'point',face:'calm',look:'viewer',fn:()=>{E.pointDir=[0,1]},say:['sending it to Aethron','handing it to Aethron.','fine. Aethron gets it.']}]);return r}
-  await perform(r);return r}
+  await perform(r);nextTurn(r);return r}
 function fixIssue(){if(!CTX.issue)return;perform({kind:'send',prompt:'Fix what the last check found: '+CTX.issue+'. Then check every page again in the browser.',say:L(['let me tell it','telling it.','fine. I\'ll tell it what you broke.'])})}
 /* On the desktop Ember hears you; the app window does the typing. */
 let inboxT=0;
 function inboxTick(){if(DESK||!CFG.desktop||DRV.on)return;if(performance.now()-inboxT<1400)return;inboxT=performance.now();
   fetch('/api/ember/inbox',{credentials:'same-origin'}).then(x=>x.json()).then(d=>{const it=(d&&d.items||[]).filter(x=>x&&x.kind!=='answer');if(it.length)perform(it[it.length-1])}).catch(()=>{})}
 setInterval(inboxTick,700);
-addEventListener('keydown',e=>{if(e.key==='Escape'&&(V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;stopListen(1)}},true);
+addEventListener('keydown',e=>{if(e.key==='Escape'&&(V.conv||V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;V.conv=0;try{window.speechSynthesis&&speechSynthesis.cancel()}catch(_){}stopListen(1)}},true);
 
 /* ===== the welcome =====
    The first time Aethron opens on a machine Ember introduces itself and
@@ -1509,7 +1534,7 @@ function start(){if(running)return;if(!started){started=true;(document.head||doc
     addEventListener('keydown',()=>{MIND.key=now},true);for(const b of store.get('ember_lib',[]))learnB(b);
     fetch('/api/ember/behaviors').then(r=>r.json()).then(j=>{for(const b of(j&&j.behaviors)||[])learnB(b)}).catch(()=>{});
     addEventListener('pointermove',onMove,true);addEventListener('pointerdown',onDown,true);addEventListener('pointerup',onUp,true);
-    for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();listen();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
+    for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(mine(e))return;if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();converse();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
     addEventListener('resize',resize);addEventListener('blur',()=>{cur.x=-1});
     document.addEventListener('input',e=>{if(e.target&&e.target.closest&&e.target.closest('.composer')&&e.target!==tin)signal('typing')},true);
     let hiddenAt=0;document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else if(hiddenAt&&Date.now()-hiddenAt>20*60*1000)signal('back')})}
@@ -1523,7 +1548,7 @@ function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.a
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
 /* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
-window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
+window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
   state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),mode:E.mode,seat:!!E.seat,grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn}),
   fall:()=>fall(),perch:()=>{SEQ=null;mood=null;act={k:'perch',a:ACTS.perch,t:0,dur:60};go(SP.perch,{speed:.8})},
