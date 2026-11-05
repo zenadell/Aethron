@@ -475,8 +475,36 @@ FOCUS_APP = None
 EMBER_DESKTOP = None
 EMBER_FOCUS = None    # brings the app window forward (set by desktop.py)
 EMBER_SIGNALS = []
+EMBER_SAY_S = 20     # a chat reply is given up on after this, never left spinning
+EMBER_ACT_S = 25     # rewriting what was said into a request
 EMBER_INBOX = []      # requests Ember heard on the desktop, for the app window to type
 _VOICE = None         # aethron_voice.Listener, made on first use (Mac only)
+
+
+def _with_deadline(fn, seconds):
+    """Run fn on its own thread; past `seconds` hand back a TimeoutError
+    instead of holding the request open. The thread may finish later; its
+    answer is simply not waited for."""
+    box = {}
+
+    def run():
+        try:
+            box["v"] = fn()
+        except Exception as e:  # noqa: BLE001 — handed back to the caller
+            box["v"] = e
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(seconds)
+    if "v" not in box:
+        return TimeoutError(f"no answer within {seconds}s")
+    return box["v"]
+
+
+def _ember_call(seconds):
+    def call(prompt):
+        import aethron_brain
+        return aethron_brain.text_call(prompt, timeout=seconds, max_tokens=700)
+    return call
 
 
 def voice_listener():
@@ -3374,8 +3402,12 @@ class Handler(BaseHTTPRequestHandler):
                             names = [p.name for p in PROJECTS.iterdir() if (p / "forge.json").exists()]
                         except Exception:
                             names = []
-                    out = _ember.act(body.get("text") or "", body.get("state") or "",
-                                     str(body.get("attitude") or "sassy"), projects=names)
+                    out = _with_deadline(lambda: _ember.act(body.get("text") or "", body.get("state") or "",
+                                                            str(body.get("attitude") or "sassy"), projects=names,
+                                                            call=_ember_call(EMBER_ACT_S)), EMBER_ACT_S + 5)
+                    if isinstance(out, Exception):   # too slow: the words as said
+                        out = dict(_ember.act_local(body.get("text") or "", names), by="local", why=str(out))
+                        out.pop("unsure", None)
                 except ValueError as e:
                     return self.fail(str(e))
                 if body.get("relay"):          # heard on the desktop: the app types it
@@ -3392,12 +3424,16 @@ class Handler(BaseHTTPRequestHandler):
                 # provider; savage is refused unless the team says admin
                 if not _ember:
                     return self.fail("the companion is not available")
-                try:
-                    out = _ember.reply(body.get("turns") or [], body.get("state") or "",
-                                       str(body.get("attitude") or "sassy"))
-                except ValueError as e:
-                    return self.fail(str(e))
-                self.send_json(out)
+                # A line of chat is worth a few seconds, never minutes: the
+                # same text call a migration uses will patiently sweep the
+                # whole free key ring, which looked like Ember thinking
+                # forever. Past EMBER_SAY_S the window answers in its own
+                # words instead.
+                got = _with_deadline(lambda: _ember.reply(body.get("turns") or [], body.get("state") or "",
+                                                          str(body.get("attitude") or "sassy")), EMBER_SAY_S)
+                if isinstance(got, Exception):
+                    return self.fail(str(got) or "the companion could not answer")
+                self.send_json(got)
             elif u.path == "/api/ai/plan":
                 # rough owner notes in -> structured migration plan out
                 d = self.project_dir({"name": [body.get("project", "")]})
@@ -16724,10 +16760,11 @@ function emberCard(){
     <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
     <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
     ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}
-    <div class="rowbtns"><button onclick="emberSet('talk')">Talk to Ember</button><button onclick="emberSet('forget')">Forget what it knows about me</button></div>`;
+    <div class="rowbtns"><button onclick="emberSet('talk')">Talk to Ember</button><button onclick="emberSet('tour')">Show me around again</button><button onclick="emberSet('forget')">Forget what it knows about me</button></div>`;
 }
 function emberSet(k,v){if(!window.ember)return;
   if(k==='talk'){ember.talk();return}
+  if(k==='tour'){goHome();setTimeout(()=>ember.welcome(1),500);return}
   if(k==='forget'){ember.forget();toast('Ember forgot what you told it');return}
   if(k==='desktop'){ember.setDesktop(v).then(()=>{const c=$('embercard');if(c)c.innerHTML=emberCard();toast(v?'Ember is out on your desktop':'Ember is back in the window')}).catch(e=>toast(e.message));return}
   ember.set({[k]:v});const c=$('embercard');if(c)c.innerHTML=emberCard();}
@@ -21884,7 +21921,9 @@ mountDots();       // the room is lit before anyone asks it to be
 mountMetal();
 addEventListener('load',()=>{mountMetal();playArrivals();});
 watchMetal();
-if(!localStorage.forge_tour)setTimeout(()=>startTour(0),700);
+/* the first run: Ember shows the person around when it is there to; the
+   written tour is for when it is off (or an automated browser) */
+if(!localStorage.forge_tour)setTimeout(()=>{try{if(window.ember&&ember.willWelcome&&ember.willWelcome()){localStorage.forge_tour='done';return}}catch(e){}startTour(0)},700);
 </script></body></html>
 """
 
