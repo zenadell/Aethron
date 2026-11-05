@@ -150,15 +150,15 @@ em_all = rows("usage_ledger", "purpose=eq.ember&order=at.desc&limit=20")
 print("  latest ember rows:", [(u['at'][:19], u['status'], u.get('ms'), u['model']) for u in em_all])
 print(f"  ember thoughts: {len(em)}", [(u['at'][11:19], u['provider'], u['model'], u['status']) for u in em[-10:]])
 # why the mind's provider refuses (prints the key's 4-char kind + the provider's error, never the key)
+em_model = next((s["value"] for s in rows("secrets", "select=name,value&name=eq.ember_model") if s.get("value")), "qwen/qwen3.8-27b")
 for s in rows("secrets", "select=name,value&name=eq.key_groq"):
     k = [x for x in str(s.get("value") or "").replace(",", "\n").split() if x.strip()]
     for key in k[:2]:
-        print("  groq key kind:", key[:4], "len", len(key))
+        print("  groq key kind:", key[:4], "len", len(key), "model:", em_model)
         try:
             r = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions", method="POST",
-                data=json.dumps({"model": "llama-3.1-8b-instant", "max_tokens": 5,
-                                 "messages": [{"role": "user", "content": "say ok in json"}],
-                                 "response_format": {"type": "json_object"}}).encode(),
+                data=json.dumps({"model": em_model, "max_tokens": 60,
+                                 "messages": [{"role": "user", "content": 'Reply with JSON only: {"ok":true}'}]}).encode(),
                 headers={"Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": "Aethron/1.1 (+https://aethron.jomiez.com)"})
             with urllib.request.urlopen(r, timeout=30) as resp:
                 print("  groq answered", resp.status, resp.read()[:200])
