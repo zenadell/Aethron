@@ -3,6 +3,7 @@
 // tools, so no surface can do something the others cannot — and every
 // change goes through `need()` (permission) and `audit()` (the record).
 
+import { emberSettings } from "./ember.ts";
 import { auth, db, Row } from "./db.ts";
 import { PROVIDERS } from "./prices.ts";
 import { drawIllustration, end as endAnnouncement, list as listAnnouncements, publish as publishAnnouncement } from "./announce.ts";
@@ -574,6 +575,31 @@ export const TOOLS: Tool[] = [
       if (a.base_url !== undefined) await setSecret("base_" + a.provider, String(a.base_url || "").trim(), ad.actor);
       await audit(ad, "set_provider_key", a.provider, { keys: keyList(String(a.keys || "")).map(fingerprint), base_url: a.base_url });
       return { provider: a.provider, keys: keyList(await secret("key_" + a.provider)).map(fingerprint) };
+    } },
+  { name: "set_ember_mind", scope: "owner",
+    params: { on: { type: "boolean", description: "switch Ember's mind on or off for every copy" },
+      provider: S("provider its model runs on (default groq)"), model: S("a small fast model (default llama-3.1-8b-instant)"),
+      per_hour: N("most thoughts per person per hour (default 40)") },
+    description: "Ember's mind: the small model that decides what the companion does and lets it invent new behaviours. Separate from the project AI; it uses the provider key set with set_provider_key. Off = built-in behaviour.",
+    run: async (a, ad) => {
+      if (a.provider !== undefined) {
+        if (a.provider && !PROVIDERS[a.provider]) throw new HttpError(400, `unknown provider "${a.provider}"`);
+        await setSecret("ember_provider", String(a.provider || ""), ad.actor);
+      }
+      if (a.model !== undefined) await setSecret("ember_model", String(a.model || ""), ad.actor);
+      if (a.per_hour !== undefined) await setSecret("ember_per_hour", String(Math.max(1, Math.min(600, num(a.per_hour) || 40))), ad.actor);
+      if (a.on !== undefined) await setSecret("ember_on", a.on ? "1" : "0", ad.actor);
+      await audit(ad, "set_ember_mind", "", { on: a.on, provider: a.provider, model: a.model, per_hour: a.per_hour });
+      const s = await emberSettings();
+      return { ...s, keys: keyList(await secret("key_" + s.provider)).map(fingerprint) };
+    } },
+  { name: "ember_mind", scope: "read", params: {},
+    description: "Whether Ember's mind is on, its model, and how often it thought today.",
+    run: async () => {
+      const s = await emberSettings();
+      const rows = await db.select("usage_ledger", { select: "status,cost_usd", purpose: "eq.ember", at: "gte." + dayStartIso(), limit: 50000 });
+      return { ...s, has_key: keyList(await secret("key_" + s.provider)).length > 0, thoughts_today: rows.length,
+        failed_today: rows.filter((r) => r.status !== "ok").length, cost_today: rows.reduce((t, r) => t + num(r.cost_usd), 0) };
     } },
   { name: "set_admin_ai", scope: "owner",
     params: { provider: S("provider the admin AI uses"), model: S("its model"), key: S("its own key (optional; '' = use the provider key)") },

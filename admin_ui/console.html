@@ -777,7 +777,7 @@ async function endAnn(){ if(!await dialog({title:'End this announcement?',body:'
   await act('end_announcement',{},'Announcement ended'); refreshView(); }
 
 VIEWS.ai = async () => {
-  const [m, c] = await Promise.all([T('list_models'), T('get_control')]);
+  const [m, c, em] = await Promise.all([T('list_models'), T('get_control'), T('ember_mind').catch(()=>null)]);
   const w=can('write'), o=can('owner');
   const provs = m.providers;
   return head('AI & models','Who powers the AI inside Aethron, what it may spend, and the separate AI that helps you run this admin.')+`<div class="stack">
@@ -799,6 +799,14 @@ VIEWS.ai = async () => {
       <td class="mono">${p.keys.length?p.keys.map(esc).join('<br>'):'<span class="t3">None</span>'}</td><td class="t3 mono">${esc(p.base)}</td>
       <td style="text-align:right;white-space:nowrap">${o?`<button class="btn sm" onclick="setKey('${p.id}',${jsq(p.label)})">${p.keys.length?'Replace':'Add key'}</button>${p.keys.length?` <button class="btn danger sm" onclick="rmKey('${p.id}',${jsq(p.label)})">Remove</button>`:''}`:''}</td></tr>`).join('')}
   </table></div></div>
+  <div class="card" id="embermind"><div class="ch"><h3>Ember’s mind</h3><span class="sub">the companion’s own small model · separate from the project AI</span></div>
+    <div class="t2" style="margin-bottom:12px">${em?`${em.on?'<span class="tag acc">On</span>':'<span class="tag">Off — built-in behaviour</span>'} <b>${esc(em.provider)}</b> ${esc(em.model)} · up to ${em.per_hour} thoughts per person per hour · ${em.has_key?'key set':'<b>no '+esc(em.provider)+' key yet</b> (add it under Provider keys)'} · today ${em.thoughts_today} thoughts${em.failed_today?', '+em.failed_today+' failed':''}, $${(+em.cost_today||0).toFixed(4)}`:'Not available.'}</div>
+    <div class="hint" style="margin-bottom:12px">It decides what Ember does and lets it invent new behaviours, which every copy keeps. A small, fast free model is enough (Groq’s free <span class="mono">llama-3.1-8b-instant</span>). A free key’s limit is shared by everyone, so keep thoughts per hour low.</div>
+    ${o&&em?`<div class="row"><div><label class="f">Provider</label><select id="emp">${provs.map(p=>`<option value="${p.id}" ${em.provider===p.id?'selected':''}>${esc(p.label)}</option>`).join('')}</select></div>
+      <div><label class="f">Model</label><input id="emm" value="${esc(em.model)}"></div>
+      <div><label class="f">Thoughts per person per hour</label><input id="emh" value="${em.per_hour}"></div>
+      <button class="btn primary tight" onclick="saveEmber(${em.on?'false':'true'})">${em.on?'Switch off':'Switch on'}</button>
+      <button class="btn tight" onclick="saveEmber(${em.on?'true':'false'})">Save</button></div>`:''}</div>
   <div class="card"><div class="ch"><h3>The admin AI</h3><span class="sub">separate from people’s AI · it also draws announcement illustrations</span></div>
     <div class="t2" style="margin-bottom:12px">${m.admin_ai.provider?`Now: <b>${esc(m.admin_ai.provider)}</b> ${esc(m.admin_ai.model||'')} ${m.admin_ai.key?'· own key '+esc(m.admin_ai.key):'· uses the provider key'}`:'Not set up yet.'}</div>
     ${o?`<div class="row"><div><label class="f">Provider</label><select id="aap"><option value="">—</option>${provs.map(p=>`<option value="${p.id}" ${m.admin_ai.provider===p.id?'selected':''}>${esc(p.label)}</option>`).join('')}</select></div>
@@ -814,6 +822,7 @@ async function setKey(p,label){ const r=await dialog({title:'Add a '+label+' key
   fields:[{label:'Key(s)',area:true,placeholder:'Paste here'}],ok:'Save key'}); if(!r||!r[0].trim())return;
   await act('set_provider_key',{provider:p,keys:r[0]},'Key saved'); refreshView(); }
 async function rmKey(p,label){ if(!await dialog({title:'Remove every '+label+' key?',ok:'Remove',danger:true}))return; await act('set_provider_key',{provider:p,keys:''},'Removed'); refreshView(); }
+async function saveEmber(on){ await act('set_ember_mind',{on,provider:$('emp').value,model:$('emm').value.trim(),per_hour:+$('emh').value||40},on?'Ember’s mind is on':'Ember’s mind saved'); refreshView(); }
 async function saveAdminAi(){ const a={provider:$('aap').value,model:$('aam').value.trim()}; const k=$('aak').value.trim(); if(k)a.key=k;
   await act('set_admin_ai',a,'Admin AI saved'); refreshView(); }
 

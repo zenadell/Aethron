@@ -20,6 +20,7 @@
 // Admins sign in with their Aethron account (allow-listed), or present an
 // admin API key (ak_...) or the master key.
 
+import { emberMind } from "./ember.ts";
 import { Row } from "./db.ts";
 import { runTool, TOOLS, visibleTools } from "./admin.ts";
 import { ask, thread, threads } from "./ai.ts";
@@ -58,6 +59,7 @@ export async function handle(req: Request): Promise<Response> {
     if (r === "/event" && req.method === "POST") return await events(req);
     if (r === "/v1/chat/completions" && req.method === "POST") return await chat(req);
     if (r === "/v1/models") return await models(req);
+    if (r === "/ember/mind" && req.method === "POST") return await emberMind(req);
     if (r === "/whoami" && req.method === "GET") {
       // The hosting Worker asks this before it takes an upload: the same
       // person, the same holds and pauses as everywhere else.

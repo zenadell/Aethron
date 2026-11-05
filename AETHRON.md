@@ -6991,6 +6991,45 @@ does not run, Skip/Next shown, it introduces itself and explains the chat
 box and projects, ends and is remembered, does not run again, replays,
 Skip ends it). chat-ui, team-ui, news green.
 
+## EMBER HAS A MIND, AND INVENTS WHAT IT DOES — 2026-11-05
+Owner, on 1.1.113: Ember "behaves like a pre-written pattern" (pick an errand,
+play it, repeat), the dust errand only waved its hands and said "spotless",
+and asked for an AI that drives its behaviour AND can make up behaviours it
+does not have (a sneeze), kept for next time. Reference character: Calcifer.
+- DUST IS REAL: specks and a haze appear on the chosen row (GRIME), Ember
+  sweeps across at hand height and each speck its hands pass falls off as a
+  dust particle, then a shine runs over the clean row.
+- THE MIND (aethron_ember.mind / /api/ember/mind / cloud POST /ember/mind):
+  about every 70-120s while the person is active, and ~1.5s after a real
+  event (broke, pass, published, error, gaps, back, a job finishing), the
+  window sends what Ember perceives (time, where, job, problem, what the
+  person is doing, Ember's needs/face/outfit, what is on screen, recent
+  events, its last thoughts, memory) and the list of behaviours it knows.
+  The answer is a plan (do a behaviour, go somewhere, say, ask, outfit,
+  glasses on/off/peek, face/pose, wait) plus 0-2 NEW behaviours.
+- A NEW BEHAVIOUR IS DATA, NEVER CODE: keyframes over the body Ember already
+  has (face name + face dials, pose or hand positions + wiggle, look, hop,
+  squash, tilt, shake, spin, scale, nudge, glow, particle bursts, a line).
+  Every number is clamped on the server (behaviour/motion_step); unknown
+  steps are dropped; an answer with nothing Ember can do is refused and the
+  built-in behaviour carries on. Kept in HOME/ember_behaviors.json (80) and
+  localStorage; the built-in fallback also picks learned ones now and then.
+- RUNS ON THE TEAM'S OWN SMALL MODEL, never the person's key or the project
+  AI: admin tool set_ember_mind {on, provider (default groq), model (default
+  llama-3.1-8b-instant), per_hour (default 40)}, key via set_provider_key;
+  console "AI & models" has an Ember's mind card; ember_mind reads its use.
+  Metered in usage_ledger as purpose "ember". Off / not signed in / over the
+  hourly cap -> {off:true}: the window keeps its built-in behaviour and asks
+  again in 30 min. While the mind is live the canned questions stop.
+- HONEST LIMIT: a free key's daily allowance is shared by every user (Groq
+  8B ~500K tokens/day ≈ 400-500 thoughts), so per_hour must stay low until a
+  paid key; AETHRON_EMBER_MIND=local runs the mind on the active provider
+  from source for trying it out.
+Tests: ember selftest 31, cloud 38 (off by default, its own key/model,
+json_object, metered, hourly cap), ember battery (dust wipes gradually; no
+mind = off; with a mind it plans, plays an invented "shiver", speaks,
+changes outfit, keeps it across a restart), admin console battery PASS.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

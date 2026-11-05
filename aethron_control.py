@@ -136,7 +136,7 @@ def device_token() -> str:
 
 # ── talking to the admin ────────────────────────────────────────────
 
-def _request(method: str, path: str, body=None, token: str = "") -> tuple:
+def _request(method: str, path: str, body=None, token: str = "", timeout: float = 0) -> tuple:
     url = base_url() + path
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
@@ -146,7 +146,7 @@ def _request(method: str, path: str, body=None, token: str = "") -> tuple:
         req.add_header("apikey", anon)
     req.add_header("Authorization", "Bearer " + (token or anon))
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as r:
+        with urllib.request.urlopen(req, timeout=timeout or TIMEOUT_S) as r:
             return r.status, json.loads(r.read().decode() or "{}")
     except urllib.error.HTTPError as e:
         try:
