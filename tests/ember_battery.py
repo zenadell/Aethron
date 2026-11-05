@@ -281,6 +281,30 @@ try:
             check("'stop cleaning' suppresses the dust errand for the stated time",
                   refused_dust is False and (st_no_dust.get("seen") or {}).get("dust", 0) == dust0
                   and (st_no_dust.get("noErrands") or {}).get("dust", 0) > 200, str(st_no_dust))
+            v.evaluate("ember.talk()"); v.wait_for_timeout(150)
+            v.fill("#ember-talk input", "dance for me")
+            v.keyboard.press("Enter")
+            dance_poses, dance_acts, dance_fx = set(), set(), False
+            for _ in range(25):
+                v.wait_for_timeout(80)
+                st_d = v.evaluate("ember.state()")
+                dance_poses.add(st_d.get("pose"))
+                dance_acts.add(st_d.get("act"))
+                if str(st_d.get("face") or "").startswith("fx:"):
+                    dance_fx = True
+            check("asking Ember to dance in chat physically executes multi-keyframe choreography while chat is open",
+                  "m_improv" in dance_acts and bool(dance_poses & {"dance", "cheer", "gen", "hips"}) and dance_fx,
+                  f"acts={dance_acts} poses={dance_poses} fx={dance_fx}")
+            v.fill("#ember-talk input", "make a suspicious face")
+            v.keyboard.press("Enter")
+            sus_fx = False
+            for _ in range(15):
+                v.wait_for_timeout(80)
+                if str(v.evaluate("ember.state().face") or "").startswith("fx:"):
+                    sus_fx = True
+                    break
+            check("asking for an unscripted expression applies continuous fx face dials", sus_fx, str(v.evaluate("ember.state()")))
+            v.keyboard.press("Escape"); v.wait_for_timeout(200)
         # ---- sitting on the chat box when a page without it opens: Ember falls
         v.evaluate("ember.hurry();ember.perch()")
         for _ in range(60):
@@ -322,6 +346,13 @@ try:
              "plan": [{"do": "hum"}], "new": [], "remember": ""},
             {"thought": "a slow blink at them", "mood": "calm",
              "plan": [{"do": "slowblink"}], "new": [], "remember": ""},
+            {"thought": "drift over to the left and watch them quietly with one brow raised", "mood": "curious",
+             "focus": "the person",
+             "plan": [
+                 {"go": [0.2, 0.3]},
+                 {"t": 0.6, "pose": "crossed", "fx": {"bL": 0.4, "lidU": 0.5, "mas": 0.6}, "hands": [[-0.8, 0.4], [0.8, 0.4]]},
+                 {"wait": 12, "look": "viewer", "face": "curious", "fx": {"bR": 0.35}},
+             ], "new": [], "remember": ""},
         ]
         def fulfil(route):
             asked.append(json.loads(route.request.post_data or "{}"))
@@ -362,6 +393,21 @@ try:
               len(asked) >= 2 and (asked[1].get("state") or {}).get("reason") == "idle"
               and "shiver" in ((asked[1].get("state") or {}).get("ember") or {}).get("recent_actions", []),
               str(asked[1].get("state") if len(asked) >= 2 else {}))
+        mp.evaluate("ember.hurry()")
+        wait_st = None
+        for _ in range(50):
+            mp.wait_for_timeout(150)
+            st_w = mp.evaluate("ember.state()")
+            if st_w.get("act") == "m_wait" and str(st_w.get("face") or "").startswith("fx:wait:"):
+                wait_st = st_w
+                break
+        check("autonomous mind can move to free [x, y] coordinates, play inline keyframes, and hold a custom fx wait in place without snapping back to SP.rest",
+              wait_st is not None and wait_st.get("x", 9999) < 600 and str(wait_st.get("face") or "").startswith("fx:wait:")
+              and mp.evaluate("ember.mind().focus") == "the person",
+              str(wait_st or mp.evaluate("ember.state()")))
+        check("perceive() reports last_outcome so the mind observes the consequence of its previous plan",
+              bool(((asked[-1].get("state") or {}).get("ember") or {}).get("last_outcome")),
+              str((asked[-1].get("state") or {}).get("ember")))
         mp.evaluate("openSettings()"); mp.wait_for_timeout(400)
         mcard = mp.evaluate("(document.getElementById('embercard')||{}).innerText||''")
         check("Settings → Companion shows Mind: on, last thought and today's count",

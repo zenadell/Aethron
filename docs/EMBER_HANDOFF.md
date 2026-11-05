@@ -128,7 +128,8 @@ checked since #118 shipped.
 2. DONE — Chat and voice instructions change behaviour (point 1): `reply()` and `act()` (`answer`) return `plan` and `new`, the window applies them with `mindStep()` / `applyPlan()`, and `tests/ember_battery.py` verifies `"take your glasses off"`, `"wear a beanie"`, and `"stop cleaning"`.
 3. DONE — The mind is the default planner when live (point 2): while `MIND.live` is true, Ember asks the mind whenever it goes idle (`mindIdle()`, capped by `per_hour` on both client and cloud, passing `recent_errands` and `recent_actions`), falling back to `choose()` only when the mind is off or resting. Verified in `tests/ember_battery.py` that consecutive idle actions come from mind plans and not `choose()`.
 4. DONE — Visible "mind" cue and the status line in Settings (point 4): a brief `…` thought bubble + tiny sparkle appears when a plan arrives (`ember.mind().cue`), and Settings → Companion displays `"Mind: on · last thought … · N today"` (`#ember-mind-status`). Verified in `tests/ember_battery.py` (88/88).
-5. Prove the microphone on a real Mac: permission prompts, then
+5. DONE — Goal-/state-driven autonomous capability architecture: killed scripted hijackers (`autoFit()` beanie, `fidgetIn` and `cur.nearSince` when `MIND.live`, deterministic energy drain), unified `plan_step` + `mindStep` so any step in `mind()`, `reply()`, or `act()` can drive inline `steps` / `fx` face dials / `hands` / `hop` / `spin`, free `[x, y]` spatial coordinates, and in-place `wait` stillness with `look`/`fx`, fixed `send()` + `chatTick()` so `"dance for me"` and unscripted expressions physically animate while `#ember-talk` is open, and added `driveFx()` + `last_outcome` feedback in `perceive()`. Verified in `aethron_ember.py --selftest` (37/37) and `tests/ember_battery.py` (92/92).
+6. Prove the microphone on a real Mac: permission prompts, then
    recognition. This was never proven; it was tested only with a
    scripted recogniser.
 

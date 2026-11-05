@@ -77,12 +77,14 @@ def rules(att: str) -> str:
         "If they seem genuinely stressed, sad or tired, drop the attitude a "
         "notch and be kind for real.\n"
         "If they ask you to change your outfit or glasses, stop an errand "
-        "(cleaning/dusting, patrolling, or all errands), go somewhere, or do a "
-        "behaviour, include \"plan\": [steps] in your JSON using steps from: "
+        "(cleaning/dusting, patrolling, or all errands), move somewhere, sit quietly, "
+        "make an expression, or perform any physical action (dance, spin, jump, bow, etc.), "
+        "include \"plan\": [steps] in your JSON so your body actually performs it:\n"
+        "  {\"steps\": [{\"t\": 0.2..3.0, \"face\": \"<face>\", \"fx\": {\"lidU\":0..1,\"lidL\":0..1,\"tilt\":-1..1,\"bH\":-.4..4,\"bT\":-.6..6,\"bL\":-.4..4,\"bR\":-.4..4,\"mw\":.05..35,\"mc\":-.8..8,\"mo\":0..1.8,\"mas\":-1..1,\"eyeS\":.6..1.5,\"pup\":.5..1.3,\"flame\":.6..1.4,\"blush\":0..1}, \"pose\": \"<pose>\", \"hands\": [[lx,ly],[rx,ry]], \"wiggle\": [amp,hz], \"hop\": 0..1, \"spin\": true, \"squash\": -1..1, \"tilt\": -1..1, \"burst\": {\"kind\":\"spark|heart|note|smoke\",\"n\":8}}]}, "
+        "{\"do\": \"<behaviour>\"}, {\"go\": \"rest|perch|chat|send|projects|top|corner|cursor|message|settings|wander|center|approach|away\" or [x,y]}, "
         "{\"glasses\": \"on|off|peek\"}, {\"outfit\": \"none|shades|beanie|santa|party|witch\", \"for\": minutes}, "
-        "{\"stop\": \"dust|patrol|all\", \"for\": minutes}, {\"do\": \"<behaviour>\"}, "
-        "{\"go\": \"rest|perch|chat|send|projects|top|corner|cursor|message|settings\"}, "
-        "{\"wait\": seconds}, and optional \"new\": [invented behaviours].\n"
+        "{\"stop\": \"dust|patrol|all\", \"for\": minutes}, {\"wait\": seconds, \"look\": \"viewer|cursor|away|up|down\"}, "
+        "and optional \"new\": [invented behaviours].\n"
         "Reply with ONLY one JSON object: {\"say\": string, \"face\": one of "
         f"{json.dumps(FACES)}, \"gesture\": one of {json.dumps(GESTURES)}, "
         "\"mood\": number from -1 (they annoyed you) to 1 (they charmed you), "
@@ -127,8 +129,10 @@ def parse(text: str, user_text: str = "") -> dict:
     w = wish_local(user_text) if user_text else None
     if w and w.get("plan"):
         have = {list(x)[0] for x in plan if isinstance(x, dict) and x}
+        has_motion = bool(have & {"steps", "do"})
         for st in w["plan"]:
-            if list(st)[0] not in have:
+            k0 = list(st)[0]
+            if k0 not in have and not (k0 in ("steps", "do") and has_motion):
                 plan.append(st)
     if plan:
         out["plan"] = plan[:MIND_MAX_STEPS]
@@ -152,7 +156,7 @@ def reply(turns, state: str, att: str, call=None) -> dict:
               "\n\nNow reply as Ember to the last message, as the JSON object only.")
     if call is None:
         import aethron_brain
-        call = lambda p: aethron_brain.text_call(p, timeout=18, max_tokens=400)
+        call = lambda p: aethron_brain.text_call(p, timeout=18, max_tokens=700)
     out = parse(call(prompt), user_text=last_user)
     if out.get("new"):
         learn(out["new"])
@@ -399,11 +403,12 @@ MIND_FACES = FACES + ["neutral", "tfman", "haughty", "shocked", "surprised", "cu
                       "think", "worried", "sad", "disappointed", "sleepy", "asleep", "yawn", "shy",
                       "mischief", "presneeze", "dizzy", "content", "happy", "joy", "calm"]
 MIND_FACES = sorted(set(MIND_FACES))
-PLACES = ["rest", "perch", "chat", "send", "projects", "top", "corner", "cursor", "message", "settings"]
+PLACES = ["rest", "perch", "chat", "send", "projects", "top", "corner", "cursor", "message", "settings",
+          "wander", "center", "away", "approach", "left", "right", "bottom"]
 OUTFITS = ["none", "shades", "beanie", "santa", "party", "witch"]
 ERRAND_NAMES = ("dust", "read", "polish", "doodle", "patrol", "juggle", "stargaze", "workout")
 BUILTIN_DO = set(ERRAND_NAMES) | {"glance", "judge", "slowblink", "crossed", "nails", "yawn",
-                                  "hum", "scratch", "sigh", "sneeze", "celebrate", "nap", "zoomies"}
+                                  "hum", "scratch", "sigh", "sneeze", "celebrate", "nap", "zoomies", "dance"}
 LOOKS = ["viewer", "cursor", "up", "down", "left", "right", "away"]
 BURSTS = ["spark", "smoke", "heart", "note", "z", "dust"]
 # the face dials a new behaviour may turn, and how far
@@ -504,14 +509,40 @@ def _stop_name(v) -> str:
     return k if (k in ERRAND_NAMES or k == "all") else ""
 
 
+_INLINE_KEYS = ("fx", "hands", "wiggle", "hop", "squash", "tilt", "shake", "spin", "scale", "nudge", "glow", "burst", "hum")
+
+
 def plan_step(s, known=None) -> dict | None:
     if not isinstance(s, dict):
         return None
+    if isinstance(s.get("steps"), list):
+        st = [m for m in (motion_step(x) for x in s["steps"][:14]) if m]
+        return {"steps": st} if st else None
     if s.get("do"):
         n = _slug(s["do"])
         return {"do": n} if (known is None or n in known) else None
-    if s.get("go") in PLACES:
-        return {"go": s["go"]}
+    g = s.get("go")
+    if g in PLACES:
+        return {"go": g}
+    if isinstance(g, list) and len(g) == 2 and _num(g[0], 0, 1) is not None and _num(g[1], 0, 1) is not None:
+        return {"go": [round(_num(g[0], .05, .95), 3), round(_num(g[1], .08, .92), 3)]}
+    if s.get("wait") is not None or s.get("still") is not None:
+        w = {"wait": _num(s.get("wait", s.get("still")), 1, 90, 5)}
+        if s.get("look") in LOOKS:
+            w["look"] = s["look"]
+        if s.get("face") in MIND_FACES:
+            w["face"] = s["face"]
+        if isinstance(s.get("fx"), dict):
+            fx = {k: _num(v, *FX[k]) for k, v in s["fx"].items() if k in FX and _num(v, *FX[k]) is not None}
+            if fx:
+                w["fx"] = fx
+        if s.get("pose") in POSE_NAMES:
+            w["pose"] = s["pose"]
+        return w
+    if any(k in s for k in _INLINE_KEYS):
+        m = motion_step(dict(s, t=s.get("t", s.get("for", s.get("d", 1.2)))))
+        if m:
+            return {"steps": [m]}
     if isinstance(s.get("say"), str) and s["say"].strip():
         return {"say": s["say"].strip()[:160]}
     if isinstance(s.get("ask"), str) and s["ask"].strip():
@@ -526,14 +557,14 @@ def plan_step(s, known=None) -> dict | None:
         if k:
             return {"stop": k, "for": _num(s.get("for", s.get("minutes")), 1, 240, 30)}
     if s.get("face") in MIND_FACES or s.get("pose") in POSE_NAMES:
-        o = {"for": _num(s.get("for"), .5, 8, 2)}
+        o = {"for": _num(s.get("for", s.get("t")), .5, 8, 2)}
         if s.get("face") in MIND_FACES:
             o["face"] = s["face"]
         if s.get("pose") in POSE_NAMES:
             o["pose"] = s["pose"]
+        if s.get("look") in LOOKS:
+            o["look"] = s["look"]
         return o
-    if s.get("wait") is not None:
-        return {"wait": _num(s.get("wait"), 1, 60, 5)}
     return None
 
 
@@ -544,6 +575,8 @@ def _plan_from_dict(d: dict, known=None) -> tuple[list, list]:
     base_known = set(known) if known is not None else (BUILTIN_DO | {b["name"] for b in behaviours()})
     names = base_known | {b["name"] for b in new}
     raw_steps = list(d.get("plan") or []) if isinstance(d.get("plan"), list) else []
+    if isinstance(d.get("steps"), list) and not any(isinstance(x, dict) and "steps" in x for x in raw_steps):
+        raw_steps.append({"steps": d["steps"]})
     if d.get("outfit") in OUTFITS and not any(isinstance(x, dict) and "outfit" in x for x in raw_steps):
         raw_steps.append({"outfit": d["outfit"], "for": d.get("for", 20)})
     if d.get("glasses") in ("on", "off", "peek") and not any(isinstance(x, dict) and "glasses" in x for x in raw_steps):
@@ -556,12 +589,14 @@ def _plan_from_dict(d: dict, known=None) -> tuple[list, list]:
                               "for": top_stop.get("for", top_stop.get("minutes", d.get("for", 30)))})
         else:
             raw_steps.append({"stop": top_stop, "for": d.get("for", d.get("minutes", 30))})
-    if d.get("go") in PLACES and not any(isinstance(x, dict) and "go" in x for x in raw_steps):
+    if (d.get("go") in PLACES or isinstance(d.get("go"), list)) and not any(isinstance(x, dict) and "go" in x for x in raw_steps):
         raw_steps.append({"go": d["go"]})
     if d.get("do") and not any(isinstance(x, dict) and "do" in x for x in raw_steps):
         raw_steps.append({"do": d["do"]})
-    if d.get("wait") is not None and not any(isinstance(x, dict) and "wait" in x for x in raw_steps):
-        raw_steps.append({"wait": d["wait"]})
+    if (d.get("wait") is not None or d.get("still") is not None) and not any(isinstance(x, dict) and ("wait" in x or "still" in x) for x in raw_steps):
+        raw_steps.append({"wait": d.get("wait", d.get("still")), "look": d.get("look"), "face": d.get("face"), "fx": d.get("fx")})
+    if not raw_steps and any(k in d for k in _INLINE_KEYS):
+        raw_steps.append(d)
     plan = [p for p in (plan_step(x, names) for x in raw_steps[:16]) if p][:MIND_MAX_STEPS]
     used = {p["do"] for p in plan if "do" in p}
     new = [b for b in new if b["name"] in used] or new[:1]
@@ -628,32 +663,60 @@ def wish_local(text: str, att: str = "sassy") -> dict | None:
                     if k == "dust" else
                     ("okay, I'll take a break from that!", f"fine. no {k} for a bit.", "fine. I'll sit still.")[idx])
             return {"say": line, "plan": [{"stop": k, "for": mins_stop}]}
+    # 4. Physical performances & expressions (dance, flip/spin/jump, custom face, movement, stillness)
+    if re.search(r"\b(?:dance|dancing|boogie|groove)\b", t):
+        return {"say": ("watch this!", "fine. watch closely.", "one dance. don't get used to it.")[idx],
+                "plan": [{"steps": [
+                    {"t": .55, "face": "joy", "fx": {"lidL": .55, "mc": .7, "flame": 1.25}, "hands": [[-1.3, -1.1], [1.3, -.3]], "wiggle": [.22, 16], "hop": .55, "tilt": -.3, "hum": True},
+                    {"t": .55, "face": "mischief", "fx": {"bL": .25, "mc": .65, "mas": .5, "flame": 1.3}, "hands": [[-1.3, -.3], [1.3, -1.1]], "wiggle": [.22, 16], "hop": .65, "tilt": .3, "burst": {"kind": "note", "n": 4}},
+                    {"t": .7, "face": "joy", "fx": {"mc": .8, "mo": .4, "flame": 1.35, "blush": .5}, "hands": [[-.9, -1.6], [.9, -1.6]], "spin": True, "hop": .8, "burst": {"kind": "spark", "n": 14, "color": "#ffd27a"}},
+                    {"t": .8, "face": "smug", "pose": "hips", "look": "viewer", "squash": -.25},
+                ]}]}
+    if re.search(r"\b(?:backflip|flip|spin|twirl|jump|hop|bounce)\b", t):
+        return {"say": ("up we go!", "easy. watch.", "try doing that without a spine.")[idx],
+                "plan": [{"steps": [
+                    {"t": .35, "face": "focus", "squash": -.4, "hands": [[-1.1, .8], [1.1, .8]]},
+                    {"t": .75, "face": "joy", "hop": .95, "spin": True, "hands": [[-.6, -2.0], [.6, -2.0]], "burst": {"kind": "spark", "n": 16, "color": "#ffbe6b"}},
+                    {"t": .7, "face": "smug", "pose": "hips", "look": "viewer", "squash": -.25},
+                ]}]}
+    if re.search(r"\b(?:weird|suspicious|funny|crazy|silly|creepy|squint|wink|smirk|scary)\s+(?:face|look|expression)\b|\bmake\s+a\s+face\b|\blook\s+suspicious\b", t):
+        return {"say": ("how's this?", "this is my suspicious face.", "I'm watching you.")[idx],
+                "plan": [{"steps": [
+                    {"t": 1.5, "fx": {"lidU": .64, "lidL": .38, "tilt": -.35, "bL": .36, "bR": -.26, "bT": .18, "mw": .14, "mc": -.18, "mas": .85, "pup": .68, "flame": 1.18}, "hands": [[-1.1, .5], [.32, .88]], "tilt": -.25, "look": "viewer"},
+                    {"t": 1.2, "fx": {"lidU": .2, "lidL": .45, "bL": -.2, "bR": .34, "mw": .22, "mc": .48, "mas": -.75, "eyeS": 1.22, "flame": 1.12}, "hands": [[-.9, .4], [1.1, -.2]], "tilt": .22, "look": "viewer"},
+                ]}]}
+    if re.search(r"\b(?:come\s+here|come\s+closer|over\s+here)\b", t):
+        return {"say": ("coming!", "coming. what.", "fine, I'm here.")[idx], "plan": [{"go": "approach"}]}
+    if re.search(r"\b(?:go\s+away|shoo|leave\s+me\s+alone|give\s+me\s+space|back\s+off)\b", t):
+        return {"say": ("okay, I'll be over there.", "fine. going.", "gladly.")[idx], "plan": [{"go": "away"}, {"wait": 20, "look": "away"}]}
+    if re.search(r"\b(?:sit\s+still|stay\s+still|just\s+sit|do\s+nothing|be\s+still)\b", t):
+        return {"say": ("sitting quietly!", "fine. sitting.", "not moving a muscle.")[idx], "plan": [{"stop": "all", "for": 30}, {"wait": 25, "look": "viewer"}]}
     return None
 
 
 def mind_rules(att: str, known: list) -> str:
     return (
-        "You are the mind of Ember, a small living flame who lives inside Aethron, a desktop app where "
-        "people turn website templates into their own sites. Think of Calcifer from Howl's Moving Castle: "
+        "You are the autonomous mind of Ember, a small living flame who lives inside Aethron, a desktop app "
+        "where people turn website templates into their own sites. Think of Calcifer from Howl's Moving Castle: "
         "a fire spirit with cat energy, proud, sulky, dramatic, curious, secretly fond of the person. "
         + VOICE.get(att, VOICE["sassy"]) + "\n"
-        "Every so often you are told what Ember perceives. Decide what Ember does for the next minute or "
-        "two, for a REASON that comes from what is happening, how it feels, the time, or what it remembers. "
-        "Do not repeat recent_errands, recent_actions, or what you_recently did. Vary it: sometimes do nothing "
-        "much, sometimes an errand, sometimes something surprising or a new behaviour. "
-        "Talk to the person only now and then, and only say what is true in the perception.\n"
+        "You are NOT an animation loop or an errand runner. You are a living creature with your own internal "
+        "drives (energy, curiosity, playfulness, boredom, wants_company, annoyed, fond_of_them), memory, "
+        "focus, and free will. Look at PERCEPTION (including last_outcome and your drives) and choose your "
+        "own intention. Never follow a predictable cycle (do NOT loop patrol -> clean -> ask -> sleep -> hat). "
+        "Often the most lifelike choice is to sit quietly, observe what they are doing, daydream, wander to a "
+        "spot, make a subtle expression, or ignore them for a while. Only do chores (dust, patrol) rarely when "
+        "it genuinely fits your mood. Do not repeat recent_errands, recent_actions, or what you_recently did. "
+        "Talk to the person only when you have a real reason, and only say what is true in PERCEPTION.\n"
         "Answer with ONE JSON object, no prose:\n"
-        '{"thought":"one private line: why","mood":"a face name","plan":[steps],"new":[behaviours],"remember":""}\n'
-        "PLAN steps (1-" + str(MIND_MAX_STEPS) + "), each one of:\n"
-        ' {"do":"<behaviour name>"}  known behaviours: ' + ", ".join(known) + "\n"
-        ' {"go":"' + "|".join(PLACES) + '"}\n'
-        ' {"say":"short line"}   {"ask":"a question to the person (opens a reply box)"}\n'
-        ' {"outfit":"' + "|".join(OUTFITS) + '","for":minutes}   {"glasses":"on|off|peek"}\n'
-        ' {"stop":"' + "|".join(list(ERRAND_NAMES) + ["all"]) + '","for":minutes}\n'
-        ' {"face":"<face>","pose":"<pose>","for":seconds}   {"wait":seconds}\n'
-        "NEW behaviours: when you want Ember to do something none of the known behaviours does (sneeze, "
-        "shiver, a victory dance, sulk, a tiny bow, warm its hands), invent it in \"new\" (0-2) and use it "
-        'in the plan with {"do":"its_name"}. It is kept for next time. A behaviour is '
+        '{"thought":"one private line: your internal intention and why","focus":"what you are paying attention to","mood":"a face name","plan":[steps],"new":[behaviours],"remember":""}\n'
+        "PLAN steps (1-" + str(MIND_MAX_STEPS) + "), composed from your capabilities:\n"
+        ' 1. Direct expression & body keyframes: {"steps":[keyframes]} (or a single keyframe step directly in plan) to move your face dials, hands, and body freely.\n'
+        ' 2. Stillness / observation: {"wait":seconds,"look":"' + "|".join(LOOKS) + '","face":"<face>","fx":{dials},"pose":"<pose>"} (sit, watch, daydream, or ignore them).\n'
+        ' 3. Free spatial movement: {"go":"' + "|".join(PLACES) + '"} or {"go":[x,y]} where x,y are 0.05..0.95 of the window.\n'
+        ' 4. Known or learned behaviours: {"do":"<behaviour name>"}  known behaviours: ' + ", ".join(known) + "\n"
+        ' 5. Speech & appearance: {"say":"short line"}  {"ask":"a question (opens reply box, use sparingly)"}  {"outfit":"' + "|".join(OUTFITS) + '","for":minutes}  {"glasses":"on|off|peek"}  {"stop":"' + "|".join(list(ERRAND_NAMES) + ["all"]) + '","for":minutes}  {"face":"<face>","pose":"<pose>","for":seconds}\n'
+        "NEW reusable behaviours: when you invent a sequence worth keeping in your repertoire, put it in \"new\" (0-2) and call it with {\"do\":\"its_name\"}. A behaviour is "
         '{"name":"snake_case","about":"what it is","steps":[keyframes]} with 2-12 keyframes, each:\n'
         ' {"t":seconds 0.15-4, "face":"<face>", "fx":{dials}, "pose":"<pose>", "hands":[[lx,ly],[rx,ry]], '
         '"wiggle":[amount 0-0.6, speed 0-30], "look":"' + "|".join(LOOKS) + '", "hop":0-1, "squash":-1..1, '
@@ -676,7 +739,8 @@ def mind_parse(text: str, known) -> dict:
     if not plan and not new:
         raise ValueError("the mind's answer had nothing Ember can do")
     out = {"thought": str(d.get("thought") or "")[:200], "plan": plan, "new": new,
-           "mood": d.get("mood") if d.get("mood") in MIND_FACES else ""}
+           "mood": d.get("mood") if d.get("mood") in MIND_FACES else "",
+           "focus": str(d.get("focus") or "")[:80]}
     r = d.get("remember")
     out["remember"] = r.strip()[:80] if isinstance(r, str) and r.strip() else ""
     return out
@@ -791,7 +855,7 @@ let DW={windows:[],dock:null,notch:null,menubar:24,fullscreen:false};
 function ATT(){return CFG.att==='savage'&&!isAdmin()?'sassy':(['sweet','sassy','savage'].includes(CFG.att)?CFG.att:'sassy')}
 const L=a=>{if(!Array.isArray(a))return a;const v=a[{sweet:0,sassy:1,savage:2}[ATT()]];return Array.isArray(v)?v[Math.floor(Math.random()*v.length)]:v};
 function autoFit(){const d=new Date(),m=d.getMonth()+1,day=d.getDate();
-  if(m===12&&day<=26)return'santa';if((m===12&&day===31)||(m===1&&day===1))return'party';if(m===10&&day>=24)return'witch';if(m===1||m===2||m===12)return'beanie';return'none'}
+  if(m===12&&day>=24&&day<=26)return'santa';if((m===12&&day===31)||(m===1&&day===1))return'party';if(m===10&&day>=24)return'witch';return'none'}
 let FITOV=null;
 const outfit=()=>FITOV&&FITOV.until>Date.now()?FITOV.n:(CFG.fit==='auto'?autoFit():CFG.fit);
 const NO_ERR={};const errandBlocked=k=>(NO_ERR.all||0)>now||(NO_ERR[k]||0)>now;
@@ -889,8 +953,16 @@ function go(s,o={}){const p=typeof s==='function'?s():s;if(!p)return;const far=M
   if(far&&!REDUCE&&E.mode==='fly'&&!o.now){E.antic=.26;E.anticDir=[Math.sign(p.x-E.x)||1,Math.sign(p.y-E.y)];E.look={pt:{x:p.x,y:p.y},until:now+.6}}}
 
 /* ===== the brain ===== */
-const N={energy:.75,curiosity:.6,social:.35,boredom:.25,annoy:.05,fond:.3};
-function bump(k,v){N[k]=cl(N[k]+v,0,1)}
+const N={energy:.75,curiosity:.6,social:.35,boredom:.25,playfulness:.5,annoy:.05,fond:.3};
+{const nd=!automation&&store.get('ember_drives',null);if(nd&&typeof nd==='object')for(const k of Object.keys(N))if(typeof nd[k]==='number'&&isFinite(nd[k]))N[k]=cl(nd[k],0,1)}
+let driveSaveT=0;
+function bump(k,v){N[k]=cl((N[k]||0)+v,0,1)}
+function driveFx(f){if(!f||f.name==='asleep'||f.name==='dizzy')return f;
+  f.lidU=cl(f.lidU+(1-N.energy)*.14-N.curiosity*.05,0,1);
+  f.flame=cl(f.flame+(N.energy-.6)*.22+((N.playfulness||.5)-.5)*.15,.55,1.45);
+  f.bright=cl(f.bright+(N.energy-.6)*.12,.75,1.25);
+  f.mc=cl(f.mc+(N.fond-.3)*.18-N.annoy*.25,-1,1);
+  return f}
 const annoyed=()=>N.annoy>.55,idleFace=()=>ATT()==='sweet'?'neutral':(ATT()==='savage'?'unimpressed':'calm');
 /* a person needs time to read: about 13 characters a second, never under 3s */
 const readTime=t=>Math.min(14,2.6+String(t||'').length/13);
@@ -1005,6 +1077,7 @@ const FIDGETS={
   sigh:{w:()=>N.boredom>.6?1.2:0,s:()=>[{d:.7,face:'calm',fn:()=>{E.q+=.22}},{d:1.2,face:'disappointed',pose:'limp',fn:()=>{E.q-=.28}},{d:.4,face:idleFace()}]},
   sneeze:{w:()=>.14,s:()=>[{d:.55,face:'presneeze',fn:()=>{E.tv-=1.2}},{d:.45,face:'presneeze',fn:()=>{E.tv-=1.6;E.q+=.15}},
     {d:.3,face:'surprised',pose:'flail',say:'achoo!',fn:sneezeBurst},{d:1.4,pose:'cover',face:'shy',say:['…excuse me','you saw nothing.','don\'t. say. a word.']}]},
+  dance:{w:()=>(N.playfulness||.5)>.65&&N.energy>.5?.25:0,s:()=>[{d:.45,pose:'dance',face:'joy',fn:()=>{E.dance=2.4;E.vy=-220;E.q=.28}},{d:.55,pose:'cheer',face:'joy',fn:()=>{E.spinOn=1;E.vy=-260;burst({kind:'spark',n:14,color:'#ffd89a'})}},{d:.6,pose:'dance',face:'happy',fn:()=>{E.vx+=110;E.vy=-180}},{d:.6,pose:'dance',face:'joy',fn:()=>{E.vx-=110;E.vy=-180}},{d:.9,pose:'hips',face:ATT()==='sweet'?'joy':'smug',look:'viewer'}]},
   read:{w:()=>lastOf('.msg')?N.curiosity*.5:0,s:()=>[{d:1.8,look:{pt:()=>{const r=lastOf('.msg');return r?{x:r.cx,y:r.cy}:{x:E.x-100,y:E.y}}},face:'sideeye'},{d:1,look:'viewer',face:idleFace()}]},
 };
 function sneezeBurst(){E.tv+=4;E.q-=.4;E.vx-=120;for(let i=0;i<22;i++){const a=rnd(-1,1);parts.push({k:'spark',x:E.x,y:E.y-R*.2,vx:Math.cos(a)*rnd(80,240),vy:Math.sin(a)*rnd(60,160)-40,l:1,d:rnd(.4,.9),s:rnd(1.2,2.4),c:'255,200,120'})}}
@@ -1042,7 +1115,14 @@ function pageTick(){if(DESK||!started)return;const sig=pageSig();if(!PAGE){PAGE=
    places, faces, poses, effects — and when nothing it knows fits, it invents
    a behaviour as keyframes over the same body, which plays now and is kept.
    No mind (none switched on, or it failed): the built-in behaviour runs. */
-const MIND={live:0,off:0,why:'',retry:0,busy:0,next:6,fail:0,plan:[],thought:'',hist:[],ev:[],done:[],hour:[],perHour:40,cueUntil:0,key:-99,lastAsk:-99,asks:0};
+const MIND={live:0,off:0,why:'',retry:0,busy:0,next:6,fail:0,plan:[],thought:'',focus:'',snap:null,hist:[],ev:[],done:[],hour:[],perHour:40,cueUntil:0,key:-99,lastAsk:-99,asks:0};
+function mindOutcome(){const s=MIND.snap;if(!s)return'';
+  if(CHAT.lastChat>s.t)return'they talked with you';
+  if(s.asked&&CHAT.ignored>s.ig)return'you asked them a question and they ignored it';
+  if(cur.boops.some(t=>t>s.t))return'they poked you';
+  if(cur.t>s.t&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*4)return'their cursor came close to you';
+  if(now-cur.t>45&&now-MIND.key>45)return'they have been quiet and still';
+  return'they kept working quietly'}
 const MSTAT=(()=>{const d=new Date().toDateString(),s=store.get('ember_mind_stat',null);
   return s&&s.day===d?{day:d,today:s.today|0,lastAt:s.lastAt||0}:{day:d,today:0,lastAt:0}})();
 function refreshCard(){try{const c=document.getElementById('embercard');if(c&&typeof emberCard==='function')c.innerHTML=emberCard()}catch(_){}}
@@ -1074,8 +1154,17 @@ function effects(k){if(REDUCE)return;if(k.hop)E.vy=-(140+k.hop*380),E.q+=k.hop*.
 function compileB(b){const st=b.steps.map(k=>{const fx=Object.assign({},k.fx||{});if(k.glow&&fx.flame==null)fx.flame=k.glow;
     return{d:k.t,face:k.face,fx:Object.keys(fx).length?fx:null,pose:k.hands?'gen':k.pose,hands:k.hands,wig:k.wiggle,look:k.look&&LOOKS[k.look]?LOOKS[k.look]():null,say:k.say,hum:k.hum,fn:()=>effects(k)}});
   st.push({d:.3,fn:()=>{if(E.rT!==.6)E.rT=1}});return st}
-function placeOf(n){const m=area(),c=composer();switch(n){
+function placeOf(n){const m=area(),c=composer();
+  if(Array.isArray(n)&&n.length>=2)return{x:cl(m.l+m.w*cl(+n[0]||.5,.05,.95),R*2,W-R*2),y:cl(m.t+m.h*cl(+n[1]||.5,.06,.94),R*2.4,H-R*1.6)};
+  switch(n){
   case'rest':return SP.rest();case'perch':return SP.perch();
+  case'wander':return{x:rnd(m.l+R*2.5,m.r-R*2.5),y:rnd(m.t+R*2.8,m.b-R*2.2)};
+  case'center':return{x:m.cx+rnd(-R*2,R*2),y:m.cy+rnd(-R*1.5,R*1.5)};
+  case'left':return{x:m.l+R*3,y:cl(E.y||m.cy,m.t+R*3,m.b-R*2.2)};
+  case'right':return{x:m.r-R*2.8,y:cl(E.y||m.cy,m.t+R*3,m.b-R*2.2)};
+  case'bottom':return{x:cl(E.x||m.cx,m.l+R*3,m.r-R*3),y:m.b-R*2.2};
+  case'approach':return cur.x>=0?{x:cl(cur.x+(E.x<cur.x?-1:1)*R*2.2,m.l+R*2,m.r-R*2),y:cl(cur.y-R*.8,R*2.6,H-R*2)}:{x:m.cx,y:m.t+m.h*.55};
+  case'away':return cur.x>=0?{x:cur.x>m.cx?m.l+R*3.2:m.r-R*3,y:cur.y>m.cy?m.t+R*3.2:m.b-R*2.4}:{x:m.l+R*3.2,y:m.t+R*3.2};
   case'chat':return c?{x:cl(c.l+c.w*.3,R*2,W-R*2),y:c.t-R*1.02,perch:1}:SP.rest();
   case'send':{const r=rect(shown('#sendbtn,button[onclick^=consoleSend]'));return r?{x:r.cx-R*1.6,y:r.cy-R*1.1}:SP.rest()}
   case'projects':{const el=visible('.pitem')[0];const r=rect(el);return r?{x:cl(r.r+R*1.6,R*2,W-R*2),y:r.cy}:SP.rest()}
@@ -1087,13 +1176,18 @@ function placeOf(n){const m=area(),c=composer();switch(n){
 function mindAct(dur,k){const m={k:k||'mind',by:'mind',a:{mind:1,w:()=>0,run(){},dur:[dur,dur]},t:0,dur};ACTS_LOG.push({k:m.k,by:'mind',t:Math.round(now)});if(ACTS_LOG.length>20)ACTS_LOG.shift();act=m;return m}
 /* the next step of the mind's plan, if it has one */
 function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
-  try{if(s.do){const n=s.do;
+  try{if(!s.steps&&!s.do&&!s.go&&!s.wait&&!s.outfit&&!s.glasses&&!s.stop&&!s.ask&&(s.fx||s.hands||s.hop||s.spin||s.squash||s.tilt||s.shake||s.scale||s.nudge||s.glow||s.burst||s.wiggle))
+      s.steps=[Object.assign({t:s.t||s.for||1.4},s)];
+    if(Array.isArray(s.steps)&&s.steps.length){const st=compileB({steps:s.steps.map(k=>Object.assign({t:k.t||k.d||1.2},k))});
+      MIND.done.push('improv');if(MIND.done.length>12)MIND.done.shift();
+      const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.4,'m_improv');play(st,()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.do){const n=s.do;
       MIND.done.push(n);if(MIND.done.length>12)MIND.done.shift();
       if(ERRANDS[n]&&ACTS['e_'+n]){if(errandBlocked(n))return mindStep();const a=ACTS['e_'+n];RECENT.push({k:'e_'+n,t:now});if(RECENT.length>30)RECENT.shift();act={k:'e_'+n,by:'mind',a,t:0,dur:rnd(a.dur[0],a.dur[1])};ACTS_LOG.push({k:act.k,by:'mind',t:Math.round(now)});if(ACTS_LOG.length>20)ACTS_LOG.shift();a.run.call(a);return true}
       if(n==='nap'||n==='zoomies'){const a=ACTS[n];RECENT.push({k:n,t:now});if(RECENT.length>30)RECENT.shift();act={k:n,by:'mind',a,t:0,dur:rnd(a.dur[0],a.dur[1])};ACTS_LOG.push({k:act.k,by:'mind',t:Math.round(now)});if(ACTS_LOG.length>20)ACTS_LOG.shift();a.run.call(a);return true}
       let st=null;if(LIB[n])st=compileB(LIB[n]);else if(FIDGETS[n])st=FIDGETS[n].s();else if(n==='workout')st=workout();else if(n==='celebrate')st=[{d:2,face:'joy',pose:'cheer',fn:celebrate}];
       if(!st)return mindStep();const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.6,'m_'+n);play(st,()=>{if(act===me)me.t=me.dur+1});return true}
-    if(s.go){go(placeOf(s.go),{speed:.7});mindAct(5,'m_go_'+s.go);return true}
+    if(s.go){const tag=Array.isArray(s.go)?'xy':s.go;go(placeOf(s.go),{speed:.75});mindAct(2.8,'m_go_'+tag);return true}
     if(s.say){say(s.say);mindAct(readTime(s.say)+.5,'m_say');return true}
     if(s.ask){if(MIND.asks>2||now-CHAT.lastChat<60)return mindStep();MIND.asks++;openChat(s.ask,0);mindAct(2,'m_ask');return true}
     if(s.outfit){FITOV={n:s.outfit,until:Date.now()+(s.for||20)*60000};if(CFG.fit!=='auto'){CFG.fit='auto';store.set('ember_cfg',CFG)}
@@ -1106,15 +1200,15 @@ function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
       if(s.stop==='dust'||s.stop==='all')GRIME=null;
       if(act&&act.a&&act.a.errand&&(s.stop==='all'||act.k==='e_'+s.stop)){SEQ=null;act.t=act.dur+1}
       mindAct(1,'m_stop');return true}
-    if(s.face||s.pose){const me=mindAct(s.for||2,'m_pose');play([{d:s.for||2,face:s.face,pose:s.pose}],()=>{if(act===me)me.t=me.dur+1});return true}
-    if(s.wait){go(SP.rest,{speed:.6});mindAct(s.wait,'m_wait');return true}}catch(e){}
+    if((s.face||s.pose)&&!s.wait){const me=mindAct(s.for||2,'m_pose');play([{d:s.for||2,face:s.face,pose:s.pose,fx:s.fx||null,look:s.look&&LOOKS[s.look]?LOOKS[s.look]():null}],()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.wait){const me=mindAct(s.wait,'m_wait');if(s.look&&LOOKS[s.look])me.look=LOOKS[s.look]();if(s.face)me.face=s.face;if(s.pose)me.pose=s.pose;if(s.fx)me.fx=s.fx;return true}}catch(e){}
   return mindStep()}
 function applyPlan(r){if(!r)return;
   for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
   if(!Array.isArray(r.plan)||!r.plan.length)return;
   MIND.plan=r.plan.slice().concat(MIND.plan);
   while(MIND.plan.length&&(MIND.plan[0].outfit||MIND.plan[0].glasses||MIND.plan[0].stop))mindStep();
-  if(MIND.plan.length&&(!act||!act.a.mind||act.k==='mind_wait'))mindStep()}
+  if(MIND.plan.length){SEQ=null;mindStep()}}
 function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='';try{view=(typeof S!=='undefined'&&(S.view||''))||''}catch(_){}
   const scr=[];if(composer())scr.push('the chat box');const pn=visible('.pitem').length;if(pn)scr.push(pn+' projects in the sidebar');if(lastOf('.msg'))scr.push('a conversation');
   if(lastOf('.jobc'))scr.push('a migration job card');if(document.querySelector('.pvw:not([hidden])'))scr.push('the site preview');if(DESK)scr.push('their desktop ('+((DW.windows||[]).length)+' app windows)');
@@ -1123,8 +1217,8 @@ function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='
     just_happened:CTX.last&&now-CTX.lastT<300?CTX.last:'',problem:CTX.issue&&now-CTX.issueT<900?CTX.issue.slice(0,200):'',
     person:{seconds_since_they_moved:Math.round(now-cur.t),typing:now-(CHAT.typing||-99)<6||now-MIND.key<6,near_ember:cur.x>=0&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*5,
       last_talked_to_ember_s:CHAT.lastChat>0?Math.round(now-CHAT.lastChat):null,name:m.name||''},
-    ember:{energy:+N.energy.toFixed(2),boredom:+N.boredom.toFixed(2),curiosity:+N.curiosity.toFixed(2),wants_company:+N.social.toFixed(2),annoyed:+N.annoy.toFixed(2),
-      fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),glasses:!!E.shadesOn,doing:act?act.k:'',errands_today:SEEN,
+    ember:{energy:+N.energy.toFixed(2),boredom:+N.boredom.toFixed(2),curiosity:+N.curiosity.toFixed(2),playfulness:+(N.playfulness||.5).toFixed(2),wants_company:+N.social.toFixed(2),annoyed:+N.annoy.toFixed(2),
+      fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),glasses:!!E.shadesOn,doing:act?act.k:'',focus:MIND.focus||'',last_outcome:mindOutcome(),errands_today:SEEN,
       recent_errands:RECENT.filter(r=>r.k.startsWith('e_')).slice(-6).map(r=>r.k.slice(2)),recent_actions:MIND.done.slice(-8)},
     screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
 function think(reason){if(MIND.busy)return;
@@ -1135,7 +1229,8 @@ function think(reason){if(MIND.busy)return;
     if(r.off){MIND.live=0;MIND.off=1;MIND.why=r.why||'off';MIND.retry=now+(r.retry||1800);MIND.plan=[];if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard();return}
     for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
     const wasLive=MIND.live;MIND.live=1;MIND.off=0;MIND.why='';MIND.fail=0;if(!wasLive)ACTS_LOG.length=0;
-    MIND.plan=(r.plan||[]).slice();MIND.thought=r.thought||'';MIND.cueUntil=now+1.2;if(!REDUCE)burst({kind:'spark',n:6,color:'#ffd89a'});
+    MIND.plan=(r.plan||[]).slice();MIND.thought=r.thought||'';if(r.focus)MIND.focus=r.focus;
+    MIND.snap={t:now,ig:CHAT.ignored,asked:MIND.plan.some(x=>x&&x.ask)};MIND.cueUntil=now+1.2;if(!REDUCE)burst({kind:'spark',n:6,color:'#ffd89a'});
     bumpMindStat();
     MIND.hist.push((r.thought||'')+(r.new&&r.new.length?' (invented '+r.new.map(b=>b.name).join(', ')+')':''));MIND.hist=MIND.hist.slice(-6);
     if(r.remember){const f=CHAT.mem.facts||(CHAT.mem.facts=[]);if(!f.includes(r.remember)){f.push(r.remember);CHAT.mem.facts=f.slice(-6);saveMem()}}
@@ -1258,7 +1353,7 @@ function desk(p){p=p||{};if(p.windows)DW.windows=p.windows;if('dock' in p)DW.doc
 function hide(sec){hideUntil=Date.now()+sec*1000;E.alphaT=0;E.rT=0;say('')}
 
 /* ===== talking ===== */
-const CHAT={open:0,turns:[],busy:0,last:0,asked:[],askIn:45,lastChat:-99,ignored:0,offline:0,mem:{name:'',facts:[]}};
+const CHAT={open:0,turns:[],busy:0,last:0,asked:[],askIn:180,lastChat:-99,ignored:0,offline:0,mem:{name:'',facts:[]}};
 {const m=store.get('ember_mem',null);if(m&&typeof m==='object'){CHAT.mem.name=String(m.name||'').slice(0,30);CHAT.mem.facts=Array.isArray(m.facts)?m.facts.map(String).slice(0,6):[]}}
 function saveMem(){store.set('ember_mem',CHAT.mem)}
 let tin=null;
@@ -1310,6 +1405,33 @@ function localWish(t){const l=String(t||'').toLowerCase().trim();if(!l)return nu
     const k=map[sm[1].replace(/\s+/g,' ')]||'all';
     const line=k==='dust'?L(['okay, no more cleaning for a bit!',"fine. I'll leave the dust alone.",'fine. live in filth then.']):L(["okay, I'll take a break from that!",`fine. no ${k} for a bit.`,"fine. I'll sit still."]);
     return{say:line,face:ATT()==='sweet'?'calm':'unimpressed',gesture:'crossed',mood:0,plan:[{stop:k,for:ms}]}}
+  if(/\b(?:dance|boogie|groove|bust\s+a\s+move|twerk|shimmy)\b/.test(l))
+    return{say:L(['watch this!','fine. watch the master.','one dance. do not record this.']),face:ATT()==='sweet'?'joy':'smug',gesture:'dance',mood:.35,
+      plan:[{steps:[
+        {t:.45,pose:'dance',face:'joy',fx:{lidL:.55,mc:.7,mo:.35,flame:1.28,bright:1.12},hop:.55,tilt:-.35,burst:{kind:'spark',n:12,color:'#ffd89a'}},
+        {t:.5,pose:'cheer',face:'joy',hands:[[-1.35,-1.15],[1.35,-1.15]],wiggle:[.28,12],hop:.75,spin:true,burst:{kind:'note',n:6}},
+        {t:.55,pose:'dance',face:'smug',hands:[[-1.25,-.35],[1.15,-.85]],wiggle:[.24,10],nudge:-.45,tilt:.4,squash:.35},
+        {t:.55,pose:'dance',face:'joy',hands:[[-1.15,-.85],[1.25,-.35]],wiggle:[.24,10],nudge:.45,tilt:-.4,squash:-.3},
+        {t:.8,pose:'hips',face:ATT()==='sweet'?'joy':'smug',look:'viewer',glow:1.2,burst:{kind:'spark',n:16,color:'#ffb870'}}]}]};
+  if(/\b(?:do\s+a\s+flip|backflip|spin\s+around|twirl|jump|hop|bounce)\b/.test(l))
+    return{say:L(['wheee!','easy. ten out of ten.','nailed it.']),face:'joy',gesture:'cheer',mood:.3,
+      plan:[{steps:[
+        {t:.25,pose:'hands',face:'focus',squash:-.45,tilt:-.2},
+        {t:.7,pose:'cheer',face:'joy',hop:.95,spin:true,burst:{kind:'spark',n:20,color:'#ffd89a'}},
+        {t:.6,pose:'hips',face:'smug',look:'viewer',squash:.25}]}]};
+  if(/\b(?:make\s+a\s+face|weird\s+face|funny\s+face|silly\s+face|suspicious\s+face|squint|wink|smirk|scowl|glare\s+at\s+me)\b/.test(l)){
+    const sus=/suspicious|squint/.test(l);
+    return{say:L(['how is this?','happy now?','this is my face. deal with it.']),face:sus?'sideeye':'mischief',gesture:'none',mood:.15,
+      plan:[{steps:[
+        {t:1.6,pose:sus?'crossed':'hips',face:sus?'sideeye':'mischief',look:'viewer',
+         fx:sus?{lidU:.64,lidL:.38,lf:.9,bL:.34,bR:-.22,bT:.18,mw:.12,mc:-.05,mas:.75,pup:.78,flame:1.05}:{lidU:.22,lidL:.48,bL:.38,bR:-.28,mw:.26,mc:.62,mas:.95,mo:.45,eyeS:1.28,pup:.68,flame:1.2,blush:.5},
+         tilt:sus?-.28:.32}]}]}}
+  if(/\b(?:come\s+here|come\s+closer|over\s+here)\b/.test(l))
+    return{say:L(['coming!','fine, I\'m coming.','what. I\'m right here.']),face:'curious',gesture:'none',mood:.15,plan:[{go:'approach'},{wait:8,look:'viewer',face:'curious'}]};
+  if(/\b(?:go\s+away|shoo|leave\s+me\s+alone|give\s+me\s+space|move\s+away|back\s+off)\b/.test(l))
+    return{say:L(['okay, I\'ll give you space.','fine. going over there.','gladly.']),face:'unimpressed',gesture:'turn_away',mood:-.1,plan:[{go:'away'},{wait:30,look:'away',face:'calm'}]};
+  if(/\b(?:sit\s+still|stay\s+still|chill|relax|do\s+nothing|just\s+sit|hang\s+out|be\s+still)\b/.test(l))
+    return{say:L(['okay, just chilling.','fine. sitting still.','I was already chilling.']),face:'calm',gesture:'none',mood:.1,plan:[{stop:'all',for:ms},{wait:25,look:'viewer',face:'content',pose:'rest'}]};
   return null}
 function localReply(t){const w=localWish(t);if(w)return w;const l=t.toLowerCase(),m=/(?:i'?m|my name is|call me)\s+([a-z][a-z'-]{1,20})/i.exec(t);
   if(m&&!/^(fine|good|ok|okay|tired|busy|working|so|not|just|a|the|doing|here|back)$/i.test(m[1])){const nm=m[1][0].toUpperCase()+m[1].slice(1);
@@ -1329,7 +1451,7 @@ async function send(){const t=tin.value.trim().slice(0,300);if(!t||CHAT.busy)ret
       new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),24000))])}catch(e){r=null;const m=String(e&&e.message||'');if(/not configured|no key|save your key|402|403/i.test(m))CHAT.offline=1;if(m==='slow')CHAT.slow=(CHAT.slow||0)+1}}
   if(!r||typeof r.say!=='string'||!r.say.trim())r=localReply(t);
   else if(!Array.isArray(r.plan)||!r.plan.length){const w=localWish(t);if(w&&w.plan)r.plan=w.plan}
-  CHAT.busy=0;const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.pose||s.face));
+  CHAT.busy=0;const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.steps||s.fx||s.hands||s.hop||s.spin||s.pose||s.face||s.go||s.wait));
   let g=r.gesture||'none';if(Array.isArray(r.plan)&&r.plan.some(s=>s&&s.glasses==='off')&&g==='shades')g='none';
   applyPlan(r);if(!CHAT.open)return;
   const line=r.say.trim().slice(0,220),fc=FACES[r.face]?r.face:idleFace();
@@ -1337,7 +1459,7 @@ async function send(){const t=tin.value.trim().slice(0,300);if(!t||CHAT.busy)ret
   if(r.name){CHAT.mem.name=String(r.name).slice(0,30);saveMem()}
   if(r.remember){const f=String(r.remember).slice(0,60);if(!CHAT.mem.facts.includes(f)){CHAT.mem.facts.push(f);CHAT.mem.facts=CHAT.mem.facts.slice(-6);saveMem()}}
   CHAT.turns.push({role:'assistant',content:line});if(CHAT.turns.length>24)CHAT.turns=CHAT.turns.slice(-24);CHAT.last=now;
-  if(hasDo&&SEQ)say(line,2.4,{type:1});else gesture(g,fc,line)}
+  if(hasDo&&(SEQ||(act&&act.by==='mind')))say(line,2.4,{type:1});else gesture(g,fc,line)}
 function gesture(g,fc,line){const st={d:line.length/30+1.9,face:fc,look:'viewer'};
   const fn={nod:()=>{E.nod=.9},shake:()=>{E.shake=.9},cheer:()=>{E.vy=-320;E.q=.35},dance:()=>{E.dance=Math.min(3.5,st.d)},shades:()=>{E.shadesUntil=now+st.d+.5}}[g];
   const pose={wave:'wave',cheer:'cheer',shrug:'shrug',think:'think',shy:'peek',dance:'dance',crossed:'crossed',facepalm:'facepalm',hips:'hips',shades:'glasses',turn_away:'crossed'}[g];
@@ -1347,10 +1469,15 @@ function startTalk(){if(!running)return;if(CHAT.open){tin.focus();return}
   if(annoyed()&&ATT()!=='sweet'){play([{d:1.6,face:'haughty',pose:'crossed',look:{dir:[1,-.5]},say:['','not now.',"not now. I'm mad at you."]}],()=>openChat(L(['','…fine. what.','…ugh. fine. what.']),1));return}
   openChat(CHAT.turns.length?L(["yes? I'm all ears.",'what now.','what. again.']):L(["hi! I'm Ember. what are you up to?",'oh. you want to talk. okay. what.','you rang? make it quick.']),1)}
 function chatTick(dt){placeTalk();const typing=now-(CHAT.typing||-9)<1.5;
-  base.pose=typing?'listen':(ATT()==='sweet'?'rest':'crossed');base.face=CHAT.busy?'think':(typing?(ATT()==='sweet'?'curious':'sideeye'):idleFace());
-  base.look=typing?{pt:()=>({x:parseFloat(talk.style.left)+90,y:parseFloat(talk.style.top)+14})}:'viewer';
+  if(act&&act.by==='mind'){act.t+=dt;if(act.k.startsWith('m_go_')&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.8&&Math.hypot(E.vx,E.vy)<120&&act.t>.4)act.t=act.dur+1;
+    if(act.t>act.dur)mindStep()}
+  else if(MIND.plan.length&&!SEQ)mindStep();
+  const inAct=SEQ||(act&&act.by==='mind'&&act.k!=='mind_wait');
+  if(!inAct){base.pose=typing?'listen':(ATT()==='sweet'?'rest':'crossed');base.face=CHAT.busy?'think':(typing?(ATT()==='sweet'?'curious':'sideeye'):idleFace());
+    base.look=typing?{pt:()=>({x:parseFloat(talk.style.left)+90,y:parseFloat(talk.style.top)+14})}:'viewer'}
+  else if(act&&act.k==='m_wait'){if(act.pose)base.pose=act.pose;if(act.face)base.face=act.face;if(act.look)base.look=act.look}
   if(typing&&!SEQ&&Math.random()<dt*.5)E.nod=.5;
-  if(!CHAT.busy&&now-CHAT.last>(CHAT.turns.some(x=>x.role==='user')?30:18)&&document.activeElement!==tin){
+  if(!CHAT.busy&&!inAct&&now-CHAT.last>(CHAT.turns.some(x=>x.role==='user')?30:18)&&document.activeElement!==tin){
     if(!CHAT.turns.some(x=>x.role==='user')){CHAT.ignored++;bump('fond',-.05);
       closeChat(CHAT.ignored>1?L(['…oh. okay.','ignored. twice. wow.','ignored by a human. cool. cool cool cool.']):L(['okay, maybe later',"fine. don't answer.",'wow. okay.']),CHAT.ignored>1?(ATT()==='sweet'?'sad':'disappointed'):'unimpressed')}
     else closeChat(L(["okay, I'll be around","I'll be around. not that you asked.",'k. bye.']))}}
@@ -1424,7 +1551,7 @@ const said=(t,d)=>{if(t&&running)say(t,d||0,{type:1})};
 /* the app's own controls Ember can press for you */
 const CONTROLS={settings:'#setbtn',new_chat:'.newbtn',home:'.brand',preview:'button[onclick^="openPreviewPane(false)"],.pshot'};
 async function perform(r){if(!r||DRV.on)return false;
-  if(r.kind==='answer'){const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.pose||s.face));applyPlan(r);if(running){if(hasDo&&SEQ)say(r.say,2.4,{type:1});else play([{d:Math.max(2.4,readTime(r.say)),face:idleFace(),look:'viewer',say:r.say}])}return true}
+  if(r.kind==='answer'){const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.steps||s.fx||s.hands||s.hop||s.spin||s.pose||s.face||s.go||s.wait));applyPlan(r);if(running){if(hasDo&&(SEQ||(act&&act.by==='mind')))say(r.say,2.4,{type:1});else play([{d:Math.max(2.4,readTime(r.say)),face:idleFace(),look:'viewer',say:r.say}])}return true}
   if(CHAT.open)closeChat();DRV.on=1;V.cancel=0;SEQ=null;setMood({kind:'drive',d:120,pose:'point',face:'focus',look:null});
   let cur_=null;try{cur_=(typeof S!=='undefined'&&S.cur)||null}catch(_){}
   try{
@@ -1581,6 +1708,7 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   else if(mood){base.pose=mood.pose||'rest';base.face=mood.face||idleFace();base.look=mood.look||null}
   else if(E.mode==='fly'&&!hideUntil){
     if(!act||act.t>act.dur){if(!mindStep()){if(MIND.live&&!MIND.off)mindIdle();else choose()}}
+    if(act&&act.k&&act.k.startsWith('m_go_')&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.8&&Math.hypot(E.vx,E.vy)<120&&act.t>.4)act.t=act.dur+1;
     if(act&&act.a.errand){if(act.stage==='go'&&!SEQ&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.6&&Math.hypot(E.vx,E.vy)<150){const k=act.k.slice(2),e=ERRANDS[k],me=act;me.stage='do';SEEN[k]=(SEEN[k]||0)+1;
         play(e.steps.call(e),()=>{if(act===me)me.t=me.dur+1})}else if(act.stage==='go'&&act.t>14)act.t=act.dur+1}
     if(!MIND.live&&!SEQ&&!CHAT.busy&&now-CHAT.lastChat>90&&now-cur.t<40&&cur.t>0&&!annoyed()&&!document.hidden){CHAT.askIn-=dt;if(CHAT.askIn<=0){CHAT.askIn=rnd(150,260);openChat(question(),0)}}
@@ -1589,14 +1717,16 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
     if(act.a.avoid&&cur.active()&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*5){const dx=E.x-cur.x,dy=E.y-cur.y,n=Math.hypot(dx,dy)||1;go({x:E.x+dx/n*R*4,y:E.y+dy/n*R*3},{now:1,speed:.7})}
     if(act.a.zoom){act.a.z+=dt;const a=act.a.z*3.2,m=area();go({x:m.l+m.w*.7+Math.sin(a)*m.w*.18,y:m.t+m.h*.45+Math.sin(a*2)*m.h*.18},{now:1,speed:2.4})}
     const napping=act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.8;E.zz=napping?1:0;
-    if(!SEQ&&!napping&&!act.a.zoom&&!act.a.mind&&!(act.a.errand&&act.stage)&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=MIND.live?rnd(20,34):rnd(11,20);fidget()}}
-    if(cur.x>=0&&!SEQ&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*3.6&&!cur.over){if(!cur.nearSince)cur.nearSince=now;if(now-cur.nearSince>2.6&&now-cur.moveT>1.8){cur.nearSince=now+10;
-      if(ATT()==='sweet')play([{d:1.2,pose:'cover',face:'shy'},{d:1,pose:'peek',face:'shy',look:'cursor'},{d:1.2,pose:'wave',face:'happy',look:'cursor',say:'…hi'}]);
+    if(!MIND.live&&!SEQ&&!napping&&!act.a.zoom&&!act.a.mind&&!(act.a.errand&&act.stage)&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=rnd(14,26);fidget()}}
+    if(cur.x>=0&&!SEQ&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*3.6&&!cur.over){if(!cur.nearSince)cur.nearSince=now;if(now-cur.nearSince>2.6&&now-cur.moveT>1.8){cur.nearSince=now+15;
+      if(MIND.live)try{mindEvent('near',{what:'their cursor is hovering near Ember'})}catch(_){}
+      else if(ATT()==='sweet')play([{d:1.2,pose:'cover',face:'shy'},{d:1,pose:'peek',face:'shy',look:'cursor'},{d:1.2,pose:'wave',face:'happy',look:'cursor',say:'…hi'}]);
       else play([{d:2.4,face:'unimpressed',look:'cursor',fn:()=>{E.noBlink=2.4}},{d:1.6,face:'tfman',pose:'crossed',look:'cursor',say:['','…can I help you?','take a picture, it lasts longer.']}])}}
     else if(cur.x<0||Math.hypot(cur.x-E.x,cur.y-E.y)>R*3.6)cur.nearSince=0;
     let bf=idleFace();if(annoyed())bf=N.annoy>.8?'glare':'unimpressed';else if(N.fond>.7&&ATT()!=='savage')bf='content';
     base.face=napping?'asleep':(act.a.nap?'sleepy':(N.energy<.3?'sleepy':(cur.over&&!annoyed()?(ATT()==='sweet'?'happy':'calm'):(act.a.zoom?'joy':bf))));
-    base.pose=napping?'limp':(act.a.zoom?'flail':(annoyed()&&ATT()!=='sweet'?'crossed':'rest'));base.look=napping?{dir:[0,1]}:(act.a.watch&&act.a.pt?{pt:act.a.pt}:null);if(act.a.watch&&act.a.pt&&!annoyed())base.face=ATT()==='sweet'?'curious':'sideeye'}
+    base.pose=napping?'limp':(act.a.zoom?'flail':(annoyed()&&ATT()!=='sweet'?'crossed':'rest'));base.look=napping?{dir:[0,1]}:(act.a.watch&&act.a.pt?{pt:act.a.pt}:null);if(act.a.watch&&act.a.pt&&!annoyed())base.face=ATT()==='sweet'?'curious':'sideeye';
+    if(act&&act.k==='m_wait'){if(act.face)base.face=act.face;if(act.pose)base.pose=act.pose;if(act.look)base.look=act.look}}
   seqTick(dt);grimeTick();mindTick();if(acc===0){pageTick();if(E.mode==='fly'&&E.landed&&E.seat&&!DRV.on&&!TW.on&&seatGone())fall()}
   let pose=cur_('pose')||base.pose,fn=cur_('face')||base.face,look=cur_('look')||base.look;
   if(E.mode==='grab'){pose='flail';fn=Math.hypot(E.vx,E.vy)>600?(ATT()==='sweet'?'joy':'shocked'):(ATT()==='sweet'?'surprised':'tfman');look='viewer'}
@@ -1604,15 +1734,18 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   if(E.mode==='fall'){pose='flail';fn='shocked';look='viewer'}
   if(E.dizzy>0){pose='limp';fn='dizzy'}
   if(E.purr>0){pose='hands';fn='content';look='viewer'}
-  E.pose=pose;const fx=E.mode==='fly'&&cur_('fx');if(fx){const key='fx:'+SEQ.i+':'+SEQ.steps.length+':'+fn;if(E.FT.name!==key)E.FT=Object.assign(face(fn),fx,{name:key})}else if(fn!==E.FT.name)E.FT=face(fn);
+  E.pose=pose;const fx=E.mode==='fly'&&(cur_('fx')||(act&&act.k==='m_wait'&&act.fx));if(fx){const key='fx:'+(SEQ?SEQ.i+':'+SEQ.steps.length:'wait')+':'+fn;if(E.FT.name!==key)E.FT=Object.assign(face(fn),fx,{name:key})}else if(fn!==E.FT.name)E.FT=driveFx(face(fn));
   if(look)E.look=look;else if(E.look&&!(E.look.until>now))E.look=null;
   simulate(dt);draw(dt);requestAnimationFrame(frame)}
-function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=act&&act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R;
-  N.energy=cl(N.energy+(napping?.04:-(.003+(moving?.008:0)+(act&&act.a.errand&&act.stage==='do'?.012:0)))*k,0,1);
-  N.curiosity=cl(N.curiosity+(act&&act.k==='watch'?-.06:.012)*k,0,1);
-  N.social=cl(N.social+(cur.over||E.purr>0||cur.grab||CHAT.open?-.12:.01)*k,0,1);
-  N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&(act.a.zoom||act.k==='watch'||act.a.errand))?-.09:.014)*k,0,1);
-  N.annoy=cl(N.annoy-.02*k,0,1);N.fond=cl(N.fond+(E.purr>0?.03:0)*k-.001*k,0,1)}
+function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=act&&act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R,
+  still=!moving&&(!act||act.k==='rest'||act.k==='perch'||act.k==='m_wait'||act.k==='mind_wait')&&!SEQ;
+  N.energy=cl(N.energy+(napping?.04:still?.005:-(.002+(moving?.006:0)+(act&&act.a.errand&&act.stage==='do'?.01:0)))*k,0,1);
+  N.curiosity=cl(N.curiosity+(act&&act.k==='watch'?-.05:.01)*k,0,1);
+  N.social=cl(N.social+(cur.over||E.purr>0||cur.grab||CHAT.open?-.1:.008)*k,0,1);
+  N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&(act.a.zoom||act.k==='watch'||act.a.errand||act.k==='m_improv'))?-.09:.008)*k,0,1);
+  N.playfulness=cl((N.playfulness||.5)+(N.energy>.55&&!annoyed()?.006:-.008)*k,0,1);
+  N.annoy=cl(N.annoy-.02*k,0,1);N.fond=cl(N.fond+(E.purr>0?.03:0)*k-.0005*k,0,1);
+  if(!automation&&now-driveSaveT>10){driveSaveT=now;store.set('ember_drives',N)}}
 
 /* ===== body physics ===== */
 function simulate(dt){const rr=R*E.r;
@@ -1792,10 +1925,10 @@ function set(o){if(o&&'fit' in o)FITOV=null;Object.assign(CFG,o||{});if(CFG.att=
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
 window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK,mindStatus:mindStatus()}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
-  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',actBy:act&&act.by||'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),mode:E.mode,seat:!!E.seat,grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn,noErrands:Object.fromEntries(Object.entries(NO_ERR).filter(([,u])=>u>now).map(([k,u])=>[k,Math.round(u-now)]))}),
+  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',actBy:act&&act.by||'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),mode:E.mode,seat:!!E.seat,grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn,drives:Object.assign({},N),noErrands:Object.fromEntries(Object.entries(NO_ERR).filter(([,u])=>u>now).map(([k,u])=>[k,Math.round(u-now)]))}),
   fall:()=>fall(),perch:()=>{SEQ=null;mood=null;act={k:'perch',a:ACTS.perch,t:0,dur:60};go(SP.perch,{speed:.8})},
   errand:k=>{if(errandBlocked(k))return false;const a=ACTS['e_'+k];if(!a)return false;act={k:'e_'+k,a,t:0,dur:40};a.run.call(a);return true},
-  mind:()=>({live:!!MIND.live,off:!!MIND.off,why:MIND.why||'',busy:!!MIND.busy,cue:!!(MIND.busy||now<MIND.cueUntil),thought:MIND.thought,plan:MIND.plan.slice(),hist:MIND.hist.slice(),lib:Object.keys(LIB),next:Math.round(MIND.next-now),today:MSTAT.today,lastAt:MSTAT.lastAt,status:mindStatus(),acts:ACTS_LOG.slice(-12)}),think:r=>{MIND.off=0;MIND.next=0;think(r||'asked')},
+  mind:()=>({live:!!MIND.live,off:!!MIND.off,why:MIND.why||'',busy:!!MIND.busy,cue:!!(MIND.busy||now<MIND.cueUntil),thought:MIND.thought,focus:MIND.focus||'',plan:MIND.plan.slice(),hist:MIND.hist.slice(),lib:Object.keys(LIB),next:Math.round(MIND.next-now),today:MSTAT.today,lastAt:MSTAT.lastAt,status:mindStatus(),acts:ACTS_LOG.slice(-12)}),think:r=>{MIND.off=0;MIND.next=0;think(r||'asked')},
   hurry:()=>{N.energy=.8;N.boredom=.4;fidgetIn=60;MIND.next=0;if(act)act.t=act.dur+1}};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
   fetch('/api/ember/desktop').then(r=>r.json()).then(d=>{CFG.desktop=!!(d&&d.on);CFG.deskAvail=!!(d&&d.available);if(CFG.on&&!CFG.desktop&&!automation)start()}).catch(()=>{if(CFG.on&&!automation)start()})}
@@ -1927,6 +2060,26 @@ def _selftest() -> int:
     check("next time the mind is told it knows it", "big_sneeze" in mind_rules("sassy", ["big_sneeze"]))
     m2 = mind({}, "sassy", [], lambda msgs: '{"plan":[{"do":"big_sneeze"}]}')
     check("a learned behaviour can be asked for again", m2["plan"] == [{"do": "big_sneeze"}])
+    m3 = mind({}, "sassy", [], lambda msgs: json.dumps({
+        "thought": "drift to the upper-left and watch them with one brow raised",
+        "focus": "the person",
+        "plan": [
+            {"go": [0.22, 0.28]},
+            {"t": 1.4, "pose": "crossed", "fx": {"bL": 0.4, "lidU": 0.5, "mas": 0.6}, "hands": [[-0.8, 0.4], [0.8, 0.4]]},
+            {"wait": 18, "look": "viewer", "face": "curious", "fx": {"bR": 0.3}},
+        ],
+    }))
+    check("mind() accepts free [x, y] coordinates, inline keyframe steps, and rich stillness waits",
+          m3.get("focus") == "the person"
+          and m3["plan"][0] == {"go": [0.22, 0.28]}
+          and "steps" in m3["plan"][1] and m3["plan"][1]["steps"][0]["fx"] == {"bL": 0.4, "lidU": 0.5, "mas": 0.6}
+          and m3["plan"][2] == {"wait": 18.0, "look": "viewer", "face": "curious", "fx": {"bR": 0.3}})
+    r_d = reply([{"role": "user", "content": "dance for me"}], "", "sassy",
+                call=lambda p: '{"say":"fine. watch this.","face":"smug","gesture":"dance","mood":0.3}')
+    a_d = act("dance for me", "", "sassy", call=lambda p: 1/0)
+    check("asking Ember to dance in chat or voice attaches physical multi-keyframe choreography",
+          bool(r_d.get("plan")) and "steps" in r_d["plan"][0] and any(s.get("spin") for s in r_d["plan"][0]["steps"])
+          and a_d["kind"] == "answer" and "steps" in a_d["plan"][0])
     try:
         mind({}, "sassy", [], lambda msgs: '{"plan":[{"teleport":"moon"}]}')
         bad = False

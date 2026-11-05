@@ -7924,3 +7924,26 @@ packaged Windows app's MCP tools PASSED.
   thought cue and tiny sparkle, and Settings → Companion shows
   `"Mind: on · last thought … · N today"`. Verified in `tests/ember_battery.py`
   (88/88).
+- AUTONOMOUS PRIMITIVE MIND & UNSCRIPTED CHOREOGRAPHY (`aethron_ember.py`):
+  - Removed the hidden scripted hijackers that made Ember feel like a repeating
+    loop: `autoFit()` no longer forces `'beanie'` across Jan/Feb/Dec, `fidgetIn`
+    and `cur.nearSince` scripted routines are gated behind `!MIND.live` (emitting
+    a `near` perception event to the mind when live), and `needs()` gently
+    recovers `N.energy` while still (`rest`, `perch`, `m_wait`) instead of
+    draining to `<0.2` every 3 minutes.
+  - Every plan step in `mind()`, `reply()`, and `act()` now accepts inline
+    multi-keyframe sequences (`{"steps": [...]}`), direct single-keyframe face
+    dials and body kinematics (`fx`, `hands`, `wiggle`, `hop`, `spin`, `squash`,
+    `tilt`, `shake`, `scale`, `nudge`, `glow`, `burst`), free spatial coordinates
+    (`{"go": [x, y]}` in `0..1` plus `"wander"`, `"center"`, `"approach"`,
+    `"away"`, `"left"`, `"right"`, `"bottom"`), and intentional stillness/
+    observation (`{"wait": seconds, "look": ..., "face": ..., "fx": ..., "pose": ...}`)
+    without yanking Ember back to `SP.rest`.
+  - Fixed `send()` and `chatTick()` so physical requests while `#ember-talk` is
+    open (`"dance for me"`, `"do a flip"`, `"make a suspicious face"`, `"come here"`)
+    physically execute on the 60fps body rig without `gesture()` or `chatTick()`
+    clobbering `SEQ`.
+  - Added continuous drive-to-face coupling (`driveFx()`), persistent internal
+    drives (`ember_drives` in `localStorage`), and `focus` + `last_outcome`
+    feedback in `perceive()`. Verified in `aethron_ember.py --selftest` (37/37)
+    and `tests/ember_battery.py` (92/92).
