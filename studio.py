@@ -507,6 +507,36 @@ def _ember_call(seconds):
     return call
 
 
+EMBER_MIND_S = 15     # the mind gets this long; the window carries on meanwhile
+
+
+def _ember_mind_call(seconds):
+    """Ember's mind runs on the TEAM's mind model (switched on in the admin),
+    never on the person's own key or the project AI. AETHRON_EMBER_MIND=local
+    uses the active provider instead (for trying it out from source)."""
+    import os
+    if os.environ.get("AETHRON_EMBER_MIND") == "local":
+        def local(msgs):
+            import aethron_brain
+            text = "\n\n".join(m["content"] for m in msgs)
+            return aethron_brain.text_call(text, timeout=seconds, max_tokens=900)
+        return local
+    import aethron_control
+    tok = aethron_control.device_token()
+    if not tok:
+        raise PermissionError("sign in to Aethron so Ember can think")
+
+    def cloud(msgs):
+        st, j = aethron_control._request("POST", "/ember/mind", {"messages": msgs, "max_tokens": 900}, token=tok,
+                                              timeout=seconds)
+        if st == 200 and isinstance(j, dict) and j.get("content"):
+            return j["content"]
+        err = PermissionError if st in (401, 403, 429, 503) else RuntimeError
+        e = (j or {}).get("error")
+        raise err((e.get("message") if isinstance(e, dict) else e) or f"the mind answered {st}")
+    return cloud
+
+
 def voice_listener():
     global _VOICE
     try:
@@ -2020,6 +2050,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/voice/poll":
                 v = voice_listener()
                 return self.send_json(v.poll() if v else {"state": "error", "text": "", "why": "no microphone here"})
+            if u.path == "/api/ember/behaviors":
+                return self.send_json({"behaviors": _ember.behaviours() if _ember else []})
             if u.path == "/api/ember/inbox":
                 out = list(EMBER_INBOX)
                 del EMBER_INBOX[:]
@@ -3419,6 +3451,23 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
                 self.send_json(out)
+            elif u.path == "/api/ember/mind":
+                # what Ember perceives -> what it does next (and any behaviour
+                # it invents). No mind switched on = {off:true}: the window
+                # keeps its built-in behaviour and asks again later.
+                if not _ember:
+                    return self.send_json({"off": True, "retry": 3600, "why": "the companion is not available"})
+                try:
+                    call = _ember_mind_call(EMBER_MIND_S)
+                except PermissionError as e:
+                    return self.send_json({"off": True, "retry": 1800, "why": str(e)})
+                got = _with_deadline(lambda: _ember.mind(body.get("state") or {}, str(body.get("attitude") or "sassy"),
+                                                         body.get("known") or [], call), EMBER_MIND_S + 3)
+                if isinstance(got, PermissionError):
+                    return self.send_json({"off": True, "retry": 1800, "why": str(got)})
+                if isinstance(got, Exception):
+                    return self.fail(str(got) or "Ember's mind did not answer")
+                self.send_json(got)
             elif u.path == "/api/ember/say":
                 # one line from the companion, in character, by the active
                 # provider; savage is refused unless the team says admin

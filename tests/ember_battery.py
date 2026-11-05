@@ -222,7 +222,57 @@ try:
             if sum((v.evaluate("ember.state().seen") or {}).values()) >= 2: break
         seen = v.evaluate("ember.state().seen") or {}
         check("left alone, Ember goes off and does errands of its own", sum(seen.values()) >= 2, str(seen))
+        # ---- dusting is real: dust appears on the row and its hands wipe it off as it sweeps
+        if v.evaluate("document.querySelectorAll('.pitem,.rcard').length"):
+            v.evaluate("ember.errand('dust')")
+            lefts = []
+            for _ in range(60):
+                v.wait_for_timeout(200)
+                g = v.evaluate("ember.state().grime")
+                if g: lefts.append((g["left"], g["n"]))
+                if lefts and not g: break
+            v.screenshot(path=str(SP/"dust.png"))
+            check("dusting puts real dust on the row it chose", bool(lefts) and lefts[0][0] == lefts[0][1] > 10, str(lefts[:3]))
+            check("and the wipe takes it off a little at a time as Ember sweeps", any(0 < l < n * .8 for l, n in lefts), str(lefts[::5]))
+            check("until the row is clean", not v.evaluate("ember.state().grime") or v.evaluate("ember.state().grime.left") == 0)
+        # ---- no mind switched on (not signed in here): Ember keeps its own behaviour
+        v.evaluate("ember.think('test')"); v.wait_for_timeout(2500)
+        mm = v.evaluate("ember.mind()")
+        check("with no mind switched on, Ember knows it and carries on by itself", mm["off"] and not mm["live"], str(mm))
         v.close()
+        # ---- with a mind: it plans, invents a behaviour, plays it, and keeps it
+        mp = b.new_page(viewport={"width": 1400, "height": 900})
+        mp.on("pageerror", lambda e: errs.append("mind: " + str(e)))
+        mp.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1';if(!sessionStorage.libcleared){sessionStorage.libcleared=1;localStorage.removeItem('ember_lib')}}catch(e){}")
+        asked = []
+        plan = {"thought": "it's cold in here and they're ignoring me", "mood": "worried",
+                "plan": [{"do": "shiver"}, {"say": "brr. it's freezing."}, {"outfit": "beanie", "for": 5}, {"glasses": "peek"}],
+                "new": [{"name": "shiver", "about": "a cold little shiver", "steps": [
+                    {"t": 1.2, "face": "worried", "pose": "gen", "hands": [[-.5, .3], [.5, .3]], "wiggle": [.15, 25], "shake": 1},
+                    {"t": .8, "face": "sad", "fx": {"flame": .7}, "burst": {"kind": "smoke", "n": 4}}]}], "remember": ""}
+        def fulfil(route):
+            asked.append(json.loads(route.request.post_data or "{}"))
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(plan))
+        mp.route("**/api/ember/mind", fulfil)
+        mp.goto(BASE + "/?ember=1"); mp.wait_for_timeout(3000)
+        mp.evaluate("ember.think('test')")
+        poses, said = set(), set()
+        for _ in range(120):
+            mp.wait_for_timeout(150)
+            st = mp.evaluate("ember.state()"); poses.add(st["pose"]); said.add(st["bubble"] or "")
+            if "brr. it's freezing." in said and st["outfit"] == "beanie": break
+        body = asked[0] if asked else {}
+        check("the mind is told what Ember perceives and what it can already do",
+              "person" in (body.get("state") or {}) and "dust" in (body.get("known") or []), str(body)[:200])
+        mm = mp.evaluate("ember.mind()")
+        check("its plan is taken on", mm["live"] is True and "cold" in mm["thought"], str(mm))
+        check("the behaviour it invented plays at once", "gen" in poses, str(poses))
+        check("then the rest of the plan: it speaks and changes into a beanie",
+              "brr. it's freezing." in said and mp.evaluate("ember.state().outfit") == "beanie", str(said))
+        check("the invented behaviour is kept for next time", "shiver" in mm["lib"] and "shiver" in (mp.evaluate("localStorage.ember_lib") or ""))
+        mp.reload(); mp.wait_for_timeout(2500)
+        check("and it is still known after a restart", "shiver" in mp.evaluate("ember.mind().lib"))
+        mp.close()
         # ---- a first launch: Ember welcomes the person and shows them around
         w = b.new_page(viewport={"width": 1400, "height": 900})
         w.on("pageerror", lambda e: errs.append("welcome: " + str(e)))

@@ -558,3 +558,45 @@ describe("a drawing must stand still", () => {
     for (const t of Object.values(art.TEMPLATES)) expect(art.checkSvg(t)).toContain("<svg");
   });
 });
+
+describe("Ember's mind", () => {
+  const ask = (tok: string) => call("POST", "/ember/mind", { token: tok,
+    body: { messages: [{ role: "system", content: "be Ember" }, { role: "user", content: "PERCEPTION: quiet" }] } });
+
+  test("off by default: the copy is told to keep its built-in behaviour", async () => {
+    const d = await deviceFor("ada@example.com");
+    const r = await ask(d.device);
+    expect(r.status).toBe(503);
+    expect(r.body.error.off).toBe(true);
+  });
+
+  test("on: its own model and key answer, metered as ember, separate from the project AI", async () => {
+    fake.tables.secrets.push({ name: "base_groq", value: PROV });
+    await tool("set_provider_key", { provider: "groq", keys: "gsk_EMBERKEY123", base_url: PROV });
+    const s = await tool("set_ember_mind", { on: true, per_hour: 2 });
+    expect(s.body.result.model).toBe("llama-3.1-8b-instant");
+    forget("");
+    const d = await deviceFor("ada@example.com");
+    let seen: any = null, key = "";
+    fake.provider = (b, k) => { seen = b; key = k; return fake.reply('{"plan":[{"do":"yawn"}]}'); };
+    const r = await ask(d.device);
+    expect(r.status).toBe(200);
+    expect(r.body.content).toContain("yawn");
+    expect(key).toBe("gsk_EMBERKEY123");
+    expect(seen.model).toBe("llama-3.1-8b-instant");
+    expect(seen.response_format.type).toBe("json_object");
+    expect(fake.tables.usage_ledger[0].purpose).toBe("ember");
+    expect(JSON.stringify(r.body)).not.toContain("gsk_EMBERKEY123");
+    await ask(d.device);
+    const third = await ask(d.device);
+    expect(third.status).toBe(429);
+    expect(third.body.error.off).toBe(true);
+    const st = await tool("ember_mind");
+    expect(st.body.result.on).toBe(true);
+    expect(st.body.result.thoughts_today).toBe(2);
+  });
+
+  test("not signed in, or paused: no thinking", async () => {
+    expect((await call("POST", "/ember/mind", { body: { messages: [] } })).status).toBe(401);
+  });
+});

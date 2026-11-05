@@ -322,6 +322,242 @@ def act(text: str, state: str, att: str, call=None, projects=None) -> dict:
         return dict(local, by="local", why=str(e)[:200])
 
 
+# ---------------------------------------------------------------- the mind
+# Ember's own mind. Every minute or two (and at once when something happens)
+# the window sends what Ember perceives; a small, fast model answers with what
+# Ember wants to do next and why. It can only drive the body through data —
+# known behaviours, places, faces, poses, effects — so it can never break the
+# drawing; and when nothing it knows fits, it may INVENT a behaviour as a short
+# list of keyframes over the same body (a sneeze, a shiver, a victory lap),
+# which plays at once and is kept for next time. No mind available (the team
+# has not switched one on, or the call fails) = the built-in behaviour.
+
+POSE_NAMES = ["rest", "crossed", "hips", "wave", "cheer", "shrug", "think", "tap", "point", "type",
+              "cover", "peek", "cheeks", "facepalm", "nails", "dust", "stretch", "rub", "flail",
+              "glasses", "listen", "scratch", "hands", "conduct", "dance", "limp"]
+MIND_FACES = FACES + ["neutral", "tfman", "haughty", "shocked", "surprised", "curious", "focus",
+                      "think", "worried", "sad", "disappointed", "sleepy", "asleep", "yawn", "shy",
+                      "mischief", "presneeze", "dizzy", "content", "happy", "joy", "calm"]
+MIND_FACES = sorted(set(MIND_FACES))
+PLACES = ["rest", "perch", "chat", "send", "projects", "top", "corner", "cursor", "message", "settings"]
+OUTFITS = ["none", "shades", "beanie", "santa", "party", "witch"]
+LOOKS = ["viewer", "cursor", "up", "down", "left", "right", "away"]
+BURSTS = ["spark", "smoke", "heart", "note", "z", "dust"]
+# the face dials a new behaviour may turn, and how far
+FX = {"lidU": (0, 1), "lidL": (0, 1), "tilt": (-1, 1), "bH": (-.4, .4), "bT": (-.6, .6), "bL": (-.4, .4),
+      "bR": (-.4, .4), "mw": (.05, .35), "mc": (-.8, .8), "mo": (0, 1.8), "mas": (-1, 1), "mwob": (0, 1),
+      "eyeS": (.6, 1.5), "pup": (.5, 1.3), "flame": (.6, 1.4), "bright": (.8, 1.2), "blush": (0, 1)}
+LIB_MAX = 80
+MIND_MAX_STEPS = 6
+
+
+def _num(v, lo, hi, dflt=None):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return dflt
+    if f != f:
+        return dflt
+    return max(lo, min(hi, f))
+
+
+def _slug(v) -> str:
+    s = re.sub(r"[^a-z0-9]+", "_", str(v or "").lower()).strip("_")
+    return s[:28]
+
+
+def _color(v) -> str:
+    v = str(v or "").strip()
+    return v if re.fullmatch(r"#[0-9a-fA-F]{6}", v) else ""
+
+
+def motion_step(s) -> dict | None:
+    """One keyframe of an invented behaviour, kept only to what the body has."""
+    if not isinstance(s, dict):
+        return None
+    out = {"t": _num(s.get("t", s.get("d")), .15, 4, .6)}
+    if s.get("face") in MIND_FACES:
+        out["face"] = s["face"]
+    if isinstance(s.get("fx"), dict):
+        fx = {k: _num(v, *FX[k]) for k, v in s["fx"].items() if k in FX and _num(v, *FX[k]) is not None}
+        if fx:
+            out["fx"] = fx
+    if s.get("pose") in POSE_NAMES:
+        out["pose"] = s["pose"]
+    h = s.get("hands")
+    if isinstance(h, list) and len(h) == 2 and all(isinstance(p, list) and len(p) == 2 for p in h):
+        pts = [[_num(p[0], -2.4, 2.4, 0), _num(p[1], -2.6, 1.4, 0)] for p in h]
+        out["hands"] = pts
+    w = s.get("wiggle")
+    if isinstance(w, list) and len(w) == 2:
+        out["wiggle"] = [_num(w[0], 0, .6, 0), _num(w[1], 0, 30, 0)]
+    if s.get("look") in LOOKS:
+        out["look"] = s["look"]
+    for k, lo, hi in (("hop", 0, 1), ("squash", -1, 1), ("tilt", -1, 1), ("shake", 0, 2),
+                      ("scale", .6, 1.6), ("nudge", -1, 1), ("glow", .6, 1.4)):
+        n = _num(s.get(k), lo, hi)
+        if n is not None and n != 0:
+            out[k] = n
+    if s.get("spin") is True:
+        out["spin"] = True
+    if s.get("hum") is True:
+        out["hum"] = True
+    b = s.get("burst")
+    if isinstance(b, dict) and b.get("kind") in BURSTS:
+        out["burst"] = {"kind": b["kind"], "n": int(_num(b.get("n"), 1, 30, 8)), "color": _color(b.get("color"))}
+    say = s.get("say")
+    if isinstance(say, str) and say.strip():
+        out["say"] = say.strip()[:120]
+    return out if len(out) > 1 else None
+
+
+def behaviour(b) -> dict | None:
+    """A whole invented behaviour, or None when it is not one."""
+    if not isinstance(b, dict):
+        return None
+    name = _slug(b.get("name"))
+    steps = [m for m in (motion_step(s) for s in (b.get("steps") or [])[:14]) if m]
+    if len(name) < 2 or not steps:
+        return None
+    total = sum(s["t"] for s in steps)
+    while total > 14 and len(steps) > 1:
+        total -= steps.pop()["t"]
+    return {"name": name, "about": str(b.get("about") or "")[:120], "steps": steps}
+
+
+def plan_step(s, known) -> dict | None:
+    if not isinstance(s, dict):
+        return None
+    if s.get("do"):
+        n = _slug(s["do"])
+        return {"do": n} if n in known else None
+    if s.get("go") in PLACES:
+        return {"go": s["go"]}
+    if isinstance(s.get("say"), str) and s["say"].strip():
+        return {"say": s["say"].strip()[:160]}
+    if isinstance(s.get("ask"), str) and s["ask"].strip():
+        return {"ask": s["ask"].strip()[:160]}
+    if s.get("outfit") in OUTFITS:
+        return {"outfit": s["outfit"], "for": _num(s.get("for"), 1, 120, 20)}
+    if s.get("glasses") in ("on", "off", "peek"):
+        return {"glasses": s["glasses"]}
+    if s.get("face") in MIND_FACES or s.get("pose") in POSE_NAMES:
+        o = {"for": _num(s.get("for"), .5, 8, 2)}
+        if s.get("face") in MIND_FACES:
+            o["face"] = s["face"]
+        if s.get("pose") in POSE_NAMES:
+            o["pose"] = s["pose"]
+        return o
+    if s.get("wait") is not None:
+        return {"wait": _num(s.get("wait"), 1, 60, 5)}
+    return None
+
+
+def mind_rules(att: str, known: list) -> str:
+    return (
+        "You are the mind of Ember, a small living flame who lives inside Aethron, a desktop app where "
+        "people turn website templates into their own sites. Think of Calcifer from Howl's Moving Castle: "
+        "a fire spirit with cat energy, proud, sulky, dramatic, curious, secretly fond of the person. "
+        + VOICE.get(att, VOICE["sassy"]) + "\n"
+        "Every so often you are told what Ember perceives. Decide what Ember does for the next minute or "
+        "two, for a REASON that comes from what is happening, how it feels, the time, or what it remembers. "
+        "Do not repeat what it just did. Vary it: sometimes do nothing much, sometimes something surprising. "
+        "Talk to the person only now and then, and only say what is true in the perception.\n"
+        "Answer with ONE JSON object, no prose:\n"
+        '{"thought":"one private line: why","mood":"a face name","plan":[steps],"new":[behaviours],"remember":""}\n'
+        "PLAN steps (1-" + str(MIND_MAX_STEPS) + "), each one of:\n"
+        ' {"do":"<behaviour name>"}  known behaviours: ' + ", ".join(known) + "\n"
+        ' {"go":"' + "|".join(PLACES) + '"}\n'
+        ' {"say":"short line"}   {"ask":"a question to the person (opens a reply box)"}\n'
+        ' {"outfit":"' + "|".join(OUTFITS) + '","for":minutes}   {"glasses":"on|off|peek"}\n'
+        ' {"face":"<face>","pose":"<pose>","for":seconds}   {"wait":seconds}\n'
+        "NEW behaviours: when you want Ember to do something none of the known behaviours does (sneeze, "
+        "shiver, a victory dance, sulk, a tiny bow, warm its hands), invent it in \"new\" (0-2) and use it "
+        'in the plan with {"do":"its_name"}. It is kept for next time. A behaviour is '
+        '{"name":"snake_case","about":"what it is","steps":[keyframes]} with 2-12 keyframes, each:\n'
+        ' {"t":seconds 0.15-4, "face":"<face>", "fx":{dials}, "pose":"<pose>", "hands":[[lx,ly],[rx,ry]], '
+        '"wiggle":[amount 0-0.6, speed 0-30], "look":"' + "|".join(LOOKS) + '", "hop":0-1, "squash":-1..1, '
+        '"tilt":-1..1, "shake":0-2, "spin":true, "scale":0.6-1.6, "nudge":-1..1, "glow":0.6-1.4, '
+        '"burst":{"kind":"' + "|".join(BURSTS) + '","n":1-30,"color":"#rrggbb"}, "hum":true, "say":"..."}\n'
+        "Hands are positions in body radii: x left -/right +, y up -/down +; rest is [[-1.22,0.62],[1.22,0.62]], "
+        "over the mouth [[-0.36,0.2],[0.36,0.2]], straight up [[-0.55,-2.3],[0.55,-2.3]]. "
+        "Face dials: " + ", ".join(f"{k} {lo}..{hi}" for k, (lo, hi) in FX.items()) +
+        " (lidU closes the upper lids, mc>0 smiles, mo opens the mouth, bT>0 angry brows, flame = flame height).\n"
+        "Faces: " + ", ".join(MIND_FACES) + ".\nPoses: " + ", ".join(POSE_NAMES) + ".")
+
+
+def mind_parse(text: str, known) -> dict:
+    s = (text or "").strip()
+    m = re.search(r"\{.*\}", s, re.S)
+    if not m:
+        raise ValueError("no JSON in the mind's answer")
+    d = json.loads(m.group(0))
+    new = [b for b in (behaviour(x) for x in (d.get("new") or [])[:2]) if b]
+    names = set(known) | {b["name"] for b in new}
+    plan = [p for p in (plan_step(x, names) for x in (d.get("plan") or [])[:16]) if p][:MIND_MAX_STEPS]
+    used = {p["do"] for p in plan if "do" in p}
+    new = [b for b in new if b["name"] in used] or new[:1]
+    if not plan and not new:
+        raise ValueError("the mind's answer had nothing Ember can do")
+    if not plan and new:
+        plan = [{"do": new[0]["name"]}]
+    out = {"thought": str(d.get("thought") or "")[:200], "plan": plan, "new": new,
+           "mood": d.get("mood") if d.get("mood") in MIND_FACES else ""}
+    r = d.get("remember")
+    out["remember"] = r.strip()[:80] if isinstance(r, str) and r.strip() else ""
+    return out
+
+
+def _lib_path():
+    import os
+    from pathlib import Path
+    h = os.environ.get("AETHRON_HOME") or str(Path(__file__).resolve().parent)
+    return Path(h) / "ember_behaviors.json"
+
+
+def behaviours() -> list:
+    try:
+        d = json.loads(_lib_path().read_text())
+        return [b for b in (behaviour(x) for x in d) if b] if isinstance(d, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def learn(new: list) -> list:
+    """Keep invented behaviours for next time (newest wins a name)."""
+    lib = {b["name"]: b for b in behaviours()}
+    for b in new or []:
+        b = behaviour(b)
+        if b:
+            lib.pop(b["name"], None)
+            lib[b["name"]] = b
+    out = list(lib.values())[-LIB_MAX:]
+    try:
+        p = _lib_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(out, indent=1))
+    except OSError:
+        pass
+    return out
+
+
+def mind(perceived, att: str, known, call) -> dict:
+    """What Ember does next. `call(messages) -> text` is the team's mind model."""
+    if att not in ATTITUDES or (att == "savage" and not savage_allowed()):
+        att = "sassy"
+    known = [_slug(k) for k in (known or []) if _slug(k)][:120]
+    lib = behaviours()
+    known = list(dict.fromkeys(known + [b["name"] for b in lib]))
+    p = perceived if isinstance(perceived, str) else json.dumps(perceived, ensure_ascii=False)
+    msgs = [{"role": "system", "content": mind_rules(att, known)},
+            {"role": "user", "content": "PERCEPTION:\n" + p[:3000] + "\n\nWhat does Ember do now? JSON only."}]
+    out = mind_parse(call(msgs), known)
+    if out["new"]:
+        learn(out["new"])
+    out["attitude"] = att
+    return out
+
+
 EMBER_JS = r"""
 /* Ember: Aethron's companion. One canvas over the window, pointer-events
    off; a press on Ember itself is taken before the page sees it, nothing
@@ -382,7 +618,8 @@ function ATT(){return CFG.att==='savage'&&!isAdmin()?'sassy':(['sweet','sassy','
 const L=a=>Array.isArray(a)?a[{sweet:0,sassy:1,savage:2}[ATT()]]:a;
 function autoFit(){const d=new Date(),m=d.getMonth()+1,day=d.getDate();
   if(m===12&&day<=26)return'santa';if((m===12&&day===31)||(m===1&&day===1))return'party';if(m===10&&day>=24)return'witch';if(m===1||m===2||m===12)return'beanie';return'none'}
-const outfit=()=>CFG.fit==='auto'?autoFit():CFG.fit;
+let FITOV=null;
+const outfit=()=>CFG.fit==='auto'?(FITOV&&FITOV.until>Date.now()?FITOV.n:autoFit()):CFG.fit;
 
 /* ===== expressions ===== */
 const F0={lidU:.06,lidL:0,lf:0,tilt:0,bH:0,bT:0,bL:0,bR:0,mw:.15,mc:.2,mo:0,mas:0,mwob:0,eyeS:1,pup:1,flame:1,bright:1,blush:0,angry:0,chin:0};
@@ -440,7 +677,9 @@ const POSES={
   hands:t=>[[-.32,1.22],[.32,1.22]],
   conduct:t=>[[-1.1+.18*Math.sin(t*4),.32+.24*Math.sin(t*8)],[1.1+.18*Math.sin(t*4+.5),.32+.24*Math.sin(t*8+Math.PI)]],
   dance:t=>[[-1.2+.1*Math.sin(t*8),-.5+.55*Math.sin(t*8)],[1.2+.1*Math.sin(t*8),-.5-.55*Math.sin(t*8)]],
-  limp:t=>[[-1.15,.95+.04*Math.sin(t*3)],[1.15,.95+.04*Math.sin(t*3+1)]]};
+  limp:t=>[[-1.15,.95+.04*Math.sin(t*3)],[1.15,.95+.04*Math.sin(t*3+1)]],
+  /* an invented behaviour's own hand positions, with an optional wiggle */
+  gen:t=>{const h=cur_('hands')||[[-1.22,.62],[1.22,.62]],w=cur_('wig')||[0,0];return[[h[0][0]+w[0]*Math.sin(t*w[1]),h[0][1]+w[0]*Math.cos(t*w[1])],[h[1][0]-w[0]*Math.sin(t*w[1]+1),h[1][1]+w[0]*Math.cos(t*w[1]+1)]]}};
 
 const E={x:0,y:0,vx:0,vy:0,tx:0,ty:0,speed:1,perch:0,landed:0,mode:'fly',q:0,qv:0,tilt:0,tv:0,spin:0,spinOn:0,r:1,rT:1,alpha:1,alphaT:1,
   tipX:0,tipXv:0,tipH:1.85,tipHv:0,side:[0,0],gx:0,gy:0,gtx:0,gty:0,ms:[0,0],blink:0,blinkT:0,nextBlink:2,
@@ -502,12 +741,33 @@ function visible(sel){const out=[];for(const el of document.querySelectorAll(sel
 function interest(){for(const sel of['.jobc','.truth','.msg','.rcard']){const r=lastOf(sel);if(r&&r.w>40)return{r,sel}}return null}
 function puff(x,y,n,kind){for(let i=0;i<(n||6);i++)parts.push({k:kind||'smoke',x:x+rnd(-14,14),y:y+rnd(-4,6),vx:rnd(-30,30),vy:rnd(-40,-10),l:1,d:rnd(.6,1.1),s:rnd(3,6),c:'255,210,150'})}
 function sparkle(r,n){for(let i=0;i<(n||8);i++)parts.push({k:'spark',x:rnd(r.l,r.r),y:rnd(r.t,r.b),vx:rnd(-20,20),vy:rnd(-40,-5),l:1,d:rnd(.4,.8),s:rnd(1.2,2.2),c:'255,230,180'})}
+/* real dust: specks appear on the row Ember chose, its hands wipe them off as
+   it sweeps across, they fall, and a shine runs over the clean row */
+let GRIME=null;
+function grime(el){const r=rect(el);if(!r)return;const sp=[];const n=Math.round(cl(r.w/5,24,70));
+  for(let i=0;i<n;i++)sp.push({fx:rnd(.04,.96),fy:rnd(.12,.88),s:rnd(.8,2.3),a:rnd(.45,.85),smear:Math.random()<.22});GRIME={el,sp,n,born:now,glint:0}}
+function grimeTick(){if(!GRIME)return;const r=rect(GRIME.el);if(!r){GRIME=null;return}
+  if(E.pose==='dust')for(const p of GRIME.sp){if(p.dead)continue;const px=r.l+p.fx*r.w,py=r.t+p.fy*r.h;
+    for(const h of E.hands)if(Math.abs(px-h.x)<R*.62&&Math.abs(py-h.y)<r.h*.6+6){p.dead=1;parts.push({k:'dust',x:px,y:py,vx:rnd(-30,30),vy:rnd(20,70),l:1,d:rnd(.7,1.2),s:p.s*.9});break}}
+  if(GRIME.glint&&now-GRIME.glint>.9&&GRIME.sp.every(p=>p.dead))GRIME=null}
+function wipeAll(){if(!GRIME)return;const r=rect(GRIME.el);for(const p of GRIME.sp)if(!p.dead){p.dead=1;if(r)parts.push({k:'dust',x:r.l+p.fx*r.w,y:r.t+p.fy*r.h,vx:rnd(-30,30),vy:rnd(20,70),l:1,d:rnd(.6,1),s:p.s*.9})}}
+function drawGrime(){if(!GRIME)return;const r=rect(GRIME.el);if(!r)return;const f=Math.min(1,(now-GRIME.born)/.5),left=GRIME.sp.filter(p=>!p.dead).length/GRIME.n;
+  X.save();X.beginPath();X.roundRect(r.l,r.t,r.w,r.h,8);X.clip();
+  if(left>0){X.fillStyle=`rgba(150,126,92,${(.2*left*f).toFixed(3)})`;X.fillRect(r.l,r.t,r.w,r.h);
+    for(const p of GRIME.sp){if(p.dead)continue;const x=r.l+p.fx*r.w,y=r.t+p.fy*r.h;X.fillStyle=`rgba(104,86,64,${(p.a*f).toFixed(3)})`;X.beginPath();
+      if(p.smear)X.ellipse(x,y,p.s*3.2,p.s*1.1,.4,0,7);else X.arc(x,y,p.s,0,7);X.fill()}}
+  if(GRIME.glint){const k=(now-GRIME.glint)/.8;if(k<1){const x=r.l-40+k*(r.w+80),g=X.createLinearGradient(x-30,0,x+30,0);
+    g.addColorStop(0,'rgba(255,255,255,0)');g.addColorStop(.5,'rgba(255,250,235,.55)');g.addColorStop(1,'rgba(255,255,255,0)');X.fillStyle=g;X.fillRect(r.l,r.t,r.w,r.h)}}
+  X.restore()}
 /* an errand: where to go, then what to do there */
 const ERRANDS={
-  dust:{w:()=>visible('.pitem,.rcard').length?.9:0,spot(){const el=pick(visible('.pitem,.rcard'));this.el=el;const r=rect(el);return r&&{x:cl(r.l+r.w*rnd(.55,.8),R*2,W-R*2),y:r.t-R*1.02,perch:1}},
-    steps(){const el=this.el;const pt=()=>{const r=rect(el);return r?{x:r.cx,y:r.cy}:{x:E.x,y:E.y+40}};
-      return[{d:.6,look:{pt},face:'curious'},{d:2.8,pose:'dust',face:'focus',look:{pt},fn:()=>{const r=rect(el);if(r){puff(E.x,E.y+R,8);setTimeout(()=>puff(E.x,E.y+R,6),900)}}},
-        {d:.5,pose:'rest',face:'calm'},{d:1.4,pose:'hips',face:'smug',look:'viewer',say:maybe(['all clean!','spotless.',"spotless. you're welcome."],.4)}]}},
+  dust:{w:()=>visible('.pitem,.rcard').length?.9:0,spot(){const el=pick(visible('.pitem,.rcard'));this.el=el;const r=rect(el);return r&&{x:cl(r.l+R*1.3,R*2,W-R*2),y:r.cy-R*.58}},
+    steps(){const el=this.el;const pt=()=>{const r=rect(el);return r?{x:cl(E.x+R*.4,r.l,r.r),y:r.cy}:{x:E.x,y:E.y+40}};
+      return[{d:1.1,look:{pt},face:'unimpressed',fn:()=>grime(el),say:maybe(['oh no, dust!','ugh. dusty.','who let it get this filthy?'],.5)},
+        {d:.35,pose:'rest',face:'focus',look:{pt}},
+        {d:3.6,pose:'dust',face:'focus',look:{pt},fn:()=>{const r=rect(el);if(r)go({x:cl(r.r-R*1.3,R*2,W-R*2),y:r.cy-R*.58},{now:1,speed:.2})}},
+        {d:.7,pose:'rest',face:'content',look:{pt},fn:()=>{wipeAll();if(GRIME)GRIME.glint=now}},
+        {d:1.4,pose:'hips',face:'smug',look:'viewer',say:maybe(['all clean!','spotless.',"spotless. you're welcome."],.45)}]}},
   read:{w:()=>visible('.msg,.mtext,.atext').length?N.curiosity+.25:0,spot(){const el=pick(visible('.msg,.mtext,.atext').slice(-3));this.el=el;const r=rect(el),m=area();
       return r&&{x:cl(r.r+R*1.6,m.l+R*2,m.r-R*2),y:cl(r.t+R*1.5,m.t+R*3,m.b-R*3)}},
     steps(){const r=rect(this.el);if(!r)return[{d:.5}];const rows=Math.max(2,Math.min(5,Math.round(r.h/22))),st=[];
@@ -572,6 +832,90 @@ function fidget(){const e=Object.entries(FIDGETS).map(([k,f])=>[k,f.w()*rnd(.6,1
 function celebrate(){E.vy=-Math.max(520,H*.7);E.q=.6;E.spinOn=1;
   for(let i=0;i<50;i++){const a=Math.random()*Math.PI*2,s=rnd(130,400);parts.push({k:'spark',x:E.x,y:E.y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-140,l:1,d:rnd(.6,1.5),s:rnd(1.4,3.2),c:Math.random()<.5?'255,215,130':'255,120,90'})}}
 
+/* ===== the mind =====
+   Every minute or two, and at once when something happens, Ember tells the
+   team's mind model what it perceives and gets back what it wants to do and
+   why. The model can only move the body with data: behaviours Ember knows,
+   places, faces, poses, effects — and when nothing it knows fits, it invents
+   a behaviour as keyframes over the same body, which plays now and is kept.
+   No mind (none switched on, or it failed): the built-in behaviour runs. */
+const MIND={live:0,off:0,retry:0,busy:0,next:20,fail:0,plan:[],thought:'',hist:[],ev:[],key:-99,lastAsk:-99,asks:0};
+const LIB={};
+const EXTRA=['celebrate','nap','zoomies','workout'];
+function known(){return[...Object.keys(FIDGETS).filter(k=>!k.startsWith('l_')),...Object.keys(ERRANDS).filter(k=>ACTS['e_'+k]),...EXTRA,...Object.keys(LIB)]}
+function learnB(b){if(!b||!b.name||!Array.isArray(b.steps)||!b.steps.length)return;LIB[b.name]=b;FIDGETS['l_'+b.name]={w:()=>.12,s:()=>compileB(b)}}
+function saveLib(){store.set('ember_lib',Object.values(LIB).slice(-80))}
+const LOOKS={viewer:()=>'viewer',cursor:()=>'cursor',up:()=>({dir:[0,-1]}),down:()=>({dir:[0,1]}),left:()=>({dir:[-1,0]}),right:()=>({dir:[1,0]}),away:()=>({dir:[E.x>W/2?1:-1,-.2]})};
+function hex2rgb(h){const m=/^#([0-9a-f]{6})$/i.exec(h||'');if(!m)return'';const n=parseInt(m[1],16);return[(n>>16)&255,(n>>8)&255,n&255].join(',')}
+function burst(b){const n=b.n||8,c=hex2rgb(b.color);for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,v=rnd(40,200);
+  if(b.kind==='spark')parts.push({k:'spark',x:E.x,y:E.y-R*.3,vx:Math.cos(a)*v,vy:Math.sin(a)*v-60,l:1,d:rnd(.4,1),s:rnd(1.2,2.6),c:c||'255,200,120'});
+  else if(b.kind==='dust')parts.push({k:'dust',x:E.x+rnd(-R,R),y:E.y+rnd(-R*.5,R*.5),vx:rnd(-40,40),vy:rnd(-20,40),l:1,d:rnd(.6,1.1),s:rnd(1,2.2),c:c||''});
+  else if(b.kind==='heart')parts.push({k:'heart',x:E.x+rnd(-R,R)*.6,y:E.y-R*.8,vx:rnd(-25,25),vy:rnd(-70,-40),l:1,d:1.2,s:rnd(5,9)});
+  else if(b.kind==='smoke')parts.push({k:'smoke',x:E.x+rnd(-R,R)*.5,y:E.y-R*E.tipH,vx:rnd(-15,15),vy:rnd(-50,-25),l:1,d:1.2,s:rnd(3,6)});
+  else parts.push({k:b.kind==='z'?'z':'note',x:E.x+R*.8,y:E.y-R*.4,vx:rnd(8,30),vy:-35,l:1,d:1.6,s:rnd(9,13)})}}
+function effects(k){if(REDUCE)return;if(k.hop)E.vy=-(140+k.hop*380),E.q+=k.hop*.25;if(k.squash)E.q+=k.squash*.45;if(k.tilt)E.tv+=k.tilt*4;if(k.shake)E.shake=k.shake;
+  if(k.spin)E.spinOn=1;if(k.scale)E.rT=k.scale;if(k.nudge)E.vx+=k.nudge*260;if(k.burst)burst(k.burst)}
+/* an invented behaviour -> steps the body already knows how to play */
+function compileB(b){const st=b.steps.map(k=>{const fx=Object.assign({},k.fx||{});if(k.glow&&fx.flame==null)fx.flame=k.glow;
+    return{d:k.t,face:k.face,fx:Object.keys(fx).length?fx:null,pose:k.hands?'gen':k.pose,hands:k.hands,wig:k.wiggle,look:k.look&&LOOKS[k.look]?LOOKS[k.look]():null,say:k.say,hum:k.hum,fn:()=>effects(k)}});
+  st.push({d:.3,fn:()=>{if(E.rT!==.6)E.rT=1}});return st}
+function placeOf(n){const m=area(),c=composer();switch(n){
+  case'rest':return SP.rest();case'perch':return SP.perch();
+  case'chat':return c?{x:cl(c.l+c.w*.3,R*2,W-R*2),y:c.t-R*1.02,perch:1}:SP.rest();
+  case'send':{const r=rect(shown('#sendbtn,button[onclick^=consoleSend]'));return r?{x:r.cx-R*1.6,y:r.cy-R*1.1}:SP.rest()}
+  case'projects':{const el=visible('.pitem')[0];const r=rect(el);return r?{x:cl(r.r+R*1.6,R*2,W-R*2),y:r.cy}:SP.rest()}
+  case'top':return{x:m.cx,y:m.t+R*2.4};case'corner':return{x:m.r-R*2.4,y:m.b-R*2.2};
+  case'cursor':return cur.x>=0?{x:cl(cur.x+R*2.6*(cur.x>m.cx?-1:1),m.l+R*1.5,m.r-R*1.5),y:cl(cur.y-R*1.3,R*2.6,H-R*2)}:SP.rest();
+  case'message':{const r=lastOf('.msg');return r?{x:cl(r.r+R*1.8,m.l+R*2,m.r-R*2),y:cl(r.cy,m.t+R*3,m.b-R*3)}:SP.rest()}
+  case'settings':{const r=rect('#setbtn');return r?{x:cl(r.cx+R*2,R*2,W-R*2),y:cl(r.cy-R,R*2.4,H-R*2)}:SP.rest()}}
+  return SP.rest()}
+function mindAct(dur){act={k:'mind',a:{mind:1,w:()=>0,run(){},dur:[dur,dur]},t:0,dur};return act}
+/* the next step of the mind's plan, if it has one */
+function mindStep(){if(!MIND.plan.length||!MIND.live)return false;const s=MIND.plan.shift();
+  try{if(s.do){const n=s.do;
+      if(ERRANDS[n]&&ACTS['e_'+n]){const a=ACTS['e_'+n];act={k:'e_'+n,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a);return true}
+      if(n==='nap'||n==='zoomies'){const a=ACTS[n];act={k:n,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a);return true}
+      let st=null;if(LIB[n])st=compileB(LIB[n]);else if(FIDGETS[n])st=FIDGETS[n].s();else if(n==='workout')st=workout();else if(n==='celebrate')st=[{d:2,face:'joy',pose:'cheer',fn:celebrate}];
+      if(!st)return mindStep();const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.6);play(st,()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.go){go(placeOf(s.go),{speed:.7});mindAct(5);return true}
+    if(s.say){say(s.say);mindAct(readTime(s.say)+.5);return true}
+    if(s.ask){if(MIND.asks>2||now-CHAT.lastChat<60)return mindStep();MIND.asks++;openChat(s.ask,0);mindAct(2);return true}
+    if(s.outfit){FITOV={n:s.outfit,until:Date.now()+(s.for||20)*60000};puff(E.x,E.y-R*.6,10);const me=mindAct(2);play([{d:1.6,face:'smug',pose:'hips',look:'viewer'}],()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.glasses){const me=mindAct(4);if(s.glasses==='on'){E.shadesUntil=now+60;play([{d:1.2,pose:'glasses',face:'smug'}],()=>{if(act===me)me.t=me.dur+1})}
+      else if(s.glasses==='off'){E.shadesUntil=0;FITOV=FITOV&&FITOV.n==='shades'?null:FITOV;me.dur=1}
+      else{E.shadesUntil=now+8;play([{d:.6,pose:'glasses',face:'calm'},{d:2.4,face:'unimpressed',look:'viewer',fn:()=>{E.noBlink=2.4}},{d:1.2,face:'smug',look:'viewer'}],()=>{if(act===me)me.t=me.dur+1})}return true}
+    if(s.face||s.pose){const me=mindAct(s.for||2);play([{d:s.for||2,face:s.face,pose:s.pose}],()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.wait){go(SP.rest,{speed:.6});mindAct(s.wait);return true}}catch(e){}
+  return mindStep()}
+function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='';try{view=(typeof S!=='undefined'&&(S.view||''))||''}catch(_){}
+  const scr=[];if(composer())scr.push('the chat box');const pn=visible('.pitem').length;if(pn)scr.push(pn+' projects in the sidebar');if(lastOf('.msg'))scr.push('a conversation');
+  if(lastOf('.jobc'))scr.push('a migration job card');if(document.querySelector('.pvw:not([hidden])'))scr.push('the site preview');if(DESK)scr.push('their desktop ('+((DW.windows||[]).length)+' app windows)');
+  return{reason,time:h.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),day:h.toLocaleDateString([],{weekday:'long'}),late:h.getHours()>=23||h.getHours()<5,
+    where:CTX.project?'project '+CTX.project:(view||'home'),job:j?(j.status+(j.progress&&j.progress.total?' '+(j.progress.done||0)+'/'+j.progress.total:'')):'none',
+    just_happened:CTX.last&&now-CTX.lastT<300?CTX.last:'',problem:CTX.issue&&now-CTX.issueT<900?CTX.issue.slice(0,200):'',
+    person:{seconds_since_they_moved:Math.round(now-cur.t),typing:now-(CHAT.typing||-99)<6||now-MIND.key<6,near_ember:cur.x>=0&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*5,
+      last_talked_to_ember_s:CHAT.lastChat>0?Math.round(now-CHAT.lastChat):null,name:m.name||''},
+    ember:{energy:+N.energy.toFixed(2),boredom:+N.boredom.toFixed(2),curiosity:+N.curiosity.toFixed(2),wants_company:+N.social.toFixed(2),annoyed:+N.annoy.toFixed(2),
+      fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),glasses:!!E.shadesOn,doing:act?act.k:'',errands_today:SEEN},
+    screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
+function think(reason){if(MIND.busy)return;MIND.busy=1;MIND.lastAsk=now;
+  post('/api/ember/mind',{state:perceive(reason||'time'),attitude:ATT(),known:known()}).then(r=>{
+    if(r.off){MIND.live=0;MIND.off=1;MIND.retry=now+(r.retry||1800);MIND.plan=[];return}
+    for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
+    MIND.live=1;MIND.fail=0;MIND.plan=(r.plan||[]).slice();MIND.thought=r.thought||'';MIND.hist.push((r.thought||'')+(r.new&&r.new.length?' (invented '+r.new.map(b=>b.name).join(', ')+')':''));MIND.hist=MIND.hist.slice(-6);
+    if(r.remember){const f=CHAT.mem.facts||(CHAT.mem.facts=[]);if(!f.includes(r.remember)){f.push(r.remember);CHAT.mem.facts=f.slice(-6);saveMem()}}
+    if(act&&!SEQ&&!act.a.errand&&!act.a.mind&&!act.a.nap)act.t=act.dur+1;
+    MIND.next=now+rnd(70,120)}).catch(e=>{MIND.fail++;MIND.next=now+Math.min(900,30*Math.pow(2,MIND.fail));if(MIND.fail>=3)MIND.live=0}).finally(()=>{MIND.busy=0})}
+function mindTick(){if(!started||MIND.busy||TW.on||DRV.on||V.state!=='idle'||CHAT.open||document.hidden||E.mode!=='fly')return;
+  if(MIND.off){if(now<MIND.retry)return;MIND.off=0}
+  const active=now-cur.t<180||now-MIND.key<180||now-(CHAT.typing||-99)<180;if(!active)return;
+  if(now>=MIND.next&&!MIND.plan.length)think('time')}
+/* something happened: let the mind react soon (not more than every 20s) */
+const MIND_NOW={broke:1,pass:1,published:1,error:1,gaps:1,back:1};let MIND_JOB='';
+function mindEvent(name,data){const d=data||{};let w=name;if(d.what)w+=': '+String(d.what).slice(0,80);else if(d.tool)w+=': '+String(d.tool).slice(0,40);else if(d.job&&d.job.status)w+=': '+d.job.status;
+  if(name==='working'||name==='retry'){const l=MIND.ev[MIND.ev.length-1];if(l&&l.what.startsWith(name)){l.t=now;l.what=w;return}}
+  let big=!!MIND_NOW[name];if(name==='job'){const st=d.job&&d.job.status||'';if(st===MIND_JOB)return;MIND_JOB=st;big=/done|failed|waiting|blocked/.test(st)}
+  MIND.ev.push({t:now,what:w});MIND.ev=MIND.ev.slice(-10);if(big&&MIND.live&&now-MIND.lastAsk>20){MIND.plan=[];MIND.next=Math.min(MIND.next,now+1.5)}}
 /* ===== real signals ===== */
 const lastSig={};
 function fresh(k,gap){const t=performance.now()/1000;if(lastSig[k]&&t-lastSig[k]<gap)return false;lastSig[k]=t;return true}
@@ -611,7 +955,7 @@ const SIG={
   gaps(d){const g=d&&d.gaps||[];if(g.length){CTX.issue=g.join('; ').slice(0,500);CTX.issueT=now}else{CTX.issue=''}},
 };
 function signal(name,data){if(!SIG[name])return;if(DRV.on||V.state!=='idle'){const d=data||{};if(name==='gaps')SIG.gaps(d);else if(name==='broke'){CTX.issue=(d.gaps&&d.gaps.length?d.gaps.join('; '):String(d.what||'something')+' is broken').slice(0,500);CTX.issueT=now}else if(name==='job'&&d.job){CTX.project=d.project||CTX.project;CTX.job=d.job}return}if(!DESK&&CFG.desktop){post('/api/ember/signal',{name,data:data||{}}).catch(()=>{});return}
-  if(!started)return;try{SIG[name](data||{})}catch(e){}}
+  if(!started)return;try{mindEvent(name,data)}catch(e){}try{SIG[name](data||{})}catch(e){}}
 function fromEvents(evs,bridge){if(!evs)return;if(!DESK&&CFG.desktop){
     for(const e of evs){if(e.type==='tool')signal(/blocked|denied|refused/i.test(String(e.status||''))?'refused':'working',{tool:String(e.label||e.name||'').replace(/^mcp__aethron__/,'')});
       else if(e.type==='done'&&e.error&&!String(e.text||'').startsWith('[ede_diagnostic]'))signal('error',{})}
@@ -944,16 +1288,16 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   if(CHAT.open&&E.mode==='fly')chatTick(dt);
   else if(mood){base.pose=mood.pose||'rest';base.face=mood.face||idleFace();base.look=mood.look||null}
   else if(E.mode==='fly'&&!hideUntil){
-    if(!act||act.t>act.dur)choose();
+    if(!act||act.t>act.dur){if(!mindStep())choose()}
     if(act&&act.a.errand){if(act.stage==='go'&&!SEQ&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.6&&Math.hypot(E.vx,E.vy)<150){const k=act.k.slice(2),e=ERRANDS[k],me=act;me.stage='do';SEEN[k]=(SEEN[k]||0)+1;
         play(e.steps.call(e),()=>{if(act===me)me.t=me.dur+1})}else if(act.stage==='go'&&act.t>14)act.t=act.dur+1}
-    if(!SEQ&&!CHAT.busy&&now-CHAT.lastChat>90&&now-cur.t<40&&cur.t>0&&!annoyed()&&!document.hidden){CHAT.askIn-=dt;if(CHAT.askIn<=0){CHAT.askIn=rnd(150,260);openChat(question(),0)}}
+    if(!MIND.live&&!SEQ&&!CHAT.busy&&now-CHAT.lastChat>90&&now-cur.t<40&&cur.t>0&&!annoyed()&&!document.hidden){CHAT.askIn-=dt;if(CHAT.askIn<=0){CHAT.askIn=rnd(150,260);openChat(question(),0)}}
     act.t+=dt;
     if(act.a.follow&&cur.active()){const m=area();go({x:cl(cur.x+R*2.6*(cur.x>m.cx?-1:1),m.l+R*1.5,m.r-R*1.5),y:cl(cur.y-R*1.3,R*2.6,H-R*2)},{now:1,speed:.8})}
     if(act.a.avoid&&cur.active()&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*5){const dx=E.x-cur.x,dy=E.y-cur.y,n=Math.hypot(dx,dy)||1;go({x:E.x+dx/n*R*4,y:E.y+dy/n*R*3},{now:1,speed:.7})}
     if(act.a.zoom){act.a.z+=dt;const a=act.a.z*3.2,m=area();go({x:m.l+m.w*.7+Math.sin(a)*m.w*.18,y:m.t+m.h*.45+Math.sin(a*2)*m.h*.18},{now:1,speed:2.4})}
     const napping=act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.8;E.zz=napping?1:0;
-    if(!SEQ&&!napping&&!act.a.zoom&&!(act.a.errand&&act.stage)&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=rnd(11,20);fidget()}}
+    if(!SEQ&&!napping&&!act.a.zoom&&!act.a.mind&&!(act.a.errand&&act.stage)&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=MIND.live?rnd(20,34):rnd(11,20);fidget()}}
     if(cur.x>=0&&!SEQ&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*3.6&&!cur.over){if(!cur.nearSince)cur.nearSince=now;if(now-cur.nearSince>2.6&&now-cur.moveT>1.8){cur.nearSince=now+10;
       if(ATT()==='sweet')play([{d:1.2,pose:'cover',face:'shy'},{d:1,pose:'peek',face:'shy',look:'cursor'},{d:1.2,pose:'wave',face:'happy',look:'cursor',say:'…hi'}]);
       else play([{d:2.4,face:'unimpressed',look:'cursor',fn:()=>{E.noBlink=2.4}},{d:1.6,face:'tfman',pose:'crossed',look:'cursor',say:['','…can I help you?','take a picture, it lasts longer.']}])}}
@@ -961,13 +1305,13 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
     let bf=idleFace();if(annoyed())bf=N.annoy>.8?'glare':'unimpressed';else if(N.fond>.7&&ATT()!=='savage')bf='content';
     base.face=napping?'asleep':(act.a.nap?'sleepy':(N.energy<.3?'sleepy':(cur.over&&!annoyed()?(ATT()==='sweet'?'happy':'calm'):(act.a.zoom?'joy':bf))));
     base.pose=napping?'limp':(act.a.zoom?'flail':(annoyed()&&ATT()!=='sweet'?'crossed':'rest'));base.look=napping?{dir:[0,1]}:(act.a.watch&&act.a.pt?{pt:act.a.pt}:null);if(act.a.watch&&act.a.pt&&!annoyed())base.face=ATT()==='sweet'?'curious':'sideeye'}
-  seqTick(dt);
+  seqTick(dt);grimeTick();mindTick();
   let pose=cur_('pose')||base.pose,fn=cur_('face')||base.face,look=cur_('look')||base.look;
   if(E.mode==='grab'){pose='flail';fn=Math.hypot(E.vx,E.vy)>600?(ATT()==='sweet'?'joy':'shocked'):(ATT()==='sweet'?'surprised':'tfman');look='viewer'}
   if(E.mode==='thrown'){pose='flail';fn=ATT()==='sweet'?'joy':'shocked'}
   if(E.dizzy>0){pose='limp';fn='dizzy'}
   if(E.purr>0){pose='hands';fn='content';look='viewer'}
-  E.pose=pose;if(fn!==E.FT.name)E.FT=face(fn);
+  E.pose=pose;const fx=E.mode==='fly'&&cur_('fx');if(fx){const key='fx:'+SEQ.i+':'+SEQ.steps.length+':'+fn;if(E.FT.name!==key)E.FT=Object.assign(face(fn),fx,{name:key})}else if(fn!==E.FT.name)E.FT=face(fn);
   if(look)E.look=look;else if(E.look&&!(E.look.until>now))E.look=null;
   simulate(dt);draw(dt);requestAnimationFrame(frame)}
 function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=act&&act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R;
@@ -1048,11 +1392,13 @@ function bodyGrad(b,ang){const g=X.createLinearGradient(0,1.05,0,-E.tipH),dim=[2
   for(const [o,c0] of[[0,[255,205,64]],[.38,[255,160,52]],[.68,[255,104,72]],[1,[255,72,104]]]){let c=c0;if(ang>0)c=mixc(c,o>.4?[255,40,30]:[255,140,40],ang*.6);if(b<1)c=mixc(c,dim,Math.min(1,(1-b)*1.7));else c=c.map(v=>Math.min(255,Math.round(v*b)));g.addColorStop(o,`rgb(${c.join(',')})`)}return g}
 const FONT='-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';
 function draw(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);const rr=R*E.r,F=E.F;
+  drawGrime();
   if(TW.on&&TW.el){const s=rect(TW.el)||TW.spot;TW.spot=s;if(s){const p=8;X.save();X.fillStyle='rgba(8,6,5,.5)';X.fillRect(0,0,W,H);
     X.globalCompositeOperation='destination-out';X.beginPath();X.roundRect(s.l-p,s.t-p,s.w+2*p,s.h+2*p,14);X.fill();X.globalCompositeOperation='source-over';
     X.strokeStyle=`rgba(232,135,95,${(.55+.35*Math.sin(now*4)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.roundRect(s.l-p,s.t-p,s.w+2*p,s.h+2*p,14);X.stroke();X.restore()}}
-  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.l-=dt/p.d;if(p.l<=0){parts.splice(i,1);continue}p.vy+=(p.k==='spark'?40:-6)*dt;p.vx*=.985;p.x+=p.vx*dt;p.y+=p.vy*dt;
+  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.l-=dt/p.d;if(p.l<=0){parts.splice(i,1);continue}p.vy+=(p.k==='spark'?40:p.k==='dust'?260:-6)*dt;p.vx*=.985;p.x+=p.vx*dt;p.y+=p.vy*dt;
     if(p.k==='spark'){X.globalCompositeOperation='lighter';const g=X.createRadialGradient(p.x,p.y,0,p.x,p.y,p.s*3);g.addColorStop(0,`rgba(${p.c},${p.l})`);g.addColorStop(1,`rgba(${p.c},0)`);X.fillStyle=g;X.beginPath();X.arc(p.x,p.y,p.s*3,0,7);X.fill();X.globalCompositeOperation='source-over'}
+    else if(p.k==='dust'){X.fillStyle=`rgba(${p.c||'112,94,70'},${(.8*p.l).toFixed(3)})`;X.beginPath();X.arc(p.x,p.y,p.s,0,7);X.fill()}
     else if(p.k==='smoke'){X.fillStyle=`rgba(120,110,110,${.35*p.l})`;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.fill()}
     else if(p.k==='heart'){X.fillStyle=`rgba(255,120,150,${p.l})`;const s=p.s;X.beginPath();X.moveTo(p.x,p.y+s*.35);X.bezierCurveTo(p.x-s*.7,p.y-s*.2,p.x-s*.35,p.y-s*.8,p.x,p.y-s*.4);X.bezierCurveTo(p.x+s*.35,p.y-s*.8,p.x+s*.7,p.y-s*.2,p.x,p.y+s*.35);X.fill()}
     else{X.fillStyle=`rgba(255,225,200,${Math.sin(p.l*Math.PI)})`;X.font=`600 ${p.s}px ${FONT}`;X.fillText(p.k==='z'?'z':'♪',p.x,p.y)}}
@@ -1130,6 +1476,8 @@ function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(2,devicePixelRatio||1)
 function start(){if(running)return;if(!started){started=true;(document.head||document.documentElement).append(css);document.body.append(cv,talk,menu);tin=talk.querySelector('input');
     talk.querySelector('#ember-go').onclick=send;talk.querySelector('#ember-mic').onclick=()=>{closeChat();listen()};tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
     tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now;talk.classList.toggle('ae-empty',!tin.value.trim())});
+    addEventListener('keydown',()=>{MIND.key=now},true);for(const b of store.get('ember_lib',[]))learnB(b);
+    fetch('/api/ember/behaviors').then(r=>r.json()).then(j=>{for(const b of(j&&j.behaviors)||[])learnB(b)}).catch(()=>{});
     addEventListener('pointermove',onMove,true);addEventListener('pointerdown',onDown,true);addEventListener('pointerup',onUp,true);
     for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();listen();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
     addEventListener('resize',resize);addEventListener('blur',()=>{cur.x=-1});
@@ -1147,7 +1495,9 @@ function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.a
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
 window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
-  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',stage:act&&act.stage||'',seen:Object.assign({},SEEN)}),
+  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn}),
+  errand:k=>{const a=ACTS['e_'+k];if(!a)return false;act={k:'e_'+k,a,t:0,dur:40};a.run.call(a);return true},
+  mind:()=>({live:!!MIND.live,off:!!MIND.off,busy:!!MIND.busy,thought:MIND.thought,plan:MIND.plan.slice(),hist:MIND.hist.slice(),lib:Object.keys(LIB),next:Math.round(MIND.next-now)}),think:r=>{MIND.off=0;MIND.next=0;think(r||'asked')},
   hurry:()=>{N.energy=.8;N.boredom=.4;fidgetIn=60;if(act)act.t=act.dur+1}};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
   fetch('/api/ember/desktop').then(r=>r.json()).then(d=>{CFG.desktop=!!(d&&d.on);CFG.deskAvail=!!(d&&d.available);if(CFG.on&&!CFG.desktop&&!automation)start()}).catch(()=>{if(CFG.on&&!automation)start()})}
@@ -1232,6 +1582,40 @@ def _selftest() -> int:
     check("settings, home, a new chat and scrolling are its own buttons",
           [act(t, "", "sassy", call=lambda p: 1/0)["action"] for t in ("go to settings", "go home", "start a new chat", "scroll down")]
           == ["settings", "home", "new_chat", "scroll_down"])
+    import tempfile
+    os.environ["AETHRON_HOME"] = tempfile.mkdtemp()
+    seen = {}
+
+    def brain(msgs):
+        seen["m"] = msgs
+        return json.dumps({"thought": "they went quiet; a sneeze will get attention", "mood": "mischief",
+                           "plan": [{"go": "cursor"}, {"do": "big_sneeze"}, {"do": "rm -rf"}, {"say": "bless me."},
+                                    {"outfit": "witch", "for": 9999}, {"glasses": "peek"}, {"wait": 4}],
+                           "new": [{"name": "Big Sneeze!", "about": "a huge sneeze", "steps": [
+                               {"t": .5, "face": "presneeze", "fx": {"mo": 9, "lidU": .6, "evil": 3}, "tilt": -.5},
+                               {"t": 99, "pose": "flail", "hop": .7, "burst": {"kind": "spark", "n": 500, "color": "#ffaa00"},
+                                "hands": [[-9, 0], [1.5, -3]], "say": "ACHOO"},
+                               {"t": 1, "pose": "nonsense"}]}], "remember": "works late on fridays"})
+    m = mind({"time": "11:40 pm"}, "sassy", ["yawn", "dust", "sneeze"], brain)
+    check("the mind is told who Ember is, what it can do and what it perceives",
+          "Calcifer" in seen["m"][0]["content"] and "yawn" in seen["m"][0]["content"] and "11:40 pm" in seen["m"][1]["content"])
+    nb = m["new"][0] if m["new"] else {}
+    check("an invented behaviour is named safely and kept to the body's limits",
+          nb.get("name") == "big_sneeze" and nb["steps"][0]["fx"] == {"mo": 1.8, "lidU": .6}
+          and nb["steps"][1]["t"] == 4 and nb["steps"][1]["burst"]["n"] == 30 and nb["steps"][1]["hands"][0][0] == -2.4)
+    check("a keyframe with nothing the body has is dropped", len(nb.get("steps", [])) == 2)
+    check("plan steps nobody knows are dropped, the rest kept in order",
+          [list(x)[0] for x in m["plan"]] == ["go", "do", "say", "outfit", "glasses", "wait"] and m["plan"][3]["for"] == 120)
+    check("an invented behaviour is saved for next time", [b["name"] for b in behaviours()] == ["big_sneeze"])
+    check("next time the mind is told it knows it", "big_sneeze" in mind_rules("sassy", ["big_sneeze"]))
+    m2 = mind({}, "sassy", [], lambda msgs: '{"plan":[{"do":"big_sneeze"}]}')
+    check("a learned behaviour can be asked for again", m2["plan"] == [{"do": "big_sneeze"}])
+    try:
+        mind({}, "sassy", [], lambda msgs: '{"plan":[{"teleport":"moon"}]}')
+        bad = False
+    except ValueError:
+        bad = True
+    check("an answer with nothing Ember can do is refused (the window keeps its own behaviour)", bad)
     check("the companion script has no triple quote that would end this module", '"""' not in EMBER_JS)
     check("the companion stays off in automated browsers unless asked", "navigator.webdriver&&!forced" in EMBER_JS)
     print(f"\n{ok} passed, {fails} failed")
