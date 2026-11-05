@@ -7,7 +7,7 @@
 
 import { db } from "./db.ts";
 import { costOf, PROVIDERS } from "./prices.ts";
-import { caller, effective, secret, signedOutAfter } from "./state.ts";
+import { caller, effective, keyList, secret, signedOutAfter } from "./state.ts";
 import { upstream } from "./gateway.ts";
 import { fail, http, json, later, nowMs } from "./util.ts";
 
@@ -15,8 +15,11 @@ export const EMBER_DEFAULT = { provider: "groq", model: "llama-3.1-8b-instant", 
 const MAX_CHARS = 16000;
 
 export async function emberSettings() {
-  const on = (await secret("ember_on")) === "1";
   const provider = (await secret("ember_provider")) || EMBER_DEFAULT.provider;
+  // A key for its provider is enough: once the admin adds one, the mind is on
+  // unless it was switched off on purpose.
+  const flag = await secret("ember_on");
+  const on = flag === "1" || (!flag && keyList(await secret("key_" + provider)).length > 0);
   const model = (await secret("ember_model")) ||
     (provider === EMBER_DEFAULT.provider ? EMBER_DEFAULT.model : (PROVIDERS[provider] || PROVIDERS.custom).model);
   const per_hour = Number(await secret("ember_per_hour")) || EMBER_DEFAULT.per_hour;

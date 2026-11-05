@@ -7030,6 +7030,24 @@ json_object, metered, hourly cap), ember battery (dust wipes gradually; no
 mind = off; with a mind it plans, plays an invented "shiver", speaks,
 changes outfit, keeps it across a restart), admin console battery PASS.
 
+## "NO CHANGE" — THE MIND WAS NEVER ON; AND EMBER FALLS — 2026-11-05
+Owner added the Groq key and saw no thinking. Field logs (read-logs now
+prints Ember's mind: ember_* settings, key counts, thoughts): key_groq set,
+ember_on NEVER set, 0 thoughts. The card's "Switch on" was a second step
+nobody expected. Now a key for the mind's provider is enough (ember_on
+unset + key = on; an explicit off stays off), and a copy told "off" looks
+again in 5 min, not 30.
+Also from the owner: Ember sat on the chat box, Settings opened, and it
+floated on nothing. It now remembers its seat (the element under it when it
+lands on a perch); when that goes or moves (a new page), it is startled,
+FALLS with gravity, bounces with a puff of dust at the bottom, lies dizzy,
+looks round, dusts itself off and says a line. A page change without a seat
+lost gets a look round, and is an event the mind reacts to ("they opened
+settings"). Reduced motion: startle only, no fall.
+Tests: cloud 39 (key alone turns it on; off stays off), ember battery
+(sits and remembers its seat; Settings makes it fall to the bottom; dizzy,
+then a line).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

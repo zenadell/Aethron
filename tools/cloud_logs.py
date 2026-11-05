@@ -138,3 +138,12 @@ print("\n===== DEVICES =====")
 for d in rows("devices", "order=last_seen.desc&limit=50"):
     print(f"  {d['machine'][:8]} v{d['version']} {d['os']} {d['country']} "
           f"last {d['last_seen']} activity={json.dumps(cut(d.get('activity'), 200))}")
+
+print("\n===== EMBER'S MIND =====")
+for s in rows("secrets", "select=name,value,updated_at&name=like.ember_*"):
+    print(f"  {s['name']} = {s['value']!r}  ({s.get('updated_at')})")
+for s in rows("secrets", "select=name,value&name=like.key_*"):
+    n = len([k for k in str(s.get("value") or "").replace(",", "\n").split() if k.strip()])
+    print(f"  {s['name']}: {n} key(s)")
+em = rows("usage_ledger", f"purpose=eq.ember&at=gte.{q(since)}&order=at.asc&limit=500")
+print(f"  ember thoughts: {len(em)}", [(u['at'][11:19], u['provider'], u['model'], u['status']) for u in em[-10:]])
