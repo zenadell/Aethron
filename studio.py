@@ -3368,8 +3368,14 @@ class Handler(BaseHTTPRequestHandler):
                 if not _ember:
                     return self.fail("the companion is not available")
                 try:
+                    names = body.get("projects")
+                    if not isinstance(names, list):
+                        try:
+                            names = [p.name for p in PROJECTS.iterdir() if (p / "forge.json").exists()]
+                        except Exception:
+                            names = []
                     out = _ember.act(body.get("text") or "", body.get("state") or "",
-                                     str(body.get("attitude") or "sassy"))
+                                     str(body.get("attitude") or "sassy"), projects=names)
                 except ValueError as e:
                     return self.fail(str(e))
                 if body.get("relay"):          # heard on the desktop: the app types it
