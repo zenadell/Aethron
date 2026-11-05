@@ -126,10 +126,8 @@ checked since #118 shipped.
 ## Next tasks, in order
 1. DONE — Read the logs (point 3) and fix `json_validate_failed` in `supabase/functions/aethron/ember.ts`: retry without `response_format`, extract JSON from text/fences/reasoning blocks, prefer `qwen` over `gpt-oss` in `pickModel`, clear `ember_last_error` on success, and test in `tests/cloud`.
 2. DONE — Chat and voice instructions change behaviour (point 1): `reply()` and `act()` (`answer`) return `plan` and `new`, the window applies them with `mindStep()` / `applyPlan()`, and `tests/ember_battery.py` verifies `"take your glasses off"`, `"wear a beanie"`, and `"stop cleaning"`.
-3. The mind is the default planner when live (point 2). Add a check
-   that, with a stub mind, consecutive idle actions come from mind
-   plans and not `choose()`.
-4. Visible "mind" cue and the status line in Settings (point 4).
+3. DONE — The mind is the default planner when live (point 2): while `MIND.live` is true, Ember asks the mind whenever it goes idle (`mindIdle()`, capped by `per_hour` on both client and cloud, passing `recent_errands` and `recent_actions`), falling back to `choose()` only when the mind is off or resting. Verified in `tests/ember_battery.py` that consecutive idle actions come from mind plans and not `choose()`.
+4. DONE — Visible "mind" cue and the status line in Settings (point 4): a brief `…` thought bubble + tiny sparkle appears when a plan arrives (`ember.mind().cue`), and Settings → Companion displays `"Mind: on · last thought … · N today"` (`#ember-mind-status`). Verified in `tests/ember_battery.py` (88/88).
 5. Prove the microphone on a real Mac: permission prompts, then
    recognition. This was never proven; it was tested only with a
    scripted recogniser.

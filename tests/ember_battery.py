@@ -310,33 +310,62 @@ try:
         # ---- with a mind: it plans, invents a behaviour, plays it, and keeps it
         mp = b.new_page(viewport={"width": 1400, "height": 900})
         mp.on("pageerror", lambda e: errs.append("mind: " + str(e)))
-        mp.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1';if(!sessionStorage.libcleared){sessionStorage.libcleared=1;localStorage.removeItem('ember_lib')}}catch(e){}")
+        mp.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1';if(!sessionStorage.libcleared){sessionStorage.libcleared=1;localStorage.removeItem('ember_lib');localStorage.removeItem('ember_mind_stat')}}catch(e){}")
         asked = []
-        plan = {"thought": "it's cold in here and they're ignoring me", "mood": "worried",
-                "plan": [{"do": "shiver"}, {"say": "brr. it's freezing."}, {"outfit": "beanie", "for": 5}, {"glasses": "peek"}],
-                "new": [{"name": "shiver", "about": "a cold little shiver", "steps": [
-                    {"t": 1.2, "face": "worried", "pose": "gen", "hands": [[-.5, .3], [.5, .3]], "wiggle": [.15, 25], "shake": 1},
-                    {"t": .8, "face": "sad", "fx": {"flame": .7}, "burst": {"kind": "smoke", "n": 4}}]}], "remember": ""}
+        plans = [
+            {"thought": "it's cold in here and they're ignoring me", "mood": "worried",
+             "plan": [{"do": "shiver"}, {"say": "brr. it's freezing."}, {"outfit": "beanie", "for": 5}, {"glasses": "peek"}],
+             "new": [{"name": "shiver", "about": "a cold little shiver", "steps": [
+                 {"t": 1.2, "face": "worried", "pose": "gen", "hands": [[-.5, .3], [.5, .3]], "wiggle": [.15, 25], "shake": 1},
+                 {"t": .8, "face": "sad", "fx": {"flame": .7}, "burst": {"kind": "smoke", "n": 4}}]}], "remember": ""},
+            {"thought": "still quiet, I'll hum to myself", "mood": "content",
+             "plan": [{"do": "hum"}], "new": [], "remember": ""},
+            {"thought": "a slow blink at them", "mood": "calm",
+             "plan": [{"do": "slowblink"}], "new": [], "remember": ""},
+        ]
         def fulfil(route):
             asked.append(json.loads(route.request.post_data or "{}"))
-            route.fulfill(status=200, content_type="application/json", body=json.dumps(plan))
+            p = plans[min(len(asked) - 1, len(plans) - 1)]
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(p))
         mp.route("**/api/ember/mind", fulfil)
         mp.goto(BASE + "/?ember=1"); mp.wait_for_timeout(5000)
         mp.evaluate("ember.think('test')")
-        poses, said = set(), set()
+        poses, said, cues = set(), set(), []
         for _ in range(120):
             mp.wait_for_timeout(150)
             st = mp.evaluate("ember.state()"); poses.add(st["pose"]); said.add(st["bubble"] or "")
+            cues.append(mp.evaluate("ember.mind().cue"))
             if "brr. it's freezing." in said and st["outfit"] == "beanie": break
         body = asked[0] if asked else {}
         check("the mind is told what Ember perceives and what it can already do",
               "person" in (body.get("state") or {}) and "dust" in (body.get("known") or []), str(body)[:200])
         mm = mp.evaluate("ember.mind()")
         check("its plan is taken on", mm["live"] is True and "cold" in mm["thought"], str(mm))
+        check("a visible thought cue appears when a plan arrives", any(cues), str(cues[:6]))
         check("the behaviour it invented plays at once", "gen" in poses, str(poses))
         check("then the rest of the plan: it speaks and changes into a beanie",
               "brr. it's freezing." in said and mp.evaluate("ember.state().outfit") == "beanie", str(said))
         check("the invented behaviour is kept for next time", "shiver" in mm["lib"] and "shiver" in (mp.evaluate("localStorage.ember_lib") or ""))
+        for _ in range(45):
+            mp.wait_for_timeout(200)
+            acts = [a["k"] for a in (mp.evaluate("ember.mind().acts") or [])]
+            if "m_hum" in acts and "m_slowblink" not in acts:
+                mp.evaluate("ember.hurry()")
+            if "m_slowblink" in acts:
+                break
+        mm2 = mp.evaluate("ember.mind()")
+        acts2 = mm2.get("acts") or []
+        check("when live, consecutive idle actions come from mind plans and not choose()",
+              len(asked) >= 3 and any(a["k"] == "m_hum" for a in acts2) and any(a["k"] == "m_slowblink" for a in acts2)
+              and all(a.get("by") == "mind" for a in acts2), str(acts2))
+        check("idle mind requests pass recent actions so the mind varies them",
+              len(asked) >= 2 and (asked[1].get("state") or {}).get("reason") == "idle"
+              and "shiver" in ((asked[1].get("state") or {}).get("ember") or {}).get("recent_actions", []),
+              str(asked[1].get("state") if len(asked) >= 2 else {}))
+        mp.evaluate("openSettings()"); mp.wait_for_timeout(400)
+        mcard = mp.evaluate("(document.getElementById('embercard')||{}).innerText||''")
+        check("Settings → Companion shows Mind: on, last thought and today's count",
+              "Mind: on · last thought" in mcard and "today" in mcard and mm2.get("today", 0) >= 3, mcard[:260])
         mp.reload(); mp.wait_for_timeout(2500)
         check("and it is still known after a restart", "shiver" in mp.evaluate("ember.mind().lib"))
         mp.close()
