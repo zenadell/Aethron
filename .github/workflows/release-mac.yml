@@ -142,6 +142,10 @@ jobs:
           python3 aethron_desktop.py --selftest
           python3 -c "import aethron_desktop,sys;sys.exit(0 if aethron_desktop.available() else 1)" \
             || { echo "::error::Ember cannot reach the Mac's window server (pyobjc Quartz missing)"; exit 1; }
+          # Ember listens through the Mac's own on-device speech recognition
+          python3 aethron_voice.py --selftest
+          python3 -c "import aethron_voice,sys;sys.exit(0 if aethron_voice.available() else 1)" \
+            || { echo "::error::Ember cannot listen (pyobjc Speech/AVFoundation missing)"; exit 1; }
           # screenshot to code with the Mac's own OCR: pictures stay
           # pictures, type and placement fitted from the pixels
           python3 tests/pictures_fit_battery.py | tee /tmp/pictures.log

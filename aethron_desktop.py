@@ -352,6 +352,20 @@ def install(studio, base_url, log=print, home=None):
             pass
         return dict(out, available=True)
     studio.EMBER_DESKTOP = switch
+
+    def focus_app():
+        """Ember heard a request on the desktop: bring Aethron forward so the
+        person watches it being typed."""
+        def go():
+            from AppKit import NSApplication
+            app = NSApplication.sharedApplication()
+            app.activateIgnoringOtherApps_(True)
+            for w in app.windows():
+                if str(w.title() or "") != "Ember" and w.canBecomeKeyWindow():
+                    w.makeKeyAndOrderFront_(None)
+                    break
+        d._main(go)
+    studio.EMBER_FOCUS = focus_app
     try:
         with open(path) as fh:
             if json.load(fh).get("on"):

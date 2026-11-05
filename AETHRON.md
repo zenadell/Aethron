@@ -6871,6 +6871,53 @@ hide). NOT PROVEN until it runs on a Mac: the window itself (level,
 click-through, notch position, key focus for typing). The pump logs every
 step to the app log ("ember desktop: ...").
 
+## TELL EMBER — it listens, rewrites, types and presses — `aethron_voice.py`
+## — 2026-11-05
+Owner: double-tap Ember to talk; when you stop (~1.5-2s) it makes the words
+a clear request, flies to the chat bar, types it where you can watch and
+presses Send; "publish" means it flies to Publish and presses it; it can
+write exactly what needs fixing.
+- LISTENING: double-tap = listen (rings round Ember, the words appear in its
+  bubble as you speak, a second double-tap or Esc stops). On a Mac it is the
+  Mac's own on-device speech recognition (aethron_voice: SFSpeechRecognizer +
+  AVAudioEngine through pyobjc, results on our own operation queue because
+  the studio thread has no run loop; done after 1.8s quiet once something was
+  said, 10s if nothing, 90s at most). Routes /api/voice, /api/voice/start|
+  poll|stop. Elsewhere the browser's own recognizer if it has one; else Ember
+  says it cannot hear and opens the typed box. Typing moved to the right-click
+  menu ("Type to Ember").
+- REWRITING: POST /api/ember/act -> aethron_ember.act(): a whole request that
+  is one of the app's buttons (publish/undo/build/check/preview/stop/status)
+  is matched locally with no model; anything else goes to the active provider
+  to become one clear request (filler out, grammar and mishearings fixed,
+  "this"/"it" made specific from STATE — open project, job, last problem —
+  and NEVER anything added); small talk is answered, not sent. A provider
+  that fails or is missing -> the words as said, minus filler.
+- HANDS: perform() flies to the real element and calls el.click() — the
+  chat box (#npurl: typed char by char with input events and growTa), then
+  Send (#sendbtn or the rendered button[onclick^=consoleSend], which has no
+  id). Publish presses #pubrail, then the sheet's own button[onclick^=pubGo];
+  if the sheet wants something first (an address, a sign-in) Ember says so
+  and stops. While Ember drives, nothing else moves it (signals only update
+  what it knows).
+- FIXING: the truth check hands Ember every gap (signal 'gaps', and 'broke'
+  carries them); STATE says "Last problem Aethron reported"; the right-click
+  menu offers "Tell Aethron to fix this", which types a request built from
+  those measured gaps — never a model's guess.
+- DESKTOP: Ember on the desktop hears you, the request goes to
+  /api/ember/act with relay=1 -> EMBER_INBOX; the app window (polling
+  /api/ember/inbox) types and sends it, and EMBER_FOCUS brings Aethron forward.
+- Bundle: NSMicrophoneUsageDescription + NSSpeechRecognitionUsageDescription
+  in the plist, pyobjc Speech/AVFoundation installed and named; the release
+  refuses a build where aethron_voice.available() is False.
+Tests: aethron_voice --selftest 9/9, aethron_ember --selftest 18/18 (act),
+tests/ember_battery.py 30 -> 43 (double-tap listens, Esc stops, a spoken
+request is typed in visibly then sent, filler gone, Ember was at Send when it
+pressed, publish presses both buttons, a spoken button needs no model, the
+desktop relay is handed over once, the fix request names the measured gap).
+NOT PROVEN until it runs on a Mac: the microphone and speech permission
+prompts and recognition itself.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7157,7 +7204,8 @@ step to the app log ("ember desktop: ...").
   rate limit or bot check is reported, never worked around; only free
   templates are ever offered.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
-  really happened.
+  really happened. What it presses for you, it presses where you can see it,
+  and it never adds to what you asked.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.

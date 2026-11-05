@@ -95,6 +95,70 @@ try:
         check("it answers even with no provider", "Tim" in b_, b_)
         check("and remembers the name", pg.evaluate("ember.memory().name") == "Tim")
         pg.press("#ember-in", "Escape"); pg.wait_for_timeout(300)
+        # ---- voice and hands: listen on a double-tap, then type and press
+        v = b.new_page(viewport={"width": 1400, "height": 900})
+        v.on("pageerror", lambda e: errs.append("voice: " + str(e)))
+        v.add_init_script("try{localStorage.forge_tour='done'}catch(e){}")
+        v.goto(BASE + "/?ember=1"); v.wait_for_timeout(3500)
+        v.evaluate("window.consoleSend=()=>{window.__sent=document.getElementById('npurl').value}")
+        st = v.evaluate("ember.state()")
+        v.mouse.dblclick(st["x"], st["y"]); v.wait_for_timeout(700)
+        vs = v.evaluate("ember.voice().state")
+        check("a double-tap on Ember starts listening", vs in ("asking", "listening", "idle") and v.evaluate("ember.state().mood") in ("listen", ""), vs)
+        v.keyboard.press("Escape"); v.wait_for_timeout(500)
+        check("Escape stops listening", v.evaluate("ember.voice().state") == "idle")
+        v.wait_for_timeout(3500)
+        v.evaluate("void ember.hear('um can you make the hero headline say hello world')")
+        mid = ""; seen = []
+        for _ in range(90):
+            v.wait_for_timeout(100)
+            mid = v.evaluate("document.getElementById('npurl').value")
+            seen.append(len(mid))
+            if 5 < len(mid) < 30: break
+        check("what was said is typed into the chat box where you can watch",
+              "Can you make the hero headline say hello world.".startswith(mid) and 0 < len(mid) < 47, repr(mid) + " seen " + str(seen[:12]))
+        for _ in range(60):
+            v.wait_for_timeout(100)
+            if v.evaluate("window.__sent"): break
+        check("then Ember presses Send with the whole request",
+              v.evaluate("window.__sent") == "Can you make the hero headline say hello world.", repr(v.evaluate("window.__sent")))
+        check("filler words are left out", "um" not in (v.evaluate("window.__sent") or "x"))
+        pr = v.evaluate("ember.voice().press") or {}
+        check("and it flew there to press it", pr and ((pr["x"]-pr["cx"])**2+(pr["y"]-pr["cy"])**2) ** .5 < 90, str(pr))
+        v.wait_for_timeout(1500)
+        # publish: Ember presses the app's own Publish button, then the sheet's
+        v.evaluate("""(()=>{window.__pub=0;const r=document.createElement('button');r.id='pubrail';r.textContent='Publish';
+          r.style.cssText='position:fixed;left:300px;top:20px;width:90px;height:30px;z-index:5';
+          r.onclick=()=>{const o=document.createElement('div');o.id='pubov';o.style.cssText='position:fixed;left:500px;top:300px;z-index:5';
+            o.innerHTML='<button onclick="pubGo()" style="width:120px;height:36px">Publish</button>';document.body.appendChild(o)};
+          document.body.appendChild(r);window.pubGo=()=>{window.__pub++}})()""")
+        v.evaluate("void ember.hear('publish it please')")
+        for _ in range(80):
+            v.wait_for_timeout(100)
+            if v.evaluate("window.__pub"): break
+        check("asked to publish, Ember presses Publish and then the sheet's Publish", v.evaluate("window.__pub") == 1)
+        r = v.evaluate("fetch('/api/ember/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'rebuild it',relay:1})}).then(r=>r.json())")
+        check("a spoken button needs no model", r.get("kind") == "action" and r.get("action") == "build", str(r))
+        box = v.evaluate("fetch('/api/ember/inbox').then(r=>r.json())")
+        check("a request heard on the desktop waits for the app window to type it", box.get("items") and box["items"][0].get("action") == "build", str(box))
+        check("and is handed over once", v.evaluate("fetch('/api/ember/inbox').then(r=>r.json())").get("items") == [])
+        vv = v.evaluate("fetch('/api/voice').then(r=>r.json())")
+        check("off a Mac the microphone says so instead of pretending", vv.get("available") is (sys.platform == "darwin"), str(vv))
+        v.wait_for_timeout(2500)
+        v.evaluate("window.__sent=''; ember.signal('broke',{what:'about.html',gaps:['the browser check found 1 broken page (about.html)']})")
+        v.wait_for_timeout(9000)
+        st = v.evaluate("ember.state()")
+        v.mouse.click(st["x"], st["y"], button="right"); v.wait_for_timeout(300)
+        items = v.evaluate("[...document.querySelectorAll('#ember-menu button')].map(b=>b.textContent)")
+        check("after a failure its menu offers to tell Aethron the fix", "Tell Aethron to fix this" in items, str(items))
+        if "Tell Aethron to fix this" in items:
+            v.evaluate("[...document.querySelectorAll('#ember-menu button')].find(b=>b.textContent==='Tell Aethron to fix this').click()")
+            for _ in range(80):
+                v.wait_for_timeout(100)
+                if v.evaluate("window.__sent"): break
+            sent = v.evaluate("window.__sent") or ""
+            check("and the request names exactly what the check found", "about.html" in sent and sent.startswith("Fix what the last check found"), repr(sent))
+        v.close()
         pg.evaluate("openSettings()"); pg.wait_for_timeout(900)
         card = pg.evaluate("(document.getElementById('embercard')||{}).innerText||''")
         check("Settings has a companion card", "companion" in card.lower() and "sassy" in card.lower(), card[:200])
