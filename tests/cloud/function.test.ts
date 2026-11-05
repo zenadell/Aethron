@@ -608,6 +608,26 @@ describe("Ember's mind", () => {
     expect((await ask(d.device)).status).toBe(503);
   });
 
+  test("a model the provider retired is replaced by one it lists, and remembered", async () => {
+    fake.tables.secrets.push({ name: "base_groq", value: PROV });
+    await tool("set_provider_key", { provider: "groq", keys: "gsk_EMBERKEY123", base_url: PROV });
+    forget("");
+    const d = await deviceFor("ada@example.com");
+    const asked: string[] = [];
+    fake.provider = (b) => {
+      if (!b.model) return Response.json({ data: [{ id: "llama-3.3-70b-versatile" }, { id: "whisper-large-v3" }, { id: "llama-4-scout-8b-instant" }] });
+      asked.push(b.model);
+      if (b.model === "llama-3.1-8b-instant") {
+        return Response.json({ error: { message: "The model `llama-3.1-8b-instant` does not exist", code: "model_not_found" } }, { status: 404 });
+      }
+      return fake.reply('{"plan":[{"do":"yawn"}]}');
+    };
+    const r = await ask(d.device);
+    expect(r.status).toBe(200);
+    expect(asked).toEqual(["llama-3.1-8b-instant", "llama-4-scout-8b-instant"]);
+    expect(fake.tables.secrets.find((x: any) => x.name === "ember_model")?.value).toBe("llama-4-scout-8b-instant");
+  });
+
   test("not signed in, or paused: no thinking", async () => {
     expect((await call("POST", "/ember/mind", { body: { messages: [] } })).status).toBe(401);
   });

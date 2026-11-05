@@ -167,3 +167,11 @@ for s in rows("secrets", "select=name,value&name=eq.key_groq"):
 
 for s in rows("secrets", "select=name,value,updated_at&name=eq.ember_last_error"):
     print("  ember last error:", s.get("updated_at"), str(s.get("value"))[:400])
+for s in rows("secrets", "select=name,value&name=eq.key_groq"):
+    key = [x for x in str(s.get("value") or "").replace(",", "\n").split() if x.strip()][0]
+    try:
+        r = urllib.request.Request("https://api.groq.com/openai/v1/models", headers={"Authorization": "Bearer " + key, "User-Agent": "Aethron/1.1"})
+        with urllib.request.urlopen(r, timeout=30) as resp:
+            print("  groq models:", sorted(m["id"] for m in json.loads(resp.read())["data"]))
+    except Exception as e:
+        print("  groq models failed:", e)

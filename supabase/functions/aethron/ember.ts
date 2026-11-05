@@ -11,8 +11,9 @@ import { caller, effective, keyList, secret, setSecret, signedOutAfter } from ".
 import { upstream } from "./gateway.ts";
 import { fail, http, json, later, nowMs } from "./util.ts";
 
-export const EMBER_DEFAULT = { provider: "groq", model: "llama-3.1-8b-instant", per_hour: 40 };
+export const EMBER_DEFAULT = { provider: "groq", model: "llama-3.1-8b-instant", per_hour: 40 }; // a retired model is replaced by what the provider lists
 const MAX_CHARS = 16000;
+const UA = "Aethron/1.1 (+https://aethron.jomiez.com)";
 
 export async function emberSettings() {
   const provider = (await secret("ember_provider")) || EMBER_DEFAULT.provider;
@@ -71,13 +72,28 @@ export async function emberMind(req: Request): Promise<Response> {
     temperature: 0.9, response_format: { type: "json_object" },
   };
   const t0 = nowMs();
+  // A provider retires models; when ours is gone, take the smallest fast one
+  // it lists now and remember it, instead of failing every thought.
+  const pickModel = async (key: string): Promise<string> => {
+    try {
+      const m = await http(base + "/models", { headers: { Authorization: "Bearer " + key, "User-Agent": UA } });
+      if (!m.ok) return "";
+      const ids: string[] = ((await m.json())?.data || []).map((x: { id: string }) => String(x.id))
+        .filter((id: string) => !/whisper|tts|guard|embed|vision|audio|speech|moderat|compound/i.test(id));
+      const score = (id: string) => (/instant|8b|mini|small|lite|nano|fast|flash|20b/i.test(id) ? 0 : 1) * 10 + (/70b|120b|large|pro/i.test(id) ? 5 : 0);
+      ids.sort((x, y) => score(x) - score(y) || x.length - y.length);
+      return ids[0] || "";
+    } catch (_) {
+      return "";
+    }
+  };
   let r: Response | null = null;
   let err = "";
   for (const key of keys) {
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 3; i++) {
       r = await http(base + "/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: "Bearer " + key, "User-Agent": "Aethron/1.1 (+https://aethron.jomiez.com)" },
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + key, "User-Agent": UA },
         body: JSON.stringify(body),
       });
       if (r.ok) break;
@@ -85,6 +101,15 @@ export async function emberMind(req: Request): Promise<Response> {
       if (r.status === 400 && /response_format|json_object/i.test(err) && body.response_format) {
         delete body.response_format;
         continue;
+      }
+      if ((r.status === 404 || r.status === 400) && /model_not_found|does not exist|decommission|not supported/i.test(err)) {
+        const next = await pickModel(key);
+        if (next && next !== body.model) {
+          body.model = next;
+          s.model = next;
+          later(setSecret("ember_model", next, "ember"));
+          continue;
+        }
       }
       break;
     }
