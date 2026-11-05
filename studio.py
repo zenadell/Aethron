@@ -529,8 +529,11 @@ def _ember_mind_call(seconds):
     def cloud(msgs):
         st, j = aethron_control._request("POST", "/ember/mind", {"messages": msgs, "max_tokens": 900}, token=tok,
                                               timeout=seconds)
-        if st == 200 and isinstance(j, dict) and j.get("content"):
-            return j["content"]
+        if st == 200 and isinstance(j, dict):
+            if j.get("content"):
+                return j["content"]
+            if j.get("off"):
+                raise PermissionError(str(j.get("why") or "resting"))
         err = PermissionError if st in (401, 403, 429, 503) else RuntimeError
         e = (j or {}).get("error")
         raise err((e.get("message") if isinstance(e, dict) else e) or f"the mind answered {st}")
@@ -3463,8 +3466,9 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"off": True, "retry": 1800, "why": str(e)})
                 got = _with_deadline(lambda: _ember.mind(body.get("state") or {}, str(body.get("attitude") or "sassy"),
                                                          body.get("known") or [], call), EMBER_MIND_S + 3)
-                if isinstance(got, PermissionError):   # not switched on yet: look again soon
-                    return self.send_json({"off": True, "retry": 300, "why": str(got)})
+                if isinstance(got, PermissionError):   # not switched on yet or resting: look again soon
+                    why = str(got)
+                    return self.send_json({"off": True, "retry": 900 if why == "resting" else 300, "why": why})
                 if isinstance(got, Exception):
                     return self.fail(str(got) or "Ember's mind did not answer")
                 self.send_json(got)
@@ -16808,6 +16812,7 @@ function emberCard(){
     ${e.deskAvail?`<div class="kv"><span>On your desktop</span><b><button class="${e.desktop?'primary':''}" onclick="emberSet('desktop',${!e.desktop})">${e.desktop?'Out on the desktop':'Only in this window'}</button></b></div>`:''}
     <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
     <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
+    <div class="hint" id="ember-mind-status">${esc(e.mindStatus||'Mind: off')}</div>
     ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}
     <div class="rowbtns"><button onclick="emberSet('talk')">Talk to Ember</button><button onclick="emberSet('tour')">Show me around again</button><button onclick="emberSet('forget')">Forget what it knows about me</button></div>`;
 }

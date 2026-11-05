@@ -7914,4 +7914,13 @@ packaged Windows app's MCP tools PASSED.
   `"take your glasses off"`, `"wear a beanie"`, and `"stop cleaning"` work both
   with a provider and offline. The window applies them immediately through
   `applyPlan()` and `mindStep()`. Verified in `aethron_ember.py --selftest`
-  (35/35) and `tests/ember_battery.py` (84/84).
+  (35/35) and `tests/ember_battery.py` (88/88).
+- MIND AS DEFAULT PLANNER & VISIBLE STATUS (`aethron_ember.py`, `studio.py`):
+  While `MIND.live` is true, Ember asks the mind whenever a plan finishes and
+  it goes idle (`mindIdle()`, passing `recent_errands` and `recent_actions` so
+  it varies them, capped by `per_hour` with cloud `{off: true, why: "resting"}`
+  propagated through `_ember_mind_call`), falling back to `choose()` only when
+  the mind is off or resting. When a plan arrives, Ember shows a brief `…`
+  thought cue and tiny sparkle, and Settings → Companion shows
+  `"Mind: on · last thought … · N today"`. Verified in `tests/ember_battery.py`
+  (88/88).
