@@ -159,8 +159,11 @@ for s in rows("secrets", "select=name,value&name=eq.key_groq"):
                 data=json.dumps({"model": "llama-3.1-8b-instant", "max_tokens": 5,
                                  "messages": [{"role": "user", "content": "say ok in json"}],
                                  "response_format": {"type": "json_object"}}).encode(),
-                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
+                headers={"Authorization": "Bearer " + key, "Content-Type": "application/json", "User-Agent": "Aethron/1.1 (+https://aethron.jomiez.com)"})
             with urllib.request.urlopen(r, timeout=30) as resp:
-                print("  groq answered", resp.status)
+                print("  groq answered", resp.status, resp.read()[:200])
         except Exception as e:
             print("  groq refused:", e, getattr(e, "read", lambda: b"")()[:300])
+
+for s in rows("secrets", "select=name,value,updated_at&name=eq.ember_last_error"):
+    print("  ember last error:", s.get("updated_at"), str(s.get("value"))[:400])

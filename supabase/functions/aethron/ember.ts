@@ -7,7 +7,7 @@
 
 import { db } from "./db.ts";
 import { costOf, PROVIDERS } from "./prices.ts";
-import { caller, effective, keyList, secret, signedOutAfter } from "./state.ts";
+import { caller, effective, keyList, secret, setSecret, signedOutAfter } from "./state.ts";
 import { upstream } from "./gateway.ts";
 import { fail, http, json, later, nowMs } from "./util.ts";
 
@@ -76,7 +76,8 @@ export async function emberMind(req: Request): Promise<Response> {
   for (const key of keys) {
     for (let i = 0; i < 2; i++) {
       r = await http(base + "/chat/completions", {
-        method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key },
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + key, "User-Agent": "Aethron/1.1 (+https://aethron.jomiez.com)" },
         body: JSON.stringify(body),
       });
       if (r.ok) break;
@@ -99,7 +100,9 @@ export async function emberMind(req: Request): Promise<Response> {
     }));
   if (!r || !r.ok) {
     record(0, 0, "error");
-    return fail(502, `Ember's mind (${s.provider}) answered ${r ? r.status : "nothing"}: ${err.slice(0, 200)}`);
+    const why = `Ember's mind (${s.provider}) answered ${r ? r.status : "nothing"}: ${err.slice(0, 300)}`;
+    later(setSecret("ember_last_error", new Date().toISOString() + " " + why, "ember"));
+    return fail(502, why);
   }
   const j = await r.json();
   const content = String(j?.choices?.[0]?.message?.content || "");

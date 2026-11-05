@@ -615,7 +615,7 @@ async function post(path,body){const r=await fetch(path,{method:'POST',credentia
 /* the desktop window: where other windows, the notch and the Dock are, fed 20 times a second */
 let DW={windows:[],dock:null,notch:null,menubar:24,fullscreen:false};
 function ATT(){return CFG.att==='savage'&&!isAdmin()?'sassy':(['sweet','sassy','savage'].includes(CFG.att)?CFG.att:'sassy')}
-const L=a=>Array.isArray(a)?a[{sweet:0,sassy:1,savage:2}[ATT()]]:a;
+const L=a=>{if(!Array.isArray(a))return a;const v=a[{sweet:0,sassy:1,savage:2}[ATT()]];return Array.isArray(v)?v[Math.floor(Math.random()*v.length)]:v};
 function autoFit(){const d=new Date(),m=d.getMonth()+1,day=d.getDate();
   if(m===12&&day<=26)return'santa';if((m===12&&day===31)||(m===1&&day===1))return'party';if(m===10&&day>=24)return'witch';if(m===1||m===2||m===12)return'beanie';return'none'}
 let FITOV=null;
@@ -811,8 +811,10 @@ function workout(){const st=[{d:1.1,pose:'stretch',face:'focus',look:{dir:[0,-1]
   for(let i=0;i<3;i++)st.push({d:.5,pose:'hands',face:'focus',fn:()=>{E.q-=.38}},{d:.45,pose:'hips',fn:()=>{E.q+=.3}});
   st.push({d:1.4,pose:'limp',face:'sleepy',fn:()=>{E.sweat=1}},{d:1.8,pose:'hips',face:ATT()==='sweet'?'happy':'smug',look:'viewer',fn:()=>{E.sweat=0},say:['done! I feel great.','done. fit as a fiddle.',"that was nothing. I'm a machine."]});
   return st}
-function choose(){const e=Object.entries(ACTS).map(([k,a])=>[k,Math.max(0,a.w())*rnd(.65,1.35)*(act&&act.k===k?.3:1)]).sort((a,b)=>b[1]-a[1]);
-  const k=e[0][0],a=ACTS[k];act={k,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a)}
+const RECENT=[];
+function choose(){const rec=k=>RECENT.filter(r=>r.k===k&&now-r.t<300).length;
+  const e=Object.entries(ACTS).map(([k,a])=>[k,Math.max(0,a.w())*rnd(.5,1.5)*(act&&act.k===k?.2:1)/(1+rec(k)*1.6)]).sort((a,b)=>b[1]-a[1]);
+  const k=e[0][0],a=ACTS[k];RECENT.push({k,t:now});if(RECENT.length>30)RECENT.shift();act={k,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a)}
 const FIDGETS={
   glance:{w:()=>.8,s:()=>[{d:.7,look:{dir:[-1,.1]},face:idleFace()},{d:.15,look:{dir:[1,-.05]}},{d:.8,look:{dir:[1,-.05]},face:'curious'},{d:.9,look:'viewer',face:ATT()==='sweet'?'happy':'sideeye'}]},
   judge:{w:()=>cur.still()&&ATT()!=='sweet'?1.4:0,s:()=>[{d:2.4,look:'cursor',face:'unimpressed',fn:()=>{E.noBlink=2.4}},{d:.9,look:'cursor',face:'content'}]},
@@ -934,7 +936,7 @@ function mindTick(){if(!started||MIND.busy||TW.on||DRV.on||V.state!=='idle'||CHA
   const active=now-cur.t<180||now-MIND.key<180||now-(CHAT.typing||-99)<180;if(!active)return;
   if(now>=MIND.next&&!MIND.plan.length)think('time')}
 /* something happened: let the mind react soon (not more than every 20s) */
-const MIND_NOW={broke:1,pass:1,published:1,error:1,gaps:1,back:1,page:1};let MIND_JOB='';
+const MIND_NOW={broke:1,pass:1,published:1,error:1,gaps:1,back:1,page:1,poked:1,thrown:1};let MIND_JOB='';
 function mindEvent(name,data){const d=data||{};let w=name;if(d.what)w+=': '+String(d.what).slice(0,80);else if(d.tool)w+=': '+String(d.tool).slice(0,40);else if(d.job&&d.job.status)w+=': '+d.job.status;
   if(name==='working'||name==='retry'){const l=MIND.ev[MIND.ev.length-1];if(l&&l.what.startsWith(name)){l.t=now;l.what=w;return}}
   let big=!!MIND_NOW[name];if(name==='job'){const st=d.job&&d.job.status||'';if(st===MIND_JOB)return;MIND_JOB=st;big=/done|failed|waiting|blocked/.test(st)}
@@ -1018,9 +1020,10 @@ function swallow(e){if(tookDown||onBody(e.clientX,e.clientY)){e.preventDefault()
 function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const n=cur.boops.length;E.q-=.4;bump('annoy',.13);bump('social',-.1);E.giggle=.3;
   if(ATT()==='sweet'){play(n>=3?[{d:1.1,face:'grumpy',pose:'hips',look:'viewer',say:'hey!'},{d:.8,face:'mischief'}]:[{d:.2,face:'surprised'},{d:.8,face:'joy',say:n===2?'boop!':''}]);return}
   if(n>=4){cur.boops=[];bump('annoy',.2);play([{d:1.6,face:'haughty',pose:'crossed',look:{dir:[1,-.5]},say:['','bye.',"I'm done with you."],fn:()=>{const m=area();go({x:E.x>m.cx?m.l+m.w*.62:m.r-R*2.4,y:rnd(m.t+m.h*.3,m.t+m.h*.6)},{now:1})}}]);return}
-  play({1:[{d:.25,face:'surprised'},{d:1.3,face:'sideeye',look:'viewer',say:['','…','don\'t.']}],
-    2:[{d:.2,face:'surprised'},{d:1.7,face:'tfman',look:'viewer',say:['','do that again.','do that again. I dare you.']}],
-    3:[{d:.15,face:'shocked'},{d:1.8,face:'glare',pose:'hips',look:'viewer',say:['','tf man.','what the fuck, man.'],fn:()=>{E.puff=1.2;bump('annoy',.2)}},{d:.6,face:'glare',pose:'crossed',look:'viewer'}]}[n])}
+  try{mindEvent('poked',{what:'they poked Ember '+n+' time'+(n>1?'s':'')+' in a row'})}catch(_){}
+  play({1:[{d:.25,face:'surprised'},{d:1.3,face:pick(['sideeye','unimpressed','haughty']),look:'viewer',say:['',['…','hm?','yes?','can I help you?','personal space.'],['don\'t.','touch me again.','hands off.','excuse you?']]}],
+    2:[{d:.2,face:'surprised'},{d:1.7,face:pick(['tfman','glare','sideeye']),look:'viewer',say:['',['do that again.','I felt that.','again? really?','we talked about this.'],['do that again. I dare you.','one more time and I bite.','you poke like a toddler.','keep going, see what happens.']]}],
+    3:[{d:.15,face:'shocked'},{d:1.8,face:'glare',pose:'hips',look:'viewer',say:['',['tf man.','okay, enough.','I am not a button.','I will remember this.'],['what the fuck, man.','are you done?','I swear to god.','you have a problem.']],fn:()=>{E.puff=1.2;bump('annoy',.2)}},{d:.6,face:'glare',pose:'crossed',look:'viewer'}]}[n])}
 function openMenu(x,y){menu.innerHTML='';const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{menu.hidden=true;f()};menu.appendChild(b)};
   add(V.state==='listening'?'Stop listening':'Talk to Ember (double-tap)',listen);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
   menu.hidden=false;menu.style.left=cl(x,8,W-190)+'px';menu.style.top=cl(y,8,H-150)+'px'}
@@ -1406,7 +1409,7 @@ function hit(v,ax){const s=Math.abs(v);if(ax==='y')E.q-=cl(s/2200,0,.5);else E.t
 function afterThrow(){const hard=E.thrown>900;E.thrown=0;if(E.dizzyHit){E.dizzyHit=0;E.dizzy=1.6;say('whoa…')}
   setTimeout(()=>{if(CHAT.open)return;if(ATT()==='sweet'){play([{d:1.8,face:'joy',pose:'cheer',look:'viewer',say:hard?'again! again!':'thanks!'}]);return}
     if(!hard)return;const again=Math.random()<.35;
-    play([{d:.9,face:'glare',pose:'dust',fn:()=>{E.shakeOff=1}},{d:2,face:again?'mischief':'tfman',pose:'crossed',look:'viewer',say:again?['','…do it again.','okay that was sick. again.']:['','really?','the fuck was that?']}],()=>go(SP.rest))},E.dizzy>0?1700:100)}
+    play([{d:.9,face:'glare',pose:'dust',fn:()=>{E.shakeOff=1}},{d:2,face:again?'mischief':'tfman',pose:'crossed',look:'viewer',say:again?['',['…do it again.','okay. once more.','wheee… I mean, rude.'],['okay that was sick. again.','again. now.','do it again, coward.']]:['',['really?','was that necessary?','I have a spine, you know. somewhere.','rude.'],['the fuck was that?','you throw like a fridge.','I want a lawyer.','that\'s assault.']]}],()=>go(SP.rest))},E.dizzy>0?1700:100);try{mindEvent('thrown',{what:'they threw Ember '+(hard?'hard':'gently')+' across the screen'})}catch(_){}}
 
 /* ===== drawing ===== */
 const ink='#3d1308';
