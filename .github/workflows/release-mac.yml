@@ -11,8 +11,9 @@ name: Release Aethron for Mac
 on:
   push:
     branches: [main]
-    # Only changes to the app cut a Mac release (a Mac minute counts 10x
-    # against the Actions allowance). The website deploys on Netlify, the
+    # Only changes to the app cut a Mac release. (The repo is public since
+    # 2026-11-05, so GitHub's standard runners cost no minutes; while it
+    # was private a Mac minute counted 10x and the allowance ran out.) The website deploys on Netlify, the
     # hosting server and the cloud function have their own deploys, and
     # tests and docs alone change nothing a person installs.
     paths-ignore:
