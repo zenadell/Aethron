@@ -49,7 +49,7 @@ try:
         pg = b.new_page(viewport={"width": 1400, "height": 900})
         errs = []
         pg.on("pageerror", lambda e: errs.append(str(e)))
-        pg.add_init_script("try{localStorage.forge_tour='done'}catch(e){}")
+        pg.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1'}catch(e){}")
         pg.goto(BASE + "/"); pg.wait_for_timeout(2500)
         check("an automated browser gets no companion", pg.evaluate("!!(window.ember&&ember.get().running)") is False
               and pg.evaluate("!document.getElementById('ember-cv')"))
@@ -98,7 +98,7 @@ try:
         # ---- voice and hands: listen on a double-tap, then type and press
         v = b.new_page(viewport={"width": 1400, "height": 900})
         v.on("pageerror", lambda e: errs.append("voice: " + str(e)))
-        v.add_init_script("try{localStorage.forge_tour='done'}catch(e){}")
+        v.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1'}catch(e){}")
         v.goto(BASE + "/?ember=1"); v.wait_for_timeout(3500)
         v.evaluate("window.consoleSend=()=>{window.__sent=document.getElementById('npurl').value}")
         st = v.evaluate("ember.state()")
@@ -207,7 +207,50 @@ try:
                 if v.evaluate("window.__sent"): break
             sent = v.evaluate("window.__sent") or ""
             check("and the request names exactly what the check found", "about.html" in sent and sent.startswith("Fix what the last check found"), repr(sent))
+        # ---- a reply is never waited on forever
+        v.evaluate("""(()=>{window.__api0=window.api;window.api=(p,b)=>p==='/api/ember/say'?new Promise(()=>{}):window.__api0(p,b)})()""")
+        v.evaluate("ember.talk()"); v.wait_for_timeout(2600)
+        v.fill("#ember-in", "how is your day going"); v.press("#ember-in", "Enter")
+        v.wait_for_timeout(26000)
+        b_ = v.evaluate("ember.state().bubble") or ""
+        check("a reply that never comes is answered anyway, not left loading", bool(b_.strip()), repr(b_))
+        v.evaluate("void (window.api=window.__api0)"); v.keyboard.press("Escape"); v.wait_for_timeout(500)
+        # ---- left alone, Ember goes about its own errands
+        v.evaluate("ember.hurry()")
+        for _ in range(90):
+            v.wait_for_timeout(500)
+            if sum((v.evaluate("ember.state().seen") or {}).values()) >= 2: break
+        seen = v.evaluate("ember.state().seen") or {}
+        check("left alone, Ember goes off and does errands of its own", sum(seen.values()) >= 2, str(seen))
         v.close()
+        # ---- a first launch: Ember welcomes the person and shows them around
+        w = b.new_page(viewport={"width": 1400, "height": 900})
+        w.on("pageerror", lambda e: errs.append("welcome: " + str(e)))
+        w.add_init_script("try{if(!sessionStorage.cleared){sessionStorage.cleared=1;localStorage.removeItem('ember_welcomed')}}catch(e){}")
+        w.goto(BASE + "/?ember=1"); w.wait_for_timeout(4500)
+        t = w.evaluate("ember.tour()")
+        check("on a first launch Ember starts the welcome tour", t.get("on") is True, str(t))
+        check("the old written tour does not run on top of it", w.evaluate("!document.querySelector('#tour.on')"))
+        bar = w.evaluate("(()=>{const b=document.getElementById('ember-tour');return b&&!b.hidden?b.innerText:''})()")
+        check("the tour shows its step and a Skip and Next", "Skip" in bar and ("Next" in bar or "Done" in bar), repr(bar))
+        seen_said = set()
+        for _ in range(12):
+            if not w.evaluate("ember.tour().on"): break
+            seen_said.add(w.evaluate("ember.state().bubble") or "")
+            w.wait_for_timeout(1800)
+            w.evaluate("(()=>{const n=document.querySelector('#ember-tour .nx');n&&n.click()})()")
+            w.wait_for_timeout(2600)
+        said = " ".join(seen_said)
+        check("it introduces itself", "Ember" in said, said[:200])
+        check("and explains the chat box and the projects", "Aethron" in said and ("project" in said.lower()), said[:300])
+        check("the tour ends and is remembered", not w.evaluate("ember.tour().on") and w.evaluate("localStorage.ember_welcomed") == "1")
+        w.reload(); w.wait_for_timeout(4000)
+        check("it does not run again on the next launch", not w.evaluate("ember.tour().on"))
+        w.evaluate("void ember.welcome(1)"); w.wait_for_timeout(3000)
+        check("it can be replayed on request", w.evaluate("ember.tour().on") is True)
+        w.evaluate("document.querySelector('#ember-tour .sk').click()"); w.wait_for_timeout(1500)
+        check("Skip ends it at once", not w.evaluate("ember.tour().on"))
+        w.close()
         pg.evaluate("openSettings()"); pg.wait_for_timeout(900)
         card = pg.evaluate("(document.getElementById('embercard')||{}).innerText||''")
         check("Settings has a companion card", "companion" in card.lower() and "sassy" in card.lower(), card[:200])

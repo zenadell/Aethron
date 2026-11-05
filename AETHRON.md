@@ -6959,6 +6959,38 @@ project instead of typing it and was at it when pressing, Settings opens,
 Ember sits over the text box while typing, a long line still shown after
 5s, the reply box is a styled pill by Ember with a mic).
 
+## EMBER HAS A LIFE OF ITS OWN, ALWAYS ANSWERS, AND WELCOMES YOU — 2026-11-05
+Owner, on 1.1.112: Ember sat idle anywhere ("so boring"); a typed message
+"keeps loading forever"; and a new person should be welcomed and shown
+around by Ember before it settles in.
+- ERRANDS. Idle time is a string of errands, each a destination AND an
+  activity done there (`ERRANDS`, `errandAct`, act.stage go -> do): dust a
+  project row or home card (puffs), read the newest message line by line,
+  polish the send button (sparkles), doodle on the chat box (hums), patrol
+  the top of the window, juggle sparks, look at the stars, work out. Rests
+  between are 6-11s, not 24-42s; naps only when tired; it comes to you when
+  it wants company. The frame starts the activity on arrival and ends the
+  errand when its sequence ends (gives up if it cannot arrive in 14s).
+- THE REPLY HUNG because /api/ember/say used the migration's text_call,
+  which sweeps the whole free key ring with back-off for minutes. Now the
+  studio answers within EMBER_SAY_S=20 (thread + deadline -> fail), the
+  window races 24s and falls back to Ember's own words, and /api/ember/act
+  falls back to act_local after 30s. Nothing is left spinning.
+- THE WELCOME. First launch on a machine (localStorage ember_welcomed
+  unset, Ember on, not automated): Ember drops in, sparkles, introduces
+  itself, then flies to the chat box, Send, New, the project list, the
+  System card and Settings, dimming the rest and ringing each (drawn on its
+  canvas: no click is taken), saying what each is for; a bottom pill shows
+  "n of 7", Skip and Next, and each step moves on by itself after reading
+  time. Ends perched on the chat box. The old written tour only runs when
+  Ember will not (off, or an automated browser). Replay: right-click ->
+  Show me around, or Settings -> Companion -> Show me around again.
+Tests: ember_battery 50 -> 61 (a reply that never comes is still answered;
+left alone Ember runs errands; first launch starts the tour, the old tour
+does not run, Skip/Next shown, it introduces itself and explains the chat
+box and projects, ends and is remembered, does not run again, replays,
+Skip ends it). chat-ui, team-ui, news green.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

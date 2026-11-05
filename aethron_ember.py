@@ -133,7 +133,7 @@ def reply(turns, state: str, att: str, call=None) -> dict:
               "\n\nNow reply as Ember to the last message, as the JSON object only.")
     if call is None:
         import aethron_brain
-        call = lambda p: aethron_brain.text_call(p, timeout=60, max_tokens=400)
+        call = lambda p: aethron_brain.text_call(p, timeout=18, max_tokens=400)
     out = parse(call(prompt))
     out["attitude"] = att
     return out
@@ -354,6 +354,12 @@ const css=document.createElement('style');css.textContent=`html.ember-over,html.
 #ember-go{background:#d97757;color:#fff}#ember-go:hover{background:#e3875f}
 #ember-talk.ae-empty #ember-go{opacity:.4}
 .ember-press{transform:scale(.9)!important;filter:brightness(1.18)!important;transition:transform .08s ease-out,filter .08s!important}
+#ember-tour{position:fixed;z-index:8803;left:50%;bottom:22px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;padding:6px 6px 6px 16px;border-radius:999px;background:rgba(30,27,25,.92);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.45);font:500 13px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#cfc4ba}
+#ember-tour[hidden]{display:none!important}
+#ember-tour .n{margin-right:8px;font-variant-numeric:tabular-nums}
+#ember-tour button{all:unset;cursor:pointer;padding:8px 14px;border-radius:999px;color:#e9dfd6}
+#ember-tour .sk:hover{background:rgba(255,255,255,.08)}
+#ember-tour .nx{background:#d97757;color:#fff}#ember-tour .nx:hover{background:#e3875f}
 @media (prefers-reduced-motion:reduce){#ember-talk{animation:none}}
 #ember-menu{position:fixed;z-index:8802;background:#1c1917;border:1px solid #33302c;border-radius:10px;padding:4px;min-width:170px;box-shadow:0 12px 30px rgba(0,0,0,.4);font:500 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 #ember-menu[hidden]{display:none!important}
@@ -483,25 +489,62 @@ const cur_=k=>SEQ&&SEQ.steps[SEQ.i]&&SEQ.steps[SEQ.i][k];
 let base={pose:'rest',face:'calm',look:null},act=null,mood=null,fidgetIn=6;
 const CTX={project:'',job:null,last:'',lastT:0,issue:'',issueT:0};
 
-/* What Ember does with itself. Every move has a reason a person could name:
-   it stays put most of the time, perches on the chat box to watch you, goes to
-   look at the newest thing on screen, naps when tired, follows you when it
-   wants company, and when it has sat still too long it gets up and works out.
-   No drifting to random points: a random point is the tell of a program. */
+/* What Ember does with itself. It is never just parked: it has ERRANDS of its
+   own — it goes somewhere for a reason and does the thing when it gets there
+   (dusts a project card, reads the newest message, polishes the send button,
+   doodles on the chat box, patrols the top of the window, juggles sparks,
+   looks out at the stars, works out), rests a little in between, naps when
+   it is tired, and comes to you when it wants company. Every move ends in an
+   activity a person can name; nothing drifts to a random point. */
+const SEEN={};
+const maybe=(a,p)=>Math.random()<p?L(a):'';
+function visible(sel){const out=[];for(const el of document.querySelectorAll(sel)){const r=rect(el);if(r&&r.w>30&&r.h>14&&r.t>0&&r.b<H&&r.l>=0&&r.r<=W)out.push(el)}return out}
 function interest(){for(const sel of['.jobc','.truth','.msg','.rcard']){const r=lastOf(sel);if(r&&r.w>40)return{r,sel}}return null}
+function puff(x,y,n,kind){for(let i=0;i<(n||6);i++)parts.push({k:kind||'smoke',x:x+rnd(-14,14),y:y+rnd(-4,6),vx:rnd(-30,30),vy:rnd(-40,-10),l:1,d:rnd(.6,1.1),s:rnd(3,6),c:'255,210,150'})}
+function sparkle(r,n){for(let i=0;i<(n||8);i++)parts.push({k:'spark',x:rnd(r.l,r.r),y:rnd(r.t,r.b),vx:rnd(-20,20),vy:rnd(-40,-5),l:1,d:rnd(.4,.8),s:rnd(1.2,2.2),c:'255,230,180'})}
+/* an errand: where to go, then what to do there */
+const ERRANDS={
+  dust:{w:()=>visible('.pitem,.rcard').length?.9:0,spot(){const el=pick(visible('.pitem,.rcard'));this.el=el;const r=rect(el);return r&&{x:cl(r.l+r.w*rnd(.55,.8),R*2,W-R*2),y:r.t-R*1.02,perch:1}},
+    steps(){const el=this.el;const pt=()=>{const r=rect(el);return r?{x:r.cx,y:r.cy}:{x:E.x,y:E.y+40}};
+      return[{d:.6,look:{pt},face:'curious'},{d:2.8,pose:'dust',face:'focus',look:{pt},fn:()=>{const r=rect(el);if(r){puff(E.x,E.y+R,8);setTimeout(()=>puff(E.x,E.y+R,6),900)}}},
+        {d:.5,pose:'rest',face:'calm'},{d:1.4,pose:'hips',face:'smug',look:'viewer',say:maybe(['all clean!','spotless.',"spotless. you're welcome."],.4)}]}},
+  read:{w:()=>visible('.msg,.mtext,.atext').length?N.curiosity+.25:0,spot(){const el=pick(visible('.msg,.mtext,.atext').slice(-3));this.el=el;const r=rect(el),m=area();
+      return r&&{x:cl(r.r+R*1.6,m.l+R*2,m.r-R*2),y:cl(r.t+R*1.5,m.t+R*3,m.b-R*3)}},
+    steps(){const r=rect(this.el);if(!r)return[{d:.5}];const rows=Math.max(2,Math.min(5,Math.round(r.h/22))),st=[];
+      for(let i=0;i<rows;i++){const y=r.t+(i+.5)*r.h/rows;st.push({d:.25,look:{pt:{x:r.l+20,y}},face:'focus'},{d:.75,look:{pt:{x:r.r-20,y}},face:'focus'})}
+      st.push({d:.9,face:'think',pose:'think',look:{dir:[.4,-.7]}},{d:1.4,face:ATT()==='sweet'?'happy':'calm',look:'viewer',fn:()=>{E.nod=.9},say:maybe(['huh, interesting.','hm. not bad.','read it. it\'s fine. I guess.'],.35)});return st}},
+  polish:{w:()=>shown('#sendbtn,button[onclick^=consoleSend]')?.55:0,spot(){const el=shown('#sendbtn,button[onclick^=consoleSend]');this.el=el;const r=rect(el);return r&&{x:r.cx-R*1.6,y:r.cy-R*1.1}},
+    steps(){const el=this.el;return[{d:.4,look:{pt:()=>{const r=rect(el);return r?{x:r.cx,y:r.cy}:{x:E.x,y:E.y}}},face:'curious'},
+      {d:2.4,pose:'rub',face:'content',fn:()=>{const r=rect(el);if(r){sparkle(r,10);setTimeout(()=>sparkle(r,10),1100)}}},
+      {d:1.2,pose:'hips',face:'smug',look:{pt:()=>{const r=rect(el);return r?{x:r.cx,y:r.cy}:{x:E.x,y:E.y}}},say:maybe(['shiny!','shiny. as it should be.','shiny. press it already.'],.4)}]}},
+  doodle:{w:()=>composer()?.6:0,spot(){const c=composer();return c&&{x:cl(c.l+c.w*rnd(.2,.45),c.l+R*2,c.r-R*2),y:c.t-R*1.02,perch:1}},
+    steps(){return[{d:2.6,pose:'type',face:'focus',hum:1,look:{dir:[0,1]}},{d:1.1,pose:'think',face:'think',look:{dir:[.5,-.8]}},
+      {d:2.2,pose:'type',face:'content',hum:1,look:{dir:[0,1]}},{d:1.2,pose:'hips',face:'smug',look:'viewer',say:maybe(['writing you a poem. no peeking.','drafting. don\'t look.','writing my memoir. chapter one: you.'],.35)}]}},
+  patrol:{w:()=>N.energy>.4?.5:0,spot(){const m=area();this.dir=Math.random()<.5?1:-1;return{x:this.dir>0?m.l+R*3:m.r-R*3,y:m.t+R*2.4}},
+    steps(){const m=area(),d=this.dir,st=[];for(let i=1;i<=4;i++){const x=d>0?m.l+(m.w-R*6)*i/4+R*3:m.r-(m.w-R*6)*i/4-R*3;
+        st.push({d:1.5,face:'sideeye',look:{dir:[0,1]},fn:()=>go({x,y:m.t+R*2.4},{now:1,speed:.55})},{d:.6,look:{dir:[d,.4]},face:'curious'})}
+      st.push({d:1.2,face:'calm',look:'viewer',say:maybe(['all quiet up here.','patrol done. nothing to report.','patrol done. you\'re safe. barely.'],.35)});return st}},
+  juggle:{w:()=>N.energy>.55&&N.boredom>.3?.45:0,spot(){return SP.rest()},
+    steps(){const st=[];for(let i=0;i<6;i++)st.push({d:.45,pose:i%2?'cheer':'hands',face:'joy',look:{dir:[0,-1]},fn:()=>{for(let k=0;k<3;k++)parts.push({k:'spark',x:E.x+rnd(-8,8),y:E.y-R*1.2,vx:rnd(-60,60),vy:-rnd(180,260),l:1,d:.9,s:2.4,c:'255,190,110'})}});
+      st.push({d:1.4,pose:'hips',face:'smug',look:'viewer',say:maybe(['ta-da!','did you see that? I\'m talented.','that was flawless. clap.'],.45)});return st}},
+  stargaze:{w:()=>N.energy<.6?.4:.2,spot(){const m=area();return{x:Math.random()<.5?m.l+R*3:m.r-R*3,y:m.t+R*3.2}},
+    steps(){return[{d:2.6,look:{dir:[0,-1]},face:'content',hum:1},{d:1.2,look:{dir:[.6,-.8]},face:'sleepy'},{d:1,look:'viewer',face:'calm',say:maybe(['the stars look nice tonight.','nice up here.',"don't tell anyone I like it up here."],.3)}]}},
+  workout:{w:()=>N.boredom>.55&&N.energy>.4?1.2:0,spot(){return SP.rest()},steps(){return workout()}},
+};
+function errandAct(k){const e=ERRANDS[k];return{w:e.w,errand:1,dur:[30,40],run(){const p=e.spot.call(e);if(!p){act.t=act.dur+1;return}act.stage='go';go(p,{speed:.75})}}}
 const ACTS={
-  rest:{w:()=>1,run(){go(SP.rest,{speed:.6})},dur:[24,42]},
-  perch:{w:()=>(DESK?(DW.windows||[]).some(w=>w.perch):!!composer())?.5+(1-N.energy)*.5:0,run(){go(SP.perch,{speed:.6})},dur:[26,46]},
-  watch:{w:()=>!DESK&&interest()?N.curiosity*1.15:0,run(){const t=interest();if(!t){go(SP.rest,{speed:.6});this.pt=null;return}
+  rest:{w:()=>.55+(1-N.energy)*.4,run(){go(SP.rest,{speed:.6})},dur:[6,11]},
+  perch:{w:()=>(DESK?(DW.windows||[]).some(w=>w.perch):!!composer())?.4:0,run(){go(SP.perch,{speed:.6})},dur:[8,14]},
+  watch:{w:()=>!DESK&&interest()?N.curiosity*.6:0,run(){const t=interest();if(!t){go(SP.rest,{speed:.6});this.pt=null;return}
     const m=area(),side=t.r.r+R*2<m.r?1:-1;go({x:cl(side>0?t.r.r+R*1.8:t.r.l-R*1.8,m.l+R*2,m.r-R*2),y:cl(t.r.t+Math.min(t.r.h*.4,R*3),m.t+R*3,m.b-R*3)},{speed:.7});
-    this.pt={x:t.r.cx,y:t.r.cy}},dur:[9,15],watch:1},
+    this.pt={x:t.r.cx,y:t.r.cy}},dur:[7,11],watch:1},
   follow:{w:()=>cur.active()&&!annoyed()&&N.social>.55?N.social*.9+N.fond*.4:0,run(){},dur:[5,8],follow:1},
   avoid:{w:()=>cur.active()&&annoyed()?2:0,run(){},dur:[5,7],avoid:1},
-  workout:{w:()=>N.boredom>.62&&N.energy>.4&&!cur.active()?1.7:0,run(){play(workout())},dur:[12,14],busy:1},
-  nap:{w:()=>N.energy<.25?2.6:0,run(){go(SP.nap,{speed:.5})},dur:[28,45],nap:1},
+  nap:{w:()=>N.energy<.2?2.6:0,run(){go(SP.nap,{speed:.5})},dur:[22,35],nap:1},
   notch:{w:()=>DESK&&DW.notch?N.curiosity*.5+.15:0,run(){go(SP.notch,{speed:.7})},dur:[10,16]},
   zoomies:{w:()=>N.energy>.92&&N.boredom>.85?.3:0,run(){this.z=0},dur:[2.6,3.2],zoom:1},
 };
+if(!DESK)for(const k of Object.keys(ERRANDS))ACTS['e_'+k]=errandAct(k);else ACTS.e_stargaze=errandAct('stargaze'),ACTS.e_juggle=errandAct('juggle'),ACTS.e_workout=errandAct('workout');
 /* a stretch, jumping jacks, squats, catch its breath, admire itself */
 function workout(){const st=[{d:1.1,pose:'stretch',face:'focus',look:{dir:[0,-1]},say:['stretch break!','stretch break. I sat too long.','my back. ugh. stretching.']}];
   for(let i=0;i<4;i++)st.push({d:.32,pose:'cheer',face:'focus',fn:()=>{E.vy=-210;E.q=.28}},{d:.32,pose:'rest',fn:()=>{E.q-=.22}});
@@ -612,7 +655,7 @@ function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const
     2:[{d:.2,face:'surprised'},{d:1.7,face:'tfman',look:'viewer',say:['','do that again.','do that again. I dare you.']}],
     3:[{d:.15,face:'shocked'},{d:1.8,face:'glare',pose:'hips',look:'viewer',say:['','tf man.','what the fuck, man.'],fn:()=>{E.puff=1.2;bump('annoy',.2)}},{d:.6,face:'glare',pose:'crossed',look:'viewer'}]}[n])}
 function openMenu(x,y){menu.innerHTML='';const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{menu.hidden=true;f()};menu.appendChild(b)};
-  add(V.state==='listening'?'Stop listening':'Talk to Ember (double-tap)',listen);add('Type to Ember',startTalk);if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
+  add(V.state==='listening'?'Stop listening':'Talk to Ember (double-tap)',listen);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
   menu.hidden=false;menu.style.left=cl(x,8,W-190)+'px';menu.style.top=cl(y,8,H-150)+'px'}
 function talkHit(x,y){if(!CHAT.open)return false;const r=talk.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6}
 function menuHit(x,y){if(menu.hidden)return false;const r=menu.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom}
@@ -670,7 +713,9 @@ function localReply(t){const l=t.toLowerCase(),m=/(?:i'?m|my name is|call me)\s+
 async function send(){const t=tin.value.trim().slice(0,300);if(!t||CHAT.busy)return;tin.value='';CHAT.last=now;CHAT.ignored=0;
   CHAT.turns.push({role:'user',content:t});CHAT.busy=1;E.FT=face('think');say('',99,{dots:1});
   let r=null;
-  if(!CHAT.offline){try{r=await (typeof api==='function'?api:post)('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT()})}catch(e){r=null;if(/not configured|no key|save your key|402|403/i.test(String(e&&e.message||'')))CHAT.offline=1}}
+  /* a reply is never waited on forever: past 24s Ember answers in its own words */
+  if(!CHAT.offline){try{r=await Promise.race([(typeof api==='function'?api:post)('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT()}),
+      new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),24000))])}catch(e){r=null;const m=String(e&&e.message||'');if(/not configured|no key|save your key|402|403/i.test(m))CHAT.offline=1;if(m==='slow')CHAT.slow=(CHAT.slow||0)+1}}
   if(!r||typeof r.say!=='string'||!r.say.trim())r=localReply(t);
   CHAT.busy=0;if(!CHAT.open)return;
   const line=r.say.trim().slice(0,220),fc=FACES[r.face]?r.face:idleFace(),g=r.gesture||'none';
@@ -833,7 +878,8 @@ async function endListen(text,cancelled,why){V.rec=null;text=String(text||'').tr
   return heard(text)}
 async function heard(text){V.state='thinking';let r=null;
   let names=null;try{if(typeof S!=='undefined'&&Array.isArray(S.projects))names=S.projects.map(p=>p&&p.name).filter(Boolean)}catch(_){}
-  try{r=await post('/api/ember/act',Object.assign({text,state:stateText(),attitude:ATT(),relay:DESK?1:0},names?{projects:names}:{}))}catch(e){r=null}
+  try{r=await Promise.race([post('/api/ember/act',Object.assign({text,state:stateText(),attitude:ATT(),relay:DESK?1:0},names?{projects:names}:{})),
+    new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),34000))])}catch(e){r=null}
   V.state='idle';setMood(null);hush();
   if(!r||!r.kind){play([{d:2.6,face:'worried',look:'viewer',say:["I couldn't reach Aethron","can't reach Aethron right now.","Aethron's not answering. not my fault."]}]);return null}
   if(DESK){if(r.kind==='answer')perform(r);else play([{d:2.6,pose:'point',face:'calm',look:'viewer',fn:()=>{E.pointDir=[0,1]},say:['sending it to Aethron','handing it to Aethron.','fine. Aethron gets it.']}]);return r}
@@ -846,6 +892,48 @@ function inboxTick(){if(DESK||!CFG.desktop||DRV.on)return;if(performance.now()-i
 setInterval(inboxTick,700);
 addEventListener('keydown',e=>{if(e.key==='Escape'&&(V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;stopListen(1)}},true);
 
+/* ===== the welcome =====
+   The first time Aethron opens on a machine Ember introduces itself and
+   shows the person around: it flies to each part of the app, lights it,
+   says what it is for, and waits for Next (or moves on once there has been
+   time to read). Skip ends it; right-click Ember or Settings replays it. */
+const TW={on:0,el:null,spot:null,next:null,skip:0,i:0,n:0,bar:null};
+const WELCOME=[
+  {sel:'.composer',say:"This is where you tell Aethron what you want. Paste a Framer or Webflow link, drop a screenshot, or just describe the site you want."},
+  {sel:'#sendbtn,button[onclick^=consoleSend]',say:"Send it with this, or press Enter, and Aethron gets to work. I can press it for you too."},
+  {sel:'.newbtn',say:"New starts a fresh chat or a new project, any time."},
+  {sel:'#plist',say:"Your projects live here. Click one to open it, and its chat picks up where you left off."},
+  {sel:'#hrail .rcard,.hrail .rcard',say:"This shows whether everything is ready: your AI model, the browser checks and hosting."},
+  {sel:'#setbtn',say:"Settings: your AI model and key, your limits, and how I behave."},
+];
+function tourBar(){if(TW.bar)return TW.bar;const b=document.createElement('div');b.id='ember-tour';
+  b.innerHTML='<span class="n"></span><button class="sk">Skip tour</button><button class="nx">Next</button>';
+  b.querySelector('.sk').onclick=()=>{TW.skip=1;TW.next&&TW.next()};b.querySelector('.nx').onclick=()=>{TW.next&&TW.next()};
+  document.body.append(b);TW.bar=b;return b}
+function tourWait(line){return new Promise(res=>{let done=0;const fin=()=>{if(done)return;done=1;clearTimeout(t);TW.next=null;res()};
+  TW.next=fin;const t=setTimeout(fin,(readTime(line)+1.4)*1000)})}
+function willWelcome(){return !DESK&&CFG.on&&!automation&&!store.get('ember_welcomed',0)}
+async function welcome(force){if(TW.on||DESK)return;if(!running){if(!force)return;start()}
+  if(DRV.on)return;TW.on=1;TW.skip=0;if(CHAT.open)closeChat();SEQ=null;DRV.on=1;
+  setMood({kind:'tour',d:900,pose:'wave',face:'joy',look:'viewer'});const bar=tourBar();bar.hidden=false;
+  const steps=WELCOME.filter(st=>shown(st.sel));TW.n=steps.length+2;
+  const set=i=>{bar.querySelector('.n').textContent=(i+1)+' of '+TW.n;bar.querySelector('.nx').textContent=i+1>=TW.n?'Done':'Next'};
+  try{
+    const m=area();E.x=m.cx;E.y=-R*3;E.alpha=1;go({x:m.cx,y:m.t+m.h*.42},{now:1,speed:1.3});await arrive(2600);
+    if(!REDUCE){celebrate()}await sleep(REDUCE?60:900);
+    set(0);let line=L(["Hi! I'm Ember. I live in Aethron and I'm here to help.","Oh, hi. I'm Ember. I live in here. I help. Sometimes.","Sup. I'm Ember. I live here now, and I run this place."]);
+    play([{d:9,pose:'wave',face:'joy',look:'viewer'}]);say(line,0,{type:1});await tourWait(line);
+    if(!TW.skip){line="Let me show you around. It takes about a minute.";mood.pose='point';E.pointDir=[1,0];say(line,0,{type:1});await tourWait(line)}
+    for(let i=0;i<steps.length&&!TW.skip;i++){const st=steps[i],el=shown(st.sel);if(!el)continue;set(i+1);
+      try{el.scrollIntoView({block:'nearest',behavior:REDUCE?'auto':'smooth'})}catch(_){}
+      TW.el=el;mood.pose='point';mood.face='curious';await flyTo(el,'approach');mood.face=ATT()==='sweet'?'happy':'calm';
+      say(st.say,0,{type:1});await tourWait(st.say)}
+    TW.el=null;TW.spot=null;
+    if(!TW.skip){set(TW.n-1);go(SP.perch,{speed:.9});await arrive(2400);mood.pose='hips';mood.face=ATT()==='sweet'?'joy':'smug';
+      line=L(["That's it! Double-tap me to talk out loud, or right-click me for more. I'll be around.","Done. Double-tap me to talk, right-click me for more. I'll be right here.","Tour over. Double-tap me to talk, right-click for more. Now go build something."]);
+      say(line,0,{type:1});await tourWait(line)}
+  }finally{store.set('ember_welcomed',1);TW.on=0;TW.el=null;TW.spot=null;bar.hidden=true;DRV.on=0;setMood(null);if(running)go(SP.perch,{speed:.7})}}
+
 /* ===== the loop ===== */
 let last=performance.now(),acc=0;
 function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t;now+=dt;acc+=dt;if(acc>.25){needs(acc);acc=0}
@@ -857,13 +945,15 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   else if(mood){base.pose=mood.pose||'rest';base.face=mood.face||idleFace();base.look=mood.look||null}
   else if(E.mode==='fly'&&!hideUntil){
     if(!act||act.t>act.dur)choose();
+    if(act&&act.a.errand){if(act.stage==='go'&&!SEQ&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.6&&Math.hypot(E.vx,E.vy)<150){const k=act.k.slice(2),e=ERRANDS[k],me=act;me.stage='do';SEEN[k]=(SEEN[k]||0)+1;
+        play(e.steps.call(e),()=>{if(act===me)me.t=me.dur+1})}else if(act.stage==='go'&&act.t>14)act.t=act.dur+1}
     if(!SEQ&&!CHAT.busy&&now-CHAT.lastChat>90&&now-cur.t<40&&cur.t>0&&!annoyed()&&!document.hidden){CHAT.askIn-=dt;if(CHAT.askIn<=0){CHAT.askIn=rnd(150,260);openChat(question(),0)}}
     act.t+=dt;
     if(act.a.follow&&cur.active()){const m=area();go({x:cl(cur.x+R*2.6*(cur.x>m.cx?-1:1),m.l+R*1.5,m.r-R*1.5),y:cl(cur.y-R*1.3,R*2.6,H-R*2)},{now:1,speed:.8})}
     if(act.a.avoid&&cur.active()&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*5){const dx=E.x-cur.x,dy=E.y-cur.y,n=Math.hypot(dx,dy)||1;go({x:E.x+dx/n*R*4,y:E.y+dy/n*R*3},{now:1,speed:.7})}
     if(act.a.zoom){act.a.z+=dt;const a=act.a.z*3.2,m=area();go({x:m.l+m.w*.7+Math.sin(a)*m.w*.18,y:m.t+m.h*.45+Math.sin(a*2)*m.h*.18},{now:1,speed:2.4})}
     const napping=act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.8;E.zz=napping?1:0;
-    if(!SEQ&&!napping&&!act.a.zoom&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=rnd(11,20);fidget()}}
+    if(!SEQ&&!napping&&!act.a.zoom&&!(act.a.errand&&act.stage)&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=rnd(11,20);fidget()}}
     if(cur.x>=0&&!SEQ&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*3.6&&!cur.over){if(!cur.nearSince)cur.nearSince=now;if(now-cur.nearSince>2.6&&now-cur.moveT>1.8){cur.nearSince=now+10;
       if(ATT()==='sweet')play([{d:1.2,pose:'cover',face:'shy'},{d:1,pose:'peek',face:'shy',look:'cursor'},{d:1.2,pose:'wave',face:'happy',look:'cursor',say:'…hi'}]);
       else play([{d:2.4,face:'unimpressed',look:'cursor',fn:()=>{E.noBlink=2.4}},{d:1.6,face:'tfman',pose:'crossed',look:'cursor',say:['','…can I help you?','take a picture, it lasts longer.']}])}}
@@ -881,10 +971,10 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   if(look)E.look=look;else if(E.look&&!(E.look.until>now))E.look=null;
   simulate(dt);draw(dt);requestAnimationFrame(frame)}
 function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=act&&act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R;
-  N.energy=cl(N.energy+(napping?.04:-(.003+(moving?.008:0)+(act&&act.k==='workout'?.02:0)))*k,0,1);
+  N.energy=cl(N.energy+(napping?.04:-(.003+(moving?.008:0)+(act&&act.a.errand&&act.stage==='do'?.012:0)))*k,0,1);
   N.curiosity=cl(N.curiosity+(act&&act.k==='watch'?-.06:.012)*k,0,1);
   N.social=cl(N.social+(cur.over||E.purr>0||cur.grab||CHAT.open?-.12:.01)*k,0,1);
-  N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&(act.a.zoom||act.k==='watch'||act.k==='workout'))?-.09:.012)*k,0,1);
+  N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&(act.a.zoom||act.k==='watch'||act.a.errand))?-.09:.014)*k,0,1);
   N.annoy=cl(N.annoy-.02*k,0,1);N.fond=cl(N.fond+(E.purr>0?.03:0)*k-.001*k,0,1)}
 
 /* ===== body physics ===== */
@@ -958,6 +1048,9 @@ function bodyGrad(b,ang){const g=X.createLinearGradient(0,1.05,0,-E.tipH),dim=[2
   for(const [o,c0] of[[0,[255,205,64]],[.38,[255,160,52]],[.68,[255,104,72]],[1,[255,72,104]]]){let c=c0;if(ang>0)c=mixc(c,o>.4?[255,40,30]:[255,140,40],ang*.6);if(b<1)c=mixc(c,dim,Math.min(1,(1-b)*1.7));else c=c.map(v=>Math.min(255,Math.round(v*b)));g.addColorStop(o,`rgb(${c.join(',')})`)}return g}
 const FONT='-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';
 function draw(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);const rr=R*E.r,F=E.F;
+  if(TW.on&&TW.el){const s=rect(TW.el)||TW.spot;TW.spot=s;if(s){const p=8;X.save();X.fillStyle='rgba(8,6,5,.5)';X.fillRect(0,0,W,H);
+    X.globalCompositeOperation='destination-out';X.beginPath();X.roundRect(s.l-p,s.t-p,s.w+2*p,s.h+2*p,14);X.fill();X.globalCompositeOperation='source-over';
+    X.strokeStyle=`rgba(232,135,95,${(.55+.35*Math.sin(now*4)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.roundRect(s.l-p,s.t-p,s.w+2*p,s.h+2*p,14);X.stroke();X.restore()}}
   for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.l-=dt/p.d;if(p.l<=0){parts.splice(i,1);continue}p.vy+=(p.k==='spark'?40:-6)*dt;p.vx*=.985;p.x+=p.vx*dt;p.y+=p.vy*dt;
     if(p.k==='spark'){X.globalCompositeOperation='lighter';const g=X.createRadialGradient(p.x,p.y,0,p.x,p.y,p.s*3);g.addColorStop(0,`rgba(${p.c},${p.l})`);g.addColorStop(1,`rgba(${p.c},0)`);X.fillStyle=g;X.beginPath();X.arc(p.x,p.y,p.s*3,0,7);X.fill();X.globalCompositeOperation='source-over'}
     else if(p.k==='smoke'){X.fillStyle=`rgba(120,110,110,${.35*p.l})`;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.fill()}
@@ -1043,7 +1136,8 @@ function start(){if(running)return;if(!started){started=true;(document.head||doc
     document.addEventListener('input',e=>{if(e.target&&e.target.closest&&e.target.closest('.composer')&&e.target!==tin)signal('typing')},true);
     let hiddenAt=0;document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else if(hiddenAt&&Date.now()-hiddenAt>20*60*1000)signal('back')})}
   resize();running=true;cv.hidden=false;E.alpha=0;E.alphaT=1;const s=SP.rest();E.x=s.x+R*3;E.y=s.y-R*4;E.tx=s.x;E.ty=s.y;last=performance.now();
-  play([{d:1.1,look:{dir:[-1,.3]},face:'sideeye'},{d:1.6,look:'viewer',pose:ATT()==='sweet'?'wave':'crossed',face:ATT()==='sweet'?'joy':'calm',say:['oh, hi!','oh. you.','sup.']}]);
+  if(willWelcome())setTimeout(()=>welcome(),1200);
+  else play([{d:1.1,look:{dir:[-1,.3]},face:'sideeye'},{d:1.6,look:'viewer',pose:ATT()==='sweet'?'wave':'crossed',face:ATT()==='sweet'?'joy':'calm',say:['oh, hi!','oh. you.','sup.']}]);
   requestAnimationFrame(frame)}
 function stop(){running=false;cv.hidden=true;talk.hidden=true;menu.hidden=true;CHAT.open=0;document.documentElement.classList.remove('ember-over','ember-grab');if(started)X.clearRect(0,0,cv.width,cv.height)}
 function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);
@@ -1051,9 +1145,10 @@ function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.a
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
 /* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
-window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),listen:()=>listen(),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
+window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
-  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running})};
+  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',stage:act&&act.stage||'',seen:Object.assign({},SEEN)}),
+  hurry:()=>{N.energy=.8;N.boredom=.4;fidgetIn=60;if(act)act.t=act.dur+1}};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
   fetch('/api/ember/desktop').then(r=>r.json()).then(d=>{CFG.desktop=!!(d&&d.on);CFG.deskAvail=!!(d&&d.available);if(CFG.on&&!CFG.desktop&&!automation)start()}).catch(()=>{if(CFG.on&&!automation)start()})}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
