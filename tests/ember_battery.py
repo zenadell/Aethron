@@ -117,7 +117,7 @@ try:
             if 5 < len(mid) < 30: break
         check("what was said is typed into the chat box where you can watch",
               "Can you make the hero headline say hello world.".startswith(mid) and 0 < len(mid) < 47, repr(mid) + " seen " + str(seen[:12]))
-        for _ in range(60):
+        for _ in range(200):
             v.wait_for_timeout(100)
             if v.evaluate("window.__sent"): break
         check("then Ember presses Send with the whole request",
@@ -133,10 +133,59 @@ try:
             o.innerHTML='<button onclick="pubGo()" style="width:120px;height:36px">Publish</button>';document.body.appendChild(o)};
           document.body.appendChild(r);window.pubGo=()=>{window.__pub++}})()""")
         v.evaluate("void ember.hear('publish it please')")
-        for _ in range(80):
+        for _ in range(200):
             v.wait_for_timeout(100)
             if v.evaluate("window.__pub"): break
         check("asked to publish, Ember presses Publish and then the sheet's Publish", v.evaluate("window.__pub") == 1)
+        # ---- Ember presses the app's own controls instead of typing a request
+        v.wait_for_timeout(2500)
+        v.evaluate("""(()=>{window.__opened=0;try{S.projects.push({name:'chaka',platform:'framer'})}catch(e){}
+          const d=document.createElement('div');d.className='pitem';d.style.cssText='position:fixed;left:30px;top:420px;width:220px;height:50px;z-index:6';
+          d.innerHTML='<div class="pname">chaka</div>';d.onclick=()=>{window.__opened++};document.body.appendChild(d)})()""")
+        v.evaluate("void ember.hear(\"can you open chaka's project\")")
+        for _ in range(200):
+            v.wait_for_timeout(100)
+            if v.evaluate("window.__opened"): break
+        check("'open chaka's project' opens the project, it is not typed", v.evaluate("window.__opened") == 1
+              and "chaka" not in (v.evaluate("document.getElementById('npurl').value") or ""), str(v.evaluate("document.getElementById('npurl').value")))
+        pr = v.evaluate("ember.voice().press") or {}
+        check("and Ember went to the project to press it", pr and ((pr["x"]-pr["cx"])**2+(pr["y"]-pr["cy"])**2) ** .5 < 120, str(pr))
+        v.wait_for_timeout(1500)
+        v.evaluate("void ember.hear('go to settings')")
+        for _ in range(120):
+            v.wait_for_timeout(100)
+            if v.evaluate("typeof S!=='undefined'&&S.view==='settings'"): break
+        check("'go to settings' opens Settings", v.evaluate("typeof S!=='undefined'&&S.view==='settings'"))
+        v.evaluate("goHome()"); v.wait_for_timeout(1800)
+        # ---- typing happens where the letters appear
+        v.evaluate("window.consoleSend=()=>{window.__sent=document.getElementById('npurl').value}; window.__sent=''")
+        v.evaluate("void ember.hear('please make the hero headline say we build sites that people love to use every day')")
+        near = None
+        for _ in range(120):
+            v.wait_for_timeout(100)
+            n = v.evaluate("document.getElementById('npurl').value.length")
+            if 15 < n < 60:
+                near = v.evaluate("""(()=>{const t=document.getElementById('npurl').getBoundingClientRect(),s=ember.state();return {sx:s.x,sy:s.y,l:t.left,r:t.right,t:t.top}})()""")
+                break
+        check("while typing, Ember sits over the text box, not off at its end",
+              bool(near) and near["l"] - 20 <= near["sx"] <= near["r"] + 20 and near["t"] - 140 <= near["sy"] <= near["t"] + 40, str(near))
+        for _ in range(200):
+            v.wait_for_timeout(100)
+            if v.evaluate("window.__sent"): break
+        v.wait_for_timeout(1500)
+        # ---- what it says stays long enough to read
+        v.evaluate("ember.perform({kind:'answer',say:'This is a longer line Ember says, long enough that a person needs a moment to read it all.'})")
+        v.wait_for_timeout(5000)
+        b_ = v.evaluate("ember.state().bubble") or ""
+        check("a long line is still on screen after 5 seconds", "longer line" in b_, repr(b_))
+        # ---- the reply box is styled and sits by Ember
+        v.evaluate("ember.talk()"); v.wait_for_timeout(1800)
+        tb = v.evaluate("""(()=>{const t=document.getElementById('ember-talk'),r=t.getBoundingClientRect(),s=ember.state(),cs=getComputedStyle(t);
+          return {pos:cs.position,x:r.left+r.width/2,y:r.top,sx:s.x,sy:s.y,h:r.height,w:r.width,mic:!!t.querySelector('#ember-mic'),hidden:t.hidden}})()""")
+        check("the reply box is styled (fixed, one pill) and has a mic", tb["pos"] == "fixed" and tb["h"] < 60 and tb["w"] > 200 and tb["mic"], str(tb))
+        check("and it opens next to Ember, not at the top of the window",
+              abs(tb["x"] - tb["sx"]) < 200 and abs(tb["y"] - tb["sy"]) < 200, str(tb))
+        v.keyboard.press("Escape"); v.wait_for_timeout(600)
         r = v.evaluate("fetch('/api/ember/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'rebuild it',relay:1})}).then(r=>r.json())")
         check("a spoken button needs no model", r.get("kind") == "action" and r.get("action") == "build", str(r))
         box = v.evaluate("fetch('/api/ember/inbox').then(r=>r.json())")
@@ -153,7 +202,7 @@ try:
         check("after a failure its menu offers to tell Aethron the fix", "Tell Aethron to fix this" in items, str(items))
         if "Tell Aethron to fix this" in items:
             v.evaluate("[...document.querySelectorAll('#ember-menu button')].find(b=>b.textContent==='Tell Aethron to fix this').click()")
-            for _ in range(80):
+            for _ in range(200):
                 v.wait_for_timeout(100)
                 if v.evaluate("window.__sent"): break
             sent = v.evaluate("window.__sent") or ""

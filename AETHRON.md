@@ -6918,6 +6918,47 @@ desktop relay is handed over once, the fix request names the measured gap).
 NOT PROVEN until it runs on a Mac: the microphone and speech permission
 prompts and recognition itself.
 
+## EMBER DOES WHAT YOU MEAN, AND MOVES LIKE IT MEANS IT — 2026-11-05
+Owner, after using 1.1.111: asked from Home to "open Chaka's project", Ember
+TYPED it into the chat; the reply box sat at the top of the screen; lines
+vanished before they could be read; typing looked like text appearing at the
+end of the box; and Ember wandered to random points "like an algorithm".
+- ITS STYLES WERE NEVER LOADED. The <style> for the reply box was created
+  and never appended, so since 1.1.108 the box was an unstyled input in the
+  page's flow (top of the window). Appended in start(). Then a second
+  surprise: the box was 540px tall because studio already has an `.empty`
+  class — renamed `ae-empty`. Same class of bug as before: a name that
+  collides with the page it lives in.
+- IT PRESSES THE APP'S CONTROLS. act() knows open_project (target = a real
+  project, matched by name: possessives, spaces for dashes, the name before
+  an id suffix; a name it cannot place goes to the model WITH the project
+  list, and a project nobody has is never opened), new_chat, settings, home,
+  scroll_down/up, preview, plus the earlier buttons. Ember flies to the
+  sidebar item / button and presses it; undo/build/check/stop/status on Home
+  say "open a project first" instead of typing.
+- READING TIME: a line stays ~2.6s + 13 characters a second (max 14s), and
+  stays while the pointer is on the bubble.
+- THE REPLY BOX: a dark glass pill next to Ember (below it, above when there
+  is no room), mic + field + send, opens out of Ember, follows it each frame.
+- TYPING AND PRESSING: Ember perches over the caret (measured with the box's
+  own font, wrapped like the box wraps) and moves with it as each letter
+  lands, pausing at spaces and punctuation; a press settles beside the
+  target, winds up, pokes in (the button gives: .ember-press), clicks at
+  contact, then backs off. A wide row is touched near its end, like a
+  finger would.
+- MOVEMENT WITH A REASON: no drifting/exploring to random points. Ember
+  rests at its spot (24-42s), perches on the chat box to watch, goes to look
+  at the newest thing on screen (job card, check, message, home card),
+  follows you only when it wants company, naps when tired, and when it has
+  sat still too long gets up and works out (stretch, jumping jacks, squats,
+  catches its breath). Moves are slower; fidgets less often.
+Tests: aethron_ember --selftest 23/23 (open Chaka's project, spaced names,
+misheard name via model with the list, a missing project never opened,
+settings/home/new/scroll); tests/ember_battery.py 43 -> 50 (opens the
+project instead of typing it and was at it when pressing, Settings opens,
+Ember sits over the text box while typing, a long line still shown after
+5s, the reply box is a styled pill by Ember with a mic).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

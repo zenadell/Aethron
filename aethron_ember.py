@@ -143,10 +143,14 @@ def reply(turns, state: str, att: str, call=None) -> dict:
 # Ember can also act: what the person says goes through act(), which turns it
 # into one clear request for Aethron (typed into the chat box and sent), or one
 # of the app's own buttons (pressed), or a line Ember answers itself.
-ACTIONS = ("publish", "undo", "build", "check", "preview", "stop", "status")
+ACTIONS = ("publish", "undo", "build", "check", "preview", "stop", "status",
+           "open_project", "new_chat", "settings", "home", "scroll_down", "scroll_up")
+# the ones Aethron itself answers when typed into the chat box
 ACTION_WORDS = {"publish": "publish", "undo": "undo", "build": "rebuild",
                 "check": "check it", "preview": "open the preview",
-                "stop": "stop", "status": "how far is it?"}
+                "stop": "stop", "status": "how far is it?",
+                "open_project": "", "new_chat": "", "settings": "", "home": "",
+                "scroll_down": "", "scroll_up": ""}
 _FILLER = re.compile(r"\b(?:um+|uh+|erm+|hmm+|you know|i mean|like,|kind of|sort of|basically)\b[,.]?\s*", re.I)
 _LOCAL = [  # (action, pattern) — the whole request is that button and nothing else
     ("publish", r"(?:(?:publish|deploy)(?: (?:it|this|that|the site|the page|my site))?|put (?:it|the site|this) (?:live|online)|go live|make it live)"),
@@ -156,7 +160,38 @@ _LOCAL = [  # (action, pattern) — the whole request is that button and nothing
     ("preview", r"(?:open |show (?:me )?)?(?:the )?preview"),
     ("stop", r"stop(?: (?:it|that|the run))?|cancel(?: (?:it|that))?"),
     ("status", r"(?:how far (?:is it|are we)|are we done|what(?:'s| is) (?:it|aethron) doing|status)"),
+    ("new_chat", r"(?:start |open |begin |make )?(?:a )?(?:new|fresh) (?:chat|conversation|project|one)|start over"),
+    ("settings", r"(?:open |go to |show(?: me)? |take me to )?(?:the |my )?settings"),
+    ("home", r"(?:go |take me )?(?:back )?(?:to )?(?:the )?home(?: page| screen)?"),
+    ("scroll_down", r"scroll(?: it)? down(?: a bit| a little| more)?"),
+    ("scroll_up", r"scroll(?: it)? up(?: a bit| a little| more)?"),
 ]
+_OPEN = re.compile(r"(?:open|go to|show(?: me)?|switch to|select|bring up|pull up|take me to)(?: up)?\s+(?:the |my |our )?(.+?)(?:'s|s')?(?:\s+(?:project|site|one))?$")
+
+
+def match_project(name: str, projects) -> str:
+    """The person's spelling of a project -> its real name, or ''. Speech
+    turns "chatora city" into words and "Chaka's" into a possessive."""
+    import difflib
+    projects = [str(p) for p in (projects or []) if p]
+    want = re.sub(r"[^a-z0-9]+", "", str(name or "").lower())
+    if not want or not projects:
+        return ""
+    key = {p: re.sub(r"[^a-z0-9]+", "", p.lower()) for p in projects}
+    for p, k in key.items():          # exact, then the name the id starts with
+        if k == want:
+            return p
+    starts = [p for p, k in key.items() if k.startswith(want) and len(want) >= 3]
+    if len(starts) == 1:
+        return starts[0]
+    best, score = "", 0.0
+    for p, k in key.items():
+        head = re.sub(r"[^a-z0-9]+", "", re.sub(r"-[0-9a-f]{5,}$", "", p.lower()))
+        r = max(difflib.SequenceMatcher(None, want, k).ratio(),
+                difflib.SequenceMatcher(None, want, head).ratio())
+        if r > score:
+            best, score = p, r
+    return best if score >= 0.72 else ""
 
 
 def act_rules(att: str) -> str:
@@ -168,8 +203,13 @@ def act_rules(att: str) -> str:
         "punctuation, filler words and misheard words). Your job is to help "
         "them talk to Aethron.\n"
         "Decide one of three things:\n"
-        " * \"action\": the WHOLE request is one of the app's buttons: "
-        f"{', '.join(ACTIONS)} (status = asking how far the work is). Nothing else.\n"
+        " * \"action\": the WHOLE request is something you can do yourself by "
+        "pressing the app's own controls: publish, undo, build, check, preview, "
+        "stop, status (asking how far the work is), open_project (open one of "
+        "their projects: put its EXACT name from STATE's project list in "
+        "\"target\"), new_chat (start a new chat or project), settings, home, "
+        "scroll_down, scroll_up. Opening, showing or going to something is an "
+        "action, never a request to type.\n"
         " * \"send\": anything Aethron's agent should do or answer. Rewrite it as "
         "one clear request in the person's voice ('Change the hero headline "
         "to …'). Fix grammar and obvious mishearings, remove filler, keep every "
@@ -183,31 +223,51 @@ def act_rules(att: str) -> str:
         f"{VOICE[att]}\n"
         "Reply with ONLY one JSON object: {\"kind\": \"send\"|\"action\"|"
         "\"answer\", \"prompt\": string (the request for Aethron, for send), "
-        f"\"action\": one of {json.dumps(list(ACTIONS) + ['none'])}, \"say\": "
+        f"\"action\": one of {json.dumps(list(ACTIONS) + ['none'])}, \"target\": "
+        "string or null (the project name for open_project), \"say\": "
         "string (what you say out loud while you do it, at most 80 characters, "
         "in character)}")
 
 
-def act_local(text: str) -> dict:
+def _bare(text: str) -> str:
+    t = re.sub(r"\s+", " ", str(text or "")).strip()
+    bare = re.sub(r"^(?:hey |ok(?:ay)? |so |please |ember[, ]+|aethron[, ]+|can you |could you |can he |can she |will you |would you |just |go ahead and |i want (?:you )?to |i'd like (?:you )?to )+",
+                  "", _FILLER.sub("", t).strip().lower())
+    return re.sub(r"(?: please| now| for me| again| quickly)+[.!?]*$", "", bare).strip(" .!?")
+
+
+def _action(name, target="", say=""):
+    return {"kind": "action", "action": name, "target": target,
+            "prompt": ACTION_WORDS.get(name, ""), "say": say}
+
+
+def act_local(text: str, projects=None) -> dict:
     """No provider: buttons by pattern, everything else sent as said, minus
     filler. Never makes anything up."""
     t = re.sub(r"\s+", " ", str(text or "")).strip()
-    bare = re.sub(r"^(?:hey |ok(?:ay)? |so |please |ember[, ]+|aethron[, ]+|can you |could you |just )+", "", _FILLER.sub("", t).strip().lower())
-    bare = re.sub(r"(?: please| now| for me| again)+[.!?]*$", "", bare).strip(" .!?")
+    bare = _bare(t)
     for name, pat in _LOCAL:
         if re.fullmatch(pat, bare):
-            return {"kind": "action", "action": name, "prompt": ACTION_WORDS[name], "say": ""}
+            return _action(name)
+    m = _OPEN.fullmatch(bare)
+    if m:
+        hit = match_project(m.group(1), projects)
+        if hit:
+            return _action("open_project", hit)
+        if re.search(r"\bproject\b", bare) and projects:
+            return {"kind": "answer", "action": "none", "target": "", "prompt": "", "unsure": 1,
+                    "say": f"I can't find a project called \"{m.group(1)}\"."}
     c = _FILLER.sub("", t).strip()
     c = re.sub(r"\s+([,.!?])", r"\1", c)
     if not c:
-        return {"kind": "answer", "action": "none", "prompt": "", "say": "I didn't catch anything."}
+        return {"kind": "answer", "action": "none", "target": "", "prompt": "", "say": "I didn't catch anything."}
     c = c[0].upper() + c[1:]
     if not re.search(r"[.!?]$", c):
         c += "."
-    return {"kind": "send", "action": "none", "prompt": c, "say": ""}
+    return {"kind": "send", "action": "none", "target": "", "prompt": c, "say": ""}
 
 
-def act_parse(text: str, heard: str) -> dict:
+def act_parse(text: str, heard: str, projects=None) -> dict:
     s = (text or "").strip()
     m = re.search(r"\{.*\}", s, re.S)
     if not m:
@@ -217,21 +277,27 @@ def act_parse(text: str, heard: str) -> dict:
     action = d.get("action") if d.get("action") in ACTIONS else "none"
     prompt = re.sub(r"\s+", " ", str(d.get("prompt") or "")).strip()[:1500]
     say = str(d.get("say") or "").strip()[:120]
+    target = ""
     if kind == "action" and action == "none":
         kind = "send"
+    if kind == "action" and action == "open_project":
+        target = match_project(d.get("target") or "", projects)
+        if not target:                  # never open a project nobody has
+            return {"kind": "answer", "action": "none", "target": "", "prompt": "",
+                    "say": say or f"I can't find a project called \"{d.get('target') or ''}\"."}
     if kind == "action":
-        prompt = ACTION_WORDS[action]
+        return _action(action, target, say)
     if kind == "send" and not prompt:
-        prompt = act_local(heard).get("prompt") or ""
+        prompt = act_local(heard, projects).get("prompt") or ""
         if not prompt:
             raise ValueError("nothing to send")
     if kind == "answer" and not say:
         raise ValueError("nothing to say")
-    return {"kind": kind, "action": action if kind == "action" else "none", "prompt": prompt if kind != "answer" else "", "say": say}
+    return {"kind": kind, "action": "none", "target": "", "prompt": prompt if kind != "answer" else "", "say": say}
 
 
-def act(text: str, state: str, att: str, call=None) -> dict:
-    """What the person said -> {kind, action, prompt, say, by}."""
+def act(text: str, state: str, att: str, call=None, projects=None) -> dict:
+    """What the person said -> {kind, action, target, prompt, say, by}."""
     heard = re.sub(r"\s+", " ", str(text or "")).strip()[:1500]
     if not heard:
         raise ValueError("nothing was said")
@@ -239,17 +305,20 @@ def act(text: str, state: str, att: str, call=None) -> dict:
         att = "sassy"
     if att == "savage" and not savage_allowed():
         att = "sassy"
-    local = act_local(heard)
+    projects = [str(p) for p in (projects or [])][:200]
+    local = act_local(heard, projects)
     if local["kind"] == "action":       # a button needs no model
         return dict(local, by="local")
-    prompt = (act_rules(att) + "\n\nSTATE:\n" + str(state or "")[:2000] +
+    plist = ("Their projects: " + ", ".join(projects) + ".") if projects else "They have no projects yet."
+    prompt = (act_rules(att) + "\n\nSTATE:\n" + str(state or "")[:2000] + "\n" + plist +
               "\n\nTHEY SAID:\n" + heard + "\n\nThe JSON object only.")
     if call is None:
         import aethron_brain
         call = lambda p: aethron_brain.text_call(p, timeout=45, max_tokens=700)
     try:
-        return dict(act_parse(call(prompt), heard), by="model")
-    except Exception as e:
+        return dict(act_parse(call(prompt), heard, projects), by="model")
+    except Exception as e:   # a misheard name the model could not place either
+        local.pop("unsure", None)
         return dict(local, by="local", why=str(e)[:200])
 
 
@@ -271,17 +340,27 @@ const REDUCE=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const cv=document.createElement('canvas');cv.id='ember-cv';cv.setAttribute('aria-hidden','true');
 cv.style.cssText='position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:8800';
 const css=document.createElement('style');css.textContent=`html.ember-over,html.ember-over *{cursor:grab!important}html.ember-grab,html.ember-grab *{cursor:grabbing!important}
-#ember-talk{position:fixed;z-index:8801;display:flex;gap:6px;align-items:center;width:250px;padding:5px 5px 5px 12px;border-radius:99px;background:rgba(255,247,238,.97);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+#ember-talk{position:fixed;z-index:8801;display:flex;align-items:center;gap:2px;width:min(340px,calc(100vw - 24px));box-sizing:border-box;padding:5px;border-radius:999px;background:rgba(30,27,25,.9);-webkit-backdrop-filter:blur(20px) saturate(1.5);backdrop-filter:blur(20px) saturate(1.5);border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.25);transform-origin:var(--ox,50%) var(--oy,0%);animation:emberIn .34s cubic-bezier(.2,.9,.25,1.12);transition:border-color .2s,box-shadow .2s}
+@keyframes emberIn{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:none}}
+#ember-talk:focus-within{border-color:rgba(217,119,87,.6);box-shadow:0 18px 50px rgba(0,0,0,.45),0 0 0 4px rgba(217,119,87,.16)}
 #ember-talk[hidden]{display:none!important}
-#ember-talk input{all:unset;flex:1;min-width:0;font:500 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#2b160c}
-#ember-talk input::placeholder{color:#9a7c6a}
-#ember-talk button{all:unset;cursor:pointer;width:26px;height:26px;border-radius:50%;background:#d97757;display:grid;place-items:center;color:#fff;font-size:14px;line-height:1}
+#ember-talk input{all:unset;flex:1;min-width:0;height:34px;padding:0 6px;font:500 14px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#f4ece5;caret-color:#e8875f}
+#ember-talk input::placeholder{color:#8e837a}
+#ember-talk button{all:unset;flex:none;cursor:pointer;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;transition:background .15s,transform .12s}
+#ember-talk button:active{transform:scale(.9)}
+#ember-talk button svg{width:17px;height:17px;display:block}
+#ember-mic{color:#cfc4ba}#ember-mic:hover{background:rgba(255,255,255,.08);color:#fff}
+#ember-mic.on{color:#fff;background:rgba(217,119,87,.35)}
+#ember-go{background:#d97757;color:#fff}#ember-go:hover{background:#e3875f}
+#ember-talk.ae-empty #ember-go{opacity:.4}
+.ember-press{transform:scale(.9)!important;filter:brightness(1.18)!important;transition:transform .08s ease-out,filter .08s!important}
+@media (prefers-reduced-motion:reduce){#ember-talk{animation:none}}
 #ember-menu{position:fixed;z-index:8802;background:#1c1917;border:1px solid #33302c;border-radius:10px;padding:4px;min-width:170px;box-shadow:0 12px 30px rgba(0,0,0,.4);font:500 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 #ember-menu[hidden]{display:none!important}
 #ember-menu button{all:unset;display:block;width:calc(100% - 20px);padding:7px 10px;border-radius:6px;color:#eee3db;cursor:pointer}
 #ember-menu button:hover{background:#2a2622}`;
 const talk=document.createElement('div');talk.id='ember-talk';talk.hidden=true;
-talk.innerHTML='<input id="ember-in" placeholder="Reply to Ember…" maxlength="300" autocomplete="off" aria-label="Reply to Ember"><button id="ember-go" aria-label="Send">↑</button>';
+talk.innerHTML='<button id="ember-mic" aria-label="Talk out loud" title="Talk out loud"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><input id="ember-in" placeholder="Tell Ember…" maxlength="300" autocomplete="off" aria-label="Tell Ember"><button id="ember-go" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>';talk.classList.add('ae-empty');
 const menu=document.createElement('div');menu.id='ember-menu';menu.hidden=true;
 const X=cv.getContext('2d');
 let W=innerWidth,H=innerHeight,DPR=Math.min(2,devicePixelRatio||1),R=22,now=0,running=false,started=false,hideUntil=0;
@@ -377,7 +456,7 @@ function composer(){const c=document.querySelectorAll('.composer');for(let i=c.l
 const SP={
   rest:()=>{const m=area();if(DESK)return{x:m.r-R*3,y:m.b-R*2.2};return{x:m.r-R*2.6,y:cl(m.t+m.h*.62,R*3,H-R*3)}},
   free:()=>{const m=area();return{x:rnd(m.l+m.w*.72,m.r-R*2.2),y:rnd(m.t+m.h*.22,m.t+m.h*.7)}},
-  perch:()=>{if(DESK)return deskPerch()||SP.rest();const c=composer();if(!c)return SP.rest();return{x:cl(c.r-R*2.2-rnd(0,c.w*.25),c.l+R,c.r-R),y:c.t-R*1.02,perch:1}},
+  perch:()=>{if(DESK)return deskPerch()||SP.rest();const c=composer();if(!c)return SP.rest();return{x:cl(c.r-R*3.2,c.l+R,c.r-R),y:c.t-R*1.02,perch:1}},
   work:()=>{const r=lastOf('.jobc')||lastOf('.run')||lastOf('.msg');const m=area();if(!r)return SP.rest();return{x:cl(r.r+R*1.8,m.l+R*2,m.r-R*1.8),y:cl(r.cy,m.t+R*3,m.b-R*3)}},
   notch:()=>deskNotch()||SP.rest(),
   nap:()=>(DESK?deskNap():null)||SP.perch(),
@@ -393,7 +472,9 @@ function go(s,o={}){const p=typeof s==='function'?s():s;if(!p)return;const far=M
 const N={energy:.75,curiosity:.6,social:.35,boredom:.25,annoy:.05,fond:.3};
 function bump(k,v){N[k]=cl(N[k]+v,0,1)}
 const annoyed=()=>N.annoy>.55,idleFace=()=>ATT()==='sweet'?'neutral':(ATT()==='savage'?'unimpressed':'calm');
-function say(t,d,o){o=o||{};t=String(t||'');if(!t&&!o.dots)return;const ty=o.type?t.length/30:0;E.bubble={text:t,t:0,d:ty+(d||Math.max(1.8,t.length*.075)),type:!!o.type,cps:30,last:-1,dots:!!o.dots}}
+/* a person needs time to read: about 13 characters a second, never under 3s */
+const readTime=t=>Math.min(14,2.6+String(t||'').length/13);
+function say(t,d,o){o=o||{};t=String(t||'');if(!t&&!o.dots)return;const ty=o.type?t.length/30:0;E.bubble={text:t,t:0,d:ty+Math.max(d||0,o.dots?0:readTime(t)),type:!!o.type,cps:30,last:-1,dots:!!o.dots}}
 let SEQ=null;
 function play(steps,done){SEQ={steps,i:-1,t:0,done};next()}
 function next(){SEQ.i++;SEQ.t=0;const s=SEQ.steps[SEQ.i];if(!s){const d=SEQ.done;SEQ=null;d&&d();return}if(s.say){const t=L(s.say);if(t)say(t,s.sayD,{type:1})}if(s.fn)s.fn()}
@@ -402,17 +483,31 @@ const cur_=k=>SEQ&&SEQ.steps[SEQ.i]&&SEQ.steps[SEQ.i][k];
 let base={pose:'rest',face:'calm',look:null},act=null,mood=null,fidgetIn=6;
 const CTX={project:'',job:null,last:'',lastT:0,issue:'',issueT:0};
 
+/* What Ember does with itself. Every move has a reason a person could name:
+   it stays put most of the time, perches on the chat box to watch you, goes to
+   look at the newest thing on screen, naps when tired, follows you when it
+   wants company, and when it has sat still too long it gets up and works out.
+   No drifting to random points: a random point is the tell of a program. */
+function interest(){for(const sel of['.jobc','.truth','.msg','.rcard']){const r=lastOf(sel);if(r&&r.w>40)return{r,sel}}return null}
 const ACTS={
-  rest:{w:()=>.7,run(){go(SP.rest)},dur:[6,10]},
-  drift:{w:()=>.3+(1-N.boredom)*.2,run(){const m=area();go({x:cl(E.x+rnd(-1,1)*R*4,m.l+m.w*.6,m.r-R*2),y:cl(E.y+rnd(-1,1)*R*3,m.t+R*3,m.b-R*3)})},dur:[5,8]},
-  follow:{w:()=>cur.active()&&!annoyed()?N.social*1.2+N.fond*.5:0,run(){},dur:[4,6],follow:1},
+  rest:{w:()=>1,run(){go(SP.rest,{speed:.6})},dur:[24,42]},
+  perch:{w:()=>(DESK?(DW.windows||[]).some(w=>w.perch):!!composer())?.5+(1-N.energy)*.5:0,run(){go(SP.perch,{speed:.6})},dur:[26,46]},
+  watch:{w:()=>!DESK&&interest()?N.curiosity*1.15:0,run(){const t=interest();if(!t){go(SP.rest,{speed:.6});this.pt=null;return}
+    const m=area(),side=t.r.r+R*2<m.r?1:-1;go({x:cl(side>0?t.r.r+R*1.8:t.r.l-R*1.8,m.l+R*2,m.r-R*2),y:cl(t.r.t+Math.min(t.r.h*.4,R*3),m.t+R*3,m.b-R*3)},{speed:.7});
+    this.pt={x:t.r.cx,y:t.r.cy}},dur:[9,15],watch:1},
+  follow:{w:()=>cur.active()&&!annoyed()&&N.social>.55?N.social*.9+N.fond*.4:0,run(){},dur:[5,8],follow:1},
   avoid:{w:()=>cur.active()&&annoyed()?2:0,run(){},dur:[5,7],avoid:1},
-  explore:{w:()=>N.curiosity*.8,run(){go(SP.free)},dur:[3.5,5]},
-  perch:{w:()=>(DESK?(DW.windows||[]).some(w=>w.perch):!!composer())?.3+(1-N.energy)*.7:0,run(){go(SP.perch)},dur:[7,11]},
-  nap:{w:()=>N.energy<.3?2.6:0,run(){go(SP.nap,{speed:.6})},dur:[14,18],nap:1},
-  notch:{w:()=>DESK&&DW.notch?N.curiosity*.5+.15:0,run(){go(SP.notch)},dur:[6,10]},
-  zoomies:{w:()=>N.energy>.75&&N.boredom>.6?.8:0,run(){this.z=0},dur:[2.6,3.2],zoom:1},
+  workout:{w:()=>N.boredom>.62&&N.energy>.4&&!cur.active()?1.7:0,run(){play(workout())},dur:[12,14],busy:1},
+  nap:{w:()=>N.energy<.25?2.6:0,run(){go(SP.nap,{speed:.5})},dur:[28,45],nap:1},
+  notch:{w:()=>DESK&&DW.notch?N.curiosity*.5+.15:0,run(){go(SP.notch,{speed:.7})},dur:[10,16]},
+  zoomies:{w:()=>N.energy>.92&&N.boredom>.85?.3:0,run(){this.z=0},dur:[2.6,3.2],zoom:1},
 };
+/* a stretch, jumping jacks, squats, catch its breath, admire itself */
+function workout(){const st=[{d:1.1,pose:'stretch',face:'focus',look:{dir:[0,-1]},say:['stretch break!','stretch break. I sat too long.','my back. ugh. stretching.']}];
+  for(let i=0;i<4;i++)st.push({d:.32,pose:'cheer',face:'focus',fn:()=>{E.vy=-210;E.q=.28}},{d:.32,pose:'rest',fn:()=>{E.q-=.22}});
+  for(let i=0;i<3;i++)st.push({d:.5,pose:'hands',face:'focus',fn:()=>{E.q-=.38}},{d:.45,pose:'hips',fn:()=>{E.q+=.3}});
+  st.push({d:1.4,pose:'limp',face:'sleepy',fn:()=>{E.sweat=1}},{d:1.8,pose:'hips',face:ATT()==='sweet'?'happy':'smug',look:'viewer',fn:()=>{E.sweat=0},say:['done! I feel great.','done. fit as a fiddle.',"that was nothing. I'm a machine."]});
+  return st}
 function choose(){const e=Object.entries(ACTS).map(([k,a])=>[k,Math.max(0,a.w())*rnd(.65,1.35)*(act&&act.k===k?.3:1)]).sort((a,b)=>b[1]-a[1]);
   const k=e[0][0],a=ACTS[k];act={k,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a)}
 const FIDGETS={
@@ -546,8 +641,10 @@ function stateText(){const m=CHAT.mem,h=new Date().getHours(),j=CTX.job;let proj
     'Ember is annoyed at them '+Math.round(N.annoy*100)+'% and likes them '+Math.round(N.fond*100)+'%.',
     m.name?"Their name: "+m.name+'.':'You do not know their name yet.',
     m.facts.length?'Things they told you before: '+m.facts.join('; ')+'.':'They have not told you anything about themselves yet.'].join('\n')}
-function placeTalk(){if(!CHAT.open)return;const rr=R*E.r,w=talk.offsetWidth||250;const x=cl(E.x-w/2,8,W-w-8);let y=E.y+rr*1.55;if(y>H-46)y=E.y-rr*E.tipH-90;talk.style.left=x+'px';talk.style.top=y+'px'}
-function openChat(q,focus){CHAT.open=1;CHAT.last=now;talk.hidden=false;SEQ=null;E.mode='fly';
+function placeTalk(){if(!CHAT.open)return;const rr=R*E.r,w=talk.offsetWidth||320,h=talk.offsetHeight||46;
+  let x=cl(E.x-w/2,12,W-w-12),y=E.y+rr*1.45,below=1;if(y+h>H-12){y=E.y-rr*E.tipH-h-70;below=0}y=cl(y,12,H-h-12);
+  talk.style.left=Math.round(x)+'px';talk.style.top=Math.round(y)+'px';talk.style.setProperty('--ox',Math.round(cl(E.x-x,0,w))+'px');talk.style.setProperty('--oy',below?'0%':'100%')}
+function openChat(q,focus){CHAT.open=1;CHAT.last=now;talk.hidden=false;talk.style.animation='none';void talk.offsetWidth;talk.style.animation='';talk.classList.toggle('ae-empty',!tin.value.trim());go({x:E.x,y:E.y},{now:1});SEQ=null;E.mode='fly';
   if(q){CHAT.turns.push({role:'assistant',content:q});say(q,4,{type:1});E.FT=face(ATT()==='sweet'?'curious':'sideeye')}
   placeTalk();if(focus)setTimeout(()=>tin.focus(),30)}
 function closeChat(line,f){CHAT.open=0;talk.hidden=true;tin.blur();CHAT.busy=0;CHAT.lastChat=now;if(line){play([{d:Math.max(1.8,line.length/30+1.2),face:f||idleFace(),look:'viewer'}]);say(line,2.2,{type:1})}act=null}
@@ -614,38 +711,90 @@ function shown(sel){if(typeof sel!=='string')return sel;const a=document.querySe
   for(let i=a.length-1;i>=0;i--){const r=rect(a[i]);if(r&&r.b>0&&r.t<H&&r.r>0&&r.l<W)return a[i]}return null}
 function live(t){const b=E.bubble;if(b&&b.live&&b.t<b.d){b.text=t;b.d=b.t+99}else{say(t||' ',99);E.bubble.live=1}}
 function hush(){if(E.bubble&&E.bubble.live)E.bubble.d=Math.min(E.bubble.d,E.bubble.t+.3)}
-async function flyTo(target,side){const r=rect(target);if(!r)return null;
+async function flyTo(target,side,o){o=o||{};const r=rect(target);if(!r)return null;
   let s=side||(r.cx>W*.6?'left':'right');let p=s==='above'?{x:cl(r.r-R*2.2,r.l+R,r.r-R),y:r.t-R*1.1,perch:1}:(s==='left'?{x:r.l-R*1.5,y:r.cy}:{x:r.r+R*1.5,y:r.cy});
+  if(s==='approach')p={x:r.cx-(r.cx>W*.5?1:-1)*(r.w/2+R*1.25),y:r.cy-R*1.05};
   if(s!=='above'&&p.x>W-R*1.6)p={x:r.l-R*1.5,y:r.cy};if(s!=='above'&&p.x<R*1.6)p={x:r.r+R*1.5,y:r.cy};
-  go(p,{speed:1.7,now:REDUCE});E.look={pt:{x:r.cx,y:r.cy},until:now+30};
+  go(p,{speed:o.speed||1.15,now:REDUCE});E.look={pt:{x:r.cx,y:r.cy},until:now+30};
   const n=Math.hypot(r.cx-p.x,r.cy-p.y)||1;E.pointDir=[(r.cx-p.x)/n,(r.cy-p.y)/n];
-  await arrive(2800);return rect(target)}
-async function press(target){if(!target)return false;const r=await flyTo(target);if(!r)return false;
-  if(mood)mood.pose='swat';await sleep(REDUCE?40:240);E.q-=.35;
+  await arrive(3200);return rect(target)}
+/* A real press: settle beside the thing, wind up, poke into it (the button
+   gives under the touch), then back off. The click lands at the moment of
+   contact, never from across the room. */
+async function press(target){if(!target)return false;let r=rect(target);if(!r)return false;
+  /* a wide thing is touched near the end Ember arrives at, like a finger would */
+  const fromRight=r.cx>W*.5,wide=r.w>R*3.2,cx=wide?(fromRight?r.l+Math.min(r.w*.22,R*1.6):r.r-Math.min(r.w*.22,R*1.6)):r.cx;
+  go({x:cx-(fromRight?1:-1)*(wide?R*1.7:(r.w/2+R*1.25)),y:r.cy-R*1.05},{speed:1.15,now:REDUCE});E.look={pt:{x:cx,y:r.cy},until:now+30};
+  await arrive(3200);r=rect(target);if(!r)return false;r=Object.assign({},r,{cx:wide?(fromRight?r.l+Math.min(r.w*.22,R*1.6):r.r-Math.min(r.w*.22,R*1.6)):r.cx});
+  await sleep(REDUCE?40:220);if(!running){target.click();return true}
+  const dir=[Math.sign(r.cx-E.x)||1,(r.cy-E.y)/(Math.hypot(r.cx-E.x,r.cy-E.y)||1)];E.pointDir=[dir[0]*.92,dir[1]];
+  if(mood){mood.pose='point';mood.face='focus'}E.look={pt:{x:r.cx,y:r.cy},until:now+5};
+  E.q+=.22;await sleep(REDUCE?30:230);                                   // wind up
+  if(mood)mood.pose='swat';const home={x:E.x,y:E.y};
+  go({x:lerp(E.x,r.cx,.35),y:lerp(E.y,r.cy,.35)},{now:1,speed:2.2});await sleep(REDUCE?20:110);
+  E.q-=.45;target.classList.add('ember-press');DRV.press={x:E.x,y:E.y,cx:r.cx,cy:r.cy};
   if(!REDUCE)for(let i=0;i<12;i++){const a=i/12*6.283;parts.push({k:'spark',x:r.cx,y:r.cy,vx:Math.cos(a)*110,vy:Math.sin(a)*110,l:1,d:.45,s:1.8,c:'255,200,130'})}
-  DRV.press={x:E.x,y:E.y,cx:r.cx,cy:r.cy};target.click();if(mood)mood.pose='point';await sleep(REDUCE?40:260);return true}
-async function typeInto(ta,text){ta.focus();ta.value='';const n=text.length,per=cl(2600/Math.max(1,n),8,42);
-  for(let i=0;i<n;i++){if(V.cancel)break;ta.value+=text[i];ta.dispatchEvent(new Event('input',{bubbles:true}));
-    try{if(typeof growTa==='function')growTa(ta)}catch(_){}
-    if(!REDUCE)await sleep(per*(text[i]===' '?1.6:rnd(.6,1.3)))}
+  target.click();await sleep(REDUCE?30:150);target.classList.remove('ember-press');
+  go(home,{now:1,speed:1.4});if(mood)mood.pose='point';await sleep(REDUCE?30:300);return true}
+/* where the next letter will appear in a text box, measured with its own font */
+function caretPoint(ta){const r=rect(ta);if(!r)return null;const cs=getComputedStyle(ta);
+  const pl=parseFloat(cs.paddingLeft)||0,pr=parseFloat(cs.paddingRight)||0,pt=parseFloat(cs.paddingTop)||0;
+  const lh=parseFloat(cs.lineHeight)||(parseFloat(cs.fontSize)||16)*1.3;X.save();X.setTransform(1,0,0,1,0,0);X.font=`${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const max=Math.max(40,r.w-pl-pr),lines=[''];for(const word of String(ta.value||'').split(/(\s+)/)){const tr=lines[lines.length-1]+word;
+    if(X.measureText(tr).width>max&&lines[lines.length-1])lines.push(word.trimStart());else lines[lines.length-1]=tr}
+  const w=X.measureText(lines[lines.length-1]).width;X.restore();
+  return{x:cl(r.l+pl+w,r.l+pl,r.r-pr),y:cl(r.t+pt+(lines.length-.5)*lh-ta.scrollTop,r.t+4,r.b-4),lh}}
+/* Ember perches over the line and types: each letter appears as its hands
+   come down, it moves along with the caret, and breathes at the spaces. */
+async function typeInto(ta,text){const c0=caretPoint(ta);ta.focus();ta.value='';ta.dispatchEvent(new Event('input',{bubbles:true}));
+  const n=text.length,per=cl(5200/Math.max(1,n),16,58),lift=R*1.55;
+  const follow=()=>{const c=caretPoint(ta);if(c)go({x:c.x+R*.35,y:c.y-Math.max(lift,c.lh*.55+R)},{now:1,speed:1.6});if(c)E.look={pt:{x:c.x,y:c.y},until:now+2}};
+  if(c0&&running){go({x:c0.x+R*.35,y:c0.y-lift},{speed:1.15});await arrive(2600);if(mood){mood.pose='type';mood.face='focus'}await sleep(REDUCE?0:260)}
+  for(let i=0;i<n;i++){if(V.cancel)break;const ch=text[i];ta.value+=ch;ta.dispatchEvent(new Event('input',{bubbles:true}));
+    try{if(typeof growTa==='function')growTa(ta)}catch(_){}ta.selectionStart=ta.selectionEnd=ta.value.length;
+    if(running){E.q-=.035;if(i%3===0||ch===' ')follow()}
+    if(!REDUCE)await sleep(per*(ch===' '?1.5:/[,.!?]/.test(ch)?3.2:rnd(.55,1.35)))}
   ta.value=text;ta.dispatchEvent(new Event('input',{bubbles:true}));try{if(typeof growTa==='function')growTa(ta)}catch(_){}}
+function scroller(){let el=document.getElementById('chatlog');while(el&&el!==document.body){const cs=getComputedStyle(el);
+    if(/auto|scroll/.test(cs.overflowY)&&el.scrollHeight>el.clientHeight+4)return el;el=el.parentElement}
+  const m=document.querySelector('body>main');if(m){for(const el of m.querySelectorAll('*')){const cs=getComputedStyle(el);if(/auto|scroll/.test(cs.overflowY)&&el.scrollHeight>el.clientHeight+40&&el.clientHeight>200)return el}}
+  return document.scrollingElement}
+function projectEl(name){for(const el of document.querySelectorAll('.pitem')){const n=el.querySelector('.pname');if(n&&n.textContent.trim()===name)return el}return null}
+const said=(t,d)=>{if(t&&running)say(t,d||0,{type:1})};
+/* the app's own controls Ember can press for you */
+const CONTROLS={settings:'#setbtn',new_chat:'.newbtn',home:'.brand',preview:'button[onclick^="openPreviewPane(false)"],.pshot'};
 async function perform(r){if(!r||DRV.on)return false;
-  if(r.kind==='answer'){if(running)play([{d:Math.max(2,r.say.length/30+1.6),face:idleFace(),look:'viewer',say:r.say}]);return true}
+  if(r.kind==='answer'){if(running)play([{d:Math.max(2.4,readTime(r.say)),face:idleFace(),look:'viewer',say:r.say}]);return true}
   if(CHAT.open)closeChat();DRV.on=1;V.cancel=0;SEQ=null;setMood({kind:'drive',d:120,pose:'point',face:'focus',look:null});
+  let cur_=null;try{cur_=(typeof S!=='undefined'&&S.cur)||null}catch(_){}
   try{
-    if(r.kind==='action'&&r.action==='publish'){const b=shown('#pubrail');
-      if(b){if(r.say&&running)say(r.say,2.4,{type:1});await press(b);await sleep(900);
+    const a=r.kind==='action'?r.action:'';
+    if(a==='open_project'){
+      if(cur_===r.target){said(L([`you're already in ${r.target}`,`we're already in ${r.target}.`,`you're IN ${r.target}. look.`]));return true}
+      const el=projectEl(r.target);if(!el){said(L([`I can't see ${r.target} in your list`,`no ${r.target} in the list.`,`${r.target}? not in the list.`]));return false}
+      said(r.say||L([`opening ${r.target}`,`${r.target}. on it.`,`fine. ${r.target}.`]));
+      el.scrollIntoView({block:'nearest',behavior:REDUCE?'auto':'smooth'});await sleep(REDUCE?60:420);
+      await press(el);CTX.last='Ember opened '+r.target;CTX.lastT=now;return true}
+    if(a==='scroll_down'||a==='scroll_up'){const sc=scroller(),sr=sc&&sc.getBoundingClientRect?rect(sc):null;
+      if(sr&&running){go({x:cl(sr.r-R*2,R*2,W-R*2),y:sr.cy},{speed:1.1});await arrive(2400);if(mood){mood.pose='swat';E.pointDir=[0,a==='scroll_down'?-1:1]}}
+      said(r.say);const h=(sc&&sc.clientHeight)||innerHeight;(sc||window).scrollBy({top:(a==='scroll_down'?1:-1)*h*.7,behavior:REDUCE?'auto':'smooth'});
+      if(running){E.q-=.3;await sleep(700)}return true}
+    if(CONTROLS[a]){const el=shown(CONTROLS[a]);if(!el){said(L(["I can't find that button right now","can't find it on this screen.","not on this screen. look again."]));return false}
+      said(r.say);await press(el);return true}
+    if(a==='publish'){const b=shown('#pubrail');
+      if(b){said(r.say);await press(b);await sleep(900);
         const go_=shown('#pubov button[onclick^="pubGo"]');if(go_){await press(go_);CTX.last='Ember pressed Publish';CTX.lastT=now;return true}
-        if(running)say(L(['it needs one more thing from you first','your turn. it wants something first.','it wants something from you first. look.']),3,{type:1});return true}}
+        said(L(['it needs one more thing from you first','your turn. it wants something first.','it wants something from you first. look.']));return true}
+      if(!cur_){said(L(['open a project first, then I can publish it','open a project first.','publish what? open a project.']));return false}}
+    if(a&&['undo','build','check','stop','status'].includes(a)&&!cur_){said(L(['open a project first','open a project first.',"which project? open one."]));return false}
     const ta=shown('#npurl');
-    if(!ta){if(running)say(L(["I can't find the chat box","where's the chat box?","no chat box. where'd you put it."]),3,{type:1});return false}
-    if(r.say&&running)say(r.say,2.2,{type:1});
-    await flyTo(ta,'above');if(mood){mood.pose='type';mood.look={pt:()=>{const q=rect(ta);return q?{x:q.l+Math.min(q.w-20,ta.value.length*7.5),y:q.cy}:{x:E.x,y:E.y+60}}}}
+    if(!ta){said(L(["I can't find the chat box","where's the chat box?","no chat box. where'd you put it."]));return false}
+    said(r.say,2);
     await typeInto(ta,r.prompt);if(V.cancel)return false;
-    if(mood){mood.pose='point';mood.face=ATT()==='sweet'?'happy':'smug'}await sleep(REDUCE?40:380);
+    if(mood){mood.pose='point';mood.face=ATT()==='sweet'?'happy':'smug'}await sleep(REDUCE?40:420);
     const sb=shown('#sendbtn,button[onclick^="consoleSend"]');if(sb)await press(sb);else ta.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
     CTX.last='Ember sent: '+r.prompt.slice(0,80);CTX.lastT=now;return true
-  }finally{DRV.on=0;setMood(null);if(running)go(SP.perch)}}
+  }finally{DRV.on=0;setMood(null);if(running)go(SP.perch,{speed:.8})}}
 function listenSay(t){live(t||L(['listening…','go on. listening.',"talk. I'm listening."]))}
 async function listen(){if(!running||DRV.on)return;
   if(V.state==='listening'||V.state==='asking'){stopListen(0);return}
@@ -683,7 +832,8 @@ async function endListen(text,cancelled,why){V.rec=null;text=String(text||'').tr
   V.state='thinking';if(mood){mood.face='think';mood.pose='think'}live('');E.bubble.dots=1;E.bubble.text='';
   return heard(text)}
 async function heard(text){V.state='thinking';let r=null;
-  try{r=await post('/api/ember/act',{text,state:stateText(),attitude:ATT(),relay:DESK?1:0})}catch(e){r=null}
+  let names=null;try{if(typeof S!=='undefined'&&Array.isArray(S.projects))names=S.projects.map(p=>p&&p.name).filter(Boolean)}catch(_){}
+  try{r=await post('/api/ember/act',Object.assign({text,state:stateText(),attitude:ATT(),relay:DESK?1:0},names?{projects:names}:{}))}catch(e){r=null}
   V.state='idle';setMood(null);hush();
   if(!r||!r.kind){play([{d:2.6,face:'worried',look:'viewer',say:["I couldn't reach Aethron","can't reach Aethron right now.","Aethron's not answering. not my fault."]}]);return null}
   if(DESK){if(r.kind==='answer')perform(r);else play([{d:2.6,pose:'point',face:'calm',look:'viewer',fn:()=>{E.pointDir=[0,1]},say:['sending it to Aethron','handing it to Aethron.','fine. Aethron gets it.']}]);return r}
@@ -701,6 +851,8 @@ let last=performance.now(),acc=0;
 function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t;now+=dt;acc+=dt;if(acc>.25){needs(acc);acc=0}
   if(hideUntil&&Date.now()>hideUntil){hideUntil=0;E.alphaT=1;E.rT=1;go(SP.rest,{now:1})}
   if(mood){mood.t+=dt;if(mood.t>mood.d){const m=mood;mood=null;m.end&&m.end()}}
+  if(CHAT.open)placeTalk();
+  if(E.bubble&&E.bubble.box&&cur.x>=0){const k=E.bubble.box;if(cur.x>k.x-6&&cur.x<k.x+k.w+6&&cur.y>k.y-6&&cur.y<k.y+k.h+6)E.bubble.d=Math.max(E.bubble.d,E.bubble.t+1.2)}
   if(CHAT.open&&E.mode==='fly')chatTick(dt);
   else if(mood){base.pose=mood.pose||'rest';base.face=mood.face||idleFace();base.look=mood.look||null}
   else if(E.mode==='fly'&&!hideUntil){
@@ -711,14 +863,14 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
     if(act.a.avoid&&cur.active()&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*5){const dx=E.x-cur.x,dy=E.y-cur.y,n=Math.hypot(dx,dy)||1;go({x:E.x+dx/n*R*4,y:E.y+dy/n*R*3},{now:1,speed:.7})}
     if(act.a.zoom){act.a.z+=dt;const a=act.a.z*3.2,m=area();go({x:m.l+m.w*.7+Math.sin(a)*m.w*.18,y:m.t+m.h*.45+Math.sin(a*2)*m.h*.18},{now:1,speed:2.4})}
     const napping=act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.8;E.zz=napping?1:0;
-    if(!SEQ&&!napping&&!act.a.zoom&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=rnd(7,14);fidget()}}
+    if(!SEQ&&!napping&&!act.a.zoom&&!(E.purr>0)){fidgetIn-=dt;if(fidgetIn<=0){fidgetIn=rnd(11,20);fidget()}}
     if(cur.x>=0&&!SEQ&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*3.6&&!cur.over){if(!cur.nearSince)cur.nearSince=now;if(now-cur.nearSince>2.6&&now-cur.moveT>1.8){cur.nearSince=now+10;
       if(ATT()==='sweet')play([{d:1.2,pose:'cover',face:'shy'},{d:1,pose:'peek',face:'shy',look:'cursor'},{d:1.2,pose:'wave',face:'happy',look:'cursor',say:'…hi'}]);
       else play([{d:2.4,face:'unimpressed',look:'cursor',fn:()=>{E.noBlink=2.4}},{d:1.6,face:'tfman',pose:'crossed',look:'cursor',say:['','…can I help you?','take a picture, it lasts longer.']}])}}
     else if(cur.x<0||Math.hypot(cur.x-E.x,cur.y-E.y)>R*3.6)cur.nearSince=0;
     let bf=idleFace();if(annoyed())bf=N.annoy>.8?'glare':'unimpressed';else if(N.fond>.7&&ATT()!=='savage')bf='content';
     base.face=napping?'asleep':(act.a.nap?'sleepy':(N.energy<.3?'sleepy':(cur.over&&!annoyed()?(ATT()==='sweet'?'happy':'calm'):(act.a.zoom?'joy':bf))));
-    base.pose=napping?'limp':(act.a.zoom?'flail':(annoyed()&&ATT()!=='sweet'?'crossed':'rest'));base.look=napping?{dir:[0,1]}:null}
+    base.pose=napping?'limp':(act.a.zoom?'flail':(annoyed()&&ATT()!=='sweet'?'crossed':'rest'));base.look=napping?{dir:[0,1]}:(act.a.watch&&act.a.pt?{pt:act.a.pt}:null);if(act.a.watch&&act.a.pt&&!annoyed())base.face=ATT()==='sweet'?'curious':'sideeye'}
   seqTick(dt);
   let pose=cur_('pose')||base.pose,fn=cur_('face')||base.face,look=cur_('look')||base.look;
   if(E.mode==='grab'){pose='flail';fn=Math.hypot(E.vx,E.vy)>600?(ATT()==='sweet'?'joy':'shocked'):(ATT()==='sweet'?'surprised':'tfman');look='viewer'}
@@ -729,10 +881,10 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   if(look)E.look=look;else if(E.look&&!(E.look.until>now))E.look=null;
   simulate(dt);draw(dt);requestAnimationFrame(frame)}
 function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=act&&act.a.nap&&Math.hypot(E.tx-E.x,E.ty-E.y)<R;
-  N.energy=cl(N.energy+(napping?.04:-(.003+(moving?.008:0)))*k,0,1);
-  N.curiosity=cl(N.curiosity+(act&&act.k==='explore'?-.06:.012)*k,0,1);
+  N.energy=cl(N.energy+(napping?.04:-(.003+(moving?.008:0)+(act&&act.k==='workout'?.02:0)))*k,0,1);
+  N.curiosity=cl(N.curiosity+(act&&act.k==='watch'?-.06:.012)*k,0,1);
   N.social=cl(N.social+(cur.over||E.purr>0||cur.grab||CHAT.open?-.12:.01)*k,0,1);
-  N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&(act.a.zoom||act.k==='explore'))?-.07:.015)*k,0,1);
+  N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&(act.a.zoom||act.k==='watch'||act.k==='workout'))?-.09:.012)*k,0,1);
   N.annoy=cl(N.annoy-.02*k,0,1);N.fond=cl(N.fond+(E.purr>0?.03:0)*k-.001*k,0,1)}
 
 /* ===== body physics ===== */
@@ -874,7 +1026,7 @@ function hat(){const o=outfit();if(o==='none'||o==='shades')return;const tx=E.ti
 function wrap(t,max){const w=t.split(' '),out=[];let line='';for(const x of w){const tr=line?line+' '+x:x;if(X.measureText(tr).width>max&&line){out.push(line);line=x}else line=tr}if(line)out.push(line);return out}
 function bubble(rr){const b=E.bubble;if(!b.text&&!b.dots)return;const a=Math.min(1,b.t/.15,(b.d-b.t)/.25);if(a<=0)return;X.font=`600 12.5px ${FONT}`;
   const shown=b.type?Math.min(b.text.length,Math.floor(b.t*b.cps)):b.text.length,lines=b.dots?['   ']:wrap(b.text,220);let tw=0;for(const l of lines)tw=Math.max(tw,X.measureText(l).width);
-  const pw=Math.max(tw,b.dots?26:0)+22,ph=lines.length*17+10,bx=cl(E.x-pw/2+rr*.4,8,W-pw-8);let by=E.y-rr*E.tipH-ph-14-(outfit()!=='none'&&outfit()!=='shades'?rr*.6:0);if(by<8)by=E.y+rr*1.6;by+=(1-Math.min(1,b.t/.2))*6;
+  const pw=Math.max(tw,b.dots?26:0)+22,ph=lines.length*17+10,bx=cl(E.x-pw/2+rr*.4,8,W-pw-8);let by=E.y-rr*E.tipH-ph-14-(outfit()!=='none'&&outfit()!=='shades'?rr*.6:0);if(by<8)by=E.y+rr*1.6;by+=(1-Math.min(1,b.t/.2))*6;b.box={x:bx,y:by,w:pw,h:ph};
   X.globalAlpha=a;X.fillStyle='rgba(255,247,238,.97)';X.beginPath();X.roundRect(bx,by,pw,ph,13);X.fill();const tx=cl(E.x,bx+14,bx+pw-14);X.beginPath();
   if(by<E.y){X.moveTo(tx-6,by+ph-1);X.lineTo(tx,by+ph+7);X.lineTo(tx+6,by+ph-1)}else{X.moveTo(tx-6,by+1);X.lineTo(tx,by-7);X.lineTo(tx+6,by+1)}X.fill();X.fillStyle='#2b160c';X.textBaseline='middle';
   if(b.dots){for(let i=0;i<3;i++){X.globalAlpha=a*(.35+.65*Math.max(0,Math.sin(now*6-i*.9)));X.beginPath();X.arc(bx+pw/2-9+i*9,by+ph/2,2.6,0,7);X.fill()}X.globalAlpha=1;return}
@@ -882,9 +1034,9 @@ function bubble(rr){const b=E.bubble;if(!b.text&&!b.dots)return;const a=Math.min
 
 /* ===== on / off ===== */
 function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(2,devicePixelRatio||1);cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR);R=Math.max(16,Math.min(26,Math.min(W,H)*.024))}
-function start(){if(running)return;if(!started){started=true;document.body.append(cv,talk,menu);tin=talk.querySelector('input');
-    talk.querySelector('button').onclick=send;tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
-    tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now});
+function start(){if(running)return;if(!started){started=true;(document.head||document.documentElement).append(css);document.body.append(cv,talk,menu);tin=talk.querySelector('input');
+    talk.querySelector('#ember-go').onclick=send;talk.querySelector('#ember-mic').onclick=()=>{closeChat();listen()};tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
+    tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now;talk.classList.toggle('ae-empty',!tin.value.trim())});
     addEventListener('pointermove',onMove,true);addEventListener('pointerdown',onDown,true);addEventListener('pointerup',onUp,true);
     for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();listen();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
     addEventListener('resize',resize);addEventListener('blur',()=>{cur.x=-1});
@@ -971,6 +1123,20 @@ def _selftest() -> int:
     a = act("fix the thing", "", "sassy", call=lambda p: '{"kind":"action","action":"explode"}')
     check("an unknown action is never pressed", a["kind"] == "send" and a["action"] == "none")
     check("a broken model reply falls back to the words as said", act("make it blue", "", "sassy", call=lambda p: "nope")["prompt"] == "Make it blue.")
+    P = ["azul-salon-ce08c5", "bloop-ai", "chaka", "chatora-city-567d98", "proof-check"]
+    a = act("can he open chaka's project", "", "sassy", call=lambda p: 1/0, projects=P)
+    check("'open Chaka's project' presses the project, it is not typed",
+          a["kind"] == "action" and a["action"] == "open_project" and a["target"] == "chaka" and a["by"] == "local")
+    check("a spoken name with spaces finds the project id", act("open chatora city", "", "sassy", call=lambda p: 1/0, projects=P)["target"] == "chatora-city-567d98")
+    a = act("open the checker project", "", "sassy", projects=P,
+            call=lambda p: got.__setitem__("o", p) or '{"kind":"action","action":"open_project","target":"proof-check","say":"there."}')
+    check("a misheard name goes to the model, which is given the project list",
+          a["target"] == "proof-check" and "proof-check" in got["o"])
+    a = act("open the banana project", "", "sassy", projects=P, call=lambda p: '{"kind":"action","action":"open_project","target":"banana"}')
+    check("a project nobody has is never opened", a["kind"] == "answer" and "banana" in a["say"])
+    check("settings, home, a new chat and scrolling are its own buttons",
+          [act(t, "", "sassy", call=lambda p: 1/0)["action"] for t in ("go to settings", "go home", "start a new chat", "scroll down")]
+          == ["settings", "home", "new_chat", "scroll_down"])
     check("the companion script has no triple quote that would end this module", '"""' not in EMBER_JS)
     check("the companion stays off in automated browsers unless asked", "navigator.webdriver&&!forced" in EMBER_JS)
     print(f"\n{ok} passed, {fails} failed")
