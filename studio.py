@@ -2107,6 +2107,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 return self.wfile.write(body)
+            if u.path == "/ember.js":
+                body = EMBER_JS.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Cache-Control", "public, max-age=604800, immutable")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             if u.path == "/metal.js":
                 # A vendored engine never changes between renders, so it
                 # is cached hard. Everything else in this server sends
@@ -3294,6 +3302,17 @@ class Handler(BaseHTTPRequestHandler):
                 pub = json.loads((d / "forge.json").read_text()) \
                     .get("public_base", "/assets").rstrip("/")
                 self.send_json({"url": f"{pub}/{fname}"})
+            elif u.path == "/api/ember/say":
+                # one line from the companion, in character, by the active
+                # provider; savage is refused unless the team says admin
+                if not _ember:
+                    return self.fail("the companion is not available")
+                try:
+                    out = _ember.reply(body.get("turns") or [], body.get("state") or "",
+                                       str(body.get("attitude") or "sassy"))
+                except ValueError as e:
+                    return self.fail(str(e))
+                self.send_json(out)
             elif u.path == "/api/ai/plan":
                 # rough owner notes in -> structured migration plan out
                 d = self.project_dir({"name": [body.get("project", "")]})
@@ -10122,6 +10141,8 @@ INDEX_HTML = r"""<!doctype html>
      with no WebGL2 simply never gets it, and every one of those
      surfaces is a working button without it. -->
 <script defer src="__METAL__"></script>
+<!-- Ember, the companion (aethron_ember.py). Off in automated browsers. -->
+<script defer src="__EMBER__"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 /* ── THE TEAM'S VOICE ─────────────────────────────────────────────
@@ -14459,6 +14480,7 @@ async function checkUpdate(){
   if(UPD&&UPD.available&&!(UC&&(UC.mode==='busy'||UC.mode==='fail'))){
     UC={mode:'ready',open:UC&&UC.mode==='ready'?UC.open:false};
     ucRender(); renderHeader();
+    try{window.ember&&ember.signal('update',{})}catch(e){}
   }
   if(S.view==='settings'&&$('verbox'))$('verbox').innerHTML=versionBox();
 }
@@ -16005,6 +16027,9 @@ async function checkTruth(){
   if(t.built&&t.template_share!=null&&t.template_share>=50)
     gaps.push(`${t.template_share}% of the page copy still reads word-for-word as the template's — rewrite it in the brand's words`);
   CODE.events.push({type:'truth',project:name,t,gaps});
+  try{if(window.ember&&t.built){const br=t.broken||[];
+    if(br.length)ember.signal('broke',{what:br[0]});
+    else if(!gaps.length)ember.signal('pass',{project:name});}}catch(e){}
   renderChat(); refresh(true).catch(()=>{});
   /* A broken page is shown, never pushed back on: a fill cannot break a
      page unless the engine is wrong, and the agent's answer to a break it
@@ -16036,6 +16061,7 @@ async function jobRead(n){
   try{const j=await api('/api/job?project='+encodeURIComponent(n));
     const was=JOBUI[n]&&JOBUI[n].status;
     JOBUI[n]=j&&j.status?j:null;
+    try{window.ember&&JOBUI[n]&&ember.signal('job',{project:n,job:JOBUI[n]})}catch(e){}
     if(was&&JOB_ACTIVE.has(was)&&JOBUI[n]&&!JOB_ACTIVE.has(JOBUI[n].status))
       refresh(true).catch(()=>{});
   }catch(e){}
@@ -16214,6 +16240,7 @@ async function pollCode(){
       clearSlowNote();
       renderChat();
       followNewProject(r.events);
+      try{window.ember&&ember.fromEvents(r.events,r.bridge)}catch(e){}
       if(r.events.some(e=>['tool_result','done'].includes(e.type)))loadTree();
       /* AN ERROR ENDS THE TURN, AND THE UI MUST NOT WAIT TO BE TOLD.
          A wedged session can keep reporting running:true forever — after
@@ -16376,6 +16403,8 @@ async function renderSettings(c){
            :`<div class="hint">This copy is running without the cloud layer,
               so nothing about you leaves this machine.</div>`}
     </section>
+
+    <section class="card" id="embercard">${emberCard()}</section>
 
     <section class="card">
       <h3>${I('key',14)} Model and key</h3>
@@ -16594,6 +16623,26 @@ function goHome(){
   document.body.classList.remove('pvwopen');
   refresh();
 }
+/* EMBER, THE COMPANION. Its settings live in this window (localStorage):
+   on or off, attitude, outfit. Savage is offered only to admins, and the
+   server refuses it for anyone else. */
+function emberCard(){
+  const e=window.ember?ember.get():null;
+  if(!e)return `<h3>${I('sparkles',14)} Companion</h3><div class="hint">The companion is not available in this window.</div>`;
+  const seg=(k,opts)=>opts.map(([v,l])=>`<button aria-pressed="${e[k]===v}" class="${e[k]===v?'primary':''}" onclick="emberSet('${k}','${v}')">${l}</button>`).join('');
+  const atts=[['sweet','Sweet'],['sassy','Sassy']].concat(e.savage?[['savage','Savage']]:[]);
+  return `<h3>${I('sparkles',14)} Companion</h3>
+    <div class="hint">Ember lives in this window and reacts to what Aethron is really doing. Double-click it to talk, right-click it to hide it for a while.</div>
+    <div class="kv"><span>Show Ember</span><b><button class="${e.on?'primary':''}" onclick="emberSet('on',${!e.on})">${e.on?'On':'Off'}</button></b></div>
+    <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
+    <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
+    ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}
+    <div class="rowbtns"><button onclick="emberSet('talk')">Talk to Ember</button><button onclick="emberSet('forget')">Forget what it knows about me</button></div>`;
+}
+function emberSet(k,v){if(!window.ember)return;
+  if(k==='talk'){ember.talk();return}
+  if(k==='forget'){ember.forget();toast('Ember forgot what you told it');return}
+  ember.set({[k]:v});const c=$('embercard');if(c)c.innerHTML=emberCard();}
 function openSettings(){S.view='settings';S.cur=null;S.panel=false;renderTab();renderSidebar&&renderSidebar();}
 
 /* ── THE PROJECT, VISIBLE ─────────────────────────────────────────
@@ -21392,6 +21441,7 @@ async function pubGo(){
   }
   try{const r=await pubApi('status');PUB.site=r.site;}catch(e){}
   PUB.versions=null;pubRender();toast('Your site is live');
+  try{window.ember&&ember.signal('published',{})}catch(e){}
 }
 async function pubVersions(){
   try{const r=await pubApi('versions');PUB.versions=r.versions;}catch(e){PUB.versions=[];PUB.err=e.message;}
@@ -21747,6 +21797,13 @@ LOGIN_HTML = LOGIN_HTML.replace("__MARK__", MARK)
 # different URL.
 METAL_VER = __import__("hashlib").sha256(METAL_JS.encode()).hexdigest()[:12]
 INDEX_HTML = INDEX_HTML.replace("__METAL__", f"/metal.js?v={METAL_VER}")
+try:
+    import aethron_ember as _ember
+    EMBER_JS = _ember.EMBER_JS
+except Exception:  # the window works without its companion
+    _ember, EMBER_JS = None, "/* companion unavailable */"
+EMBER_VER = __import__("hashlib").sha256(EMBER_JS.encode()).hexdigest()[:12]
+INDEX_HTML = INDEX_HTML.replace("__EMBER__", f"/ember.js?v={EMBER_VER}")
 INDEX_HTML = INDEX_HTML.replace("__MARK__", MARK)
 try:
     import aethron_publish as _pub

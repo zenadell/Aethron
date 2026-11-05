@@ -6805,6 +6805,44 @@ are tinted pills. The run pill for the start_migration call is not drawn
 offset, text, end, steps) and redraws whole only when its state changes
 (data-shape), so the spin and the typing both survive the 2.5s poll.
 
+## EMBER, THE COMPANION — `aethron_ember.py` — 2026-11-05
+Owner: an animated character people cannot resist coming back to; cat
+energy (unbothered, judgmental, secretly fond), faces you read without words
+("tf man", Duolingo's flat stare, the frog's shock), outfits by date, talks
+with you and asks what you are doing. Prototyped as an artifact page first
+(owner iterated it four times), then put into the app.
+- ONE CANVAS over the window, pointer-events off. A press ON Ember is taken
+  in the capture phase before the page sees it; nothing else ever is
+  (battery proves a button under it gets no click and one beside it does).
+  Off whenever navigator.webdriver is true unless ?ember=1 — a flame floating
+  over a button must never be what a test clicks.
+- Drawn every frame from numbers: eyelids (flat = unimpressed), brows,
+  pupils, a morphing mouth, three flames that trail motion, rubber-hose arms,
+  sunglasses it looks over, hats by date. Needs (energy, curiosity, wants
+  you, boredom) plus two feelings about you (annoyed, likes you) pick what it
+  does; habits when idle; boops escalate; throws are "offended"; pets are
+  tolerated then cut short; ignored questions disappoint it.
+- REAL SIGNALS ONLY, via window.ember.signal / fromEvents, hooked in
+  pollCode (steps, errors, refusals, bridge retrying), checkTruth (broken
+  page named / clean pass), jobRead (job running, finished, failed,
+  waiting), pubGo (live), checkUpdate (points at the chip), and typing in a
+  .composer. Its words name the real thing ("about.html broke").
+- TALKING: POST /api/ember/say -> aethron_ember.reply via the active
+  provider (brain.text_call, 400 tokens), JSON {say, face, gesture, mood,
+  name, remember}; it may only state facts in the STATE the window sends.
+  No provider -> built-in replies, never a hang. Memory (name + 6 facts) in
+  localStorage, with Forget in Settings.
+- SAVAGE IS ADMIN-ONLY (owner, 2026-11-05): offered in Settings only when
+  TEAM.me.is_admin; reply() downgrades it to sassy unless
+  aethron_control.me().is_admin (or AETHRON_EMBER_SAVAGE=1 from source).
+- Settings → Companion: on/off, attitude, outfit, talk, forget. Right-click
+  Ember: talk, hide for an hour, turn off.
+Tests: aethron_ember --selftest 10/10; tests/ember_battery.py 21/21 (real
+studio + browser). chatui/team_ui/news batteries re-run green.
+NOT BUILT YET: the desktop window (Ember outside the app: notch, other
+windows, Dock) and a What's New card for it. Prototype page:
+claude.ai/artifact/PtQSfxW1tyYpwbmyGVx3TV.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7090,6 +7128,8 @@ offset, text, end, steps) and redraws whole only when its state changes
 - A MARKETPLACE IS READ LIKE A PERSON READS IT. One page at a time, a
   rate limit or bot check is reported, never worked around; only free
   templates are ever offered.
+- THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
+  really happened.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.

@@ -78,6 +78,8 @@ a = Analysis(
         # before it can ship as a capability that exists only in dev.
         "aethron_rag",
         "aethron_preview", "aethron_runlog", "aethron_news",
+        # Ember, the companion: imported at studio start (its script is embedded).
+        "aethron_ember",
         "aethron_thumbs",
         "statistics",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
