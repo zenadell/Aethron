@@ -175,3 +175,4 @@ for s in rows("secrets", "select=name,value&name=eq.key_groq"):
             print("  groq models:", sorted(m["id"] for m in json.loads(resp.read())["data"]))
     except Exception as e:
         print("  groq models failed:", e)
+
