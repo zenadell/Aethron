@@ -102,6 +102,36 @@ try:
         pg.screenshot(path=str(SP/"settings.png"))
         pg.evaluate("emberSet('on',false)"); pg.wait_for_timeout(300)
         check("turning it off stops it", pg.evaluate("ember.get().running") is False)
+        # the app hands its signals to the desktop Ember instead of drawing its own
+        pg.evaluate("ember.set({on:true,desktop:true})"); pg.wait_for_timeout(300)
+        check("with Ember on the desktop, the window draws none", pg.evaluate("ember.get().running") is False)
+        with pg.expect_request(lambda r: "/api/ember/signal" in r.url and r.method == "POST", timeout=5000) as rq:
+            pg.evaluate("ember.signal('pass',{project:'p'})")
+        check("and sends its signals on", json.loads(rq.value.post_data or "{}").get("name") == "pass")
+        pg.evaluate("ember.set({desktop:false})")
+        # the desktop page itself
+        d = b.new_page(viewport={"width": 1440, "height": 900})
+        d.on("pageerror", lambda e: errs.append("desk: " + str(e)))
+        d.goto(BASE + "/ember-desk"); d.wait_for_timeout(2500)
+        check("the desktop page runs Ember", d.evaluate("ember.get().running && ember.get().desk") is True)
+        bg = d.evaluate("getComputedStyle(document.body).backgroundColor")
+        check("and is see-through", bg in ("rgba(0, 0, 0, 0)", "transparent"), bg)
+        world = {"windows": [{"x": 200, "y": 160, "w": 900, "h": 600, "perch": True}],
+                 "notch": {"x": 640, "y": 0, "w": 160, "h": 32, "notch": True},
+                 "dock": {"x": 400, "y": 830, "w": 640, "h": 70, "side": "bottom"}, "menubar": 32, "fullscreen": False}
+        far = d.evaluate("p=>ember.desk(p)", dict(world, mouse=[5, 5]))
+        check("the pointer far away passes through to the desktop", far.get("hit") is False, str(far)+str(d.evaluate("ember.state()")))
+        st = d.evaluate("ember.state()")
+        near = d.evaluate("p=>ember.desk(p)", dict(world, mouse=[st["x"], st["y"]]))
+        check("the pointer on Ember is Ember's", near.get("hit") is True)
+        d.evaluate("p=>ember.desk(p)", dict(world, mouse=[5, 5], signals=[{"name": "broke", "data": {"what": "about.html"}}]))
+        d.wait_for_timeout(1500)
+        check("signals from the app reach the desktop Ember", "about.html" in d.evaluate("ember.state().bubble"))
+        d.evaluate("p=>ember.desk(p)", dict(world, mouse=[5, 5], fullscreen=True)); d.wait_for_timeout(1200)
+        check("it hides while something is full screen", d.evaluate("ember.state().alpha") < 0.1)
+        d.evaluate("p=>ember.desk(p)", dict(world, mouse=[5, 5], fullscreen=False)); d.wait_for_timeout(1200)
+        check("and comes back after", d.evaluate("ember.state().alpha") > 0.9)
+        d.close()
         check("no page errors", not errs, "; ".join(errs[:3]))
         b.close()
 finally:

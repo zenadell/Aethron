@@ -148,7 +148,8 @@ if(window.ember)return;
 const qs=location.search||'';
 let CFG={on:true,att:'sassy',fit:'auto'};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem('ember_cfg')||'{}'))}catch(_){}
-const forced=/[?&]ember=1/.test(qs);
+const DESK=location.pathname==='/ember-desk';
+const forced=/[?&]ember=1/.test(qs)||DESK;
 // automated browsers (the test batteries) get no companion unless asked:
 // a flame floating over a button must never be what a test clicks
 const automation=navigator.webdriver&&!forced;
@@ -172,7 +173,12 @@ const X=cv.getContext('2d');
 let W=innerWidth,H=innerHeight,DPR=Math.min(2,devicePixelRatio||1),R=22,now=0,running=false,started=false,hideUntil=0;
 const cl=(v,a,b)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t,rnd=(a,b)=>a+Math.random()*(b-a),pick=a=>a[Math.floor(Math.random()*a.length)];
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(_){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(_){}}};
-function isAdmin(){try{return !!(typeof TEAM!=='undefined'&&TEAM&&TEAM.me&&TEAM.me.is_admin)}catch(_){return false}}
+let DESK_ADMIN=false;
+function isAdmin(){try{return DESK?DESK_ADMIN:!!(typeof TEAM!=='undefined'&&TEAM&&TEAM.me&&TEAM.me.is_admin)}catch(_){return false}}
+async function post(path,body){const r=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  const j=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(j.error||r.statusText);e.status=r.status;throw e}return j}
+/* the desktop window: where other windows, the notch and the Dock are, fed 20 times a second */
+let DW={windows:[],dock:null,notch:null,menubar:24,fullscreen:false};
 function ATT(){return CFG.att==='savage'&&!isAdmin()?'sassy':(['sweet','sassy','savage'].includes(CFG.att)?CFG.att:'sassy')}
 const L=a=>Array.isArray(a)?a[{sweet:0,sassy:1,savage:2}[ATT()]]:a;
 function autoFit(){const d=new Date(),m=d.getMonth()+1,day=d.getDate();
@@ -247,18 +253,26 @@ const parts=[];
 function rect(sel){const el=typeof sel==='string'?document.querySelector(sel):sel;if(!el)return null;const r=el.getBoundingClientRect();if(!r.width||!r.height)return null;
   return{l:r.left,t:r.top,r:r.right,b:r.bottom,w:r.width,h:r.height,cx:r.left+r.width/2,cy:r.top+r.height/2}}
 function lastOf(sel){const a=document.querySelectorAll(sel);for(let i=a.length-1;i>=0;i--){const r=rect(a[i]);if(r&&r.b>0&&r.t<H)return r}return null}
-function area(){return rect('body>main')||{l:0,t:0,r:W,b:H,w:W,h:H,cx:W/2,cy:H/2}}
+function area(){if(DESK){const t=(DW.menubar||24)+R*2,b=H-((DW.dock&&DW.dock.side==='bottom')?DW.dock.h:0);return{l:0,t,r:W,b,w:W,h:b-t,cx:W/2,cy:(t+b)/2}}
+  return rect('body>main')||{l:0,t:0,r:W,b:H,w:W,h:H,cx:W/2,cy:H/2}}
+function deskPerch(){const ws=(DW.windows||[]).filter(w=>w.perch);if(!ws.length)return null;const w=ws[Math.random()<.6?0:Math.floor(Math.random()*ws.length)];
+  return{x:cl(w.x+w.w*rnd(.55,.9),R*2,W-R*2),y:w.y-R*1.02,perch:1}}
+function deskNap(){const d=DW.dock;if(!d||d.side!=='bottom')return null;return{x:d.x+d.w*(Math.random()<.5?rnd(.04,.2):rnd(.8,.96)),y:d.y-R*1.0,perch:1}}
+function deskNotch(){const n=DW.notch;if(!n)return null;return{x:n.x+n.w/2,y:n.h+R*1.15,notch:1}}
 function composer(){const c=document.querySelectorAll('.composer');for(let i=c.length-1;i>=0;i--){const r=rect(c[i]);if(r&&r.t<H&&r.b>0)return r}return null}
 const SP={
-  rest:()=>{const m=area();return{x:m.r-R*2.6,y:cl(m.t+m.h*.62,R*3,H-R*3)}},
+  rest:()=>{const m=area();if(DESK)return{x:m.r-R*3,y:m.b-R*2.2};return{x:m.r-R*2.6,y:cl(m.t+m.h*.62,R*3,H-R*3)}},
   free:()=>{const m=area();return{x:rnd(m.l+m.w*.72,m.r-R*2.2),y:rnd(m.t+m.h*.22,m.t+m.h*.7)}},
-  perch:()=>{const c=composer();if(!c)return SP.rest();return{x:cl(c.r-R*2.2-rnd(0,c.w*.25),c.l+R,c.r-R),y:c.t-R*1.02,perch:1}},
+  perch:()=>{if(DESK)return deskPerch()||SP.rest();const c=composer();if(!c)return SP.rest();return{x:cl(c.r-R*2.2-rnd(0,c.w*.25),c.l+R,c.r-R),y:c.t-R*1.02,perch:1}},
   work:()=>{const r=lastOf('.jobc')||lastOf('.run')||lastOf('.msg');const m=area();if(!r)return SP.rest();return{x:cl(r.r+R*1.8,m.l+R*2,m.r-R*1.8),y:cl(r.cy,m.t+R*3,m.b-R*3)}},
+  notch:()=>deskNotch()||SP.rest(),
+  nap:()=>(DESK?deskNap():null)||SP.perch(),
   listen:()=>{const c=composer();if(!c)return SP.rest();return{x:cl(c.r-R*1.8,R*2,W-R*2),y:c.t-R*1.5}},
   topRight:()=>{const m=area();return{x:m.r-R*3,y:m.t+R*3.4}},
 };
 function go(s,o={}){const p=typeof s==='function'?s():s;if(!p)return;const far=Math.hypot(p.x-E.x,p.y-E.y)>R*3;
-  E.tx=cl(p.x,R*1.5,W-R*1.5);E.ty=cl(p.y,R*2.4,H-R*1.4);E.perch=!!p.perch;E.speed=o.speed||1;E.landed=0;
+  E.tx=cl(p.x,R*1.5,W-R*1.5);E.ty=cl(p.y,p.notch?R*1.2:R*2.4,H-R*1.4);E.perch=!!p.perch;E.speed=o.speed||1;E.landed=0;
+  if(!hideUntil&&!E.fs){if(p.notch)E.rT=.6;else if(E.rT===.6)E.rT=1}
   if(far&&!REDUCE&&E.mode==='fly'&&!o.now){E.antic=.26;E.anticDir=[Math.sign(p.x-E.x)||1,Math.sign(p.y-E.y)];E.look={pt:{x:p.x,y:p.y},until:now+.6}}}
 
 /* ===== the brain ===== */
@@ -280,8 +294,9 @@ const ACTS={
   follow:{w:()=>cur.active()&&!annoyed()?N.social*1.2+N.fond*.5:0,run(){},dur:[4,6],follow:1},
   avoid:{w:()=>cur.active()&&annoyed()?2:0,run(){},dur:[5,7],avoid:1},
   explore:{w:()=>N.curiosity*.8,run(){go(SP.free)},dur:[3.5,5]},
-  perch:{w:()=>composer()?.3+(1-N.energy)*.7:0,run(){go(SP.perch)},dur:[7,11]},
-  nap:{w:()=>N.energy<.3?2.6:0,run(){go(SP.perch()||SP.rest(),{speed:.6})},dur:[14,18],nap:1},
+  perch:{w:()=>(DESK?(DW.windows||[]).some(w=>w.perch):!!composer())?.3+(1-N.energy)*.7:0,run(){go(SP.perch)},dur:[7,11]},
+  nap:{w:()=>N.energy<.3?2.6:0,run(){go(SP.nap,{speed:.6})},dur:[14,18],nap:1},
+  notch:{w:()=>DESK&&DW.notch?N.curiosity*.5+.15:0,run(){go(SP.notch)},dur:[6,10]},
   zoomies:{w:()=>N.energy>.75&&N.boredom>.6?.8:0,run(){this.z=0},dur:[2.6,3.2],zoom:1},
 };
 function choose(){const e=Object.entries(ACTS).map(([k,a])=>[k,Math.max(0,a.w())*rnd(.65,1.35)*(act&&act.k===k?.3:1)]).sort((a,b)=>b[1]-a[1]);
@@ -342,8 +357,13 @@ const SIG={
       {d:2.6,pose:ATT()==='sweet'?'wave':'crossed',face:ATT()==='sweet'?'joy':'calm',look:'viewer',say:[`welcome back!`,`oh. you're back.`,`look who finally showed up.`]}])},
   error(d){SIG.broke({what:(d&&d.what)||'that run'})},
 };
-function signal(name,data){if(!started||!SIG[name])return;try{SIG[name](data||{})}catch(e){}}
-function fromEvents(evs,bridge){if(!started||!evs)return;
+function signal(name,data){if(!SIG[name])return;if(!DESK&&CFG.desktop){post('/api/ember/signal',{name,data:data||{}}).catch(()=>{});return}
+  if(!started)return;try{SIG[name](data||{})}catch(e){}}
+function fromEvents(evs,bridge){if(!evs)return;if(!DESK&&CFG.desktop){
+    for(const e of evs){if(e.type==='tool')signal(/blocked|denied|refused/i.test(String(e.status||''))?'refused':'working',{tool:String(e.label||e.name||'').replace(/^mcp__aethron__/,'')});
+      else if(e.type==='done'&&e.error&&!String(e.text||'').startsWith('[ede_diagnostic]'))signal('error',{})}
+    if(bridge&&/retry/i.test(String(bridge.state||bridge.status||'')))signal('retry',{tries:bridge.tries||bridge.failures||''});return}
+  if(!started)return;
   for(const e of evs){if(e.type==='tool'&&/blocked|denied|refused/i.test(String(e.status||'')))SIG.refused();
     else if(e.type==='tool')SIG.working({tool:String(e.label||e.name||'').replace(/^mcp__aethron__/,'')});
     else if(e.type==='done'&&e.error&&!String(e.text||'').startsWith('[ede_diagnostic]'))SIG.error({});
@@ -382,8 +402,19 @@ function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const
     2:[{d:.2,face:'surprised'},{d:1.7,face:'tfman',look:'viewer',say:['','do that again.','do that again. I dare you.']}],
     3:[{d:.15,face:'shocked'},{d:1.8,face:'glare',pose:'hips',look:'viewer',say:['','tf man.','what the fuck, man.'],fn:()=>{E.puff=1.2;bump('annoy',.2)}},{d:.6,face:'glare',pose:'crossed',look:'viewer'}]}[n])}
 function openMenu(x,y){menu.innerHTML='';const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{menu.hidden=true;f()};menu.appendChild(b)};
-  add('Talk to Ember',startTalk);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});add('Companion settings…',()=>{try{openSettings()}catch(_){}});
+  add('Talk to Ember',startTalk);add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
   menu.hidden=false;menu.style.left=cl(x,8,W-190)+'px';menu.style.top=cl(y,8,H-150)+'px'}
+function talkHit(x,y){if(!CHAT.open)return false;const r=talk.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6}
+function menuHit(x,y){if(menu.hidden)return false;const r=menu.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom}
+/* one call from the desktop window, 20 times a second: the world in, "is the pointer on me?" out */
+function desk(p){p=p||{};if(p.windows)DW.windows=p.windows;if('dock' in p)DW.dock=p.dock;if(p.notch)DW.notch=p.notch;if(p.menubar)DW.menubar=p.menubar;
+  if('admin' in p)DESK_ADMIN=!!p.admin;
+  if('fullscreen' in p&&!!p.fullscreen!==!!E.fs){E.fs=!!p.fullscreen;if(E.fs){E.alphaT=0}else if(!hideUntil){E.alphaT=1}}
+  for(const s of p.signals||[])try{SIG[s.name]&&SIG[s.name](s.data||{})}catch(_){}
+  const m=p.mouse;let hit=false;
+  if(m&&m.length===2){const x=m[0],y=m[1];if(x!==cur.x||y!==cur.y){if(Math.hypot(x-cur.x,y-cur.y)>1)cur.moveT=now;cur.x=x;cur.y=y}cur.t=now;
+    hit=!!(onBody(x,y)||talkHit(x,y)||menuHit(x,y)||cur.down)}
+  return{hit,key:!!CHAT.open}}
 function hide(sec){hideUntil=Date.now()+sec*1000;E.alphaT=0;E.rT=0;say('')}
 
 /* ===== talking ===== */
@@ -393,7 +424,7 @@ function saveMem(){store.set('ember_mem',CHAT.mem)}
 let tin=null;
 function stateText(){const m=CHAT.mem,h=new Date().getHours(),j=CTX.job;let proj='';try{proj=(typeof S!=='undefined'&&S.cur)||CTX.project||''}catch(_){proj=CTX.project}
   return ['Local time: '+new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+(h>=23||h<5?' (late at night)':''),
-    proj?'Open project: '+proj+'.':'No project is open; they are on the home screen.',
+    proj?'Open project: '+proj+'.':(DESK?'Ember is out on their desktop.':'No project is open; they are on the home screen.'),
     j?('Background migration job: '+j.status+(j.progress&&j.progress.total?', '+(j.progress.done||0)+' of '+j.progress.total+' lines written':'')+'.'):'No background job running.',
     CTX.last&&now-CTX.lastT<300?'Just happened: '+CTX.last+'.':'Nothing notable just happened.',
     'Ember is annoyed at them '+Math.round(N.annoy*100)+'% and likes them '+Math.round(N.fond*100)+'%.',
@@ -426,7 +457,7 @@ function localReply(t){const l=t.toLowerCase(),m=/(?:i'?m|my name is|call me)\s+
 async function send(){const t=tin.value.trim().slice(0,300);if(!t||CHAT.busy)return;tin.value='';CHAT.last=now;CHAT.ignored=0;
   CHAT.turns.push({role:'user',content:t});CHAT.busy=1;E.FT=face('think');say('',99,{dots:1});
   let r=null;
-  if(!CHAT.offline&&typeof api==='function'){try{r=await api('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT()})}catch(e){r=null;if(/not configured|no key|save your key|402|403/i.test(String(e&&e.message||'')))CHAT.offline=1}}
+  if(!CHAT.offline){try{r=await (typeof api==='function'?api:post)('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT()})}catch(e){r=null;if(/not configured|no key|save your key|402|403/i.test(String(e&&e.message||'')))CHAT.offline=1}}
   if(!r||typeof r.say!=='string'||!r.say.trim())r=localReply(t);
   CHAT.busy=0;if(!CHAT.open)return;
   const line=r.say.trim().slice(0,220),fc=FACES[r.face]?r.face:idleFace(),g=r.gesture||'none';
@@ -648,11 +679,16 @@ function start(){if(running)return;if(!started){started=true;document.body.appen
   play([{d:1.1,look:{dir:[-1,.3]},face:'sideeye'},{d:1.6,look:'viewer',pose:ATT()==='sweet'?'wave':'crossed',face:ATT()==='sweet'?'joy':'calm',say:['oh, hi!','oh. you.','sup.']}]);
   requestAnimationFrame(frame)}
 function stop(){running=false;cv.hidden=true;talk.hidden=true;menu.hidden=true;CHAT.open=0;document.documentElement.classList.remove('ember-over','ember-grab');if(started)X.clearRect(0,0,cv.width,cv.height)}
-function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);if(CFG.on&&!automation)start();else stop()}
-window.ember={signal,fromEvents,set,get:()=>Object.assign({},CFG,{savage:isAdmin(),running}),talk:()=>startTalk(),
+function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);
+  if(DESK){start();return}
+  if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
+/* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
+async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
+window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
-  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open})};
-function boot(){if(CFG.on&&!automation)start()}
+  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running})};
+function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
+  fetch('/api/ember/desktop').then(r=>r.json()).then(d=>{CFG.desktop=!!(d&&d.on);CFG.deskAvail=!!(d&&d.available);if(CFG.on&&!CFG.desktop&&!automation)start()}).catch(()=>{if(CFG.on&&!automation)start()})}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot);else boot();
 })();
 """

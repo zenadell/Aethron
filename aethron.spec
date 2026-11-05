@@ -79,7 +79,7 @@ a = Analysis(
         "aethron_rag",
         "aethron_preview", "aethron_runlog", "aethron_news",
         # Ember, the companion: imported at studio start (its script is embedded).
-        "aethron_ember",
+        "aethron_ember", "aethron_desktop",
         "aethron_thumbs",
         "statistics",
         "fontTools", "fontTools.ttLib", "fontTools.pens.svgPathPen",
@@ -88,7 +88,7 @@ a = Analysis(
         # cocoa/WebKit backend, but name the entry points explicitly too.
         "webview", "webview.platforms.cocoa",
         "webview.platforms.winforms", "webview.platforms.edgechromium",
-    ],
+    ] + (["Quartz"] if __import__("sys").platform == "darwin" else []),  # Ember on the desktop reads window frames
     excludes=["tkinter", "test", "unittest", "pydoc_data"],
 )
 pyz = PYZ(a.pure)

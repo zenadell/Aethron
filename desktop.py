@@ -215,6 +215,14 @@ def main():
     except Exception as e:
         _log(f"native paste/drop: off ({type(e).__name__}: {e})")
 
+    # Ember can leave this window and live on the desktop (Mac only); the
+    # switch is in Settings → Companion, and it comes back on at launch.
+    try:
+        import aethron_desktop
+        aethron_desktop.install(studio, url, _log, home)
+    except Exception as e:
+        _log(f"ember desktop: off ({type(e).__name__}: {e})")
+
     def install_liquid_glass():
         """Put the REAL system material in the window, behind the page.
 

@@ -44,7 +44,7 @@ SUITES = [
                 "tests/remote_battery.py", "aethron_runlog.py",
                 "tests/keeper_battery.py",
                 "aethron_news.py", "tests/news_battery.py", "tests/image_battery.py",
-                "aethron_ember.py", "tests/ember_battery.py",
+                "aethron_ember.py", "tests/ember_battery.py", "aethron_desktop.py",
                 "tests/stall_battery.py", "tests/conversation_battery.py",
                 "tests/page_preview_battery.py",
                 "aethron_shot2code.py", "tests/shot2code_battery.py",
@@ -236,6 +236,7 @@ SUITES = [
     # Ember, the companion: real signals, never steals a click, Savage for admins only.
     ("companion (selftest)", [PY, "aethron_ember.py", "--selftest"], False),
     ("companion in the window (real browser)", [PY, "tests/ember_battery.py"], False),
+    ("companion on the desktop (selftest)", [PY, "aethron_desktop.py", "--selftest"], False),
     ("attached images are seen (engine + browser)", [PY, "tests/image_battery.py"], False),
     ("a stalled provider is retried, the run carries on", [PY, "tests/stall_battery.py"], False),
     ("a migration runs as one background job and survives being killed",

@@ -6839,9 +6839,37 @@ with you and asks what you are doing. Prototyped as an artifact page first
   Ember: talk, hide for an hour, turn off.
 Tests: aethron_ember --selftest 10/10; tests/ember_battery.py 21/21 (real
 studio + browser). chatui/team_ui/news batteries re-run green.
-NOT BUILT YET: the desktop window (Ember outside the app: notch, other
-windows, Dock) and a What's New card for it. Prototype page:
-claude.ai/artifact/PtQSfxW1tyYpwbmyGVx3TV.
+Prototype page: claude.ai/artifact/PtQSfxW1tyYpwbmyGVx3TV. Shipped in 1.1.108.
+
+## EMBER ON THE DESKTOP — `aethron_desktop.py` — 2026-11-05
+A second pywebview window (title "Ember"), frameless and transparent,
+covering the PRIMARY screen (the window server counts window frames from
+its top-left, so covering that screen makes both agree), level 25 so it
+sits over the menu bar and can reach the notch, on all Spaces, out of
+Cmd-Tab, and sharing type NONE: screen shares and screenshots never show
+it. It ignores the mouse except over Ember, its reply box or its menu:
+a 20 Hz pump reads NSEvent.mouseLocation, once a second the frames of
+other apps' normal windows (CGWindowListCopyWindowInfo: bounds only, never
+titles or contents), whether one covers the screen (full screen -> Ember
+hides), the Dock (frame minus visibleFrame) and the notch (auxiliary top
+areas), and hands it all to the page with evaluate_js("ember.desk(...)"),
+which answers {hit, key}; hit decides setIgnoresMouseEvents, key makes the
+window key so the reply box takes typing. /ember-desk is the page; on the
+desktop Ember perches on window tops, sits under the notch, naps on the
+Dock. While it is out, the app window draws no Ember and forwards every
+signal to POST /api/ember/signal (studio.EMBER_SIGNALS), which the pump
+delivers. Settings -> Companion -> "On your desktop" (Mac only, via
+studio.EMBER_DESKTOP set by desktop.py); remembered in
+HOME/ember_desktop.json and reopened at launch. Right-click -> "Back into
+Aethron". pyobjc-framework-Quartz is installed in build_desktop.sh and
+named in the spec on darwin only; the release refuses a build where
+aethron_desktop.available() is False. What's New card "Meet Ember".
+Tests: aethron_desktop --selftest 13/13 (coordinates, which windows count,
+full screen, Dock, notch); tests/ember_battery.py 21 -> 30 (forwarding,
+the desktop page see-through, pass-through hit test, signals, full-screen
+hide). NOT PROVEN until it runs on a Mac: the window itself (level,
+click-through, notch position, key focus for typing). The pump logs every
+step to the app log ("ember desktop: ...").
 
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every

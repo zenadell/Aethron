@@ -470,6 +470,10 @@ CONVERT_FRAMEWORKS = ("astro", "next", "vite",
 # finishes in the SYSTEM browser, so without this the user is left staring
 # at a browser tab while the app quietly logs in behind it.
 FOCUS_APP = None
+# Ember on the desktop (aethron_desktop, Mac only): desktop.py sets the switch;
+# signals the window sends while Ember is out there wait here for its pump.
+EMBER_DESKTOP = None
+EMBER_SIGNALS = []
 
 
 def focus_app():
@@ -1967,6 +1971,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(aethron_reports.status())
             if u.path == "/api/limits":
                 return self.send_json(limits_report())
+            if u.path == "/api/ember/desktop":
+                if EMBER_DESKTOP is None:
+                    return self.send_json({"available": False, "on": False})
+                return self.send_json(EMBER_DESKTOP())
+            if u.path == "/ember-desk":
+                # the desktop companion's own transparent page
+                body = (f'<!doctype html><html><head><meta charset="utf-8"><title>Ember</title>'
+                        f'<style>html,body{{margin:0;height:100%;background:transparent;overflow:hidden}}</style>'
+                        f'</head><body><script src="/ember.js?v={EMBER_VER}"></script></body></html>').encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                return self.wfile.write(body)
             if u.path == "/api/pulse":
                 return self.send_json(_jsonable(pulse_report()))
             if u.path.startswith("/design/"):
@@ -3302,6 +3321,16 @@ class Handler(BaseHTTPRequestHandler):
                 pub = json.loads((d / "forge.json").read_text()) \
                     .get("public_base", "/assets").rstrip("/")
                 self.send_json({"url": f"{pub}/{fname}"})
+            elif u.path == "/api/ember/desktop":
+                if EMBER_DESKTOP is None:
+                    return self.fail("Ember can live on the desktop only in the Mac app")
+                self.send_json(EMBER_DESKTOP(bool(body.get("on"))))
+            elif u.path == "/api/ember/signal":
+                name = str(body.get("name") or "")[:24]
+                if re.fullmatch(r"[a-z]+", name):
+                    EMBER_SIGNALS.append({"name": name, "data": body.get("data") if isinstance(body.get("data"), dict) else {}})
+                    del EMBER_SIGNALS[:-50]
+                self.send_json({"ok": True})
             elif u.path == "/api/ember/say":
                 # one line from the companion, in character, by the active
                 # provider; savage is refused unless the team says admin
@@ -16634,6 +16663,7 @@ function emberCard(){
   return `<h3>${I('sparkles',14)} Companion</h3>
     <div class="hint">Ember lives in this window and reacts to what Aethron is really doing. Double-click it to talk, right-click it to hide it for a while.</div>
     <div class="kv"><span>Show Ember</span><b><button class="${e.on?'primary':''}" onclick="emberSet('on',${!e.on})">${e.on?'On':'Off'}</button></b></div>
+    ${e.deskAvail?`<div class="kv"><span>On your desktop</span><b><button class="${e.desktop?'primary':''}" onclick="emberSet('desktop',${!e.desktop})">${e.desktop?'Out on the desktop':'Only in this window'}</button></b></div>`:''}
     <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
     <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
     ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}
@@ -16642,6 +16672,7 @@ function emberCard(){
 function emberSet(k,v){if(!window.ember)return;
   if(k==='talk'){ember.talk();return}
   if(k==='forget'){ember.forget();toast('Ember forgot what you told it');return}
+  if(k==='desktop'){ember.setDesktop(v).then(()=>{const c=$('embercard');if(c)c.innerHTML=emberCard();toast(v?'Ember is out on your desktop':'Ember is back in the window')}).catch(e=>toast(e.message));return}
   ember.set({[k]:v});const c=$('embercard');if(c)c.innerHTML=emberCard();}
 function openSettings(){S.view='settings';S.cur=null;S.panel=false;renderTab();renderSidebar&&renderSidebar();}
 
@@ -21158,6 +21189,19 @@ history:()=>NEWS_ART.frame(`
     <rect class="cd" x="312" y="${y-9}" width="52" height="18" rx="9"/>
     <rect x="328" y="${y-1.5}" width="28" height="3" rx="1.5" style="fill:var(--t-2)"/></g>`}).join('')}
   <path class="cur g-cur" d="M0 0v15l4-4 3 6 2.4-1-3-6h5.6z" style="animation-name:nHCur"/>`),
+ember:()=>NEWS_ART.frame(`
+  <defs><linearGradient id="emb" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#ffcd40"/><stop offset=".55" stop-color="#ff8a3a"/><stop offset="1" stop-color="#ff4f6a"/></linearGradient></defs>
+  <ellipse cx="150" cy="176" rx="40" ry="6" style="fill:rgba(0,0,0,.25)"/>
+  <path d="M150 172c-30 0-44-18-44-40 0-16 6-28 12-38 2 10 8 14 12 14-2-18 6-34 20-46 2 14 10 22 14 30 4-8 10-12 16-14-2 10 0 16 6 24 8 10 8 18 8 30 0 22-14 40-44 40z" fill="url(#emb)"/>
+  <ellipse cx="136" cy="138" rx="9" ry="10" fill="#fff"/><ellipse cx="164" cy="138" rx="9" ry="10" fill="#fff"/>
+  <circle cx="137" cy="141" r="4.5" fill="#2a1008"/><circle cx="165" cy="141" r="4.5" fill="#2a1008"/>
+  <rect x="125" y="127" width="22" height="7" fill="#ff9a3c"/><rect x="153" y="127" width="22" height="7" fill="#ff9a3c"/>
+  <path d="M127 134h20M155 134h20" stroke="#4a1608" stroke-width="2" stroke-linecap="round"/>
+  <path d="M143 158q7 3 14 0" stroke="#3d1308" stroke-width="2.4" fill="none" stroke-linecap="round"/>
+  <g class="a-bub" style="animation-delay:.8s">
+    <rect class="cd" x="214" y="80" width="140" height="30" rx="15"/>
+    <text class="lbl lbla" x="232" y="99">OH. YOU.</text>
+  </g>`),
 publish:()=>NEWS_ART.frame(`
   <rect class="cd" x="44" y="52" width="150" height="124" rx="10"/>
   <rect class="shot" x="54" y="62" width="130" height="62" rx="6"/>
@@ -21543,6 +21587,7 @@ async function newsGo(go){
   if(go==='back'){ openSettings(); return aeSpot('#backbtn','This takes you back to where you were'); }
   if(go==='home'){ goHome(); return aeSpot('#hgal','Your projects, with a picture of each site'); }
   if(go==='cmdk'){ return cmdkOpen(); }
+  if(go==='ember'){ if(window.ember&&ember.get().running){ return ember.talk(); } openSettings(); return setTimeout(()=>aeSpot('#embercard','Ember lives here: switch it on, pick its attitude'),400); }
   if(go==='publish'){
     const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);
     if(!p){ toast('Build a project first, then press Publish.'); return aeSpot('.composer','Paste a template link to begin'); }
