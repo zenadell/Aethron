@@ -15,6 +15,43 @@ export const EMBER_DEFAULT = { provider: "groq", model: "llama-3.1-8b-instant", 
 const MAX_CHARS = 16000;
 const UA = "Aethron/1.1 (+https://aethron.jomiez.com)";
 
+function extractJson(raw: string): string {
+  const s = String(raw || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const start = s.indexOf("{");
+  const end = s.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    const cand = s.slice(start, end + 1);
+    try {
+      JSON.parse(cand);
+      return cand;
+    } catch (_) { /* fall through */ }
+    for (let i = start; i >= 0 && i < end; i = s.indexOf("{", i + 1)) {
+      let depth = 0, inStr = false, esc = false;
+      for (let j = i; j <= end; j++) {
+        const ch = s[j];
+        if (inStr) {
+          if (esc) esc = false;
+          else if (ch === "\\") esc = true;
+          else if (ch === '"') inStr = false;
+        } else if (ch === '"') inStr = true;
+        else if (ch === "{") depth++;
+        else if (ch === "}") {
+          depth--;
+          if (depth === 0) {
+            const sub = s.slice(i, j + 1);
+            try {
+              JSON.parse(sub);
+              return sub;
+            } catch (_) { /* try next */ }
+            break;
+          }
+        }
+      }
+    }
+  }
+  return "";
+}
+
 export async function emberSettings() {
   const provider = (await secret("ember_provider")) || EMBER_DEFAULT.provider;
   // A key for its provider is enough: once the admin adds one, the mind is on
@@ -79,8 +116,11 @@ export async function emberMind(req: Request): Promise<Response> {
       const m = await http(base + "/models", { headers: { Authorization: "Bearer " + key, "User-Agent": UA } });
       if (!m.ok) return "";
       const ids: string[] = ((await m.json())?.data || []).map((x: { id: string }) => String(x.id))
-        .filter((id: string) => !/whisper|tts|guard|embed|vision|audio|speech|moderat|compound/i.test(id));
-      const score = (id: string) => (/instant|8b|mini|small|lite|nano|fast|flash|20b/i.test(id) ? 0 : 1) * 10 + (/70b|120b|large|pro/i.test(id) ? 5 : 0);
+        .filter((id: string) => !/whisper|tts|guard|embed|vision|audio|speech|moderat|compound|orpheus/i.test(id));
+      const score = (id: string) =>
+        (/instant|8b|mini|small|lite|nano|fast|flash|27b|20b/i.test(id) ? 0 : 1) * 10 +
+        (/gpt-oss/i.test(id) ? 3 : 0) +
+        (/70b|120b|large|pro/i.test(id) ? 5 : 0);
       ids.sort((x, y) => score(x) - score(y) || x.length - y.length);
       return ids[0] || "";
     } catch (_) {
@@ -89,6 +129,8 @@ export async function emberMind(req: Request): Promise<Response> {
   };
   let r: Response | null = null;
   let err = "";
+  let content = "";
+  let usage = { prompt_tokens: 0, completion_tokens: 0 };
   for (const key of keys) {
     for (let i = 0; i < 3; i++) {
       r = await http(base + "/chat/completions", {
@@ -96,10 +138,33 @@ export async function emberMind(req: Request): Promise<Response> {
         headers: { "Content-Type": "application/json", Authorization: "Bearer " + key, "User-Agent": UA },
         body: JSON.stringify(body),
       });
-      if (r.ok) break;
+      if (r.ok) {
+        const j = await r.json().catch(() => ({}));
+        usage = {
+          prompt_tokens: Number(j?.usage?.prompt_tokens) || 0,
+          completion_tokens: Number(j?.usage?.completion_tokens) || 0,
+        };
+        const raw = String(j?.choices?.[0]?.message?.content || "");
+        content = extractJson(raw) || raw.trim();
+        if (content) break;
+        err = "empty answer";
+        if (body.response_format) {
+          delete body.response_format;
+          continue;
+        }
+        break;
+      }
       err = await r.text().catch(() => "");
-      if (r.status === 400 && /response_format|json_object/i.test(err) && body.response_format) {
+      if (r.status === 400 && /response_format|json_object|json_validate_failed|failed_generation/i.test(err) && body.response_format) {
         delete body.response_format;
+        if (/gpt-oss/i.test(String(body.model))) {
+          const next = await pickModel(key);
+          if (next && next !== body.model) {
+            body.model = next;
+            s.model = next;
+            later(setSecret("ember_model", next, "ember"));
+          }
+        }
         continue;
       }
       if ((r.status === 404 || r.status === 400) && /model_not_found|does not exist|decommission|not supported/i.test(err)) {
@@ -113,7 +178,7 @@ export async function emberMind(req: Request): Promise<Response> {
       }
       break;
     }
-    if (r && r.ok) break;
+    if (r && r.ok && content) break;
     if (!r || ![401, 402, 403, 429].includes(r.status)) break;
   }
   const record = (inp: number, out: number, status: string) =>
@@ -129,9 +194,8 @@ export async function emberMind(req: Request): Promise<Response> {
     later(setSecret("ember_last_error", new Date().toISOString() + " " + why, "ember"));
     return fail(502, why);
   }
-  const j = await r.json();
-  const content = String(j?.choices?.[0]?.message?.content || "");
-  record(Number(j?.usage?.prompt_tokens) || 0, Number(j?.usage?.completion_tokens) || 0, "ok");
+  record(usage.prompt_tokens, usage.completion_tokens, "ok");
   if (!content) return fail(502, "Ember's mind gave an empty answer.");
+  if (await secret("ember_last_error")) later(setSecret("ember_last_error", "", "ember"));
   return json({ content, model: s.model });
 }

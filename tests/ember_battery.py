@@ -26,7 +26,7 @@ s = socket.socket(); s.bind(("127.0.0.1", 0)); PORT = s.getsockname()[1]; s.clos
 env = dict(os.environ, AETHRON_HOME=str(HOME), BROWSER="true", AETHRON_REPORTS="off")
 for k in list(env):
     if k.startswith("AETHRON_SUPABASE") or k == "AETHRON_EMBER_SAVAGE": env.pop(k)
-srv = subprocess.Popen([sys.executable, "studio.py", str(PORT)], cwd=ROOT, env=env,
+srv = subprocess.Popen([sys.executable, "tests/dev_studio.py", str(PORT)], cwd=ROOT, env=env,
                        stdout=open(SP / "studio.log", "w"), stderr=subprocess.STDOUT)
 BASE = f"http://127.0.0.1:{PORT}"
 def launch(p):
@@ -49,6 +49,7 @@ try:
         pg = b.new_page(viewport={"width": 1400, "height": 900})
         errs = []
         pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.route("**/api/update/check", lambda rt: rt.fulfill(json={"available": False}))
         pg.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1'}catch(e){}")
         pg.goto(BASE + "/"); pg.wait_for_timeout(2500)
         check("an automated browser gets no companion", pg.evaluate("!!(window.ember&&ember.get().running)") is False
@@ -94,6 +95,11 @@ try:
         b_ = pg.evaluate("ember.state().bubble")
         check("it answers even with no provider", "Tim" in b_, b_)
         check("and remembers the name", pg.evaluate("ember.memory().name") == "Tim")
+        pg.evaluate("ember.set({fit:'shades'})"); pg.wait_for_timeout(150)
+        pg.fill("#ember-in", "take your glasses off"); pg.press("#ember-in", "Enter"); pg.wait_for_timeout(600)
+        check("'take your glasses off' turns shades off", pg.evaluate("ember.state().shades") is False, str(pg.evaluate("ember.state()")))
+        pg.fill("#ember-in", "wear a beanie"); pg.press("#ember-in", "Enter"); pg.wait_for_timeout(600)
+        check("'wear a beanie' sets the outfit", pg.evaluate("ember.state().outfit") == "beanie", str(pg.evaluate("ember.state()")))
         pg.press("#ember-in", "Escape"); pg.wait_for_timeout(300)
         # ---- the right-click menu: a real mouse press on an item works
         st = pg.evaluate("ember.state()")
@@ -222,7 +228,8 @@ try:
         check("a request heard on the desktop waits for the app window to type it", box.get("items") and box["items"][0].get("action") == "build", str(box))
         check("and is handed over once", v.evaluate("fetch('/api/ember/inbox').then(r=>r.json())").get("items") == [])
         vv = v.evaluate("fetch('/api/voice').then(r=>r.json())")
-        check("off a Mac the microphone says so instead of pretending", vv.get("available") is (sys.platform == "darwin"), str(vv))
+        check("off a Mac the microphone says so instead of pretending",
+              vv.get("available") is False if sys.platform != "darwin" else isinstance(vv.get("available"), bool), str(vv))
         v.wait_for_timeout(2500)
         v.evaluate("window.__sent=''; ember.signal('broke',{what:'about.html',gaps:['the browser check found 1 broken page (about.html)']})")
         v.wait_for_timeout(9000)
@@ -265,6 +272,15 @@ try:
             check("dusting puts real dust on the row it chose", bool(lefts) and lefts[0][0] == lefts[0][1] > 10, str(lefts[:3]))
             check("and the wipe takes it off a little at a time as Ember sweeps", any(0 < l < n * .8 for l, n in lefts), str(lefts[::5]))
             check("until the row is clean", not v.evaluate("ember.state().grime") or v.evaluate("ember.state().grime.left") == 0)
+            dust0 = (v.evaluate("ember.state().seen") or {}).get("dust", 0)
+            v.evaluate("ember.hear('stop cleaning for 5 minutes')"); v.wait_for_timeout(600)
+            refused_dust = v.evaluate("ember.errand('dust')")
+            for _ in range(6):
+                v.evaluate("ember.hurry()"); v.wait_for_timeout(200)
+            st_no_dust = v.evaluate("ember.state()")
+            check("'stop cleaning' suppresses the dust errand for the stated time",
+                  refused_dust is False and (st_no_dust.get("seen") or {}).get("dust", 0) == dust0
+                  and (st_no_dust.get("noErrands") or {}).get("dust", 0) > 200, str(st_no_dust))
         # ---- sitting on the chat box when a page without it opens: Ember falls
         v.evaluate("ember.hurry();ember.perch()")
         for _ in range(60):

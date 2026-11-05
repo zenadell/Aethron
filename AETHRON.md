@@ -7896,3 +7896,22 @@ windows-check.yml builds and checks Windows from a claude/** branch without
 cutting a release (a Mac minute costs ten) — use it to try Windows fixes.
 Its second run: built, engine answered, a real migration through the
 packaged Windows app's MCP tools PASSED.
+
+## EMBER MIND JSON RECOVERY AND CHAT/VOICE PLAN EXECUTION — 2026-11-05
+- CLOUD MIND (`supabase/functions/aethron/ember.ts`): Groq's `openai/gpt-oss-20b`
+  fails JSON mode (`400 json_validate_failed` / `failed_generation`) ~60% of the
+  time when its reasoning tokens fill the budget before the closing `}`. On
+  `json_validate_failed` (or `response_format` / `json_object`), `think` now
+  retries without `response_format`, switches off `gpt-oss` via `pickModel`
+  (which now prefers `qwen` over `gpt-oss` and filters `orpheus` TTS), extracts
+  the JSON object after stripping `<think>` blocks and markdown fences, and
+  clears `ember_last_error` when a thought succeeds. Verified in `tests/cloud`
+  (41/41).
+- CHAT & VOICE OBEY INSTRUCTIONS (`aethron_ember.py`): `reply()` and `act()`
+  (`kind: "answer"`) now return `plan` and `new` using the mind's own step
+  validators (`plan_step`, including `{"stop": "<errand>|all", "for": minutes}`),
+  with local fallback matching (`wish_local` / `localWish`) so instructions like
+  `"take your glasses off"`, `"wear a beanie"`, and `"stop cleaning"` work both
+  with a provider and offline. The window applies them immediately through
+  `applyPlan()` and `mindStep()`. Verified in `aethron_ember.py --selftest`
+  (35/35) and `tests/ember_battery.py` (84/84).

@@ -628,6 +628,51 @@ describe("Ember's mind", () => {
     expect(fake.tables.secrets.find((x: any) => x.name === "ember_model")?.value).toBe("llama-4-scout-8b-instant");
   });
 
+  test("json_validate_failed asks again without response_format, parses JSON from text, and prefers qwen over gpt-oss", async () => {
+    fake.tables.secrets.push({ name: "base_groq", value: PROV }, { name: "ember_model", value: "openai/gpt-oss-20b" },
+      { name: "ember_last_error", value: "old error" });
+    await tool("set_provider_key", { provider: "groq", keys: "gsk_EMBERKEY123", base_url: PROV });
+    forget("");
+    const d = await deviceFor("ada@example.com");
+    const calls: any[] = [];
+    fake.provider = (b) => {
+      if (!b.model) {
+        return Response.json({
+          data: [
+            { id: "allam-2-7b" },
+            { id: "canopylabs/orpheus-v1-english" },
+            { id: "openai/gpt-oss-120b" },
+            { id: "openai/gpt-oss-20b" },
+            { id: "qwen/qwen3.8-27b" },
+            { id: "whisper-large-v3" },
+          ],
+        });
+      }
+      calls.push({ model: b.model, rf: b.response_format });
+      if (b.response_format) {
+        return Response.json({
+          error: {
+            message: "Failed to validate JSON. Please adjust your prompt.",
+            type: "invalid_request_error",
+            code: "json_validate_failed",
+            failed_generation: "",
+          },
+        }, { status: 400 });
+      }
+      return fake.reply('<think>let me plan {something}</think>\nHere is the plan:\n```json\n{"plan":[{"do":"yawn"}]}\n```');
+    };
+    const r = await ask(d.device);
+    expect(r.status).toBe(200);
+    expect(r.body.content).toBe('{"plan":[{"do":"yawn"}]}');
+    expect(r.body.model).toBe("qwen/qwen3.8-27b");
+    expect(calls.length).toBe(2);
+    expect(calls[0].rf).toEqual({ type: "json_object" });
+    expect(calls[1].rf).toBeUndefined();
+    expect(calls[1].model).toBe("qwen/qwen3.8-27b");
+    expect(fake.tables.secrets.find((x: any) => x.name === "ember_model")?.value).toBe("qwen/qwen3.8-27b");
+    expect(fake.tables.secrets.find((x: any) => x.name === "ember_last_error")).toBeUndefined();
+  });
+
   test("not signed in, or paused: no thinking", async () => {
     expect((await call("POST", "/ember/mind", { body: { messages: [] } })).status).toBe(401);
   });

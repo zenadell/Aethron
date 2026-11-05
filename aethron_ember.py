@@ -76,12 +76,19 @@ def rules(att: str) -> str:
         "tell them to ask Aethron in the chat box.\n"
         "If they seem genuinely stressed, sad or tired, drop the attitude a "
         "notch and be kind for real.\n"
+        "If they ask you to change your outfit or glasses, stop an errand "
+        "(cleaning/dusting, patrolling, or all errands), go somewhere, or do a "
+        "behaviour, include \"plan\": [steps] in your JSON using steps from: "
+        "{\"glasses\": \"on|off|peek\"}, {\"outfit\": \"none|shades|beanie|santa|party|witch\", \"for\": minutes}, "
+        "{\"stop\": \"dust|patrol|all\", \"for\": minutes}, {\"do\": \"<behaviour>\"}, "
+        "{\"go\": \"rest|perch|chat|send|projects|top|corner|cursor|message|settings\"}, "
+        "{\"wait\": seconds}, and optional \"new\": [invented behaviours].\n"
         "Reply with ONLY one JSON object: {\"say\": string, \"face\": one of "
         f"{json.dumps(FACES)}, \"gesture\": one of {json.dumps(GESTURES)}, "
         "\"mood\": number from -1 (they annoyed you) to 1 (they charmed you), "
         "\"name\": string or null (their name, only if they just told you), "
         "\"remember\": string or null (one short new fact about them, under "
-        "60 characters, else null)}")
+        "60 characters, else null), \"plan\": optional list of plan steps}")
 
 
 def _clean_turns(turns) -> list:
@@ -96,7 +103,7 @@ def _clean_turns(turns) -> list:
     return out
 
 
-def parse(text: str) -> dict:
+def parse(text: str, user_text: str = "") -> dict:
     """The model's JSON, read tolerantly and checked field by field."""
     s = (text or "").strip()
     m = re.search(r"\{.*\}", s, re.S)
@@ -116,6 +123,17 @@ def parse(text: str) -> dict:
     for k, n in (("name", 30), ("remember", 60)):
         v = d.get(k)
         out[k] = str(v).strip()[:n] if isinstance(v, str) and v.strip() else None
+    plan, new = _plan_from_dict(d)
+    w = wish_local(user_text) if user_text else None
+    if w and w.get("plan"):
+        have = {list(x)[0] for x in plan if isinstance(x, dict) and x}
+        for st in w["plan"]:
+            if list(st)[0] not in have:
+                plan.append(st)
+    if plan:
+        out["plan"] = plan[:MIND_MAX_STEPS]
+    if new:
+        out["new"] = new
     return out
 
 
@@ -128,13 +146,16 @@ def reply(turns, state: str, att: str, call=None) -> dict:
     lines = _clean_turns(turns)
     if not lines or not lines[-1].startswith("You: "):
         raise ValueError("nothing from the person to answer")
+    last_user = lines[-1][5:]
     prompt = (rules(att) + "\n\nSTATE:\n" + str(state or "")[:2000] +
               "\n\nCONVERSATION (oldest first):\n" + "\n".join(lines) +
               "\n\nNow reply as Ember to the last message, as the JSON object only.")
     if call is None:
         import aethron_brain
         call = lambda p: aethron_brain.text_call(p, timeout=18, max_tokens=400)
-    out = parse(call(prompt))
+    out = parse(call(prompt), user_text=last_user)
+    if out.get("new"):
+        learn(out["new"])
     out["attitude"] = att
     return out
 
@@ -219,14 +240,22 @@ def act_rules(att: str) -> str:
         "or steps they did not say. If they ask to fix the last problem, write "
         "a precise request naming it from STATE.\n"
         " * \"answer\": they are only talking to you (hello, how are you, a "
-        "question about you). Answer in character in one short line.\n"
+        "question about you, or telling YOU to do something with your own "
+        "body/outfit/glasses/errands like 'take your glasses off', 'wear a "
+        "beanie', 'stop cleaning'). Answer in character in one short line, and "
+        "if they asked you to change your outfit, glasses, errands or behaviour, "
+        "include \"plan\": [steps] (e.g. {\"outfit\":\"none|shades|beanie|santa|"
+        "party|witch\",\"for\":minutes}, {\"glasses\":\"on|off|peek\"}, "
+        "{\"stop\":\"dust|patrol|polish|doodle|read|juggle|stargaze|workout|all\","
+        "\"for\":minutes}, {\"do\":\"<behaviour>\"}, {\"go\":\"<place>\"}) and "
+        "optional \"new\": [behaviours].\n"
         f"{VOICE[att]}\n"
         "Reply with ONLY one JSON object: {\"kind\": \"send\"|\"action\"|"
         "\"answer\", \"prompt\": string (the request for Aethron, for send), "
         f"\"action\": one of {json.dumps(list(ACTIONS) + ['none'])}, \"target\": "
         "string or null (the project name for open_project), \"say\": "
         "string (what you say out loud while you do it, at most 80 characters, "
-        "in character)}")
+        "in character), \"plan\": [optional plan steps for answer], \"new\": [optional behaviours]}")
 
 
 def _bare(text: str) -> str:
@@ -241,14 +270,18 @@ def _action(name, target="", say=""):
             "prompt": ACTION_WORDS.get(name, ""), "say": say}
 
 
-def act_local(text: str, projects=None) -> dict:
-    """No provider: buttons by pattern, everything else sent as said, minus
-    filler. Never makes anything up."""
+def act_local(text: str, projects=None, att: str = "sassy") -> dict:
+    """No provider: buttons by pattern, direct wishes for Ember by pattern,
+    everything else sent as said, minus filler. Never makes anything up."""
     t = re.sub(r"\s+", " ", str(text or "")).strip()
     bare = _bare(t)
     for name, pat in _LOCAL:
         if re.fullmatch(pat, bare):
             return _action(name)
+    w = wish_local(t, att)
+    if w and w.get("plan"):
+        return {"kind": "answer", "action": "none", "target": "", "prompt": "",
+                "say": w["say"], "plan": w["plan"]}
     m = _OPEN.fullmatch(bare)
     if m:
         hit = match_project(m.group(1), projects)
@@ -278,6 +311,9 @@ def act_parse(text: str, heard: str, projects=None) -> dict:
     prompt = re.sub(r"\s+", " ", str(d.get("prompt") or "")).strip()[:1500]
     say = str(d.get("say") or "").strip()[:120]
     target = ""
+    plan, new = _plan_from_dict(d)
+    if plan and kind != "action":
+        kind = "answer"
     if kind == "action" and action == "none":
         kind = "send"
     if kind == "action" and action == "open_project":
@@ -292,12 +328,27 @@ def act_parse(text: str, heard: str, projects=None) -> dict:
         if not prompt:
             raise ValueError("nothing to send")
     if kind == "answer" and not say:
-        raise ValueError("nothing to say")
-    return {"kind": kind, "action": "none", "target": "", "prompt": prompt if kind != "answer" else "", "say": say}
+        w = wish_local(heard)
+        say = (w and w.get("say")) or ""
+        if not say:
+            raise ValueError("nothing to say")
+    out = {"kind": kind, "action": "none", "target": "", "prompt": prompt if kind != "answer" else "", "say": say}
+    if kind == "answer":
+        w = wish_local(heard)
+        if w and w.get("plan"):
+            have = {list(x)[0] for x in plan if isinstance(x, dict) and x}
+            for st in w["plan"]:
+                if list(st)[0] not in have:
+                    plan.append(st)
+        if plan:
+            out["plan"] = plan[:MIND_MAX_STEPS]
+        if new:
+            out["new"] = new
+    return out
 
 
 def act(text: str, state: str, att: str, call=None, projects=None) -> dict:
-    """What the person said -> {kind, action, target, prompt, say, by}."""
+    """What the person said -> {kind, action, target, prompt, say, by[, plan, new]}."""
     heard = re.sub(r"\s+", " ", str(text or "")).strip()[:1500]
     if not heard:
         raise ValueError("nothing was said")
@@ -306,7 +357,7 @@ def act(text: str, state: str, att: str, call=None, projects=None) -> dict:
     if att == "savage" and not savage_allowed():
         att = "sassy"
     projects = [str(p) for p in (projects or [])][:200]
-    local = act_local(heard, projects)
+    local = act_local(heard, projects, att)
     if local["kind"] == "action":       # a button needs no model
         return dict(local, by="local")
     plist = ("Their projects: " + ", ".join(projects) + ".") if projects else "They have no projects yet."
@@ -316,8 +367,17 @@ def act(text: str, state: str, att: str, call=None, projects=None) -> dict:
         import aethron_brain
         call = lambda p: aethron_brain.text_call(p, timeout=45, max_tokens=700)
     try:
-        return dict(act_parse(call(prompt), heard, projects), by="model")
-    except Exception as e:   # a misheard name the model could not place either
+        out = dict(act_parse(call(prompt), heard, projects), by="model")
+        if local.get("plan") and not out.get("plan"):
+            out["kind"] = "answer"
+            out["action"] = "none"
+            out["prompt"] = ""
+            out["say"] = out.get("say") or local["say"]
+            out["plan"] = local["plan"]
+        if out.get("new"):
+            learn(out["new"])
+        return out
+    except Exception as e:   # a misheard name or no provider configured
         local.pop("unsure", None)
         return dict(local, by="local", why=str(e)[:200])
 
@@ -341,6 +401,9 @@ MIND_FACES = FACES + ["neutral", "tfman", "haughty", "shocked", "surprised", "cu
 MIND_FACES = sorted(set(MIND_FACES))
 PLACES = ["rest", "perch", "chat", "send", "projects", "top", "corner", "cursor", "message", "settings"]
 OUTFITS = ["none", "shades", "beanie", "santa", "party", "witch"]
+ERRAND_NAMES = ("dust", "read", "polish", "doodle", "patrol", "juggle", "stargaze", "workout")
+BUILTIN_DO = set(ERRAND_NAMES) | {"glance", "judge", "slowblink", "crossed", "nails", "yawn",
+                                  "hum", "scratch", "sigh", "sneeze", "celebrate", "nap", "zoomies"}
 LOOKS = ["viewer", "cursor", "up", "down", "left", "right", "away"]
 BURSTS = ["spark", "smoke", "heart", "note", "z", "dust"]
 # the face dials a new behaviour may turn, and how far
@@ -425,12 +488,28 @@ def behaviour(b) -> dict | None:
     return {"name": name, "about": str(b.get("about") or "")[:120], "steps": steps}
 
 
-def plan_step(s, known) -> dict | None:
+def _stop_name(v) -> str:
+    if v is True:
+        return "all"
+    k = _slug(v)
+    alias = {
+        "clean": "dust", "cleaning": "dust", "dusting": "dust", "sweep": "dust",
+        "sweeping": "dust", "wipe": "dust", "wiping": "dust",
+        "patrolling": "patrol", "polishing": "polish", "doodling": "doodle",
+        "reading": "read", "juggling": "juggle", "stargazing": "stargaze",
+        "working_out": "workout", "exercise": "workout", "exercising": "workout",
+        "errand": "all", "errands": "all", "chores": "all", "everything": "all", "moving": "all",
+    }
+    k = alias.get(k, k)
+    return k if (k in ERRAND_NAMES or k == "all") else ""
+
+
+def plan_step(s, known=None) -> dict | None:
     if not isinstance(s, dict):
         return None
     if s.get("do"):
         n = _slug(s["do"])
-        return {"do": n} if n in known else None
+        return {"do": n} if (known is None or n in known) else None
     if s.get("go") in PLACES:
         return {"go": s["go"]}
     if isinstance(s.get("say"), str) and s["say"].strip():
@@ -441,6 +520,11 @@ def plan_step(s, known) -> dict | None:
         return {"outfit": s["outfit"], "for": _num(s.get("for"), 1, 120, 20)}
     if s.get("glasses") in ("on", "off", "peek"):
         return {"glasses": s["glasses"]}
+    stop = s.get("stop") or s.get("stop_errands") or s.get("no_errands")
+    if stop:
+        k = _stop_name(stop)
+        if k:
+            return {"stop": k, "for": _num(s.get("for", s.get("minutes")), 1, 240, 30)}
     if s.get("face") in MIND_FACES or s.get("pose") in POSE_NAMES:
         o = {"for": _num(s.get("for"), .5, 8, 2)}
         if s.get("face") in MIND_FACES:
@@ -450,6 +534,100 @@ def plan_step(s, known) -> dict | None:
         return o
     if s.get("wait") is not None:
         return {"wait": _num(s.get("wait"), 1, 60, 5)}
+    return None
+
+
+def _plan_from_dict(d: dict, known=None) -> tuple[list, list]:
+    if not isinstance(d, dict):
+        return [], []
+    new = [b for b in (behaviour(x) for x in (d.get("new") or [])[:2]) if b]
+    base_known = set(known) if known is not None else (BUILTIN_DO | {b["name"] for b in behaviours()})
+    names = base_known | {b["name"] for b in new}
+    raw_steps = list(d.get("plan") or []) if isinstance(d.get("plan"), list) else []
+    if d.get("outfit") in OUTFITS and not any(isinstance(x, dict) and "outfit" in x for x in raw_steps):
+        raw_steps.append({"outfit": d["outfit"], "for": d.get("for", 20)})
+    if d.get("glasses") in ("on", "off", "peek") and not any(isinstance(x, dict) and "glasses" in x for x in raw_steps):
+        raw_steps.append({"glasses": d["glasses"]})
+    top_stop = d.get("stop") if d.get("action") != "stop" else None
+    top_stop = top_stop or d.get("stop_errands") or d.get("no_errands")
+    if top_stop and not any(isinstance(x, dict) and ("stop" in x or "stop_errands" in x or "no_errands" in x) for x in raw_steps):
+        if isinstance(top_stop, dict):
+            raw_steps.append({"stop": top_stop.get("stop") or top_stop.get("errand") or "all",
+                              "for": top_stop.get("for", top_stop.get("minutes", d.get("for", 30)))})
+        else:
+            raw_steps.append({"stop": top_stop, "for": d.get("for", d.get("minutes", 30))})
+    if d.get("go") in PLACES and not any(isinstance(x, dict) and "go" in x for x in raw_steps):
+        raw_steps.append({"go": d["go"]})
+    if d.get("do") and not any(isinstance(x, dict) and "do" in x for x in raw_steps):
+        raw_steps.append({"do": d["do"]})
+    if d.get("wait") is not None and not any(isinstance(x, dict) and "wait" in x for x in raw_steps):
+        raw_steps.append({"wait": d["wait"]})
+    plan = [p for p in (plan_step(x, names) for x in raw_steps[:16]) if p][:MIND_MAX_STEPS]
+    used = {p["do"] for p in plan if "do" in p}
+    new = [b for b in new if b["name"] in used] or new[:1]
+    if not plan and new:
+        plan = [{"do": new[0]["name"]}]
+    return plan, new
+
+
+def _parse_minutes(text: str, dflt: float = 30.0) -> float:
+    m = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:min(?:ute)?s?|m\b)", text, re.I)
+    if m:
+        return _num(m.group(1), 1, 240, dflt)
+    m = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:hour|hr)s?\b", text, re.I)
+    if m:
+        return _num(float(m.group(1)) * 60, 1, 240, dflt)
+    if re.search(r"\b(?:an|one)\s+hour\b", text, re.I):
+        return 60.0
+    m = re.search(r"\b(\d+(?:\.\d+)?)\s*(?:sec(?:ond)?s?|s\b)", text, re.I)
+    if m:
+        return _num(max(1.0, float(m.group(1)) / 60.0), 1, 240, dflt)
+    return dflt
+
+
+def wish_local(text: str, att: str = "sassy") -> dict | None:
+    """Direct wishes about Ember's own glasses, outfit or errands."""
+    t = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not t:
+        return None
+    idx = {"sweet": 0, "sassy": 1, "savage": 2}.get(att, 1)
+    # 1. Glasses off / on
+    if re.search(r"\b(?:glasses|shades|sunglasses)\b", t):
+        if re.search(r"\b(?:off|remove|lose|no|stop|without|drop|ditch|put away)\b", t) or re.search(r"\btake\b.*\b(?:glasses|shades|sunglasses)\b", t):
+            return {"say": ("okay, glasses off!", "fine. glasses off.", "fine. took them off.")[idx],
+                    "plan": [{"glasses": "off"}]}
+        if re.search(r"\b(?:on|wear|put|show|cool|peek)\b", t):
+            g = "peek" if "peek" in t else "on"
+            return {"say": ("shades on!", "shades on. obviously.", "shades on. deal with it.")[idx],
+                    "plan": [{"glasses": g}]}
+    # 2. Outfits
+    mins_fit = _parse_minutes(t, 20.0)
+    for fit, pat, label in (
+        ("beanie", r"\bbeanie\b", "beanie"),
+        ("santa", r"\b(?:santa|christmas(?:\s+hat)?)\b", "santa hat"),
+        ("witch", r"\bwitch(?:\s+hat)?\b", "witch hat"),
+        ("party", r"\bparty(?:\s+hat)?\b", "party hat"),
+    ):
+        if re.search(pat, t):
+            if re.search(r"\b(?:off|remove|lose|no|without|drop|ditch)\b", t):
+                return {"say": ("okay, hat off!", "fine. hat off.", "fine. no hat.")[idx],
+                        "plan": [{"outfit": "none", "for": mins_fit}]}
+            if re.search(r"\b(?:wear|put(?:\s+on)?|try|change(?:\s+into)?|hat|beanie|on)\b", t):
+                return {"say": (f"{label} on!", f"fine. {label} on.", f"{label}. happy now?")[idx],
+                        "plan": [{"outfit": fit, "for": mins_fit}]}
+    if re.search(r"\b(?:take\s+off|remove|no|lose)\s+(?:your\s+|the\s+)?(?:hat|outfit|costume|cap)\b|\b(?:hat|outfit)\s+off\b", t):
+        return {"say": ("okay, hat off!", "fine. hat off.", "fine. no hat.")[idx],
+                "plan": [{"outfit": "none", "for": mins_fit}]}
+    # 3. Stop cleaning / stop errands
+    mins_stop = _parse_minutes(t, 30.0)
+    m = re.search(r"\b(?:stop|quit|no\s+more|don'?t|do\s+not|enough)\s+(?:with\s+(?:the\s+)?)?(cleaning|clean|dusting|dust|sweeping|sweep|wiping|wipe|patrolling|patrol|polishing|polish|doodling|doodle|reading|read|juggling|juggle|stargazing|stargaze|working\s+out|workout|exercising|exercise|errands|chores|moving\s+around)\b", t)
+    if m:
+        k = _stop_name(m.group(1))
+        if k:
+            line = (("okay, no more cleaning for a bit!", "fine. I'll leave the dust alone.", "fine. live in filth then.")[idx]
+                    if k == "dust" else
+                    ("okay, I'll take a break from that!", f"fine. no {k} for a bit.", "fine. I'll sit still.")[idx])
+            return {"say": line, "plan": [{"stop": k, "for": mins_stop}]}
     return None
 
 
@@ -470,6 +648,7 @@ def mind_rules(att: str, known: list) -> str:
         ' {"go":"' + "|".join(PLACES) + '"}\n'
         ' {"say":"short line"}   {"ask":"a question to the person (opens a reply box)"}\n'
         ' {"outfit":"' + "|".join(OUTFITS) + '","for":minutes}   {"glasses":"on|off|peek"}\n'
+        ' {"stop":"' + "|".join(list(ERRAND_NAMES) + ["all"]) + '","for":minutes}\n'
         ' {"face":"<face>","pose":"<pose>","for":seconds}   {"wait":seconds}\n'
         "NEW behaviours: when you want Ember to do something none of the known behaviours does (sneeze, "
         "shiver, a victory dance, sulk, a tiny bow, warm its hands), invent it in \"new\" (0-2) and use it "
@@ -492,15 +671,9 @@ def mind_parse(text: str, known) -> dict:
     if not m:
         raise ValueError("no JSON in the mind's answer")
     d = json.loads(m.group(0))
-    new = [b for b in (behaviour(x) for x in (d.get("new") or [])[:2]) if b]
-    names = set(known) | {b["name"] for b in new}
-    plan = [p for p in (plan_step(x, names) for x in (d.get("plan") or [])[:16]) if p][:MIND_MAX_STEPS]
-    used = {p["do"] for p in plan if "do" in p}
-    new = [b for b in new if b["name"] in used] or new[:1]
+    plan, new = _plan_from_dict(d, known)
     if not plan and not new:
         raise ValueError("the mind's answer had nothing Ember can do")
-    if not plan and new:
-        plan = [{"do": new[0]["name"]}]
     out = {"thought": str(d.get("thought") or "")[:200], "plan": plan, "new": new,
            "mood": d.get("mood") if d.get("mood") in MIND_FACES else ""}
     r = d.get("remember")
@@ -619,7 +792,8 @@ const L=a=>{if(!Array.isArray(a))return a;const v=a[{sweet:0,sassy:1,savage:2}[A
 function autoFit(){const d=new Date(),m=d.getMonth()+1,day=d.getDate();
   if(m===12&&day<=26)return'santa';if((m===12&&day===31)||(m===1&&day===1))return'party';if(m===10&&day>=24)return'witch';if(m===1||m===2||m===12)return'beanie';return'none'}
 let FITOV=null;
-const outfit=()=>CFG.fit==='auto'?(FITOV&&FITOV.until>Date.now()?FITOV.n:autoFit()):CFG.fit;
+const outfit=()=>FITOV&&FITOV.until>Date.now()?FITOV.n:(CFG.fit==='auto'?autoFit():CFG.fit);
+const NO_ERR={};const errandBlocked=k=>(NO_ERR.all||0)>now||(NO_ERR[k]||0)>now;
 
 /* ===== expressions ===== */
 const F0={lidU:.06,lidL:0,lf:0,tilt:0,bH:0,bT:0,bL:0,bR:0,mw:.15,mc:.2,mo:0,mas:0,mwob:0,eyeS:1,pup:1,flame:1,bright:1,blush:0,angry:0,chin:0};
@@ -794,7 +968,7 @@ const ERRANDS={
     steps(){return[{d:2.6,look:{dir:[0,-1]},face:'content',hum:1},{d:1.2,look:{dir:[.6,-.8]},face:'sleepy'},{d:1,look:'viewer',face:'calm',say:maybe(['the stars look nice tonight.','nice up here.',"don't tell anyone I like it up here."],.3)}]}},
   workout:{w:()=>N.boredom>.55&&N.energy>.4?1.2:0,spot(){return SP.rest()},steps(){return workout()}},
 };
-function errandAct(k){const e=ERRANDS[k];return{w:e.w,errand:1,dur:[30,40],run(){const p=e.spot.call(e);if(!p){act.t=act.dur+1;return}act.stage='go';go(p,{speed:.75})}}}
+function errandAct(k){const e=ERRANDS[k];return{w:()=>errandBlocked(k)?0:e.w(),errand:1,dur:[30,40],run(){if(errandBlocked(k)){act.t=act.dur+1;return}if(k==='dust')GRIME=null;SEQ=null;const p=e.spot.call(e);if(!p){act.t=act.dur+1;return}act.stage='go';go(p,{speed:.75})}}}
 const ACTS={
   rest:{w:()=>.55+(1-N.energy)*.4,run(){go(SP.rest,{speed:.6})},dur:[6,11]},
   perch:{w:()=>(DESK?(DW.windows||[]).some(w=>w.perch):!!composer())?.4:0,run(){go(SP.perch,{speed:.6})},dur:[8,14]},
@@ -870,7 +1044,7 @@ function pageTick(){if(DESK||!started)return;const sig=pageSig();if(!PAGE){PAGE=
 const MIND={live:0,off:0,retry:0,busy:0,next:20,fail:0,plan:[],thought:'',hist:[],ev:[],key:-99,lastAsk:-99,asks:0};
 const LIB={};
 const EXTRA=['celebrate','nap','zoomies','workout'];
-function known(){return[...Object.keys(FIDGETS).filter(k=>!k.startsWith('l_')),...Object.keys(ERRANDS).filter(k=>ACTS['e_'+k]),...EXTRA,...Object.keys(LIB)]}
+function known(){return[...Object.keys(FIDGETS).filter(k=>!k.startsWith('l_')),...Object.keys(ERRANDS).filter(k=>ACTS['e_'+k]&&!errandBlocked(k)),...EXTRA,...Object.keys(LIB)]}
 function learnB(b){if(!b||!b.name||!Array.isArray(b.steps)||!b.steps.length)return;LIB[b.name]=b;FIDGETS['l_'+b.name]={w:()=>.12,s:()=>compileB(b)}}
 function saveLib(){store.set('ember_lib',Object.values(LIB).slice(-80))}
 const LOOKS={viewer:()=>'viewer',cursor:()=>'cursor',up:()=>({dir:[0,-1]}),down:()=>({dir:[0,1]}),left:()=>({dir:[-1,0]}),right:()=>({dir:[1,0]}),away:()=>({dir:[E.x>W/2?1:-1,-.2]})};
@@ -899,22 +1073,34 @@ function placeOf(n){const m=area(),c=composer();switch(n){
   return SP.rest()}
 function mindAct(dur){act={k:'mind',a:{mind:1,w:()=>0,run(){},dur:[dur,dur]},t:0,dur};return act}
 /* the next step of the mind's plan, if it has one */
-function mindStep(){if(!MIND.plan.length||!MIND.live)return false;const s=MIND.plan.shift();
+function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
   try{if(s.do){const n=s.do;
-      if(ERRANDS[n]&&ACTS['e_'+n]){const a=ACTS['e_'+n];act={k:'e_'+n,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a);return true}
+      if(ERRANDS[n]&&ACTS['e_'+n]){if(errandBlocked(n))return mindStep();const a=ACTS['e_'+n];act={k:'e_'+n,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a);return true}
       if(n==='nap'||n==='zoomies'){const a=ACTS[n];act={k:n,a,t:0,dur:rnd(a.dur[0],a.dur[1])};a.run.call(a);return true}
       let st=null;if(LIB[n])st=compileB(LIB[n]);else if(FIDGETS[n])st=FIDGETS[n].s();else if(n==='workout')st=workout();else if(n==='celebrate')st=[{d:2,face:'joy',pose:'cheer',fn:celebrate}];
       if(!st)return mindStep();const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.6);play(st,()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.go){go(placeOf(s.go),{speed:.7});mindAct(5);return true}
     if(s.say){say(s.say);mindAct(readTime(s.say)+.5);return true}
     if(s.ask){if(MIND.asks>2||now-CHAT.lastChat<60)return mindStep();MIND.asks++;openChat(s.ask,0);mindAct(2);return true}
-    if(s.outfit){FITOV={n:s.outfit,until:Date.now()+(s.for||20)*60000};puff(E.x,E.y-R*.6,10);const me=mindAct(2);play([{d:1.6,face:'smug',pose:'hips',look:'viewer'}],()=>{if(act===me)me.t=me.dur+1});return true}
-    if(s.glasses){const me=mindAct(4);if(s.glasses==='on'){E.shadesUntil=now+60;play([{d:1.2,pose:'glasses',face:'smug'}],()=>{if(act===me)me.t=me.dur+1})}
-      else if(s.glasses==='off'){E.shadesUntil=0;FITOV=FITOV&&FITOV.n==='shades'?null:FITOV;me.dur=1}
-      else{E.shadesUntil=now+8;play([{d:.6,pose:'glasses',face:'calm'},{d:2.4,face:'unimpressed',look:'viewer',fn:()=>{E.noBlink=2.4}},{d:1.2,face:'smug',look:'viewer'}],()=>{if(act===me)me.t=me.dur+1})}return true}
+    if(s.outfit){FITOV={n:s.outfit,until:Date.now()+(s.for||20)*60000};if(CFG.fit!=='auto'){CFG.fit='auto';store.set('ember_cfg',CFG)}
+      if(s.outfit==='shades')E.shadesUntil=now+(s.for||20)*60;else if(E.shadesOn&&!(E.shadesUntil>now))E.shadesOn=false;
+      puff(E.x,E.y-R*.6,10);const me=mindAct(2);play([{d:1.6,face:'smug',pose:'hips',look:'viewer'}],()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.glasses){const me=mindAct(4);if(s.glasses==='on'){E.shadesUntil=now+60;E.shadesOn=true;play([{d:1.2,pose:'glasses',face:'smug'}],()=>{if(act===me)me.t=me.dur+1})}
+      else if(s.glasses==='off'){E.shadesUntil=0;if(FITOV&&FITOV.n==='shades')FITOV=null;if(CFG.fit==='shades'){CFG.fit='auto';store.set('ember_cfg',CFG)}E.shadesOn=false;me.dur=1}
+      else{E.shadesUntil=now+8;E.shadesOn=true;play([{d:.6,pose:'glasses',face:'calm'},{d:2.4,face:'unimpressed',look:'viewer',fn:()=>{E.noBlink=2.4}},{d:1.2,face:'smug',look:'viewer'}],()=>{if(act===me)me.t=me.dur+1})}return true}
+    if(s.stop){const u=now+(s.for||30)*60;if(s.stop==='all'){NO_ERR.all=u;for(const k of Object.keys(ERRANDS))NO_ERR[k]=u}else NO_ERR[s.stop]=u;
+      if(s.stop==='dust'||s.stop==='all')GRIME=null;
+      if(act&&act.a&&act.a.errand&&(s.stop==='all'||act.k==='e_'+s.stop)){SEQ=null;act.t=act.dur+1}
+      mindAct(1);return true}
     if(s.face||s.pose){const me=mindAct(s.for||2);play([{d:s.for||2,face:s.face,pose:s.pose}],()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.wait){go(SP.rest,{speed:.6});mindAct(s.wait);return true}}catch(e){}
   return mindStep()}
+function applyPlan(r){if(!r)return;
+  for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
+  if(!Array.isArray(r.plan)||!r.plan.length)return;
+  MIND.plan=r.plan.slice().concat(MIND.plan);
+  while(MIND.plan.length&&(MIND.plan[0].outfit||MIND.plan[0].glasses||MIND.plan[0].stop))mindStep();
+  if(MIND.plan.length&&(!act||!act.a.mind))mindStep()}
 function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='';try{view=(typeof S!=='undefined'&&(S.view||''))||''}catch(_){}
   const scr=[];if(composer())scr.push('the chat box');const pn=visible('.pitem').length;if(pn)scr.push(pn+' projects in the sidebar');if(lastOf('.msg'))scr.push('a conversation');
   if(lastOf('.jobc'))scr.push('a migration job card');if(document.querySelector('.pvw:not([hidden])'))scr.push('the site preview');if(DESK)scr.push('their desktop ('+((DW.windows||[]).length)+' app windows)');
@@ -1074,7 +1260,31 @@ function question(){const m=CHAT.mem,h=new Date().getHours(),n=m.name?', '+m.nam
   if(h>=5&&h<11)add([`good morning${n}! coffee first?`,"morning. you had coffee yet? you look like you haven't.",'morning. coffee. now.']);
   if(m.facts.length){const f=pick(m.facts);add([`you told me "${f}". any news?`,`last time: "${f}". so? how'd that go?`,`you said "${f}". did that work out or did you mess it up?`])}
   const fr=q.filter(x=>!CHAT.asked.includes(x));const c=pick(fr.length?fr:q);CHAT.asked.push(c);if(CHAT.asked.length>8)CHAT.asked.shift();return c}
-function localReply(t){const l=t.toLowerCase(),m=/(?:i'?m|my name is|call me)\s+([a-z][a-z'-]{1,20})/i.exec(t);
+function parseMins(t,dflt){let m=/\b(\d+(?:\.\d+)?)\s*(?:min(?:ute)?s?|m\b)/i.exec(t);if(m)return cl(+m[1],1,240);
+  m=/\b(\d+(?:\.\d+)?)\s*(?:hour|hr)s?\b/i.exec(t);if(m)return cl(+m[1]*60,1,240);
+  if(/\b(?:an|one)\s+hour\b/i.test(t))return 60;
+  m=/\b(\d+(?:\.\d+)?)\s*(?:sec(?:ond)?s?|s\b)/i.exec(t);if(m)return cl(Math.max(1,+m[1]/60),1,240);
+  return dflt}
+function localWish(t){const l=String(t||'').toLowerCase().trim();if(!l)return null;
+  if(/\b(?:glasses|shades|sunglasses)\b/.test(l)){
+    if(/\b(?:off|remove|lose|no|stop|without|drop|ditch|put away)\b/.test(l)||/\btake\b.*\b(?:glasses|shades|sunglasses)\b/.test(l))
+      return{say:L(['okay, glasses off!','fine. glasses off.','fine. took them off.']),face:'calm',gesture:'none',mood:.1,plan:[{glasses:'off'}]};
+    if(/\b(?:on|wear|put|show|cool|peek)\b/.test(l)){const g=/peek/.test(l)?'peek':'on';
+      return{say:L(['shades on!','shades on. obviously.','shades on. deal with it.']),face:'smug',gesture:'shades',mood:.2,plan:[{glasses:g}]}}}
+  const mf=parseMins(l,20);
+  for(const [fit,rx,lbl] of[['beanie',/\bbeanie\b/,'beanie'],['santa',/\b(?:santa|christmas(?:\s+hat)?)\b/,'santa hat'],['witch',/\bwitch(?:\s+hat)?\b/,'witch hat'],['party',/\bparty(?:\s+hat)?\b/,'party hat']]){
+    if(rx.test(l)){
+      if(/\b(?:off|remove|lose|no|without|drop|ditch)\b/.test(l))return{say:L(['okay, hat off!','fine. hat off.','fine. no hat.']),face:'calm',gesture:'nod',mood:0,plan:[{outfit:'none',for:mf}]};
+      if(/\b(?:wear|put(?:\s+on)?|try|change(?:\s+into)?|hat|beanie|on)\b/.test(l))return{say:L([`${lbl} on!`,`fine. ${lbl} on.`,`${lbl}. happy now?`]),face:ATT()==='sweet'?'happy':'smug',gesture:'hips',mood:.2,plan:[{outfit:fit,for:mf}]}}}
+  if(/\b(?:take\s+off|remove|no|lose)\s+(?:your\s+|the\s+)?(?:hat|outfit|costume|cap)\b|\b(?:hat|outfit)\s+off\b/.test(l))
+    return{say:L(['okay, hat off!','fine. hat off.','fine. no hat.']),face:'calm',gesture:'nod',mood:0,plan:[{outfit:'none',for:mf}]};
+  const ms=parseMins(l,30),sm=/\b(?:stop|quit|no\s+more|don'?t|do\s+not|enough)\s+(?:with\s+(?:the\s+)?)?(cleaning|clean|dusting|dust|sweeping|sweep|wiping|wipe|patrolling|patrol|polishing|polish|doodling|doodle|reading|read|juggling|juggle|stargazing|stargaze|working\s+out|workout|exercising|exercise|errands|chores|moving\s+around)\b/.exec(l);
+  if(sm){const map={clean:'dust',cleaning:'dust',dusting:'dust',dust:'dust',sweeping:'dust',sweep:'dust',wiping:'dust',wipe:'dust',patrolling:'patrol',patrol:'patrol',polishing:'polish',polish:'polish',doodling:'doodle',doodle:'doodle',reading:'read',read:'read',juggling:'juggle',juggle:'juggle',stargazing:'stargaze',stargaze:'stargaze','working out':'workout',workout:'workout',exercising:'workout',exercise:'workout',errands:'all',chores:'all','moving around':'all'};
+    const k=map[sm[1].replace(/\s+/g,' ')]||'all';
+    const line=k==='dust'?L(['okay, no more cleaning for a bit!',"fine. I'll leave the dust alone.",'fine. live in filth then.']):L(["okay, I'll take a break from that!",`fine. no ${k} for a bit.`,"fine. I'll sit still."]);
+    return{say:line,face:ATT()==='sweet'?'calm':'unimpressed',gesture:'crossed',mood:0,plan:[{stop:k,for:ms}]}}
+  return null}
+function localReply(t){const w=localWish(t);if(w)return w;const l=t.toLowerCase(),m=/(?:i'?m|my name is|call me)\s+([a-z][a-z'-]{1,20})/i.exec(t);
   if(m&&!/^(fine|good|ok|okay|tired|busy|working|so|not|just|a|the|doing|here|back)$/i.test(m[1])){const nm=m[1][0].toUpperCase()+m[1].slice(1);
     return{say:L([`${nm}! I like that name. what are you making?`,`${nm}. fine. I'll remember it. maybe.`,`${nm}? okay ${nm}, what are we building.`]),face:ATT()==='sweet'?'joy':'calm',gesture:'nod',name:nm,mood:.3}}
   if(/\b(hi|hey|hello|yo|sup)\b/.test(l))return{say:L(["hiii! I'm Ember.","hey. I'm Ember. I live here now.","sup. it's Ember. don't wear it out."]),face:ATT()==='sweet'?'joy':'calm',gesture:'wave',mood:.1};
@@ -1091,12 +1301,16 @@ async function send(){const t=tin.value.trim().slice(0,300);if(!t||CHAT.busy)ret
   if(!CHAT.offline){try{r=await Promise.race([(typeof api==='function'?api:post)('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT()}),
       new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),24000))])}catch(e){r=null;const m=String(e&&e.message||'');if(/not configured|no key|save your key|402|403/i.test(m))CHAT.offline=1;if(m==='slow')CHAT.slow=(CHAT.slow||0)+1}}
   if(!r||typeof r.say!=='string'||!r.say.trim())r=localReply(t);
-  CHAT.busy=0;if(!CHAT.open)return;
-  const line=r.say.trim().slice(0,220),fc=FACES[r.face]?r.face:idleFace(),g=r.gesture||'none';
+  else if(!Array.isArray(r.plan)||!r.plan.length){const w=localWish(t);if(w&&w.plan)r.plan=w.plan}
+  CHAT.busy=0;const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.pose||s.face));
+  let g=r.gesture||'none';if(Array.isArray(r.plan)&&r.plan.some(s=>s&&s.glasses==='off')&&g==='shades')g='none';
+  applyPlan(r);if(!CHAT.open)return;
+  const line=r.say.trim().slice(0,220),fc=FACES[r.face]?r.face:idleFace();
   const md=Number(r.mood);if(isFinite(md)){bump('fond',cl(md,-1,1)*.12+.03);bump('annoy',-Math.abs(md)*.1-(md<0?-md*.25:0))}
   if(r.name){CHAT.mem.name=String(r.name).slice(0,30);saveMem()}
   if(r.remember){const f=String(r.remember).slice(0,60);if(!CHAT.mem.facts.includes(f)){CHAT.mem.facts.push(f);CHAT.mem.facts=CHAT.mem.facts.slice(-6);saveMem()}}
-  CHAT.turns.push({role:'assistant',content:line});if(CHAT.turns.length>24)CHAT.turns=CHAT.turns.slice(-24);CHAT.last=now;gesture(g,fc,line)}
+  CHAT.turns.push({role:'assistant',content:line});if(CHAT.turns.length>24)CHAT.turns=CHAT.turns.slice(-24);CHAT.last=now;
+  if(hasDo&&SEQ)say(line,2.4,{type:1});else gesture(g,fc,line)}
 function gesture(g,fc,line){const st={d:line.length/30+1.9,face:fc,look:'viewer'};
   const fn={nod:()=>{E.nod=.9},shake:()=>{E.shake=.9},cheer:()=>{E.vy=-320;E.q=.35},dance:()=>{E.dance=Math.min(3.5,st.d)},shades:()=>{E.shadesUntil=now+st.d+.5}}[g];
   const pose={wave:'wave',cheer:'cheer',shrug:'shrug',think:'think',shy:'peek',dance:'dance',crossed:'crossed',facepalm:'facepalm',hips:'hips',shades:'glasses',turn_away:'crossed'}[g];
@@ -1183,7 +1397,7 @@ const said=(t,d)=>{if(t&&running)say(t,d||0,{type:1})};
 /* the app's own controls Ember can press for you */
 const CONTROLS={settings:'#setbtn',new_chat:'.newbtn',home:'.brand',preview:'button[onclick^="openPreviewPane(false)"],.pshot'};
 async function perform(r){if(!r||DRV.on)return false;
-  if(r.kind==='answer'){if(running)play([{d:Math.max(2.4,readTime(r.say)),face:idleFace(),look:'viewer',say:r.say}]);return true}
+  if(r.kind==='answer'){const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.pose||s.face));applyPlan(r);if(running){if(hasDo&&SEQ)say(r.say,2.4,{type:1});else play([{d:Math.max(2.4,readTime(r.say)),face:idleFace(),look:'viewer',say:r.say}])}return true}
   if(CHAT.open)closeChat();DRV.on=1;V.cancel=0;SEQ=null;setMood({kind:'drive',d:120,pose:'point',face:'focus',look:null});
   let cur_=null;try{cur_=(typeof S!=='undefined'&&S.cur)||null}catch(_){}
   try{
@@ -1543,16 +1757,16 @@ function start(){if(running)return;if(!started){started=true;(document.head||doc
   else play([{d:1.1,look:{dir:[-1,.3]},face:'sideeye'},{d:1.6,look:'viewer',pose:ATT()==='sweet'?'wave':'crossed',face:ATT()==='sweet'?'joy':'calm',say:['oh, hi!','oh. you.','sup.']}]);
   requestAnimationFrame(frame)}
 function stop(){running=false;cv.hidden=true;talk.hidden=true;menu.hidden=true;CHAT.open=0;document.documentElement.classList.remove('ember-over','ember-grab');if(started)X.clearRect(0,0,cv.width,cv.height)}
-function set(o){Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);
+function set(o){if(o&&'fit' in o)FITOV=null;Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);
   if(DESK){start();return}
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
 /* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
 window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
-  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),mode:E.mode,seat:!!E.seat,grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn}),
+  state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),mode:E.mode,seat:!!E.seat,grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn,noErrands:Object.fromEntries(Object.entries(NO_ERR).filter(([,u])=>u>now).map(([k,u])=>[k,Math.round(u-now)]))}),
   fall:()=>fall(),perch:()=>{SEQ=null;mood=null;act={k:'perch',a:ACTS.perch,t:0,dur:60};go(SP.perch,{speed:.8})},
-  errand:k=>{const a=ACTS['e_'+k];if(!a)return false;act={k:'e_'+k,a,t:0,dur:40};a.run.call(a);return true},
+  errand:k=>{if(errandBlocked(k))return false;const a=ACTS['e_'+k];if(!a)return false;act={k:'e_'+k,a,t:0,dur:40};a.run.call(a);return true},
   mind:()=>({live:!!MIND.live,off:!!MIND.off,busy:!!MIND.busy,thought:MIND.thought,plan:MIND.plan.slice(),hist:MIND.hist.slice(),lib:Object.keys(LIB),next:Math.round(MIND.next-now)}),think:r=>{MIND.off=0;MIND.next=0;think(r||'asked')},
   hurry:()=>{N.energy=.8;N.boredom=.4;fidgetIn=60;if(act)act.t=act.dur+1}};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
@@ -1638,6 +1852,25 @@ def _selftest() -> int:
     check("settings, home, a new chat and scrolling are its own buttons",
           [act(t, "", "sassy", call=lambda p: 1/0)["action"] for t in ("go to settings", "go home", "start a new chat", "scroll down")]
           == ["settings", "home", "new_chat", "scroll_down"])
+    r_g = reply([{"role": "user", "content": "take your glasses off"}], "", "sassy",
+                call=lambda p: '{"say":"fine.","face":"calm","gesture":"none","mood":0,"plan":[{"glasses":"off"}]}')
+    check("reply() returns the mind's plan fields when told to take glasses off",
+          r_g.get("plan") == [{"glasses": "off"}])
+    r_b = reply([{"role": "user", "content": "wear a beanie"}], "", "sassy",
+                call=lambda p: '{"say":"cozy.","face":"smug","gesture":"hips","mood":0.2,"outfit":"beanie","for":25}')
+    check("reply() accepts top-level outfit/glasses/stop fields as plan steps",
+          r_b.get("plan") == [{"outfit": "beanie", "for": 25.0}])
+    r_s = reply([{"role": "user", "content": "stop cleaning for 15 minutes"}], "", "sassy",
+                call=lambda p: '{"say":"fine, live in dust.","face":"unimpressed","gesture":"crossed","mood":0}')
+    check("reply() attaches local wish plan when the person asks to stop cleaning",
+          r_s.get("plan") == [{"stop": "dust", "for": 15.0}])
+    a_g = act("take your glasses off", "", "sassy", call=lambda p: 1/0)
+    a_b = act("wear a beanie", "", "sassy", call=lambda p: 1/0)
+    a_s = act("stop cleaning for 10 minutes", "", "sassy", call=lambda p: 1/0)
+    check("spoken wishes for glasses, outfit and stopping cleaning return answer plans",
+          a_g["kind"] == "answer" and a_g.get("plan") == [{"glasses": "off"}]
+          and a_b["kind"] == "answer" and a_b.get("plan") == [{"outfit": "beanie", "for": 20.0}]
+          and a_s["kind"] == "answer" and a_s.get("plan") == [{"stop": "dust", "for": 10.0}])
     import tempfile
     os.environ["AETHRON_HOME"] = tempfile.mkdtemp()
     seen = {}
