@@ -105,6 +105,24 @@ checked since #118 shipped.
    "Mind: on · last thought 2 min ago · N today". Then the owner can
    see it, rather than take it on trust.
 
+## FIELD LOG, 2026-11-05 11:58 UTC (read after PR #118 shipped)
+- The mind IS running now: it moved itself from the retired
+  `llama-3.1-8b-instant` to `openai/gpt-oss-20b` at 11:46.
+- Since then: 3 thoughts ok, 5 errors.
+- Every error is Groq 400 `json_validate_failed`, with an empty
+  `failed_generation`. gpt-oss in `response_format: json_object` mode
+  often returns nothing.
+- **FIX FIRST:** in `supabase/functions/aethron/ember.ts`, on
+  `json_validate_failed` ask again WITHOUT `response_format` and parse
+  the JSON out of the text. Or prefer `qwen/qwen3.8-27b` / a model that
+  holds JSON mode. Add a test to `tests/cloud`.
+- Groq models available: allam-2-7b, openai/gpt-oss-120b,
+  openai/gpt-oss-20b, qwen/qwen3.8-27b (plus guard/whisper/tts, which
+  are unusable here).
+- So about 60% of thoughts fail, a thought is asked only every 70–120s,
+  and chat cannot change behaviour. That is why the owner sees mostly
+  the built-in clean/patrol loop.
+
 ## Next tasks, in order
 1. Read the logs (point 3) and confirm thoughts succeed.
 2. Chat and voice instructions change behaviour (point 1). Add battery
