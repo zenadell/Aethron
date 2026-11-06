@@ -540,6 +540,27 @@ def _ember_mind_call(seconds):
     return cloud
 
 
+def _ember_brain(body, seconds, want_audio=False, box=None, local=True):
+    """The brain the person picked in Settings (auto / gemini / groq), with the
+    team's Groq mind and the active provider behind it. Any audio Gemini Live
+    makes lands in box["audio"]; the text still goes through Ember's checks."""
+    provider = _ember.norm_ai(body.get("ai"))
+    live = _ember.norm_live(body.get("liveMode"))
+    try:
+        cloud = _ember_mind_call(seconds)
+    except PermissionError:
+        cloud = None
+    fallback = _ember_call(seconds) if local else None
+
+    def call(p):
+        r = _ember.ember_ai_call(p, provider=provider, live_mode=live, want_audio=want_audio,
+                                 timeout=seconds, cloud=cloud, fallback=fallback)
+        if box is not None:
+            box.update(r)
+        return r["text"]
+    return call
+
+
 def voice_listener():
     global _VOICE
     try:
@@ -3437,14 +3458,21 @@ class Handler(BaseHTTPRequestHandler):
                             names = [p.name for p in PROJECTS.iterdir() if (p / "forge.json").exists()]
                         except Exception:
                             names = []
+                    want = bool(body.get("voice"))
+                    box = {}
                     out = _with_deadline(lambda: _ember.act(body.get("text") or "", body.get("state") or "",
                                                             str(body.get("attitude") or "sassy"), projects=names,
-                                                            call=_ember_call(EMBER_ACT_S)), EMBER_ACT_S + 5)
+                                                            call=_ember_brain(body, EMBER_ACT_S - 5, want, box)), EMBER_ACT_S + 5)
                     if isinstance(out, Exception):   # too slow: the words as said
                         out = dict(_ember.act_local(body.get("text") or "", names), by="local", why=str(out))
                         out.pop("unsure", None)
                 except ValueError as e:
                     return self.fail(str(e))
+                if want and isinstance(out, dict) and out.get("say"):
+                    # Gemini Live spoke the line already; otherwise Gemini TTS
+                    # voices it, and with neither the window uses its own voice
+                    out["audio"] = box.get("audio") or _ember.voice_for(out["say"], body.get("liveMode"))
+                    out["brain"] = box.get("by") or out.get("by")
                 if body.get("relay"):          # heard on the desktop: the app types it
                     EMBER_INBOX.append(out)
                     del EMBER_INBOX[:-5]
@@ -3460,10 +3488,7 @@ class Handler(BaseHTTPRequestHandler):
                 # keeps its built-in behaviour and asks again later.
                 if not _ember:
                     return self.send_json({"off": True, "retry": 3600, "why": "the companion is not available"})
-                try:
-                    call = _ember_mind_call(EMBER_MIND_S)
-                except PermissionError as e:
-                    return self.send_json({"off": True, "retry": 1800, "why": str(e)})
+                call = _ember_brain(body, EMBER_MIND_S, local=False)   # never the project AI
                 got = _with_deadline(lambda: _ember.mind(body.get("state") or {}, str(body.get("attitude") or "sassy"),
                                                          body.get("known") or [], call), EMBER_MIND_S + 3)
                 if isinstance(got, PermissionError):   # not switched on yet or resting: look again soon
@@ -3471,6 +3496,16 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"off": True, "retry": 900 if why == "resting" else 300, "why": why})
                 if isinstance(got, Exception):
                     return self.fail(str(got) or "Ember's mind did not answer")
+                self.send_json(got)
+            elif u.path == "/api/ember/tts":
+                # a line in Ember's own Gemini voice; none = the window's voice
+                if not _ember:
+                    return self.fail("the companion is not available")
+                if _ember.norm_live(body.get("liveMode")) == "groq":
+                    return self.send_json({"audio": ""})
+                got = _with_deadline(lambda: _ember.gemini_tts(str(body.get("text") or "")), 14)
+                if isinstance(got, Exception):
+                    return self.send_json({"audio": "", "why": str(got)[:200]})
                 self.send_json(got)
             elif u.path == "/api/ember/say":
                 # one line from the companion, in character, by the active
@@ -3483,7 +3518,8 @@ class Handler(BaseHTTPRequestHandler):
                 # forever. Past EMBER_SAY_S the window answers in its own
                 # words instead.
                 got = _with_deadline(lambda: _ember.reply(body.get("turns") or [], body.get("state") or "",
-                                                          str(body.get("attitude") or "sassy")), EMBER_SAY_S)
+                                                          str(body.get("attitude") or "sassy"),
+                                                          call=_ember_brain(body, EMBER_SAY_S - 4)), EMBER_SAY_S)
                 if isinstance(got, Exception):
                     return self.fail(str(got) or "the companion could not answer")
                 self.send_json(got)
@@ -16811,6 +16847,9 @@ function emberCard(){
     <div class="kv"><span>Show Ember</span><b><button class="${e.on?'primary':''}" onclick="emberSet('on',${!e.on})">${e.on?'On':'Off'}</button></b></div>
     ${e.deskAvail?`<div class="kv"><span>On your desktop</span><b><button class="${e.desktop?'primary':''}" onclick="emberSet('desktop',${!e.desktop})">${e.desktop?'Out on the desktop':'Only in this window'}</button></b></div>`:''}
     <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
+    <div class="kv"><span>Mind AI</span><b class="rowbtns">${seg('ai',[['auto','Auto'],['gemini','Gemini'],['groq','Groq']])}</b></div>
+    <div class="kv"><span>Live voice</span><b class="rowbtns">${seg('liveMode',[['gemini-3.8-live','Gemini 3.8 Live'],['gemini-3.8-live-extended-thinking','Gemini Live + thinking'],['gemini-tts','Gemini TTS'],['groq','Groq + system voice']])}</b></div>
+    <div class="hint">Mind AI writes what Ember does and says. Live voice powers talking out loud (double-click Ember): Gemini 3.8 Live answers, acts and speaks in one go and is the fastest. Whatever the AI asks for, Ember only does what its body really can.</div>
     <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
     <div class="hint" id="ember-mind-status">${esc(e.mindStatus||'Mind: off')}</div>
     ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}
