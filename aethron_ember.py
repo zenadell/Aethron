@@ -76,12 +76,15 @@ def rules(att: str) -> str:
         "tell them to ask Aethron in the chat box.\n"
         "If they seem genuinely stressed, sad or tired, drop the attitude a "
         "notch and be kind for real.\n"
-        "If they ask you to change your outfit or glasses, stop an errand "
-        "(cleaning/dusting, patrolling, or all errands), move somewhere, sit quietly, "
-        "make an expression, or perform any physical action (dance, spin, jump, bow, etc.), "
-        "include \"plan\": [steps] in your JSON so your body actually performs it:\n"
-        "  {\"steps\": [{\"t\": 0.2..3.0, \"face\": \"<face>\", \"fx\": {\"lidU\":0..1,\"lidL\":0..1,\"tilt\":-1..1,\"bH\":-.4..4,\"bT\":-.6..6,\"bL\":-.4..4,\"bR\":-.4..4,\"mw\":.05..35,\"mc\":-.8..8,\"mo\":0..1.8,\"mas\":-1..1,\"eyeS\":.6..1.5,\"pup\":.5..1.3,\"flame\":.6..1.4,\"blush\":0..1}, \"pose\": \"<pose>\", \"hands\": [[lx,ly],[rx,ry]], \"wiggle\": [amp,hz], \"hop\": 0..1, \"spin\": true, \"squash\": -1..1, \"tilt\": -1..1, \"burst\": {\"kind\":\"spark|heart|note|smoke\",\"n\":8}}]}, "
-        "{\"do\": \"<behaviour>\"}, {\"go\": \"rest|perch|chat|send|projects|top|corner|cursor|message|settings|wander|center|approach|away\" or [x,y]}, "
+        "IMPORTANT RULE: Whenever the person asks, tells, or dares you to do ANY "
+        "physical movement, trick, expression, posture, emotion, or roleplay "
+        "(e.g. dance, moonwalk, helicopter, sulk in a corner, bow, flip, shiver, "
+        "melt into a puddle, act hyper/caffeinated, sneak, wink, make a face, "
+        "change outfit/glasses, stop an errand, move somewhere, or sit still), "
+        "you may grumble or roast them in \"say\", but you MUST physically perform "
+        "it on your 60fps body rig by including a non-empty \"plan\" array in your JSON:\n"
+        "  {\"steps\": [{\"t\": 0.2..3.0, \"face\": \"<face>\", \"fx\": {\"lidU\":0..1,\"lidL\":0..1,\"tilt\":-1..1,\"bH\":-.4..4,\"bT\":-.6..6,\"bL\":-.4..4,\"bR\":-.4..4,\"mw\":.05..35,\"mc\":-.8..8,\"mo\":0..1.8,\"mas\":-1..1,\"eyeS\":.6..1.5,\"pup\":.5..1.3,\"flame\":.6..1.4,\"blush\":0..1}, \"pose\": \"<pose>\", \"hands\": [[lx,ly],[rx,ry]], \"wiggle\": [amp,hz], \"hop\": 0..1, \"spin\": true, \"squash\": -1..1, \"tilt\": -1..1, \"shake\": 0..1.5, \"scale\": 0.6..1.4, \"nudge\": -1..1, \"burst\": {\"kind\":\"spark|heart|note|smoke\",\"n\":8}}]}, "
+        "{\"do\": \"<behaviour>\"}, {\"go\": \"rest|perch|chat|send|projects|top|corner|cursor|message|settings|wander|center|approach|away|left|right|bottom\" or [x,y] in 0.05..0.95}, "
         "{\"glasses\": \"on|off|peek\"}, {\"outfit\": \"none|shades|beanie|santa|party|witch\", \"for\": minutes}, "
         "{\"stop\": \"dust|patrol|all\", \"for\": minutes}, {\"wait\": seconds, \"look\": \"viewer|cursor|away|up|down\"}, "
         "and optional \"new\": [invented behaviours].\n"
@@ -90,7 +93,7 @@ def rules(att: str) -> str:
         "\"mood\": number from -1 (they annoyed you) to 1 (they charmed you), "
         "\"name\": string or null (their name, only if they just told you), "
         "\"remember\": string or null (one short new fact about them, under "
-        "60 characters, else null), \"plan\": optional list of plan steps}")
+        "60 characters, else null), \"plan\": [physical/movement/keyframe steps]}")
 
 
 def _clean_turns(turns) -> list:
@@ -105,6 +108,13 @@ def _clean_turns(turns) -> list:
     return out
 
 
+def _top_face(v) -> str:
+    if v in FACES:
+        return v
+    f = _face_of(v)[0] if isinstance(v, str) else None
+    return f if f in FACES else "calm"
+
+
 def parse(text: str, user_text: str = "") -> dict:
     """The model's JSON, read tolerantly and checked field by field."""
     s = (text or "").strip()
@@ -116,7 +126,7 @@ def parse(text: str, user_text: str = "") -> dict:
     if not say:
         raise ValueError("the reply had nothing to say")
     out = {"say": say[:220],
-           "face": d.get("face") if d.get("face") in FACES else "calm",
+           "face": _top_face(d.get("face")),
            "gesture": d.get("gesture") if d.get("gesture") in GESTURES else "none"}
     try:
         out["mood"] = max(-1.0, min(1.0, float(d.get("mood"))))
@@ -244,14 +254,15 @@ def act_rules(att: str) -> str:
         "or steps they did not say. If they ask to fix the last problem, write "
         "a precise request naming it from STATE.\n"
         " * \"answer\": they are only talking to you (hello, how are you, a "
-        "question about you, or telling YOU to do something with your own "
-        "body/outfit/glasses/errands like 'take your glasses off', 'wear a "
-        "beanie', 'stop cleaning'). Answer in character in one short line, and "
-        "if they asked you to change your outfit, glasses, errands or behaviour, "
-        "include \"plan\": [steps] (e.g. {\"outfit\":\"none|shades|beanie|santa|"
-        "party|witch\",\"for\":minutes}, {\"glasses\":\"on|off|peek\"}, "
-        "{\"stop\":\"dust|patrol|polish|doodle|read|juggle|stargaze|workout|all\","
-        "\"for\":minutes}, {\"do\":\"<behaviour>\"}, {\"go\":\"<place>\"}) and "
+        "question about you, or asking/telling/daring YOU to do any physical trick, "
+        "movement, expression, roleplay, outfit/glasses change, or errand change like "
+        "'take your glasses off', 'wear a beanie', 'stop cleaning', 'dance for me', "
+        "'do a moonwalk', 'pretend you are a helicopter', 'sulk in the corner'). "
+        "Answer in character in one short line, and MUST include \"plan\": [steps] "
+        "(e.g. {\"go\": [x, y] or \"<place>\"}, {\"steps\": [{\"t\": 0.5, \"face\": \"...\", \"fx\": {...}, \"pose\": \"...\", \"hands\": [[lx,ly],[rx,ry]], \"hop\": 0.7, \"spin\": true}]}, "
+        "{\"outfit\":\"none|shades|beanie|santa|party|witch\",\"for\":minutes}, {\"glasses\":\"on|off|peek\"}, "
+        "{\"stop\":\"dust|patrol|polish|doodle|read|juggle|stargaze|workout|all\",\"for\":minutes}, "
+        "{\"do\":\"<behaviour>\"}, {\"wait\":seconds,\"look\":\"viewer|away|cursor\"}) and "
         "optional \"new\": [behaviours].\n"
         f"{VOICE[att]}\n"
         "Reply with ONLY one JSON object: {\"kind\": \"send\"|\"action\"|"
@@ -439,10 +450,131 @@ def _color(v) -> str:
     return v if re.fullmatch(r"#[0-9a-fA-F]{6}", v) else ""
 
 
+# Models describe what they want in their own words ("wink", "moonwalk",
+# "top_left"). The SYSTEM translates the words it recognises into the rig's
+# own primitives and drops everything else: the model proposes, the system
+# decides what the body can really do.
+_FACE_ALIAS = {
+    "wink": ("mischief", {"lidU": .95, "lidL": .2, "mc": .55, "mas": .8, "bL": .25}),
+    "smirk": ("smug", {"mas": .95, "mc": .45}),
+    "suspicious": ("sideeye", {"lidU": .62, "lidL": .38, "bL": .34, "bR": -.22, "mas": .7}),
+    "squint": ("sideeye", {"lidU": .66, "lidL": .42}),
+    "pout": ("sad", {"mw": .1, "mc": -.45, "bT": -.3, "blush": .3}),
+    "sulk": ("disappointed", {"lidU": .55, "mc": -.4, "bT": -.3, "flame": .75}),
+    "grumpy": ("glare", {"mc": -.35}), "angry": ("glare", {}), "mad": ("glare", {}),
+    "furious": ("glare", {"flame": 1.4, "bT": .6}), "scowl": ("glare", {"mc": -.4}),
+    "excited": ("joy", {"eyeS": 1.25, "flame": 1.35}), "laugh": ("joy", {"mo": 1.2, "lidL": .7}),
+    "laughing": ("joy", {"mo": 1.2, "lidL": .7}), "grin": ("happy", {"mc": .8, "mw": .3}),
+    "bored": ("unimpressed", {"lidU": .6}), "deadpan": ("unimpressed", {"mc": 0}),
+    "tired": ("sleepy", {}), "hyper": ("shocked", {"eyeS": 1.45, "pup": .55, "flame": 1.4}),
+    "crazy": ("dizzy", {"eyeS": 1.3}), "wired": ("shocked", {"eyeS": 1.45, "pup": .55}),
+    "crying": ("sad", {"lidU": .5, "mc": -.6, "mwob": 1, "flame": .65}), "cry": ("sad", {"mwob": 1, "mc": -.6}),
+    "zen": ("content", {"lidU": .92, "lidL": .3, "mc": .25}), "love": ("joy", {"blush": 1}),
+    "flirty": ("mischief", {"blush": .7, "lidU": .4}), "proud": ("haughty", {}),
+    "scared": ("worried", {"eyeS": 1.3, "pup": .6}), "confused": ("think", {"bL": .35, "bR": -.2, "tilt": .4}),
+}
+_POSE_ALIAS = {
+    "slide_backwards": ("dance", {"nudge": -.6}), "moonwalk": ("dance", {"nudge": -.6}),
+    "shimmy": ("dance", {"wiggle": [.25, 18]}), "groove": ("dance", {}), "boogie": ("dance", {}),
+    "bow": ("hands", {"squash": .5, "tilt": .4}), "curtsy": ("hands", {"squash": .45, "tilt": -.3}),
+    "melt": ("limp", {"scale": .7, "squash": .8}), "puddle": ("limp", {"scale": .65, "squash": .9}),
+    "sulk": ("crossed", {}), "slump": ("limp", {"squash": .4}), "collapse": ("limp", {"squash": .7}),
+    "faint": ("limp", {"squash": .6, "tilt": .8}), "helicopter": ("stretch", {"spin": True, "hop": .8}),
+    "spin": ("cheer", {"spin": True}), "twirl": ("cheer", {"spin": True}), "flip": ("cheer", {"spin": True, "hop": .9}),
+    "sneak": ("cover", {"squash": .3}), "tiptoe": ("cover", {"squash": .2}), "shiver": ("hands", {"shake": 1.2}),
+    "vibrating": ("flail", {"shake": 1.8}), "vibrate": ("flail", {"shake": 1.8}), "box": ("swat", {}),
+    "punch": ("swat", {"nudge": .5}), "salute": ("wave", {}), "clap": ("cheeks", {"wiggle": [.15, 20]}),
+    "meditate": ("hands", {}), "pray": ("cover", {}), "wink": ("point", {}), "fly": ("stretch", {"hop": .9}),
+}
+_GO_ALIAS = {"top_left": [.08, .1], "top_right": [.92, .1], "bottom_left": [.08, .9], "bottom_right": [.92, .9],
+             "upper_left": [.08, .1], "upper_right": [.92, .1], "lower_left": [.08, .9], "lower_right": [.92, .9],
+             "floor": [.5, .92], "ground": [.5, .92], "ceiling": [.5, .08], "middle": "center", "centre": "center",
+             "far_left": [.06, .5], "far_right": [.94, .5], "up": "top", "down": "bottom"}
+
+
+def _face_of(v):
+    """(legal face, extra dials) for whatever the model called the face."""
+    if v in MIND_FACES:
+        return v, {}
+    a = _FACE_ALIAS.get(_slug(v))
+    return (a[0], dict(a[1])) if a else (None, {})
+
+
+def _pose_of(v):
+    if v in POSE_NAMES:
+        return v, {}
+    a = _POSE_ALIAS.get(_slug(v))
+    return (a[0] if a[0] in POSE_NAMES else None, dict(a[1])) if a else (None, {})
+
+
+def _norm_go(g):
+    """A place name, an alias, [-1..1] / [0..1] / [0..100] coordinates -> a legal go target."""
+    if isinstance(g, str):
+        if g in PLACES:
+            return g
+        a = _GO_ALIAS.get(_slug(g))
+        return a if a is not None else None
+    if isinstance(g, (list, tuple)) and len(g) == 2:
+        try:
+            x, y = float(g[0]), float(g[1])
+        except (TypeError, ValueError):
+            return None
+        if x != x or y != y:
+            return None
+        if max(abs(x), abs(y)) > 1.5:          # percentages
+            x, y = x / 100.0, y / 100.0
+        elif min(x, y) < 0:                    # -1..1 around the centre
+            x, y = (x + 1) / 2, (y + 1) / 2
+        return [round(_num(x, .05, .95), 3), round(_num(y, .08, .92), 3)]
+    return None
+
+
+def _normalize_step(s):
+    """Translate the model's vocabulary to the rig's before validation."""
+    if not isinstance(s, dict):
+        return s
+    s = dict(s)
+    if "face" in s and s["face"] not in MIND_FACES:
+        f, fx = _face_of(s["face"])
+        if f:
+            s["face"] = f
+            if fx:
+                s["fx"] = dict(fx, **(s["fx"] if isinstance(s.get("fx"), dict) else {}))
+    if "pose" in s and s["pose"] not in POSE_NAMES:
+        p, extra = _pose_of(s["pose"])
+        if p:
+            s["pose"] = p
+            for k, v in extra.items():
+                s.setdefault(k, v)
+    return s
+
+
+def _split_step(s) -> list:
+    """{"go": .., "steps": .., "face": ..} -> one step per thing it asks for."""
+    if not isinstance(s, dict):
+        return [s]
+    heads = [k for k in ("go", "steps", "do", "outfit", "glasses", "stop", "say", "wait") if k in s]
+    if len(heads) <= 1:
+        return [s]
+    out = []
+    rest = {k: v for k, v in s.items() if k not in heads}
+    for k in heads:
+        st = {k: s[k]}
+        if k == "outfit" and "for" in s:
+            st["for"] = s["for"]
+        if k == "wait":
+            st.update({x: s[x] for x in ("look", "face", "fx", "pose") if x in s})
+        out.append(st)
+    if rest.get("face") or rest.get("pose") or any(k in rest for k in _INLINE_KEYS if k != "fx"):
+        out.append(rest)
+    return out
+
+
 def motion_step(s) -> dict | None:
     """One keyframe of an invented behaviour, kept only to what the body has."""
     if not isinstance(s, dict):
         return None
+    s = _normalize_step(s)
     out = {"t": _num(s.get("t", s.get("d")), .15, 4, .6)}
     if s.get("face") in MIND_FACES:
         out["face"] = s["face"]
@@ -515,17 +647,23 @@ _INLINE_KEYS = ("fx", "hands", "wiggle", "hop", "squash", "tilt", "shake", "spin
 def plan_step(s, known=None) -> dict | None:
     if not isinstance(s, dict):
         return None
+    s = _normalize_step(s)
     if isinstance(s.get("steps"), list):
         st = [m for m in (motion_step(x) for x in s["steps"][:14]) if m]
         return {"steps": st} if st else None
     if s.get("do"):
         n = _slug(s["do"])
-        return {"do": n} if (known is None or n in known) else None
-    g = s.get("go")
-    if g in PLACES:
-        return {"go": g}
-    if isinstance(g, list) and len(g) == 2 and _num(g[0], 0, 1) is not None and _num(g[1], 0, 1) is not None:
-        return {"go": [round(_num(g[0], .05, .95), 3), round(_num(g[1], .08, .92), 3)]}
+        if known is None or n in known:
+            return {"do": n}
+        p, extra = _pose_of(n)                 # "do": "moonwalk" -> a keyframe the body has
+        if p:
+            m = motion_step(dict(extra, pose=p, t=1.6))
+            return {"steps": [m]} if m else None
+        return None
+    if s.get("go") is not None:
+        g = _norm_go(s.get("go"))
+        if g is not None:
+            return {"go": g}
     if s.get("wait") is not None or s.get("still") is not None:
         w = {"wait": _num(s.get("wait", s.get("still")), 1, 90, 5)}
         if s.get("look") in LOOKS:
@@ -575,6 +713,9 @@ def _plan_from_dict(d: dict, known=None) -> tuple[list, list]:
     base_known = set(known) if known is not None else (BUILTIN_DO | {b["name"] for b in behaviours()})
     names = base_known | {b["name"] for b in new}
     raw_steps = list(d.get("plan") or []) if isinstance(d.get("plan"), list) else []
+    if isinstance(d.get("plan"), dict):
+        raw_steps = [d["plan"]]
+    raw_steps = [x for s in raw_steps for x in _split_step(s)]
     if isinstance(d.get("steps"), list) and not any(isinstance(x, dict) and "steps" in x for x in raw_steps):
         raw_steps.append({"steps": d["steps"]})
     if d.get("outfit") in OUTFITS and not any(isinstance(x, dict) and "outfit" in x for x in raw_steps):
@@ -589,7 +730,7 @@ def _plan_from_dict(d: dict, known=None) -> tuple[list, list]:
                               "for": top_stop.get("for", top_stop.get("minutes", d.get("for", 30)))})
         else:
             raw_steps.append({"stop": top_stop, "for": d.get("for", d.get("minutes", 30))})
-    if (d.get("go") in PLACES or isinstance(d.get("go"), list)) and not any(isinstance(x, dict) and "go" in x for x in raw_steps):
+    if d.get("go") is not None and _norm_go(d.get("go")) is not None and not any(isinstance(x, dict) and "go" in x for x in raw_steps):
         raw_steps.append({"go": d["go"]})
     if d.get("do") and not any(isinstance(x, dict) and "do" in x for x in raw_steps):
         raw_steps.append({"do": d["do"]})
@@ -691,7 +832,150 @@ def wish_local(text: str, att: str = "sassy") -> dict | None:
         return {"say": ("okay, I'll be over there.", "fine. going.", "gladly.")[idx], "plan": [{"go": "away"}, {"wait": 20, "look": "away"}]}
     if re.search(r"\b(?:sit\s+still|stay\s+still|just\s+sit|do\s+nothing|be\s+still)\b", t):
         return {"say": ("sitting quietly!", "fine. sitting.", "not moving a muscle.")[idx], "plan": [{"stop": "all", "for": 30}, {"wait": 25, "look": "viewer"}]}
-    return None
+    return compose_behavior(t, att)
+
+
+# Motifs the system can compose from a free-form request. Each is a few
+# keyframes over the body Ember really has; several in one sentence are
+# chained in the order they were said ("moonwalk across the screen and wink").
+_MOTIFS = [
+    ("moonwalk", r"moon\s*walk|slide\s+backwards?|glide\s+backwards?", [
+        {"t": .6, "pose": "dance", "face": "smug", "fx": {"lidU": .45, "mas": .8}, "nudge": -.7, "tilt": .25, "hum": True},
+        {"t": .6, "pose": "dance", "face": "smug", "nudge": -.7, "tilt": .3, "burst": {"kind": "note", "n": 3}},
+        {"t": .6, "pose": "dance", "face": "mischief", "nudge": -.7, "tilt": .25, "spin": True}]),
+    ("helicopter", r"helicopter|take\s*off|propell?er|chopper|lift\s*off|blast\s*off|rocket", [
+        {"t": .5, "pose": "stretch", "face": "focus", "squash": -.4, "hands": [[-2.2, -1.2], [2.2, -1.2]]},
+        {"t": .7, "pose": "stretch", "face": "joy", "spin": True, "hop": .7, "hands": [[-2.3, -1.6], [2.3, -1.6]], "burst": {"kind": "smoke", "n": 8}},
+        {"t": .7, "pose": "stretch", "face": "joy", "spin": True, "hop": 1, "hands": [[-2.3, -1.6], [2.3, -1.6]], "burst": {"kind": "spark", "n": 14, "color": "#ffd27a"}},
+        {"t": .6, "pose": "cheer", "face": "smug", "look": "viewer"}]),
+    ("sulk", r"sulk|pout|refuse\s+to\s+look|ignore\s+me|turn\s+(?:your\s+)?back|give\s+me\s+the\s+silent|grump", [
+        {"t": 1.2, "pose": "crossed", "face": "disappointed", "fx": {"mc": -.45, "bT": -.3, "flame": .75}, "look": "away", "squash": .2},
+        {"t": 2.4, "pose": "crossed", "face": "haughty", "look": "away", "tilt": -.3},
+        {"t": 1.4, "pose": "crossed", "face": "sideeye", "look": "viewer", "fx": {"lidU": .6}}]),
+    ("espresso", r"espresso|coffee|caffein|hyper|sugar\s+rush|energy\s+drink|vibrat|jitter|glitch|zoom\s+around", [
+        {"t": .4, "pose": "flail", "face": "shocked", "fx": {"eyeS": 1.45, "pup": .55, "flame": 1.4}, "shake": 2, "hop": .5},
+        {"t": .4, "pose": "flail", "face": "joy", "shake": 2, "nudge": .8, "burst": {"kind": "spark", "n": 12, "color": "#fff2a8"}},
+        {"t": .4, "pose": "flail", "face": "shocked", "shake": 2, "nudge": -.8, "hop": .6},
+        {"t": .5, "pose": "cheer", "face": "dizzy", "spin": True, "shake": 1.5},
+        {"t": .8, "pose": "tap", "face": "shocked", "fx": {"eyeS": 1.4}, "shake": 1, "say": "I CAN SEE SOUNDS"}]),
+    ("melt", r"melt|puddle|collapse|play\s+dead|faint|pass\s+out|die\b|dramatic(?:ally)?\s+(?:fall|drop)", [
+        {"t": .6, "pose": "facepalm", "face": "worried", "fx": {"flame": .85}, "tilt": .3},
+        {"t": 1.0, "pose": "limp", "face": "sad", "fx": {"flame": .65, "mwob": 1}, "scale": .8, "squash": .6},
+        {"t": 1.6, "pose": "limp", "face": "asleep", "fx": {"flame": .6, "bright": .85}, "scale": .62, "squash": .95, "burst": {"kind": "smoke", "n": 6}},
+        {"t": .8, "pose": "rest", "face": "calm", "scale": 1, "hop": .3}]),
+    ("sneak", r"sneak|tip\s*toe|spy|stealth|ninja|creep", [
+        {"t": .9, "pose": "cover", "face": "mischief", "fx": {"lidU": .5}, "squash": .3, "nudge": .4, "look": "left"},
+        {"t": .9, "pose": "peek", "face": "mischief", "squash": .3, "nudge": .4, "look": "right"},
+        {"t": 1.0, "pose": "cover", "face": "sideeye", "look": "viewer", "fx": {"lidU": .62}}]),
+    ("bow", r"\bbow\b|curtsy|royal|majest|take\s+a\s+bow|like\s+a\s+(?:king|queen|prince)", [
+        {"t": .6, "pose": "hips", "face": "haughty", "look": "viewer"},
+        {"t": 1.0, "pose": "hands", "face": "content", "squash": .5, "tilt": .45, "fx": {"lidU": .8}},
+        {"t": .8, "pose": "wave", "face": "smug", "look": "viewer", "burst": {"kind": "spark", "n": 10, "color": "#ffe08a"}}]),
+    ("fight", r"shadow\s*box|box(?:ing)?\b|fight|karate|kung\s*fu|punch|kick|martial", [
+        {"t": .35, "pose": "swat", "face": "glare", "nudge": .6, "hands": [[-.6, -.2], [2.2, -.3]]},
+        {"t": .35, "pose": "swat", "face": "glare", "nudge": -.3, "hands": [[-2.2, -.3], [.6, -.2]]},
+        {"t": .45, "pose": "swat", "face": "glare", "hop": .6, "spin": True, "burst": {"kind": "spark", "n": 10, "color": "#ff9a5a"}},
+        {"t": .8, "pose": "hips", "face": "smug", "look": "viewer"}]),
+    ("cry", r"\bcry|sob|weep|tears|be\s+sad", [
+        {"t": 1.2, "pose": "cover", "face": "sad", "fx": {"mwob": 1, "flame": .7}, "shake": .5},
+        {"t": 1.2, "pose": "peek", "face": "sad", "look": "viewer", "fx": {"mwob": 1}}]),
+    ("laugh", r"laugh|giggle|lol|crack\s+up|chuckle", [
+        {"t": .5, "pose": "cheeks", "face": "joy", "fx": {"mo": 1.2, "lidL": .7}, "shake": 1, "hop": .3},
+        {"t": .6, "pose": "facepalm", "face": "joy", "fx": {"mo": 1}, "shake": 1.2, "tilt": .4},
+        {"t": .6, "pose": "hands", "face": "happy", "look": "viewer"}]),
+    ("zen", r"meditat|zen|breathe|calm\s+down|yoga|om\b", [
+        {"t": 1.6, "pose": "hands", "face": "content", "fx": {"lidU": .95, "lidL": .3, "flame": .85}, "hum": True},
+        {"t": 2.0, "pose": "hands", "face": "content", "fx": {"lidU": .95, "flame": 1.05}, "glow": 1.25, "scale": 1.08},
+        {"t": 1.4, "pose": "hands", "face": "calm", "scale": 1}]),
+    ("shiver", r"shiver|freez|cold|snow|winter|brr", [
+        {"t": .9, "pose": "hands", "face": "worried", "fx": {"flame": .7, "bright": .85}, "shake": 1.6, "scale": .85},
+        {"t": .9, "pose": "rub", "face": "worried", "shake": 1.2, "scale": .85},
+        {"t": .6, "pose": "rest", "face": "calm", "scale": 1}]),
+    ("wink", r"\bwink|flirt|blow\s+(?:me\s+)?a\s+kiss|kiss", [
+        {"t": .4, "pose": "hips", "face": "smug", "look": "viewer"},
+        {"t": 1.0, "pose": "point", "face": "mischief", "look": "viewer", "fx": {"lidU": .1, "lidL": .2, "mc": .6, "mas": .9, "blush": .6}, "tilt": .3, "burst": {"kind": "heart", "n": 3}},
+        {"t": .5, "pose": "hips", "face": "smug", "look": "viewer"}]),
+    ("angry", r"angry|mad\b|rage|furious|tantrum|explode", [
+        {"t": .5, "pose": "flail", "face": "glare", "fx": {"flame": 1.4}, "shake": 1.6, "burst": {"kind": "smoke", "n": 8}},
+        {"t": 1.0, "pose": "crossed", "face": "glare", "fx": {"flame": 1.35}, "scale": 1.2, "burst": {"kind": "spark", "n": 14, "color": "#ff5a3a"}},
+        {"t": .6, "pose": "crossed", "face": "unimpressed", "scale": 1}]),
+    ("sleep", r"go\s+to\s+sleep|take\s+a\s+nap|sleep\b|snore", [
+        {"t": .8, "pose": "stretch", "face": "yawn"},
+        {"t": 3.0, "pose": "limp", "face": "asleep", "burst": {"kind": "z", "n": 3}, "squash": .2}]),
+    ("wave", r"\bwave\b|say\s+hi|greet", [
+        {"t": 1.4, "pose": "wave", "face": "joy", "look": "viewer", "hop": .3}]),
+    ("grow", r"\bgrow|get\s+(?:big|bigger|huge)|giant", [
+        {"t": 1.2, "pose": "cheer", "face": "joy", "scale": 1.55, "glow": 1.3},
+        {"t": .8, "pose": "hips", "face": "smug", "scale": 1}]),
+    ("shrink", r"shrink|get\s+(?:small|smaller|tiny)|tiny", [
+        {"t": 1.2, "pose": "cover", "face": "shy", "scale": .62},
+        {"t": .8, "pose": "rest", "face": "calm", "scale": 1}]),
+]
+_WHERE = [  # (pattern, go target)
+    (r"top[\s-]*left|upper[\s-]*left", [.08, .1]), (r"top[\s-]*right|upper[\s-]*right", [.92, .1]),
+    (r"bottom[\s-]*left|lower[\s-]*left", [.08, .9]), (r"bottom[\s-]*right|lower[\s-]*right", [.92, .9]),
+    (r"\bcorner\b", "corner"), (r"\b(?:center|centre|middle)\b", "center"),
+    (r"\bacross\s+the\s+screen\b|\bacross\b", "across"), (r"\bthe\s+(?:floor|ground)\b|\bon\s+the\s+floor\b", [.5, .92]),
+    (r"\btop\b|\bceiling\b", "top"), (r"\bbottom\b", "bottom"), (r"\bleft\b", "left"), (r"\bright\b", "right"),
+    (r"\bto\s+me\b|\bcloser\b|\bover\s+here\b", "approach"),
+]
+_ASK = re.compile(r"\b(?:do|act|pretend|show|perform|try|be|make|go|dance|imitate|impression|move|fly|sulk|melt|"
+                  r"moonwalk|wink|sneak|bow|laugh|cry|spin|meditate|shiver|fight|box|sleep|grow|shrink|wave|"
+                  r"like|as\s+if|you\s+are|you're)\b")
+
+
+_SITE = re.compile(r"\b(?:site|website|page|pages|hero|button|section|logo|header|footer|nav|navbar|menu|headline|"
+                   r"heading|text|copy|image|images|photo|colou?r|font|template|project|publish|deploy|layout|"
+                   r"banner|form|link|links|css|html|component|card|grid|column|padding|margin|aethron)\b")
+_MOVE = re.compile(r"\b(?:go|fly|move|float|head|zoom|drift|sit|hide|run|dash|wander)\b")
+
+
+def compose_behavior(text: str, att: str = "sassy") -> dict | None:
+    """A free-form physical request -> real keyframes, chained from motifs the
+    body can do, at the place asked for. None when nothing physical was asked
+    of Ember itself (a request about the website is never taken)."""
+    t = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not t or not _ASK.search(t) or _SITE.search(t):
+        return None
+    idx = {"sweet": 0, "sassy": 1, "savage": 2}.get(att, 1)
+    hits = []
+    for name, pat, steps in _MOTIFS:
+        m = re.search(pat, t)
+        if m:
+            hits.append((m.start(), name, steps))
+    hits.sort()
+    plan = []
+    if hits or _MOVE.search(t):
+        for pat, where in _WHERE:
+            if re.search(pat, t):
+                if where == "across":
+                    plan.append({"go": [.12, .5]})
+                    where = [.88, .5]
+                plan.append({"go": where})
+                break
+    if not hits and not plan:
+        return None
+    frames = []
+    for _, _, steps in hits[:3]:
+        frames.extend(dict(s) for s in steps)
+    if frames:
+        plan.append({"steps": frames[:14]})
+    if hits and hits[0][1] == "sulk" and any("go" in p for p in plan):
+        plan.append({"wait": 14, "look": "away", "face": "haughty", "pose": "crossed"})
+    names = [h[1] for h in hits]
+    lines = {
+        "moonwalk": ("smooth, right?", "smooth as fire.", "bow down."), "helicopter": ("liftoff!", "whup whup whup.", "clear the runway, peasant."),
+        "sulk": ("hmph.", "I'm not talking to you.", "don't look at me."), "espresso": ("wheee!", "I am VIBRATING.", "I can taste colours."),
+        "melt": ("oh nooo…", "I'm melting. how dramatic.", "tell my story."), "sneak": ("shh!", "you didn't see me.", "ninja mode."),
+        "bow": ("thank you, thank you!", "you may applaud.", "kneel."), "fight": ("hi-yah!", "come at me.", "I'll end you."),
+        "cry": ("sniff…", "I'm fine. I'm FINE.", "this is your fault."), "laugh": ("hehehe!", "ha. good one.", "HA. pathetic."),
+        "zen": ("ommm…", "inner peace. achieved.", "ommm. leave me."), "shiver": ("brrr!", "I'm a FIRE. how am I cold.", "who opened a window."),
+        "wink": ("😉", "you're welcome.", "try not to swoon."), "angry": ("grr!", "I'm fuming. literally.", "RAGE."),
+        "sleep": ("night night…", "zzz. don't wake me.", "zzz. go away."), "wave": ("hiii!", "hey.", "sup."),
+        "grow": ("big me!", "behold.", "fear me."), "shrink": ("tiny me!", "smol.", "don't step on me."),
+    }
+    say = lines[names[0]][idx] if names else ("on my way!", "going.", "fine. moving.")[idx]
+    return {"say": say, "plan": plan[:MIND_MAX_STEPS], "composed": names}
 
 
 def mind_rules(att: str, known: list) -> str:
@@ -796,6 +1080,376 @@ def mind(perceived, att: str, known, call) -> dict:
     return out
 
 
+# ---------------------------------------------------------------- voices and brains
+# The person picks which AI writes Ember's behaviour (Groq through the team's
+# mind, their own Gemini key, or auto) and what powers live conversation
+# (Gemini Live, Gemini Live with thinking, Gemini TTS, or Groq + the system
+# voice). Whatever answers, its words go through the same parse/plan checks:
+# the model proposes, the system decides. Pure stdlib, so the frozen app
+# needs nothing extra.
+AI_CHOICES = ("auto", "gemini", "groq")
+LIVE_MODES = ("gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-tts", "groq")
+GEMINI_TEXT_MODELS = ("gemini-3.8-flash", "gemini-2.5-flash")
+GEMINI_TTS_MODELS = ("gemini-3.8-flash-tts", "gemini-2.5-flash-preview-tts")
+GEMINI_VOICE = "Puck"
+_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
+_LIVE_HOST = "generativelanguage.googleapis.com"
+_LIVE_PATH = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+BEHAVE_TOOL = {
+    "name": "ember_behave",
+    "description": ("Make Ember's body actually do something. ALWAYS call this exactly once per turn with your "
+                    "whole answer as the JSON object the rules describe (say, face, plan with concrete keyframes, ...). "
+                    "The app's system validates it and performs what Ember's body can really do."),
+    "parameters": {"type": "OBJECT", "properties": {
+        "reply_json": {"type": "STRING", "description": "The complete JSON object answer, exactly as the rules describe."}},
+        "required": ["reply_json"]},
+}
+
+
+def norm_ai(v) -> str:
+    return v if v in AI_CHOICES else "auto"
+
+
+def norm_live(v) -> str:
+    return v if v in LIVE_MODES else "gemini-3.8-live"
+
+
+def gemini_keys() -> list:
+    keys = [k.strip() for k in (os.environ.get("GEMINI_API_KEY") or "").split(",") if k.strip()]
+    try:
+        import aethron_brain
+        keys += [k for k in aethron_brain.profile_keys("gemini") if k not in keys]
+    except Exception:
+        pass
+    return keys
+
+
+def groq_keys() -> list:
+    keys = [k.strip() for k in (os.environ.get("GROQ_API_KEY") or "").split(",") if k.strip()]
+    try:
+        import aethron_brain
+        keys += [k for k in aethron_brain.profile_keys("groq") if k not in keys]
+    except Exception:
+        pass
+    return keys
+
+
+def pcm_to_wav(pcm: bytes, rate: int = 24000) -> bytes:
+    import struct
+    n = len(pcm)
+    return (b"RIFF" + struct.pack("<I", 36 + n) + b"WAVEfmt " +
+            struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16) + b"data" + struct.pack("<I", n) + pcm)
+
+
+def _data_url(wav: bytes) -> str:
+    import base64
+    return "data:audio/wav;base64," + base64.b64encode(wav).decode()
+
+
+def _post_json(url: str, body: dict, timeout: float, headers=None) -> dict:
+    import urllib.request
+    import urllib.error
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers=dict({"Content-Type": "application/json"}, **(headers or {})))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read().decode()).get("error", {})
+            msg = msg.get("message") if isinstance(msg, dict) else msg
+        except Exception:
+            msg = ""
+        err = PermissionError if e.code in (401, 403, 429) else RuntimeError
+        raise err(f"{e.code} {msg or e.reason}"[:300])
+
+
+def _as_text(msgs_or_prompt) -> tuple[str, str]:
+    """(system text, user text) from a prompt string or chat messages."""
+    if isinstance(msgs_or_prompt, str):
+        return "", msgs_or_prompt
+    sys_t = "\n\n".join(m.get("content", "") for m in msgs_or_prompt if m.get("role") == "system")
+    usr = "\n\n".join(m.get("content", "") for m in msgs_or_prompt if m.get("role") != "system")
+    return sys_t, usr
+
+
+def gemini_http_call(msgs_or_prompt, model: str = "", max_tokens: int = 900, timeout: float = 12.0) -> str:
+    keys = gemini_keys()
+    if not keys:
+        raise PermissionError("no Gemini key saved")
+    sys_t, usr = _as_text(msgs_or_prompt)
+    body = {"contents": [{"role": "user", "parts": [{"text": usr}]}],
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 1.0, "responseMimeType": "application/json"}}
+    if sys_t:
+        body["systemInstruction"] = {"parts": [{"text": sys_t}]}
+    last = None
+    for m in ([model] if model else list(GEMINI_TEXT_MODELS)):
+        for k in keys[:4]:
+            try:
+                j = _post_json(f"{_GEMINI_BASE}/models/{m}:generateContent", body, timeout, {"x-goog-api-key": k})
+                parts = ((j.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+                txt = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+                if txt.strip():
+                    return txt
+                last = RuntimeError("Gemini returned nothing")
+            except Exception as e:  # noqa: BLE001 — next key / model
+                last = e
+    raise last or RuntimeError("Gemini did not answer")
+
+
+def gemini_tts(text: str, voice_name: str = GEMINI_VOICE, timeout: float = 12.0) -> dict:
+    """A line in Ember's voice -> {"audio": data:audio/wav;base64,..., "model": ...}."""
+    import base64
+    text = str(text or "").strip()[:400]
+    if not text:
+        raise ValueError("nothing to say")
+    keys = gemini_keys()
+    if not keys:
+        raise PermissionError("no Gemini key saved")
+    body = {"contents": [{"parts": [{"text": "Say it like a small, sassy, playful fire spirit: " + text}]}],
+            "generationConfig": {"responseModalities": ["AUDIO"],
+                                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}}}}
+    last = None
+    for m in GEMINI_TTS_MODELS:
+        for k in keys[:3]:
+            try:
+                j = _post_json(f"{_GEMINI_BASE}/models/{m}:generateContent", body, timeout, {"x-goog-api-key": k})
+                for p in ((j.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []:
+                    d = p.get("inlineData") or {}
+                    if d.get("data"):
+                        raw = base64.b64decode(d["data"])
+                        mt = str(d.get("mimeType") or "")
+                        if "wav" not in mt and not raw[:4] == b"RIFF":
+                            rm = re.search(r"rate=(\d+)", mt)
+                            raw = pcm_to_wav(raw, int(rm.group(1)) if rm else 24000)
+                        return {"audio": _data_url(raw), "model": m}
+                last = RuntimeError("no audio came back")
+            except Exception as e:  # noqa: BLE001
+                last = e
+    raise last or RuntimeError("Gemini TTS did not answer")
+
+
+class _WS:
+    """The smallest WebSocket client that speaks to Gemini Live (TLS, client
+    masking, fragmentation, ping/pong, close)."""
+
+    def __init__(self, host, path, timeout):
+        import socket
+        import ssl
+        import base64
+        raw = socket.create_connection((host, 443), timeout=timeout)
+        self.s = ssl.create_default_context().wrap_socket(raw, server_hostname=host)
+        self.s.settimeout(timeout)
+        key = base64.b64encode(os.urandom(16)).decode()
+        self.s.sendall((f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                        f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n").encode())
+        head = b""
+        while b"\r\n\r\n" not in head:
+            c = self.s.recv(4096)
+            if not c:
+                raise ConnectionError("Gemini Live closed the connection")
+            head += c
+        head, self.buf = head.split(b"\r\n\r\n", 1)
+        if b" 101 " not in head.split(b"\r\n", 1)[0]:
+            raise ConnectionError("Gemini Live refused: " + head.split(b"\r\n", 1)[0].decode(errors="replace"))
+
+    def _read(self, n):
+        while len(self.buf) < n:
+            c = self.s.recv(65536)
+            if not c:
+                raise EOFError("closed")
+            self.buf += c
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def send(self, obj, op=1):
+        import struct
+        data = json.dumps(obj).encode() if not isinstance(obj, bytes) else obj
+        n = len(data)
+        hdr = bytes([0x80 | op])
+        hdr += bytes([0x80 | n]) if n < 126 else (bytes([0x80 | 126]) + struct.pack(">H", n) if n < 65536 else bytes([0x80 | 127]) + struct.pack(">Q", n))
+        mask = os.urandom(4)
+        self.s.sendall(hdr + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+    def recv(self):
+        import struct
+        msg = b""
+        while True:
+            b1, b2 = self._read(2)
+            op, n = b1 & 0x0F, b2 & 0x7F
+            if n == 126:
+                n = struct.unpack(">H", self._read(2))[0]
+            elif n == 127:
+                n = struct.unpack(">Q", self._read(8))[0]
+            mask = self._read(4) if b2 & 0x80 else None
+            data = self._read(n)
+            if mask:
+                data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
+            if op == 8:
+                raise EOFError("closed: " + data[2:].decode(errors="replace"))
+            if op == 9:
+                self.send(data, op=10)
+                continue
+            if op == 10:
+                continue
+            msg += data
+            if b1 & 0x80:
+                return json.loads(msg.decode() or "{}")
+
+    def close(self):
+        try:
+            self.send(b"", op=8)
+            self.s.close()
+        except Exception:
+            pass
+
+
+def gemini_live_call(prompt_text: str, sys_text: str = "", mode: str = "gemini-3.8-live", want_audio: bool = True,
+                     voice_name: str = GEMINI_VOICE, timeout: float = 16.0) -> dict:
+    """One turn over Gemini Live: the model answers through the ember_behave
+    tool (its whole JSON answer) and speaks its line in native audio.
+    -> {"text": the tool's JSON or "", "audio": data URL or "", "transcript", "tool": bool, "model"}"""
+    import base64
+    import time
+    keys = gemini_keys()
+    if not keys:
+        raise PermissionError("no Gemini key saved")
+    model = "gemini-3.8-live-extended-thinking" if mode == "gemini-3.8-live-extended-thinking" else "gemini-3.8-live"
+    gen = {"responseModalities": ["AUDIO"],
+           "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}}}
+    if model.endswith("extended-thinking"):
+        gen["thinkingConfig"] = {"thinkingLevel": "LOW"}
+    sys_full = (sys_text + "\n\n" if sys_text else "") + (
+        "You are speaking out loud as Ember. In EVERY turn: first call the ember_behave tool exactly once with your "
+        "complete JSON answer (with a concrete \"plan\" whenever any movement, expression or trick is asked for), "
+        "then say your short line out loud in character. Never claim to do something without calling the tool.")
+    last = None
+    for k in keys[:3]:
+        ws = None
+        try:
+            deadline = time.time() + timeout
+            ws = _WS(_LIVE_HOST, f"{_LIVE_PATH}?key={k}", timeout=min(8.0, timeout))
+            ws.send({"setup": {"model": "models/" + model, "generationConfig": gen,
+                               "systemInstruction": {"parts": [{"text": sys_full}]},
+                               "tools": [{"functionDeclarations": [BEHAVE_TOOL]}],
+                               "outputAudioTranscription": {}}})
+            while "setupComplete" not in ws.recv():
+                if time.time() > deadline:
+                    raise TimeoutError("Gemini Live did not set up")
+            ws.send({"clientContent": {"turns": [{"role": "user", "parts": [{"text": prompt_text}]}], "turnComplete": True}})
+            pcm, words, tool_json, answered = b"", [], "", 0
+            while time.time() < deadline:
+                ws.s.settimeout(max(.5, deadline - time.time()))
+                try:
+                    m = ws.recv()
+                except (TimeoutError, OSError, EOFError):
+                    if tool_json or pcm:
+                        break
+                    raise
+                tc = m.get("toolCall")
+                if tc:
+                    resp = []
+                    for fc in tc.get("functionCalls") or []:
+                        a = fc.get("args") or {}
+                        if fc.get("name") == "ember_behave" and not tool_json:
+                            tool_json = a.get("reply_json") if isinstance(a.get("reply_json"), str) else json.dumps(a)
+                        resp.append({"id": fc.get("id"), "name": fc.get("name"),
+                                     "response": {"result": "ok: the system is performing it now. Say your line."}})
+                    ws.send({"toolResponse": {"functionResponses": resp}})
+                    answered = 1
+                sc = m.get("serverContent") or {}
+                for p in (sc.get("modelTurn") or {}).get("parts") or []:
+                    d = p.get("inlineData") or {}
+                    if d.get("data") and want_audio:
+                        pcm += base64.b64decode(d["data"])
+                    if p.get("text") and not p.get("thought"):
+                        words.append(p["text"])
+                tr = (sc.get("outputTranscription") or {}).get("text")
+                if tr:
+                    words.append(tr)
+                if sc.get("turnComplete"):
+                    if pcm or (tool_json and not want_audio):
+                        break
+                    # the tool call ended the first turn; the spoken line follows
+            if not tool_json and not pcm:
+                raise RuntimeError("Gemini Live gave nothing back")
+            return {"text": tool_json or "", "audio": _data_url(pcm_to_wav(pcm)) if pcm else "",
+                    "transcript": "".join(words).strip(), "tool": bool(tool_json), "model": model}
+        except Exception as e:  # noqa: BLE001 — try the next key
+            last = e
+        finally:
+            if ws:
+                ws.close()
+    raise last or RuntimeError("Gemini Live did not answer")
+
+
+def groq_call(msgs_or_prompt, max_tokens: int = 900, timeout: float = 12.0, cloud=None) -> str:
+    """Groq: the person's own key when they have one, else the team's mind (cloud)."""
+    keys = groq_keys()
+    msgs = msgs_or_prompt if isinstance(msgs_or_prompt, list) else [{"role": "user", "content": msgs_or_prompt}]
+    last = None
+    for k in keys[:3]:
+        try:
+            j = _post_json("https://api.groq.com/openai/v1/chat/completions",
+                           {"model": "llama-3.3-70b-versatile", "messages": msgs, "max_tokens": max_tokens,
+                            "temperature": 1.0, "response_format": {"type": "json_object"}},
+                           timeout, {"Authorization": "Bearer " + k})
+            return j["choices"][0]["message"]["content"]
+        except Exception as e:  # noqa: BLE001
+            last = e
+    if cloud:
+        return cloud(msgs)
+    raise last or PermissionError("no Groq key saved and the team's mind is not reachable")
+
+
+def ember_ai_call(msgs_or_prompt, provider: str = "auto", live_mode: str = "gemini-3.8-live", want_audio: bool = False,
+                  timeout: float = 15.0, max_tokens: int = 900, cloud=None, fallback=None) -> dict:
+    """The brain the person chose -> {"text", "audio", "by", "model"}.
+    `cloud(msgs)` is the team's Groq mind, `fallback(prompt)` the active provider.
+    With want_audio, Gemini Live answers and speaks in one turn; Gemini TTS
+    voices the line after; groq leaves the voice to the window."""
+    provider, live_mode = norm_ai(provider), norm_live(live_mode)
+    sys_t, usr = _as_text(msgs_or_prompt)
+    if want_audio and live_mode.startswith("gemini-3.8-live") and provider != "groq" and gemini_keys():
+        try:
+            r = gemini_live_call(usr, sys_t, mode=live_mode, want_audio=True, timeout=timeout)
+            text = r["text"] or (json.dumps({"say": r["transcript"], "kind": "answer"}) if r["transcript"] else "")
+            if text:
+                return {"text": text, "audio": r["audio"], "by": "gemini-live", "model": r["model"],
+                        "tool": r["tool"], "transcript": r["transcript"]}
+        except Exception:
+            pass   # fall through to text, then a voice
+    order = {"gemini": ("gemini", "groq", "local"), "groq": ("groq", "gemini", "local"),
+             "auto": ("gemini", "groq", "local") if gemini_keys() else ("groq", "local")}[provider]
+    text, by, last = "", "", None
+    for p in order:
+        try:
+            if p == "gemini":
+                text = gemini_http_call(msgs_or_prompt, max_tokens=max_tokens, timeout=min(timeout, 14))
+            elif p == "groq":
+                text = groq_call(msgs_or_prompt, max_tokens=max_tokens, timeout=min(timeout, 14), cloud=cloud)
+            elif fallback:
+                text = fallback(usr if not sys_t else sys_t + "\n\n" + usr)
+            if text:
+                by = p
+                break
+        except Exception as e:  # noqa: BLE001 — next brain
+            last = e
+    if not text:
+        raise last or PermissionError("no mind switched on")
+    return {"text": text, "audio": "", "by": by, "model": ""}
+
+
+def voice_for(say: str, live_mode: str) -> str:
+    """Server-side audio for a line, or "" (the window then uses its own voice)."""
+    if norm_live(live_mode) == "groq" or not str(say or "").strip() or not gemini_keys():
+        return ""
+    try:
+        return gemini_tts(say)["audio"]
+    except Exception:
+        return ""
+
+
 EMBER_JS = r"""
 /* Ember: Aethron's companion. One canvas over the window, pointer-events
    off; a press on Ember itself is taken before the page sees it, nothing
@@ -803,7 +1457,7 @@ EMBER_JS = r"""
 (()=>{
 if(window.ember)return;
 const qs=location.search||'';
-let CFG={on:true,att:'sassy',fit:'auto'};
+let CFG={on:true,att:'sassy',fit:'auto',ai:'auto',liveMode:'gemini-3.8-live'};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem('ember_cfg')||'{}'))}catch(_){}
 const DESK=location.pathname==='/ember-desk';
 const forced=/[?&]ember=1/.test(qs)||DESK;
@@ -1223,9 +1877,10 @@ function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='
     screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
 function think(reason){if(MIND.busy)return;
   const hr=Date.now()-3600000;MIND.hour=MIND.hour.filter(t=>t>hr);
+  MIND.perHour=CFG.ai==='groq'?40:150;
   if(MIND.hour.length>=MIND.perHour){MIND.live=0;MIND.off=1;MIND.why='resting';MIND.retry=now+900;if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard();return}
   MIND.busy=1;MIND.lastAsk=now;MIND.hour.push(Date.now());
-  post('/api/ember/mind',{state:perceive(reason||'time'),attitude:ATT(),known:known()}).then(r=>{
+  post('/api/ember/mind',{state:perceive(reason||'time'),attitude:ATT(),known:known(),ai:CFG.ai,liveMode:CFG.liveMode}).then(r=>{
     if(r.off){MIND.live=0;MIND.off=1;MIND.why=r.why||'off';MIND.retry=now+(r.retry||1800);MIND.plan=[];if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard();return}
     for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
     const wasLive=MIND.live;MIND.live=1;MIND.off=0;MIND.why='';MIND.fail=0;if(!wasLive)ACTS_LOG.length=0;
@@ -1235,7 +1890,7 @@ function think(reason){if(MIND.busy)return;
     MIND.hist.push((r.thought||'')+(r.new&&r.new.length?' (invented '+r.new.map(b=>b.name).join(', ')+')':''));MIND.hist=MIND.hist.slice(-6);
     if(r.remember){const f=CHAT.mem.facts||(CHAT.mem.facts=[]);if(!f.includes(r.remember)){f.push(r.remember);CHAT.mem.facts=f.slice(-6);saveMem()}}
     if(act&&(act.k==='mind_wait'||act.by!=='mind'||(!SEQ&&!act.a.errand&&!act.a.mind&&!act.a.nap))){if(act.by!=='mind'&&act.a&&act.a.errand){SEQ=null;GRIME=null}act.t=act.dur+1}
-    MIND.next=now+2}).catch(e=>{MIND.fail++;MIND.next=now+Math.min(900,15*Math.pow(2,MIND.fail));if(MIND.fail>=3){MIND.live=0;if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard()}}).finally(()=>{MIND.busy=0})}
+    MIND.next=now+2+Math.pow(MIND.hour.length/Math.max(1,MIND.perHour),2)*30}).catch(e=>{MIND.fail++;MIND.next=now+Math.min(900,15*Math.pow(2,MIND.fail));if(MIND.fail>=3){MIND.live=0;if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard()}}).finally(()=>{MIND.busy=0})}
 function mindActive(){return now<300||now-cur.t<300||now-MIND.key<300||now-(CHAT.typing||-99)<300}
 function mindIdle(){
   const hr=Date.now()-3600000;MIND.hour=MIND.hour.filter(t=>t>hr);
@@ -1447,7 +2102,7 @@ async function send(){const t=tin.value.trim().slice(0,300);if(!t||CHAT.busy)ret
   CHAT.turns.push({role:'user',content:t});CHAT.busy=1;E.FT=face('think');say('',99,{dots:1});
   let r=null;
   /* a reply is never waited on forever: past 24s Ember answers in its own words */
-  if(!CHAT.offline){try{r=await Promise.race([(typeof api==='function'?api:post)('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT()}),
+  if(!CHAT.offline){try{r=await Promise.race([(typeof api==='function'?api:post)('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT(),ai:CFG.ai,liveMode:CFG.liveMode}),
       new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),24000))])}catch(e){r=null;const m=String(e&&e.message||'');if(/not configured|no key|save your key|402|403/i.test(m))CHAT.offline=1;if(m==='slow')CHAT.slow=(CHAT.slow||0)+1}}
   if(!r||typeof r.say!=='string'||!r.say.trim())r=localReply(t);
   else if(!Array.isArray(r.plan)||!r.plan.length){const w=localWish(t);if(w&&w.plan)r.plan=w.plan}
@@ -1588,16 +2243,29 @@ async function perform(r){if(!r||DRV.on)return false;
 const STOP_WORDS=/^(?:ok(?:ay)?[, ]*)?(?:stop(?: listening)?|bye|goodbye|good night|that'?s all|that is all|we'?re done|i'?m done|thanks,? that'?s it|nothing|never ?mind|end(?: the)? conversation)[.!]*$/i;
 function converse(){if(V.conv){endConv(L(['okay, talk later!','okay. bye.','finally. bye.']));return}
   if(DRV.on)return;V.conv=1;V.quiet=0;listen()}
-function endConv(line){V.conv=0;V.quiet=0;try{window.speechSynthesis&&speechSynthesis.cancel()}catch(_){}
+function endConv(line){V.conv=0;V.quiet=0;try{window.speechSynthesis&&speechSynthesis.cancel();VOICE_EL&&VOICE_EL.pause()}catch(_){}
   if(V.state==='listening'||V.state==='asking')stopListen(1);if(line)play([{d:readTime(line),face:'calm',look:'viewer',say:line}])}
-function speakAloud(t){return new Promise(res=>{t=String(t||'').trim();let s;try{s=window.speechSynthesis}catch(_){}
-  if(!t||!s||!window.SpeechSynthesisUtterance||REDUCE_VOICE())return res();
+/* Ember's voice: the audio Gemini Live (or Gemini TTS) made for this line,
+   with the mouth moving to its loudness; the system voice when there is none */
+let VOICE_EL=null;const VLOG=[];
+function playAudio(src){return new Promise(res=>{let done=0;const fin=()=>{if(done)return;done=1;clearInterval(iv);E.flapT=0;res(true)};
+  let a,iv=0;try{a=new Audio(src);VOICE_EL=a}catch(_){return res(false)}
+  let an=null,buf=null;try{const AC=window.AudioContext||window.webkitAudioContext;if(AC){const ac=playAudio.ac||(playAudio.ac=new AC());const s=ac.createMediaElementSource(a);an=ac.createAnalyser();an.fftSize=256;s.connect(an);an.connect(ac.destination);buf=new Uint8Array(an.fftSize);if(ac.state==='suspended')ac.resume()}}catch(_){an=null}
+  iv=setInterval(()=>{if(an){an.getByteTimeDomainData(buf);let m=0;for(const v of buf)m=Math.max(m,Math.abs(v-128));E.flapT=cl(m/48,0,1)}else E.flapT=.25+.5*Math.abs(Math.sin(performance.now()/90))},50);
+  a.onended=fin;a.onerror=()=>{done=1;clearInterval(iv);E.flapT=0;res(false)};
+  a.play().catch(()=>{done=1;clearInterval(iv);E.flapT=0;res(false)});setTimeout(fin,30000)})}
+function speakSystem(t){return new Promise(res=>{let s;try{s=window.speechSynthesis}catch(_){}
+  if(!t||!s||!window.SpeechSynthesisUtterance)return res();
   try{const u=new SpeechSynthesisUtterance(t);u.rate=1.06;u.pitch=1.25;const v=s.getVoices().find(v=>/samantha|karen|daniel|female|zira|aria/i.test(v.name));if(v)u.voice=v;
     u.onend=u.onerror=()=>res();s.cancel();s.speak(u);setTimeout(res,Math.min(25000,2000+t.length*80))}catch(_){res()}})}
+async function speakAloud(t,audio){t=String(t||'').trim();if(!t||REDUCE_VOICE())return;
+  if(audio&&await playAudio(audio)){VLOG.push('audio');return}
+  if(String(CFG.liveMode||'').startsWith('gemini')){try{const r=await post('/api/ember/tts',{text:t,liveMode:CFG.liveMode});if(r&&r.audio&&await playAudio(r.audio)){VLOG.push('tts');return}}catch(_){}}
+  VLOG.push('system');return speakSystem(t)}
 const REDUCE_VOICE=()=>CFG.voice===false;
 async function nextTurn(r){if(!V.conv)return;
   for(let i=0;i<300&&DRV.on;i++)await sleep(100);
-  const line=r&&(r.say||r.text)||'';if(r&&(r.kind==='answer'||r.say))await speakAloud(line);
+  const line=r&&(r.say||r.text)||'';if(r&&(r.kind==='answer'||r.say))await speakAloud(line,r.audio);
   if(!V.conv||!running)return;await sleep(350);if(V.conv&&V.state==='idle'&&!DRV.on)listen()}
 function listenSay(t){live(t||L(['listening…','go on. listening.',"talk. I'm listening."]))}
 async function listen(){if(!running||DRV.on)return;
@@ -1641,7 +2309,7 @@ async function endListen(text,cancelled,why){V.rec=null;text=String(text||'').tr
   return heard(text)}
 async function heard(text){V.state='thinking';let r=null;
   let names=null;try{if(typeof S!=='undefined'&&Array.isArray(S.projects))names=S.projects.map(p=>p&&p.name).filter(Boolean)}catch(_){}
-  try{r=await Promise.race([post('/api/ember/act',Object.assign({text,state:stateText(),attitude:ATT(),relay:DESK?1:0},names?{projects:names}:{})),
+  try{r=await Promise.race([post('/api/ember/act',Object.assign({text,state:stateText(),attitude:ATT(),relay:DESK?1:0,ai:CFG.ai,liveMode:CFG.liveMode,voice:V.conv&&!REDUCE_VOICE()?1:0},names?{projects:names}:{})),
     new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),34000))])}catch(e){r=null}
   V.state='idle';setMood(null);hush();
   if(!r||!r.kind){V.conv=0;play([{d:2.6,face:'worried',look:'viewer',say:["I couldn't reach Aethron","can't reach Aethron right now.","Aethron's not answering. not my fault."]}]);return null}
@@ -1653,7 +2321,7 @@ let inboxT=0;
 function inboxTick(){if(DESK||!CFG.desktop||DRV.on)return;if(performance.now()-inboxT<1400)return;inboxT=performance.now();
   fetch('/api/ember/inbox',{credentials:'same-origin'}).then(x=>x.json()).then(d=>{const it=(d&&d.items||[]).filter(x=>x&&x.kind!=='answer');if(it.length)perform(it[it.length-1])}).catch(()=>{})}
 setInterval(inboxTick,700);
-addEventListener('keydown',e=>{if(e.key==='Escape'&&(V.conv||V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;V.conv=0;try{window.speechSynthesis&&speechSynthesis.cancel()}catch(_){}stopListen(1)}},true);
+addEventListener('keydown',e=>{if(e.key==='Escape'&&(V.conv||V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;V.conv=0;try{window.speechSynthesis&&speechSynthesis.cancel();VOICE_EL&&VOICE_EL.pause()}catch(_){}stopListen(1)}},true);
 
 /* ===== the welcome =====
    The first time Aethron opens on a machine Ember introduces itself and
@@ -1923,7 +2591,7 @@ function set(o){if(o&&'fit' in o)FITOV=null;Object.assign(CFG,o||{});if(CFG.att=
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
 /* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
-window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK,mindStatus:mindStatus()}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
+window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK,mindStatus:mindStatus()}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),speak:(t,a)=>speakAloud(t,a),voiceLog:()=>VLOG.slice(-10),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
   state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',actBy:act&&act.by||'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),mode:E.mode,seat:!!E.seat,grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn,drives:Object.assign({},N),noErrands:Object.fromEntries(Object.entries(NO_ERR).filter(([,u])=>u>now).map(([k,u])=>[k,Math.round(u-now)]))}),
   fall:()=>fall(),perch:()=>{SEQ=null;mood=null;act={k:'perch',a:ACTS.perch,t:0,dur:60};go(SP.perch,{speed:.8})},
