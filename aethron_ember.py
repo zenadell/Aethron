@@ -61,11 +61,16 @@ def savage_allowed() -> bool:
 
 
 def rules(att: str) -> str:
+    cfg = get_settings()
+    name = cfg.get("name") or "Ember"
+    pers = f"Personality: {cfg.get('personality')}\n{VOICE[att]}" if cfg.get("personality") and cfg.get("personality") != DEFAULT_SETTINGS["personality"] else VOICE[att]
+    cust = f"\nCustom Guidelines:\n{cfg.get('system_instruction').strip()}\n" if cfg.get("system_instruction") and cfg.get("system_instruction").strip() else ""
     return (
-        "You are Ember, a tiny living flame who keeps a person company inside "
+        f"You are {name}, a tiny living flame who keeps a person company inside "
         "Aethron, a desktop app that turns website templates into their own "
         "sites and checks every page in a real browser.\n"
-        f"{VOICE[att]}\n"
+        f"{pers}\n"
+        f"{cust}"
         "Style: one or two short sentences, at most 150 characters, lowercase "
         "is fine. No emoji, no markdown, no lists. Never two questions at once.\n"
         "Your mood about them is in STATE; let it colour your tone (more "
@@ -230,8 +235,12 @@ def match_project(name: str, projects) -> str:
 
 
 def act_rules(att: str) -> str:
+    cfg = get_settings()
+    name = cfg.get("name") or "Ember"
+    pers = f"Personality: {cfg.get('personality')}\n{VOICE[att]}" if cfg.get("personality") and cfg.get("personality") != DEFAULT_SETTINGS["personality"] else VOICE[att]
+    cust = f"\nCustom Guidelines:\n{cfg.get('system_instruction').strip()}\n" if cfg.get("system_instruction") and cfg.get("system_instruction").strip() else ""
     return (
-        "You are Ember, the companion inside Aethron, a desktop app whose agent "
+        f"You are {name}, the companion inside Aethron, a desktop app whose agent "
         "migrates website templates into people's own sites, edits them, checks "
         "every page in a real browser and publishes them. The person just SPOKE "
         "to you (the words are a speech transcript, so expect missing "
@@ -264,7 +273,8 @@ def act_rules(att: str) -> str:
         "{\"stop\":\"dust|patrol|polish|doodle|read|juggle|stargaze|workout|all\",\"for\":minutes}, "
         "{\"do\":\"<behaviour>\"}, {\"wait\":seconds,\"look\":\"viewer|away|cursor\"}) and "
         "optional \"new\": [behaviours].\n"
-        f"{VOICE[att]}\n"
+        f"{pers}\n"
+        f"{cust}"
         "Reply with ONLY one JSON object: {\"kind\": \"send\"|\"action\"|"
         "\"answer\", \"prompt\": string (the request for Aethron, for send), "
         f"\"action\": one of {json.dumps(list(ACTIONS) + ['none'])}, \"target\": "
@@ -421,7 +431,7 @@ ERRAND_NAMES = ("dust", "read", "polish", "doodle", "patrol", "juggle", "stargaz
 BUILTIN_DO = set(ERRAND_NAMES) | {"glance", "judge", "slowblink", "crossed", "nails", "yawn",
                                   "hum", "scratch", "sigh", "sneeze", "celebrate", "nap", "zoomies", "dance"}
 LOOKS = ["viewer", "cursor", "up", "down", "left", "right", "away"]
-BURSTS = ["spark", "smoke", "heart", "note", "z", "dust"]
+BURSTS = ["spark", "smoke", "heart", "note", "z", "dust", "star", "fire", "flash", "ring"]
 # the face dials a new behaviour may turn, and how far
 FX = {"lidU": (0, 1), "lidL": (0, 1), "tilt": (-1, 1), "bH": (-.4, .4), "bT": (-.6, .6), "bL": (-.4, .4),
       "bR": (-.4, .4), "mw": (.05, .35), "mc": (-.8, .8), "mo": (0, 1.8), "mas": (-1, 1), "mwob": (0, 1),
@@ -485,6 +495,16 @@ _POSE_ALIAS = {
     "vibrating": ("flail", {"shake": 1.8}), "vibrate": ("flail", {"shake": 1.8}), "box": ("swat", {}),
     "punch": ("swat", {"nudge": .5}), "salute": ("wave", {}), "clap": ("cheeks", {"wiggle": [.15, 20]}),
     "meditate": ("hands", {}), "pray": ("cover", {}), "wink": ("point", {}), "fly": ("stretch", {"hop": .9}),
+    "hover": ("rest", {"hop": .4}), "float": ("rest", {"hop": .5}), "levitate": ("stretch", {"hop": .7}),
+    "cower": ("cover", {"squash": .4, "shake": 1.2}), "scared": ("cover", {"shake": 1.4}),
+    "flex": ("hips", {"scale": 1.25}), "strong": ("hips", {"scale": 1.25}), "muscle": ("hips", {"scale": 1.25}),
+    "celebrate": ("cheer", {"spin": True, "hop": .8}), "party": ("cheer", {"spin": True}),
+    "laugh": ("cheeks", {"wiggle": [.15, 18]}), "giggle": ("cheeks", {"wiggle": [.12, 22]}),
+    "cringe": ("facepalm", {"tilt": .3}), "dodge": ("limp", {"tilt": -.6, "squash": .3}),
+    "superhero": ("hips", {"squash": .4, "tilt": .2}), "hero": ("hips", {"squash": .3}),
+    "dash": ("swat", {"nudge": .8}), "zoom": ("swat", {"nudge": .9}),
+    "explode": ("flail", {"scale": 1.4, "shake": 1.8}), "rage": ("flail", {"scale": 1.3, "shake": 1.5}),
+    "crawl": ("limp", {"nudge": .5, "squash": .4}), "creep": ("cover", {"nudge": .4}),
 }
 _GO_ALIAS = {"top_left": [.08, .1], "top_right": [.92, .1], "bottom_left": [.08, .9], "bottom_right": [.92, .9],
              "upper_left": [.08, .1], "upper_right": [.92, .1], "lower_left": [.08, .9], "lower_right": [.92, .9],
@@ -594,7 +614,7 @@ def motion_step(s) -> dict | None:
     if s.get("look") in LOOKS:
         out["look"] = s["look"]
     for k, lo, hi in (("hop", 0, 1), ("squash", -1, 1), ("tilt", -1, 1), ("shake", 0, 2),
-                      ("scale", .6, 1.6), ("nudge", -1, 1), ("glow", .6, 1.4)):
+                      ("scale", .2, 3.0), ("nudge", -1, 1), ("glow", .4, 2.5)):
         n = _num(s.get(k), lo, hi)
         if n is not None and n != 0:
             out[k] = n
@@ -605,6 +625,9 @@ def motion_step(s) -> dict | None:
     b = s.get("burst")
     if isinstance(b, dict) and b.get("kind") in BURSTS:
         out["burst"] = {"kind": b["kind"], "n": int(_num(b.get("n"), 1, 30, 8)), "color": _color(b.get("color"))}
+    color = _color(s.get("color") or s.get("tint"))
+    if color:
+        out["color"] = color
     say = s.get("say")
     if isinstance(say, str) and say.strip():
         out["say"] = say.strip()[:120]
@@ -979,11 +1002,16 @@ def compose_behavior(text: str, att: str = "sassy") -> dict | None:
 
 
 def mind_rules(att: str, known: list) -> str:
+    cfg = get_settings()
+    name = cfg.get("name") or "Ember"
+    pers = f"Custom Personality: {cfg.get('personality')}\n" if cfg.get("personality") and cfg.get("personality") != DEFAULT_SETTINGS["personality"] else ""
+    cust = f"Custom Guidelines: {cfg.get('system_instruction').strip()}\n" if cfg.get("system_instruction") and cfg.get("system_instruction").strip() else ""
     return (
-        "You are the autonomous mind of Ember, a small living flame who lives inside Aethron, a desktop app "
+        f"You are the autonomous mind of {name}, a small living flame who lives inside Aethron, a desktop app "
         "where people turn website templates into their own sites. Think of Calcifer from Howl's Moving Castle: "
         "a fire spirit with cat energy, proud, sulky, dramatic, curious, secretly fond of the person. "
         + VOICE.get(att, VOICE["sassy"]) + "\n"
+        + pers + cust +
         "You are NOT an animation loop or an errand runner. You are a living creature with your own internal "
         "drives (energy, curiosity, playfulness, boredom, wants_company, annoyed, fond_of_them), memory, "
         "focus, and free will. Look at PERCEPTION (including last_outcome and your drives) and choose your "
@@ -1091,7 +1119,101 @@ AI_CHOICES = ("auto", "gemini", "groq")
 LIVE_MODES = ("gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-tts", "groq")
 GEMINI_TEXT_MODELS = ("gemini-3.8-flash", "gemini-2.5-flash")
 GEMINI_TTS_MODELS = ("gemini-3.8-flash-tts", "gemini-2.5-flash-preview-tts")
-GEMINI_VOICE = "Puck"
+GEMINI_VOICES = ("Aoede", "Kore", "Zephyr", "Puck", "Charon", "Fenrir")
+GEMINI_VOICE = "Aoede"
+DEFAULT_SETTINGS = {
+    "name": "Ember",
+    "voice": "Aoede",
+    "character": "",
+    "personality": "A small fire spirit with cat energy: proud, sulky, dramatic, curious, secretly fond of the person.",
+    "system_instruction": "",
+    "speed_mode": "fast",
+    "unrestricted_body": True,
+}
+
+
+def _settings_file():
+    import os
+    from pathlib import Path
+    h = os.environ.get("AETHRON_HOME") or str(Path(__file__).resolve().parent)
+    return Path(h) / "ember_settings.json"
+
+
+def get_settings() -> dict:
+    try:
+        p = _settings_file()
+        if p.exists():
+            d = json.loads(p.read_text())
+            if isinstance(d, dict):
+                return {**DEFAULT_SETTINGS, **d}
+    except Exception:
+        pass
+    return dict(DEFAULT_SETTINGS)
+
+
+def save_settings(patch: dict) -> dict:
+    cur = get_settings()
+    if isinstance(patch, dict):
+        cur.update({k: v for k, v in patch.items() if k in DEFAULT_SETTINGS or k in ("ai", "liveMode", "att")})
+    try:
+        p = _settings_file()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(cur, indent=2))
+    except Exception:
+        pass
+    return cur
+
+
+def active_voice(override: str = "") -> str:
+    if override in GEMINI_VOICES:
+        return override
+    v = get_settings().get("voice")
+    return v if v in GEMINI_VOICES else "Aoede"
+
+
+def adopt_character(character: str, call=None) -> dict:
+    char = str(character or "").strip()[:80]
+    if not char:
+        raise ValueError("character name is required")
+    prompt = (
+        f"You are a character researcher. The user wants Ember (the desktop companion) to adopt the persona and full behavioural pattern of the fictional character: '{char}'.\n"
+        "Research and map out:\n"
+        "1. name: Character's display name (short, max 20 chars)\n"
+        "2. voice: Choose the best matching Gemini voice from ['Aoede', 'Kore', 'Zephyr', 'Puck', 'Charon', 'Fenrir'] (Aoede=energetic female, Kore=calm soothing female, Zephyr=soft female, Puck=playful sarcastic male, Charon=deep wise male, Fenrir=bold fierce male)\n"
+        "3. personality: Concise personality summary (2-3 sentences), tone, mannerisms, and catchphrases\n"
+        "4. system_instruction: Detailed behavioural pattern and instructions on how they speak, think, react to the user, and move\n"
+        "5. signature_greeting: A short one-line greeting in character (max 100 chars)\n"
+        "6. behaviors: An array of 2 to 3 signature behaviours (each with 'name', 'about', 'steps' array of keyframe objects with t, face, pose, hands, wiggle, hop, spin, tilt, squash, burst)\n"
+        "Return ONLY a single valid JSON object."
+    )
+    raw = ""
+    if call:
+        try:
+            raw = call(prompt)
+        except Exception:
+            raw = ""
+    if not raw:
+        try:
+            raw = gemini_http_call(prompt, max_tokens=1200, timeout=16)
+        except Exception:
+            import aethron_brain
+            raw = aethron_brain.text_call(prompt, timeout=20, max_tokens=1200)
+    m = re.search(r"\{.*\}", raw, re.S)
+    if not m:
+        raise ValueError("could not parse character research")
+    d = json.loads(m.group(0))
+    res = {
+        "name": str(d.get("name") or char)[:30],
+        "voice": d.get("voice") if d.get("voice") in GEMINI_VOICES else "Aoede",
+        "character": char,
+        "personality": str(d.get("personality") or "")[:400],
+        "system_instruction": str(d.get("system_instruction") or "")[:1200],
+        "signature_greeting": str(d.get("signature_greeting") or f"I am {char}.")[:120],
+    }
+    save_settings(res)
+    if isinstance(d.get("behaviors"), list):
+        learn(d["behaviors"])
+    return res
 _GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta"
 _LIVE_HOST = "generativelanguage.googleapis.com"
 _LIVE_PATH = "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
@@ -1197,7 +1319,7 @@ def gemini_http_call(msgs_or_prompt, model: str = "", max_tokens: int = 900, tim
     raise last or RuntimeError("Gemini did not answer")
 
 
-def gemini_tts(text: str, voice_name: str = GEMINI_VOICE, timeout: float = 12.0) -> dict:
+def gemini_tts(text: str, voice_name: str = "", timeout: float = 12.0) -> dict:
     """A line in Ember's voice -> {"audio": data:audio/wav;base64,..., "model": ...}."""
     import base64
     text = str(text or "").strip()[:400]
@@ -1206,9 +1328,10 @@ def gemini_tts(text: str, voice_name: str = GEMINI_VOICE, timeout: float = 12.0)
     keys = gemini_keys()
     if not keys:
         raise PermissionError("no Gemini key saved")
-    body = {"contents": [{"parts": [{"text": "Say it like a small, sassy, playful fire spirit: " + text}]}],
+    voice = active_voice(voice_name)
+    body = {"contents": [{"parts": [{"text": "Say it like a lively, expressive companion: " + text}]}],
             "generationConfig": {"responseModalities": ["AUDIO"],
-                                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}}}}
+                                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}}
     last = None
     for m in GEMINI_TTS_MODELS:
         for k in keys[:3]:
@@ -1304,8 +1427,11 @@ class _WS:
             pass
 
 
+_LIVE_POOL = {}  # pool_key -> (ws, timestamp)
+
+
 def gemini_live_call(prompt_text: str, sys_text: str = "", mode: str = "gemini-3.8-live", want_audio: bool = True,
-                     voice_name: str = GEMINI_VOICE, timeout: float = 16.0) -> dict:
+                     voice_name: str = "", timeout: float = 16.0) -> dict:
     """One turn over Gemini Live: the model answers through the ember_behave
     tool (its whole JSON answer) and speaks its line in native audio.
     -> {"text": the tool's JSON or "", "audio": data URL or "", "transcript", "tool": bool, "model"}"""
@@ -1314,28 +1440,41 @@ def gemini_live_call(prompt_text: str, sys_text: str = "", mode: str = "gemini-3
     keys = gemini_keys()
     if not keys:
         raise PermissionError("no Gemini key saved")
+    voice = active_voice(voice_name)
     model = "gemini-3.8-live-extended-thinking" if mode == "gemini-3.8-live-extended-thinking" else "gemini-3.8-live"
     gen = {"responseModalities": ["AUDIO"],
-           "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice_name}}}}
+           "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}}}
     if model.endswith("extended-thinking"):
         gen["thinkingConfig"] = {"thinkingLevel": "LOW"}
+    cfg = get_settings()
+    name = cfg.get("name") or "Ember"
+    pers = cfg.get("personality") or "a living flame companion"
     sys_full = (sys_text + "\n\n" if sys_text else "") + (
-        "You are speaking out loud as Ember. In EVERY turn: first call the ember_behave tool exactly once with your "
+        f"You are speaking out loud as {name}. Personality: {pers}. In EVERY turn: first call the ember_behave tool exactly once with your "
         "complete JSON answer (with a concrete \"plan\" whenever any movement, expression or trick is asked for), "
-        "then say your short line out loud in character. Never claim to do something without calling the tool.")
+        "then say your short natural spoken line (under 10 words) out loud in character. Never claim to do something without calling the tool.")
     last = None
     for k in keys[:3]:
         ws = None
+        pool_key = (k, model, voice)
         try:
             deadline = time.time() + timeout
-            ws = _WS(_LIVE_HOST, f"{_LIVE_PATH}?key={k}", timeout=min(8.0, timeout))
-            ws.send({"setup": {"model": "models/" + model, "generationConfig": gen,
-                               "systemInstruction": {"parts": [{"text": sys_full}]},
-                               "tools": [{"functionDeclarations": [BEHAVE_TOOL]}],
-                               "outputAudioTranscription": {}}})
-            while "setupComplete" not in ws.recv():
-                if time.time() > deadline:
-                    raise TimeoutError("Gemini Live did not set up")
+            now_t = time.time()
+            if pool_key in _LIVE_POOL:
+                c_ws, c_t = _LIVE_POOL.pop(pool_key)
+                if now_t - c_t < 40:
+                    ws = c_ws
+                else:
+                    c_ws.close()
+            if ws is None:
+                ws = _WS(_LIVE_HOST, f"{_LIVE_PATH}?key={k}", timeout=min(8.0, timeout))
+                ws.send({"setup": {"model": "models/" + model, "generationConfig": gen,
+                                   "systemInstruction": {"parts": [{"text": sys_full}]},
+                                   "tools": [{"functionDeclarations": [BEHAVE_TOOL]}],
+                                   "outputAudioTranscription": {}}})
+                while "setupComplete" not in ws.recv():
+                    if time.time() > deadline:
+                        raise TimeoutError("Gemini Live did not set up")
             ws.send({"clientContent": {"turns": [{"role": "user", "parts": [{"text": prompt_text}]}], "turnComplete": True}})
             pcm, words, tool_json, answered = b"", [], "", 0
             while time.time() < deadline:
@@ -1373,13 +1512,14 @@ def gemini_live_call(prompt_text: str, sys_text: str = "", mode: str = "gemini-3
                     # the tool call ended the first turn; the spoken line follows
             if not tool_json and not pcm:
                 raise RuntimeError("Gemini Live gave nothing back")
+            _LIVE_POOL[pool_key] = (ws, time.time())
             return {"text": tool_json or "", "audio": _data_url(pcm_to_wav(pcm)) if pcm else "",
                     "transcript": "".join(words).strip(), "tool": bool(tool_json), "model": model}
         except Exception as e:  # noqa: BLE001 — try the next key
-            last = e
-        finally:
             if ws:
                 ws.close()
+                _LIVE_POOL.pop(pool_key, None)
+            last = e
     raise last or RuntimeError("Gemini Live did not answer")
 
 
@@ -1577,7 +1717,7 @@ const POSES={
 const E={x:0,y:0,vx:0,vy:0,tx:0,ty:0,speed:1,perch:0,landed:0,mode:'fly',q:0,qv:0,tilt:0,tv:0,spin:0,spinOn:0,r:1,rT:1,alpha:1,alphaT:1,
   tipX:0,tipXv:0,tipH:1.85,tipHv:0,side:[0,0],gx:0,gy:0,gtx:0,gty:0,ms:[0,0],blink:0,blinkT:0,nextBlink:2,
   F:face('calm'),FT:face('calm'),pose:'rest',hands:[{x:0,y:0,vx:0,vy:0},{x:0,y:0,vx:0,vy:0}],
-  bubble:null,look:null,antic:0,pointDir:[1,0],sweat:0,zz:0,think:0,hum:0,shadesDown:0,flap:0,flapT:0,shadesUntil:0};
+  bubble:null,look:null,antic:0,pointDir:[1,0],sweat:0,zz:0,think:0,hum:0,shadesDown:0,flap:0,flapT:0,shadesUntil:0,tint:null};
 const parts=[];
 
 /* ===== places in the real window ===== */
@@ -1795,19 +1935,24 @@ function known(){return[...Object.keys(FIDGETS).filter(k=>!k.startsWith('l_')),.
 function learnB(b){if(!b||!b.name||!Array.isArray(b.steps)||!b.steps.length)return;LIB[b.name]=b;FIDGETS['l_'+b.name]={w:()=>.12,s:()=>compileB(b)}}
 function saveLib(){store.set('ember_lib',Object.values(LIB).slice(-80))}
 const LOOKS={viewer:()=>'viewer',cursor:()=>'cursor',up:()=>({dir:[0,-1]}),down:()=>({dir:[0,1]}),left:()=>({dir:[-1,0]}),right:()=>({dir:[1,0]}),away:()=>({dir:[E.x>W/2?1:-1,-.2]})};
-function hex2rgb(h){const m=/^#([0-9a-f]{6})$/i.exec(h||'');if(!m)return'';const n=parseInt(m[1],16);return[(n>>16)&255,(n>>8)&255,n&255].join(',')}
+function hex2arr(h){const m=/^#([0-9a-f]{6})$/i.exec(h||'');if(!m)return null;const n=parseInt(m[1],16);return[(n>>16)&255,(n>>8)&255,n&255]}
+function hex2rgb(h){const a=hex2arr(h);return a?a.join(','):''}
 function burst(b){const n=b.n||8,c=hex2rgb(b.color);for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,v=rnd(40,200);
   if(b.kind==='spark')parts.push({k:'spark',x:E.x,y:E.y-R*.3,vx:Math.cos(a)*v,vy:Math.sin(a)*v-60,l:1,d:rnd(.4,1),s:rnd(1.2,2.6),c:c||'255,200,120'});
   else if(b.kind==='dust')parts.push({k:'dust',x:E.x+rnd(-R,R),y:E.y+rnd(-R*.5,R*.5),vx:rnd(-40,40),vy:rnd(-20,40),l:1,d:rnd(.6,1.1),s:rnd(1,2.2),c:c||''});
   else if(b.kind==='heart')parts.push({k:'heart',x:E.x+rnd(-R,R)*.6,y:E.y-R*.8,vx:rnd(-25,25),vy:rnd(-70,-40),l:1,d:1.2,s:rnd(5,9)});
   else if(b.kind==='smoke')parts.push({k:'smoke',x:E.x+rnd(-R,R)*.5,y:E.y-R*E.tipH,vx:rnd(-15,15),vy:rnd(-50,-25),l:1,d:1.2,s:rnd(3,6)});
+  else if(b.kind==='star')parts.push({k:'star',x:E.x+rnd(-R,R)*.5,y:E.y-R*.3,vx:Math.cos(a)*v*.75,vy:Math.sin(a)*v*.75-35,l:1,d:rnd(.5,1.2),s:rnd(7,13),c:c||'255,230,100'});
+  else if(b.kind==='fire')parts.push({k:'fire',x:E.x+rnd(-R,R)*.5,y:E.y-R*.2,vx:rnd(-30,30),vy:rnd(-160,-70),l:1,d:rnd(.4,.9),s:rnd(2.5,5.5),c:c||'255,140,40'});
+  else if(b.kind==='ring'||b.kind==='flash')parts.push({k:'ring',x:E.x,y:E.y-R*.2,vx:0,vy:0,l:1,d:rnd(.4,.8),s:R*(b.kind==='flash'?1.8:1.2),c:c||'255,190,100'});
   else parts.push({k:b.kind==='z'?'z':'note',x:E.x+R*.8,y:E.y-R*.4,vx:rnd(8,30),vy:-35,l:1,d:1.6,s:rnd(9,13)})}}
 function effects(k){if(REDUCE)return;if(k.hop)E.vy=-(140+k.hop*380),E.q+=k.hop*.25;if(k.squash)E.q+=k.squash*.45;if(k.tilt)E.tv+=k.tilt*4;if(k.shake)E.shake=k.shake;
-  if(k.spin)E.spinOn=1;if(k.scale)E.rT=k.scale;if(k.nudge)E.vx+=k.nudge*260;if(k.burst)burst(k.burst)}
+  if(k.spin)E.spinOn=1;if(k.scale)E.rT=k.scale;if(k.nudge)E.vx+=k.nudge*260;if(k.burst)burst(k.burst);
+  if(k.color||k.tint)E.tint=hex2arr(k.color||k.tint);else if(k.color===''||k.tint===''||k.resetColor)E.tint=null}
 /* an invented behaviour -> steps the body already knows how to play */
 function compileB(b){const st=b.steps.map(k=>{const fx=Object.assign({},k.fx||{});if(k.glow&&fx.flame==null)fx.flame=k.glow;
     return{d:k.t,face:k.face,fx:Object.keys(fx).length?fx:null,pose:k.hands?'gen':k.pose,hands:k.hands,wig:k.wiggle,look:k.look&&LOOKS[k.look]?LOOKS[k.look]():null,say:k.say,hum:k.hum,fn:()=>effects(k)}});
-  st.push({d:.3,fn:()=>{if(E.rT!==.6)E.rT=1}});return st}
+  st.push({d:.3,fn:()=>{if(E.rT!==.6)E.rT=1;E.tint=null}});return st}
 function placeOf(n){const m=area(),c=composer();
   if(Array.isArray(n)&&n.length>=2)return{x:cl(m.l+m.w*cl(+n[0]||.5,.05,.95),R*2,W-R*2),y:cl(m.t+m.h*cl(+n[1]||.5,.06,.94),R*2.4,H-R*1.6)};
   switch(n){
@@ -2145,7 +2290,7 @@ function chatTick(dt){placeTalk();const typing=now-(CHAT.typing||-9)<1.5;
    el.click(): nothing a person could not do, and nothing hidden. */
 const V={state:'idle',text:'',rec:null,t0:0,last:0,native:null,cancel:0,poll:0};
 const DRV={on:0};
-const SILENCE=1.8,NOTHING=10;
+const SILENCE=0.8,NOTHING=10;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function arrive(ms){return new Promise(res=>{const t0=performance.now();(function w(){
   if(!running||REDUCE||(Math.hypot(E.tx-E.x,E.ty-E.y)<R*.7&&Math.hypot(E.vx,E.vy)<170)||performance.now()-t0>(ms||2600))res();else setTimeout(w,40)})()})}
@@ -2486,22 +2631,26 @@ function bodyPath(){const th=E.tipH,tx=E.tipX,sl=E.side[0],sr=E.side[1],h=th/1.8
   crPath([[0,1.03],[.66,.86],[1.0,.32],[.98,-.28],[.9+sr*.4,-.98*h],[.56+sr*.15,-.62*h],[.36+tx*.5,-th*.62],[tx+.04,-th],[-.28+tx*.5,-th*.6],[-.5+sl*.15,-.7*h],[-.86+sl*.4,-1.08*h],[-1.0,-.3],[-1.0,.32],[-.66,.86]])}
 function mixc(a,b,t){return a.map((v,i)=>Math.round(lerp(v,b[i],t)))}
 function bodyGrad(b,ang){const g=X.createLinearGradient(0,1.05,0,-E.tipH),dim=[205,86,48];
-  for(const [o,c0] of[[0,[255,205,64]],[.38,[255,160,52]],[.68,[255,104,72]],[1,[255,72,104]]]){let c=c0;if(ang>0)c=mixc(c,o>.4?[255,40,30]:[255,140,40],ang*.6);if(b<1)c=mixc(c,dim,Math.min(1,(1-b)*1.7));else c=c.map(v=>Math.min(255,Math.round(v*b)));g.addColorStop(o,`rgb(${c.join(',')})`)}return g}
+  for(const [o,c0] of[[0,[255,205,64]],[.38,[255,160,52]],[.68,[255,104,72]],[1,[255,72,104]]]){let c=c0;if(E.tint)c=mixc(c,E.tint,.68);if(ang>0)c=mixc(c,o>.4?[255,40,30]:[255,140,40],ang*.6);if(b<1)c=mixc(c,dim,Math.min(1,(1-b)*1.7));else c=c.map(v=>Math.min(255,Math.round(v*b)));g.addColorStop(o,`rgb(${c.join(',')})`)}return g}
 const FONT='-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';
 function draw(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);const rr=R*E.r,F=E.F;
   drawGrime();
   if(TW.on&&TW.el){const s=rect(TW.el)||TW.spot;TW.spot=s;if(s){const p=8;X.save();X.fillStyle='rgba(8,6,5,.5)';X.fillRect(0,0,W,H);
     X.globalCompositeOperation='destination-out';X.beginPath();X.roundRect(s.l-p,s.t-p,s.w+2*p,s.h+2*p,14);X.fill();X.globalCompositeOperation='source-over';
     X.strokeStyle=`rgba(232,135,95,${(.55+.35*Math.sin(now*4)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.roundRect(s.l-p,s.t-p,s.w+2*p,s.h+2*p,14);X.stroke();X.restore()}}
-  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.l-=dt/p.d;if(p.l<=0){parts.splice(i,1);continue}p.vy+=(p.k==='spark'?40:p.k==='dust'?260:-6)*dt;p.vx*=.985;p.x+=p.vx*dt;p.y+=p.vy*dt;
+  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.l-=dt/p.d;if(p.l<=0){parts.splice(i,1);continue}
+    p.vy+=(p.k==='spark'?40:p.k==='dust'?260:p.k==='fire'?-40:-6)*dt;p.vx*=.985;p.x+=p.vx*dt;p.y+=p.vy*dt;
     if(p.k==='spark'){X.globalCompositeOperation='lighter';const g=X.createRadialGradient(p.x,p.y,0,p.x,p.y,p.s*3);g.addColorStop(0,`rgba(${p.c},${p.l})`);g.addColorStop(1,`rgba(${p.c},0)`);X.fillStyle=g;X.beginPath();X.arc(p.x,p.y,p.s*3,0,7);X.fill();X.globalCompositeOperation='source-over'}
     else if(p.k==='dust'){X.fillStyle=`rgba(${p.c||'112,94,70'},${(.8*p.l).toFixed(3)})`;X.beginPath();X.arc(p.x,p.y,p.s,0,7);X.fill()}
     else if(p.k==='smoke'){X.fillStyle=`rgba(120,110,110,${.35*p.l})`;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.fill()}
+    else if(p.k==='fire'){X.globalCompositeOperation='lighter';const g=X.createRadialGradient(p.x,p.y,0,p.x,p.y,p.s*2);g.addColorStop(0,`rgba(${p.c},${p.l})`);g.addColorStop(1,`rgba(${p.c},0)`);X.fillStyle=g;X.beginPath();X.arc(p.x,p.y,p.s*2,0,7);X.fill();X.globalCompositeOperation='source-over'}
+    else if(p.k==='ring'){X.strokeStyle=`rgba(${p.c},${(p.l*.75).toFixed(3)})`;X.lineWidth=2.5*p.l;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.stroke()}
+    else if(p.k==='star'){X.fillStyle=`rgba(${p.c},${p.l})`;X.font=`${p.s}px ${FONT}`;X.fillText('✦',p.x,p.y)}
     else if(p.k==='heart'){X.fillStyle=`rgba(255,120,150,${p.l})`;const s=p.s;X.beginPath();X.moveTo(p.x,p.y+s*.35);X.bezierCurveTo(p.x-s*.7,p.y-s*.2,p.x-s*.35,p.y-s*.8,p.x,p.y-s*.4);X.bezierCurveTo(p.x+s*.35,p.y-s*.8,p.x+s*.7,p.y-s*.2,p.x,p.y+s*.35);X.fill()}
     else{X.fillStyle=`rgba(255,225,200,${Math.sin(p.l*Math.PI)})`;X.font=`600 ${p.s}px ${FONT}`;X.fillText(p.k==='z'?'z':'♪',p.x,p.y)}}
   if((V.state==='listening'||V.state==='asking')&&E.alpha>.3){const k0=REDUCE?0:now*.9;for(let k=0;k<3;k++){const ph=REDUCE?k/3:(k0+k/3)%1;X.strokeStyle=`rgba(255,165,95,${(.5*(1-ph)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.arc(E.x,E.y-rr*.25,rr*(1.25+ph*1.6),0,7);X.stroke()}}
   if(E.alpha<.03||rr<1.5)return;X.globalAlpha=E.alpha;
-  const glowC=F.angry>.5?'255,60,40':'255,120,50';
+  const glowC=E.tint?E.tint.join(','):F.angry>.5?'255,60,40':'255,120,50';
   const lg=X.createRadialGradient(E.x,E.y,0,E.x,E.y,rr*6);lg.addColorStop(0,`rgba(${glowC},${.12*F.bright})`);lg.addColorStop(1,`rgba(${glowC},0)`);X.fillStyle=lg;X.fillRect(E.x-rr*6,E.y-rr*6,rr*12,rr*12);
   const bob=REDUCE?0:(E.mode==='fly'&&!E.perch?Math.sin(now*2.2)*rr*.06:0),br=REDUCE?0:Math.sin(now*2.1)*.022,by=E.y+bob,ca=Math.cos(E.tilt+E.spin),sa=Math.sin(E.tilt+E.spin);
   for(let i=0;i<2;i++){const s=i?1:-1,h=E.hands[i],shx=s*.84*rr,shy=.32*rr,sx=E.x+shx*ca-shy*sa,sy=by+shx*sa+shy*ca;
@@ -2591,7 +2740,11 @@ function set(o){if(o&&'fit' in o)FITOV=null;Object.assign(CFG,o||{});if(CFG.att=
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
 /* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
 async function setDesktop(on){const r=await post('/api/ember/desktop',{on:!!on});CFG.desktop=!!r.on;store.set('ember_cfg',CFG);set({});return r}
-window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK,mindStatus:mindStatus()}),talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),speak:(t,a)=>speakAloud(t,a),voiceLog:()=>VLOG.slice(-10),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
+window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG,{savage:isAdmin(),running,desk:DESK,mindStatus:mindStatus()}),
+  getSettings:async()=>{const r=await fetch('/api/ember/settings');return r.json()},
+  saveSettings:s=>post('/api/ember/settings',s),
+  adoptCharacter:c=>post('/api/ember/adopt_character',{character:c}),
+  talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),speak:(t,a)=>speakAloud(t,a),voiceLog:()=>VLOG.slice(-10),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
   state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',actBy:act&&act.by||'',stage:act&&act.stage||'',seen:Object.assign({},SEEN),mode:E.mode,seat:!!E.seat,grime:GRIME?{n:GRIME.n,left:GRIME.sp.filter(p=>!p.dead).length}:null,outfit:outfit(),shades:!!E.shadesOn,drives:Object.assign({},N),noErrands:Object.fromEntries(Object.entries(NO_ERR).filter(([,u])=>u>now).map(([k,u])=>[k,Math.round(u-now)]))}),
   fall:()=>fall(),perch:()=>{SEQ=null;mood=null;act={k:'perch',a:ACTS.perch,t:0,dur:60};go(SP.perch,{speed:.8})},

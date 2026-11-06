@@ -2076,6 +2076,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(v.poll() if v else {"state": "error", "text": "", "why": "no microphone here"})
             if u.path == "/api/ember/behaviors":
                 return self.send_json({"behaviors": _ember.behaviours() if _ember else []})
+            if u.path == "/api/ember/settings":
+                if not _ember:
+                    return self.fail("the companion is not available")
+                return self.send_json({
+                    "settings": _ember.get_settings(),
+                    "voices": list(_ember.GEMINI_VOICES),
+                })
             if u.path == "/api/ember/inbox":
                 out = list(EMBER_INBOX)
                 del EMBER_INBOX[:]
@@ -3497,13 +3504,29 @@ class Handler(BaseHTTPRequestHandler):
                 if isinstance(got, Exception):
                     return self.fail(str(got) or "Ember's mind did not answer")
                 self.send_json(got)
+            elif u.path == "/api/ember/settings":
+                if not _ember:
+                    return self.fail("the companion is not available")
+                got = _ember.save_settings(body)
+                return self.send_json({"ok": True, "settings": got, "voices": list(_ember.GEMINI_VOICES)})
+            elif u.path == "/api/ember/adopt_character":
+                if not _ember:
+                    return self.fail("the companion is not available")
+                char_name = str(body.get("character") or body.get("name") or "").strip()
+                if not char_name:
+                    return self.fail("please provide a character name")
+                got = _with_deadline(lambda: _ember.adopt_character(char_name, call=_ember_brain(body, 25)), 30)
+                if isinstance(got, Exception):
+                    return self.fail(str(got) or "could not adopt character")
+                return self.send_json({"ok": True, "character": got, "settings": _ember.get_settings()})
             elif u.path == "/api/ember/tts":
                 # a line in Ember's own Gemini voice; none = the window's voice
                 if not _ember:
                     return self.fail("the companion is not available")
                 if _ember.norm_live(body.get("liveMode")) == "groq":
                     return self.send_json({"audio": ""})
-                got = _with_deadline(lambda: _ember.gemini_tts(str(body.get("text") or "")), 14)
+                voice_choice = body.get("voice") or body.get("voice_name")
+                got = _with_deadline(lambda: _ember.gemini_tts(str(body.get("text") or ""), voice_name=voice_choice), 14)
                 if isinstance(got, Exception):
                     return self.send_json({"audio": "", "why": str(got)[:200]})
                 self.send_json(got)
@@ -16609,7 +16632,7 @@ async function renderSettings(c){
       <div class="kv"><span>Plan</span><b>${esc(plan)}</b></div>
       <div class="kv"><span>Projects</span><b>${(S.projects||[]).length}</b></div>
       ${TEAM.me&&TEAM.me.is_admin?`<div class="kv"><span>Admin</span><b>you run Aethron's admin</b></div>
-        <div class="rowbtns"><button class="primary" onclick="openAdmin()">${I('ext',13)} Open the admin console</button></div>`:''}
+        <div class="rowbtns"><button class="primary" onclick="openAdmin()">${I('ext',13)} Open the admin console</button><button onclick="$('ember-admin-details')&&($('ember-admin-details').open=true,$('ember-admin-details').scrollIntoView({behavior:'smooth'}))">${I('sparkles',13)} Companion AI Admin</button></div>`:''}
       ${acc?`<div class="rowbtns"><button onclick="signOut()">Sign out</button></div>`
            :`<div class="hint">This copy is running without the cloud layer,
               so nothing about you leaves this machine.</div>`}
@@ -16842,6 +16865,7 @@ function emberCard(){
   if(!e)return `<h3>${I('sparkles',14)} Companion</h3><div class="hint">The companion is not available in this window.</div>`;
   const seg=(k,opts)=>opts.map(([v,l])=>`<button aria-pressed="${e[k]===v}" class="${e[k]===v?'primary':''}" onclick="emberSet('${k}','${v}')">${l}</button>`).join('');
   const atts=[['sweet','Sweet'],['sassy','Sassy']].concat(e.savage?[['savage','Savage']]:[]);
+  setTimeout(emberLoadAdmin, 30);
   return `<h3>${I('sparkles',14)} Companion</h3>
     <div class="hint">Ember lives in this window and reacts to what Aethron is really doing. Double-click it to talk, right-click it to hide it for a while.</div>
     <div class="kv"><span>Show Ember</span><b><button class="${e.on?'primary':''}" onclick="emberSet('on',${!e.on})">${e.on?'On':'Off'}</button></b></div>
@@ -16853,8 +16877,124 @@ function emberCard(){
     <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
     <div class="hint" id="ember-mind-status">${esc(e.mindStatus||'Mind: off')}</div>
     ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}
-    <div class="rowbtns"><button onclick="emberSet('talk')">Talk to Ember</button><button onclick="emberSet('tour')">Show me around again</button><button onclick="emberSet('forget')">Forget what it knows about me</button></div>`;
+    <div class="rowbtns"><button onclick="emberSet('talk')">Talk to Ember</button><button onclick="emberSet('tour')">Show me around again</button><button onclick="emberSet('forget')">Forget what it knows about me</button></div>
+    <details class="sentlist" id="ember-admin-details" style="margin-top:14px" open>
+      <summary style="font-weight:600;cursor:pointer">${I('user',13)} Admin: AI Persona, Character Adoption & Body Control</summary>
+      <div id="ember-admin-box" style="padding:10px 0 0 0">
+        <div class="hint">reading persona settings…</div>
+      </div>
+    </details>`;
 }
+
+let _EMBER_ADMIN_DATA = null;
+async function emberLoadAdmin(){
+  const box = $('ember-admin-box');
+  if(!box) return;
+  try {
+    const res = await fetch('/api/ember/settings');
+    const d = await res.json();
+    _EMBER_ADMIN_DATA = d;
+    emberRenderAdmin(d);
+  } catch(e) {
+    if(box) box.innerHTML = `<div class="hint" style="color:#f87171">Could not load companion settings: ${esc(e.message)}</div>`;
+  }
+}
+
+function emberRenderAdmin(d){
+  const box = $('ember-admin-box');
+  if(!box || !d) return;
+  const s = d.settings || {};
+  const voices = d.voices || ['Aoede','Kore','Zephyr','Puck','Charon','Fenrir'];
+  const curVoice = s.voice || 'Aoede';
+  const vOpts = voices.map(v => `<option value="${v}" ${v===curVoice?'selected':''}>${v}</option>`).join('');
+  box.innerHTML = `
+    <div class="kv"><span>Companion Name</span><b><input id="ember-admin-name" style="width:180px;padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.3);color:#fff" value="${esc(s.name||'Ember')}" placeholder="Ember"></b></div>
+    <div class="kv"><span>Gemini Live Voice</span><b style="display:flex;gap:6px;align-items:center"><select id="ember-admin-voice" style="padding:4px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.15);background:#1a1918;color:#fff">${vOpts}</select><button onclick="emberTestVoice()">Test</button></b></div>
+    <div class="hint">Available Gemini voices: Aoede (energetic F), Kore (calm F), Zephyr (soft F), Puck (playful M), Charon (deep M), Fenrir (bold M).</div>
+    
+    <div style="margin:10px 0;padding:10px;background:rgba(255,140,50,.07);border:1px solid rgba(255,140,50,.2);border-radius:6px">
+      <div style="font-weight:600;font-size:12px;margin-bottom:6px">Adopt Fictional Character</div>
+      <div class="hint" style="margin-bottom:8px">Enter any character (e.g. Calcifer, Baymax, GLaDOS, Yoda, Jarvis). Gemini will research their traits, voice, signature mannerisms, and keyframe behaviors, adopting them immediately.</div>
+      <div style="display:flex;gap:8px"><input id="ember-adopt-input" style="flex:1;padding:5px 8px;border-radius:4px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.3);color:#fff" placeholder="e.g. Calcifer, Baymax, GLaDOS"><button class="primary" id="ember-adopt-btn" onclick="emberAdoptChar()">Adopt Character</button></div>
+    </div>
+
+    <div style="margin:8px 0">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">Personality & Demeanor</div>
+      <textarea id="ember-admin-pers" rows="3" style="width:100%;box-sizing:border-box;padding:6px;border-radius:4px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.3);color:#fff;font-family:inherit;font-size:12px" placeholder="Personality summary, catchphrases, tone">${esc(s.personality||'')}</textarea>
+    </div>
+
+    <div style="margin:8px 0">
+      <div style="font-size:12px;font-weight:600;margin-bottom:4px">Custom System Instruction</div>
+      <textarea id="ember-admin-sys" rows="4" style="width:100%;box-sizing:border-box;padding:6px;border-radius:4px;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.3);color:#fff;font-family:inherit;font-size:12px" placeholder="Behavioral patterns, movement guidelines, reaction rules">${esc(s.system_instruction||'')}</textarea>
+    </div>
+
+    <div class="hint" style="margin:6px 0">⚡ Full Physical Body & Mind Control enabled: unrestricted procedural gestures, 0.2x-3.0x scale, flame color tints, and particle bursts (star, fire, flash, ring).</div>
+
+    <div class="rowbtns" style="margin-top:10px">
+      <button class="primary" onclick="emberSaveAdmin()">Save Persona Settings</button>
+      <button onclick="emberResetAdmin()">Reset to Default Ember</button>
+    </div>
+  `;
+}
+
+async function emberSaveAdmin(){
+  const name = ($('ember-admin-name')||{}).value||'Ember';
+  const voice = ($('ember-admin-voice')||{}).value||'Aoede';
+  const pers = ($('ember-admin-pers')||{}).value||'';
+  const sys = ($('ember-admin-sys')||{}).value||'';
+  try {
+    const res = await api('/api/ember/settings', {name, voice, personality: pers, system_instruction: sys});
+    toast('Companion settings saved');
+    emberLoadAdmin();
+  } catch(e) {
+    toast('Error saving settings: ' + e.message);
+  }
+}
+
+async function emberResetAdmin(){
+  try {
+    await api('/api/ember/settings', {reset: true});
+    toast('Companion reset to default Ember');
+    emberLoadAdmin();
+  } catch(e) {
+    toast('Error resetting settings: ' + e.message);
+  }
+}
+
+async function emberAdoptChar(){
+  const inp = $('ember-adopt-input');
+  const btn = $('ember-adopt-btn');
+  const val = (inp && inp.value || '').trim();
+  if(!val){ toast('Enter a character name first'); return; }
+  if(btn){ btn.disabled = true; btn.textContent = 'Adopting…'; }
+  try {
+    const r = await api('/api/ember/adopt_character', {character: val});
+    toast(`Adopted character: ${r.character&&r.character.name||val}!`);
+    emberLoadAdmin();
+  } catch(e) {
+    toast('Adoption failed: ' + e.message);
+  } finally {
+    if(btn){ btn.disabled = false; btn.textContent = 'Adopt Character'; }
+  }
+}
+
+async function emberTestVoice(){
+  const v = ($('ember-admin-voice')||{}).value||'Aoede';
+  const name = ($('ember-admin-name')||{}).value||'Ember';
+  try {
+    toast(`Previewing ${v} voice…`);
+    const r = await api('/api/ember/tts', {text: `Hello, I am ${name}. My voice is ready.`, voice: v});
+    if(r && r.audio){
+      const a = new Audio(r.audio);
+      a.play().catch(()=>{});
+    } else if(r && r.why){
+      toast('Voice preview: ' + r.why);
+    }
+  } catch(e) {
+    toast('Voice test error: ' + e.message);
+  }
+}
+
 function emberSet(k,v){if(!window.ember)return;
   if(k==='talk'){ember.talk();return}
   if(k==='tour'){goHome();setTimeout(()=>ember.welcome(1),500);return}
