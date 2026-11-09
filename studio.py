@@ -527,7 +527,7 @@ def _ember_mind_call(seconds):
         raise PermissionError("sign in to Aethron so Ember can think")
 
     def cloud(msgs):
-        st, j = aethron_control._request("POST", "/ember/mind", {"messages": msgs, "max_tokens": 900}, token=tok,
+        st, j = aethron_control._request("POST", "/ember/mind", {"messages": msgs, "max_tokens": 1400}, token=tok,
                                               timeout=seconds)
         if st == 200 and isinstance(j, dict):
             if j.get("content"):

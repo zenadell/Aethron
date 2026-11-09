@@ -7098,6 +7098,55 @@ it), never a sleep in the handler. Battery gained the slow-mind check.
 LESSON: a feature can pass every assertion and still be worse to watch.
 For a character, measure what a person sees over time.
 
+## EMBER IS A BODY, NOT A PLAYLIST — joints, reflexes and a mind — 2026-11-09
+Owner: Ember "only cleans, sleeps, patrols, startles and falls"; strip every
+prepared behaviour and give the AI the whole body — joints it can set to an
+angle, involuntary movement while talking, feelings with no trigger.
+- REMOVED: the errand picker (choose, ERRANDS, the dust/GRIME code, ACTS),
+  fidgets, workout, the canned hello, the periodic questions, and every
+  scripted reaction line (boop, throw, grab, fall, fright, purr, closing the
+  chat). A poke, throw or fall is now a REFLEX (a flinch, physics, dizzy)
+  plus an event the mind hears ('poked', 'thrown', 'fell', 'startled',
+  'petted'); what Ember does or says about it is the mind's.
+- THE RIG (EMBER_JS "the body"): every joint is a spring toward a target —
+  body lean (degrees), crouch, turn (2.5D: the face slides and the near eye
+  narrows), rise; per arm shoulder/elbow/wrist (degrees), grip, reach
+  (rubber stretch). Arms are FK from those angles; named poses become hand
+  targets solved by 2-bone IK, so everything moves in joint space (arcs, not
+  lines). Arms are drawn through the real elbow. Convention: shoulder 0 =
+  hangs down, 90 = out to its side, 180 = up, below 0 = across the front;
+  elbow + bends outward/up, - folds inward. Rest is about sh -10, el 125.
+- INVOLUNTARY (physio): breathing (rate by arousal), weight shift, hands
+  never still, blinks by arousal; while it talks, beat gestures (a stroke
+  envelope on shoulder/elbow/wrist, a lean and head turn, nods, brow lifts
+  on ? and !) with the hands lifted into gesture space, eyes on the viewer
+  with short aversions; while it listens, nods.
+- FEELINGS: AFF {valence, arousal} drifts by itself every 7-24s around the
+  attitude's temperament and colours the face (feltFace, at draw time) and
+  posture; a big swing is told to the mind ("a mood came over Ember for no
+  reason: restless"). The mind can set it ({"feel":{..}}), then it is left
+  alone 40s.
+- THE MIND owns everything: prompt (mind_rules + BODY_DOC) says it IS the
+  body and nothing moves unless it moves it; plans 3-8 steps, keyframes may
+  carry arms/body/osc (a joint swinging, for a wave)/speed/feel; new steps
+  {"sleep":s} and {"feel":{..}}; waits may hold a posture. Python clamps it
+  all (_arms/_body/_osc/_feel). Joints written flat ("lean": 12,
+  "right_arm": {...}) are understood. max_tokens 900 -> 1400.
+- No mind = Ember just lives (breathes, looks, reacts). That is the honest
+  consequence of "no prepared behaviour".
+- TRAP: a hold must not outlive its sequence — play() releases the joints,
+  or a pose from one sequence leaked into the next (a talking Ember with
+  its arm still pointing).
+Tests: aethron_ember --selftest 41; tests/ember_battery.py rewritten for it
+(no routine runs and nothing scripted is said without a mind, the body still
+breathes, a keyframe moves an arm to the named angle, a joint can wave,
+talking moves the body far more than silence). bun test tests/cloud 41.
+NEXT (owner's order: behaviour first, then voice): real-time voice — stream
+the microphone to Gemini Live and play its audio as it arrives, with
+barge-in and the body driven by function calls. Today a turn is: local
+speech recognition waits for 1.8s of silence, sends TEXT, and the whole
+answer's audio is buffered before it plays — that is the latency.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7383,6 +7432,9 @@ For a character, measure what a person sees over time.
 - A MARKETPLACE IS READ LIKE A PERSON READS IT. One page at a time, a
   rate limit or bot check is reported, never worked around; only free
   templates are ever offered.
+- EMBER HAS NO ROUTINES. What it does and says is its mind's; the code only
+  gives it a body (joints, reflexes, involuntary movement). Never add a
+  behaviour that runs on its own.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
   really happened. What it presses for you, it presses where you can see it,
   and it never adds to what you asked.

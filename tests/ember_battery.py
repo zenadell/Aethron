@@ -252,59 +252,71 @@ try:
         b_ = v.evaluate("ember.state().bubble") or ""
         check("a reply that never comes is answered anyway, not left loading", bool(b_.strip()), repr(b_))
         v.evaluate("void (window.api=window.__api0)"); v.keyboard.press("Escape"); v.wait_for_timeout(500)
-        # ---- left alone, Ember goes about its own errands
+        # ---- left alone with no mind, Ember runs no routine and says nothing scripted, but its body lives
+        for _ in range(80):                      # the offline answer to the last message finishes first
+            if not v.evaluate("ember.state().bubble"): break
+            v.wait_for_timeout(250)
         v.evaluate("ember.hurry()")
-        for _ in range(90):
-            v.wait_for_timeout(500)
-            if sum((v.evaluate("ember.state().seen") or {}).values()) >= 2: break
-        seen = v.evaluate("ember.state().seen") or {}
-        check("left alone, Ember goes off and does errands of its own", sum(seen.values()) >= 2, str(seen))
-        # ---- dusting is real: dust appears on the row and its hands wipe it off as it sweeps
-        if v.evaluate("document.querySelectorAll('.pitem,.rcard').length"):
-            v.evaluate("ember.errand('dust')")
-            lefts = []
-            for _ in range(60):
-                v.wait_for_timeout(200)
-                g = v.evaluate("ember.state().grime")
-                if g: lefts.append((g["left"], g["n"]))
-                if lefts and not g: break
-            v.screenshot(path=str(SP/"dust.png"))
-            check("dusting puts real dust on the row it chose", bool(lefts) and lefts[0][0] == lefts[0][1] > 10, str(lefts[:3]))
-            check("and the wipe takes it off a little at a time as Ember sweeps", any(0 < l < n * .8 for l, n in lefts), str(lefts[::5]))
-            check("until the row is clean", not v.evaluate("ember.state().grime") or v.evaluate("ember.state().grime.left") == 0)
-            dust0 = (v.evaluate("ember.state().seen") or {}).get("dust", 0)
-            v.evaluate("ember.hear('stop cleaning for 5 minutes')"); v.wait_for_timeout(600)
-            refused_dust = v.evaluate("ember.errand('dust')")
-            for _ in range(6):
-                v.evaluate("ember.hurry()"); v.wait_for_timeout(200)
-            st_no_dust = v.evaluate("ember.state()")
-            check("'stop cleaning' suppresses the dust errand for the stated time",
-                  refused_dust is False and (st_no_dust.get("seen") or {}).get("dust", 0) == dust0
-                  and (st_no_dust.get("noErrands") or {}).get("dust", 0) > 200, str(st_no_dust))
-            v.evaluate("ember.talk()"); v.wait_for_timeout(150)
-            v.fill("#ember-talk input", "dance for me")
-            v.keyboard.press("Enter")
-            dance_poses, dance_acts, dance_fx = set(), set(), False
-            for _ in range(25):
-                v.wait_for_timeout(80)
-                st_d = v.evaluate("ember.state()")
-                dance_poses.add(st_d.get("pose"))
-                dance_acts.add(st_d.get("act"))
-                if str(st_d.get("face") or "").startswith("fx:"):
-                    dance_fx = True
-            check("asking Ember to dance in chat physically executes multi-keyframe choreography while chat is open",
-                  "m_improv" in dance_acts and bool(dance_poses & {"dance", "cheer", "gen", "hips"}) and dance_fx,
-                  f"acts={dance_acts} poses={dance_poses} fx={dance_fx}")
-            v.fill("#ember-talk input", "make a suspicious face")
-            v.keyboard.press("Enter")
-            sus_fx = False
-            for _ in range(15):
-                v.wait_for_timeout(80)
-                if str(v.evaluate("ember.state().face") or "").startswith("fx:"):
-                    sus_fx = True
-                    break
-            check("asking for an unscripted expression applies continuous fx face dials", sus_fx, str(v.evaluate("ember.state()")))
-            v.keyboard.press("Escape"); v.wait_for_timeout(200)
+        acts, words, sh, lean = set(), set(), [], []
+        for _ in range(40):
+            v.wait_for_timeout(250)
+            st = v.evaluate("ember.state()"); acts.add(st.get("act")); words.add(st.get("bubble") or "")
+            sh.append(st["arms"][1]["sh"]); lean.append(st["body"]["lean"])
+        check("left alone with no mind, Ember runs no routine of its own", acts <= {"be", "", None}, str(acts))
+        check("and says nothing written in advance", words <= {""}, str(words))
+        check("but its body still lives: it breathes and shifts its weight",
+              max(sh) - min(sh) > 1 and max(lean) - min(lean) > .5, f"sh {min(sh):.1f}..{max(sh):.1f} lean {min(lean):.2f}..{max(lean):.2f}")
+        # ---- every joint is the mind's to move, in degrees, carried there by springs
+        v.evaluate("ember.play([{t:3,arms:{R:{sh:150,el:30}},body:{lean:12,turn:.5}}])"); v.wait_for_timeout(1400)
+        st = v.evaluate("ember.state()")
+        check("a keyframe moves an arm to the angle it names", abs(st["arms"][1]["sh"] - 150) < 15 and abs(st["arms"][1]["el"] - 30) < 15, str(st["arms"]))
+        check("and the body leans and turns as it says", 8 < st["body"]["lean"] < 18 and .3 < st["body"]["turn"] < .7, str(st["body"]))
+        v.evaluate("ember.play([{t:2.5,arms:{R:{sh:150,el:30}},osc:[{j:'R.el',amp:30,hz:2}]}])")
+        els = []
+        for _ in range(16):
+            v.wait_for_timeout(90); els.append(v.evaluate("ember.state().arms[1].el"))
+        check("a joint can swing back and forth (a wave)", max(els) - min(els) > 25, f"{min(els):.0f}..{max(els):.0f}")
+        v.wait_for_timeout(2600)
+        st = v.evaluate("ember.state()")
+        check("when the sequence ends the arm goes back to rest", st["arms"][1]["sh"] < 40 and not st["held"], str(st["arms"][1]))
+        # ---- while it talks, hands, head and body move by themselves
+        def motion(n):
+            prev, tot = None, 0.0
+            for _ in range(n):
+                v.wait_for_timeout(100)
+                a = v.evaluate("(()=>{const s=ember.state();return [s.arms[0].sh,s.arms[0].el,s.arms[1].sh,s.arms[1].el,s.body.lean,s.talking]})()")
+                if prev: tot += sum(abs(x - y) for x, y in zip(a[:5], prev[:5]))
+                prev = a
+            return tot, prev[5]
+        quiet, _ = motion(20)
+        v.evaluate("ember.perform({kind:'answer',say:'okay listen, this is a long thing I want to tell you about, and I am going to keep talking for a while, alright?'})")
+        talking, was = motion(20)
+        check("while it talks its hands and body move by themselves, more than when it is quiet",
+              talking > quiet * 1.6, f"quiet {quiet:.0f} talking {talking:.0f}")
+        v.evaluate("ember.talk()"); v.wait_for_timeout(150)
+        v.fill("#ember-talk input", "dance for me")
+        v.keyboard.press("Enter")
+        dance_poses, dance_acts, dance_fx = set(), set(), False
+        for _ in range(25):
+            v.wait_for_timeout(80)
+            st_d = v.evaluate("ember.state()")
+            dance_poses.add(st_d.get("pose"))
+            dance_acts.add(st_d.get("act"))
+            if str(st_d.get("face") or "").startswith("fx:"):
+                dance_fx = True
+        check("asking Ember to dance in chat physically executes multi-keyframe choreography while chat is open",
+              "m_improv" in dance_acts and bool(dance_poses & {"dance", "cheer", "gen", "hips"}) and dance_fx,
+              f"acts={dance_acts} poses={dance_poses} fx={dance_fx}")
+        v.fill("#ember-talk input", "make a suspicious face")
+        v.keyboard.press("Enter")
+        sus_fx = False
+        for _ in range(15):
+            v.wait_for_timeout(80)
+            if str(v.evaluate("ember.state().face") or "").startswith("fx:"):
+                sus_fx = True
+                break
+        check("asking for an unscripted expression applies continuous fx face dials", sus_fx, str(v.evaluate("ember.state()")))
+        v.keyboard.press("Escape"); v.wait_for_timeout(200)
         # ---- sitting on the chat box when a page without it opens: Ember falls
         v.evaluate("ember.hurry();ember.perch()")
         for _ in range(60):
@@ -322,14 +334,15 @@ try:
         faces, said = set(), ""
         for _ in range(60):
             v.wait_for_timeout(100)
-            st = v.evaluate("ember.state()"); faces.add(st["face"]); said = said or (st["bubble"] if st["face"] != "shocked" else "")
-            if said and "dizzy" in faces: break
-        check("then it lies there dizzy and picks itself up with a line", "dizzy" in faces and bool(said), str(faces) + repr(said))
+            st = v.evaluate("ember.state()"); faces.add(st["face"])
+            if "dizzy" in faces: break
+        check("then it lies there dizzy, and what it does next is its mind's",
+              "dizzy" in faces and any("fell" in e for e in v.evaluate("ember.mind().ev")), str(faces) + str(v.evaluate("ember.mind().ev")))
         v.evaluate("goHome()"); v.wait_for_timeout(800)
         # ---- no mind switched on (not signed in here): Ember keeps its own behaviour
         v.evaluate("ember.think('test')"); v.wait_for_timeout(2500)
         mm = v.evaluate("ember.mind()")
-        check("with no mind switched on, Ember knows it and carries on by itself", mm["off"] and not mm["live"], str(mm))
+        check("with no mind switched on, Ember knows it and just lives", mm["off"] and not mm["live"], str(mm))
         v.close()
         # ---- with a mind: it plans, invents a behaviour, plays it, and keeps it
         mp = b.new_page(viewport={"width": 1400, "height": 900})
@@ -342,10 +355,10 @@ try:
              "new": [{"name": "shiver", "about": "a cold little shiver", "steps": [
                  {"t": 1.2, "face": "worried", "pose": "gen", "hands": [[-.5, .3], [.5, .3]], "wiggle": [.15, 25], "shake": 1},
                  {"t": .8, "face": "sad", "fx": {"flame": .7}, "burst": {"kind": "smoke", "n": 4}}]}], "remember": ""},
-            {"thought": "still quiet, I'll hum to myself", "mood": "content",
-             "plan": [{"do": "hum"}], "new": [], "remember": ""},
-            {"thought": "a slow blink at them", "mood": "calm",
-             "plan": [{"do": "slowblink"}], "new": [], "remember": ""},
+            {"thought": "still quiet, I'll wave at them", "mood": "content",
+             "plan": [{"steps": [{"t": 1.4, "arms": {"R": {"sh": 150, "el": 30}}, "osc": [{"j": "R.el", "amp": 28, "hz": 2.6}], "face": "happy"}]}], "new": [], "remember": ""},
+            {"thought": "a little celebration", "mood": "joy",
+             "plan": [{"do": "celebrate"}], "new": [], "remember": ""},
             {"thought": "drift over to the left and watch them quietly with one brow raised", "mood": "curious",
              "focus": "the person",
              "plan": [
@@ -369,7 +382,8 @@ try:
             if "brr. it's freezing." in said and st["outfit"] == "beanie": break
         body = asked[0] if asked else {}
         check("the mind is told what Ember perceives and what it can already do",
-              "person" in (body.get("state") or {}) and "dust" in (body.get("known") or []), str(body)[:200])
+              "person" in (body.get("state") or {}) and "celebrate" in (body.get("known") or [])
+              and "feeling" in ((body.get("state") or {}).get("ember") or {}), str(body)[:200])
         mm = mp.evaluate("ember.mind()")
         check("its plan is taken on", mm["live"] is True and "cold" in mm["thought"], str(mm))
         check("a visible thought cue appears when a plan arrives", any(cues), str(cues[:6]))
@@ -380,14 +394,14 @@ try:
         for _ in range(60):
             mp.wait_for_timeout(200)
             acts = mp.evaluate("ember.mind().acts") or []
-            if "m_slowblink" in [a["k"] for a in acts]:
+            if "m_celebrate" in [a["k"] for a in acts]:
                 break
-            if acts and acts[-1].get("by") != "mind":      # between plans: let the next thought come now
+            if mp.evaluate("ember.state().act") == "be":   # between plans: let the next thought come now
                 mp.evaluate("ember.hurry()")
         mm2 = mp.evaluate("ember.mind()")
         acts2 = mm2.get("acts") or []
         check("while live, the mind's plans keep coming and Ember is never parked waiting for one",
-              len(asked) >= 3 and any(a["k"] == "m_hum" for a in acts2) and any(a["k"] == "m_slowblink" for a in acts2)
+              len(asked) >= 3 and any(a["k"] == "m_improv" for a in acts2) and any(a["k"] == "m_celebrate" for a in acts2)
               and not any(a["k"] == "mind_wait" for a in acts2), str(acts2))
         check("the next request passes recent actions so the mind varies them",
               len(asked) >= 2 and (asked[1].get("state") or {}).get("reason") in ("idle", "next")
@@ -431,14 +445,14 @@ try:
         sp.route("**/api/ember/mind", lambda rt: rt.continue_(url=f"http://127.0.0.1:{slow.server_address[1]}/mind"))
         sp.goto(BASE + "/?ember=1"); sp.wait_for_timeout(1500)
         sp.evaluate("ember.think('test')")
-        seen_acts, moved, x0 = set(), 0.0, None
+        seen_acts, moved, x0, shs = set(), 0.0, None, []
         for _ in range(28):
             sp.wait_for_timeout(250)
-            st = sp.evaluate("ember.state()"); seen_acts.add(st.get("act"))
+            st = sp.evaluate("ember.state()"); seen_acts.add(st.get("act")); shs.append(st["arms"][0]["sh"])
             if x0 is not None: moved += abs(st["x"] - x0[0]) + abs(st["y"] - x0[1])
             x0 = (st["x"], st["y"])
         check("while a slow mind thinks, Ember is never parked waiting for it", "mind_wait" not in seen_acts, str(seen_acts))
-        check("and it keeps doing things of its own meanwhile", any(a and not a.startswith("m_") for a in seen_acts), str(seen_acts))
+        check("and its body keeps living meanwhile", max(shs) - min(shs) > 1, f"{min(shs):.1f}..{max(shs):.1f}")
         got_plan, wait_s, said = False, 0.0, set()
         for _ in range(120):
             sp.wait_for_timeout(250)
