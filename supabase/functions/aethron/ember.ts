@@ -105,7 +105,7 @@ export async function emberMind(req: Request): Promise<Response> {
     left -= m.content.length;
   }
   const body: Record<string, unknown> = {
-    model: s.model, messages: msgs, max_tokens: Math.min(1000, Number(b.max_tokens) || 900),
+    model: s.model, messages: msgs, max_tokens: Math.min(1500, Number(b.max_tokens) || 1400),
     temperature: 0.9, response_format: { type: "json_object" },
   };
   const t0 = nowMs();
