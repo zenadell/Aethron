@@ -45,7 +45,7 @@ SUITES = [
                 "tests/keeper_battery.py",
                 "aethron_news.py", "tests/news_battery.py", "tests/image_battery.py",
                 "aethron_ember.py", "tests/ember_battery.py", "tests/agency_battery.py", "aethron_desktop.py", "aethron_voice.py",
-                "aethron_live.py", "tests/live_battery.py", "aethron_notify.py",
+                "aethron_live.py", "tests/live_battery.py", "aethron_notify.py", "tests/flame_battery.py",
                 "tests/stall_battery.py", "tests/conversation_battery.py",
                 "tests/page_preview_battery.py",
                 "aethron_shot2code.py", "tests/shot2code_battery.py",
@@ -237,6 +237,7 @@ SUITES = [
     # Ember, the companion: real signals, never steals a click, Savage for admins only.
     ("companion (selftest)", [PY, "aethron_ember.py", "--selftest"], False),
     ("companion in the window (real browser)", [PY, "tests/ember_battery.py"], False),
+    ("the companion's flame and its kinds (real browser)", [PY, "tests/flame_battery.py"], False),
     ("companion does things for you (real browser)", [PY, "tests/agency_battery.py"], False),
     ("companion on the desktop (selftest)", [PY, "aethron_desktop.py", "--selftest"], False),
     ("companion listens (selftest)", [PY, "aethron_voice.py", "--selftest"], False),

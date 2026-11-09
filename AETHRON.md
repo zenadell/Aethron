@@ -7372,6 +7372,54 @@ starts the talk, Esc, the key never in the window, the old way when off). NOT PR
 Mac with a real key: the Mac's microphone stream, the echo gate in a real
 room, and gemini-3.8-live's own answers.
 
+## EMBER IS REAL FIRE, IN TWELVE KINDS — 2026-11-09
+Owner: "a more better flamey design, and can change color like different
+kinds of flames". The body was a teardrop with three points and one
+orange gradient. Now (EMBER_JS "kinds of flame" + flamePath):
+- THE FLAME: four fat convex tongues (🔥-style: sides bulge from a notch
+  and pinch to a point), each licking on its own clock (three sines per
+  tongue, faster when angry, aroused, stoked), leaning with motion and
+  sway. Drawn three times: an outer flame behind (darker, taller, other
+  phases, the glow), the body the face lives on, and a hot core in the
+  tongues (fades to nothing over the face so the eyes stay readable).
+  Plus wisps rising inside, bits of flame breaking off the tips (a wisp
+  fading at its base: a solid teardrop read as a raindrop), sparks in
+  the kind's own colour. First cut had five thin tongues and read as
+  spiky HAIR — judged by rendering every kind at 6x, not by the code.
+- TWELVE KINDS (FK): classic, blue, arcane, witch(fire), soul (a little
+  see-through), gold, rose, white(-hot), inferno, coal, shadow (dark
+  body, glowing violet rim, LIGHT face ink — every colour of the face,
+  ink/brows/lids/iris, comes from the palette, or a dark kind loses its
+  face), prism (hue cycles). Each also burns its own way: height,
+  flicker, sway, sparks, licks, glow, stars (arcane/gold), hearts
+  (rose), smoke (inferno). "mood" follows the face and feeling (cross =
+  inferno, down = blue, sleepy = coal, shy = rose, thrilled = gold,
+  smug = arcane, curious = soul), held 1.4s and at most every 4s so it
+  never flickers between colours.
+- A CHANGE FLOWS: the palette is lerped every frame (~2s to arrive) with
+  a flare, a ring and a burst of sparks in the new colour. Never a cut.
+- WHO CHANGES IT: the person (Settings → Companion → Flame: a row of
+  little flame swatches; right-click → "Change my flame"; or say/type
+  "turn blue", "make your flame purple", "be a soul fire", "change your
+  colour", "match my mood" — kept for good, or "for 5 minutes"), and the
+  mind ({"fire": kind, "for": minutes} — ONLY for a while: mind_parse
+  strips "keep", the person's choice is theirs). fire_wish refuses
+  anything about the site ("make the button blue", "make it blue",
+  "turn this green"): the selftest caught "make it blue" being taken.
+  Another window (the desktop Ember) follows through the storage event.
+- THE FIRE ANSWERS THE WORK: burns higher while Aethron works (working,
+  thinking, a running job), flares when a check passes or a site goes
+  live, sputters with smoke when something breaks.
+- What's New card "Ember is real fire now" (art: five little flames).
+Tests: tests/flame_battery.py (31; every kind drawn and told apart by
+its PIXELS, a change blends then arrives, mood follows the face, a
+spoken wish is kept across a reload, the mind cannot take the person's
+choice, menu, Settings swatches, another window follows, an unknown kind
+falls back, with motion off the flame holds still); aethron_ember
+--selftest 41 -> 52. TEST TRAP: ember.frames(ms, n) runs Ember's clock
+AHEAD of the wall; calling it per kind froze the animation for ~12s and
+failed two checks that were fine.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7671,6 +7719,8 @@ room, and gemini-3.8-live's own answers.
   never publishes, unpublishes, deletes or undoes by itself.
 - A VOICE IS PLAYED AS IT IS MADE AND STOPS WHEN SOMEONE TALKS OVER IT.
   Never wait for a whole spoken answer, and never let Ember hear itself.
+- EMBER'S FACE IS PART OF ITS PALETTE. A kind of flame sets every colour the
+  face uses, or a dark or white flame loses its face.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
   really happened. What it presses for you, it presses where you can see it,
   and it never adds to what you asked.

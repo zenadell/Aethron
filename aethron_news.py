@@ -13,7 +13,7 @@ written.
     id      unique and never reused: "2026-10-preview-rail"
     title   a few words
     body    one or two sentences, what it does for them
-    art     the coded illustration to play: rail | back | runs | gallery | compare
+    art     the coded illustration to play: rail | back | runs | gallery | compare | ember | flames
     go      what "Try it" does (studio.py newsGo): preview | back | runs | home | compare
     label   the button's words (default "Try it")
 
@@ -108,6 +108,14 @@ NEWS = [
              "\"that's all\" or press Esc to end it. Needs a Gemini key "
              "(Settings, Model); headphones work best.",
      "art": "ember", "go": "ember", "label": "Try it"},
+    {"id": "2026-11-ember-flames",
+     "title": "Ember is real fire now",
+     "body": "Licking tongues, a hot core, sparks and embers that drift off. "
+             "And it burns in 12 kinds: blue, arcane, witchfire, soul fire, "
+             "golden, shadow, prism and more, or let its flame follow its "
+             "mood. Pick one in Settings, Companion, or just tell Ember "
+             "\"turn blue\".",
+     "art": "flames", "go": "ember-fire", "label": "Pick a flame"},
 ]
 
 SEEN = ".news-seen.json"
@@ -218,10 +226,10 @@ def _selftest() -> int:
     check("ids are unique", len(ids) == len(set(ids)))
     check("every entry names a known illustration and action",
           all(n["art"] in ("rail", "back", "runs", "gallery", "compare",
-                           "devices", "history", "cmdk", "publish", "ember")
+                           "devices", "history", "cmdk", "publish", "ember", "flames")
               and n["go"] in ("preview", "back", "runs", "home", "compare",
                               "phone", "history", "cmdk", "publish", "ember",
-                              "ember-agency")
+                              "ember-agency", "ember-fire")
               for n in NEWS))
     print("ALL PASS" if ok else "FAILED")
     return 0 if ok else 1
