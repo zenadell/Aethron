@@ -7069,6 +7069,35 @@ in the last 5 min weigh less; dust survives a list redraw and is wiped only
 during the sweep. Battery 81/81 (real-mouse menu click; a scripted recognizer
 proves it re-listens and that a stop word ends it), twice in a row.
 
+## "GEMINI MADE EMBER WORSE" — IT WAITED FOR ITS MIND — 2026-11-09
+Owner, after Gemini (Antigravity) worked on Ember Nov 5-6 (5 merges straight
+to main): Ember got worse. Measured, not guessed — tests/ember_battery 92/92
+on Gemini's main, so the tests could not see it. A recorder (scratchpad
+watch.py: Ember sampled every 250ms for 150s, mind served by a stub that
+answers in 10s, the latency the field logs showed for gemini-4-argon:
+7-14s per thought) did:
+    nothing on screen changes for 3s+   old 35s, Gemini 85s of 150s
+    activity: Gemini's spent 35% in "mind_wait" (standing, 10s each time)
+Cause: with the mind live, every idle moment set act='mind_wait' and asked
+the mind, so Ember stood still for the whole thought; the prompt also told
+the mind "the most lifelike choice is to sit quietly", and m_wait/m_say held
+the body still for 10-15s.
+FIXED: the body never waits — idle picks a built-in action at once and the
+mind is asked in the background; a plan that arrives takes over unless Ember
+is mid-errand, mid-nap or mid-plan (then it plays after); the next plan is
+asked for as the last step starts, paced to the hourly allowance; the
+mind's own pauses are capped at 4s and look at the cursor, a line is said
+while the next step plays (the person's own instructions keep their exact
+lengths); the prompt now asks for visible plans (3-6 steps, 15-40s, movement
+and a face change every plan). Dust weight .9 -> .45. Result on the same
+recording: 36s frozen of 150s (mostly a nap), mind plans interleaved.
+A TRAP IN MY OWN INSTRUMENT: a Playwright route handler that sleeps blocks
+the recorder too, so it logged false freezes in BOTH versions. A slow
+dependency in a browser test must be a separate server (route.continue_ to
+it), never a sleep in the handler. Battery gained the slow-mind check.
+LESSON: a feature can pass every assertion and still be worse to watch.
+For a character, measure what a person sees over time.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
