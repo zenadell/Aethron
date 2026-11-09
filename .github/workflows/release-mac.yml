@@ -147,6 +147,9 @@ jobs:
           python3 aethron_voice.py --selftest
           python3 -c "import aethron_voice,sys;sys.exit(0 if aethron_voice.available() else 1)" \
             || { echo "::error::Ember cannot listen (pyobjc Speech/AVFoundation missing)"; exit 1; }
+          # talking with Ember live: one open line to Gemini Live, the Mac's
+          # own microphone streamed to it, an echo gate (a pretend service)
+          python3 aethron_live.py --selftest
           # Ember tells the person what needs them when Aethron is behind
           # other windows, through the Mac's own notification centre
           python3 aethron_notify.py --selftest
@@ -227,6 +230,8 @@ jobs:
         run: |
           python -m py_compile studio.py forge.py forge_mcp.py desktop.py aethron_update.py aethron_jobs.py
           python aethron_update.py --selftest
+          # talking with Ember live (a pretend service): on Windows the window's own microphone feeds it
+          python aethron_live.py --selftest
 
       - name: Add the release settings
         run: |

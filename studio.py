@@ -575,6 +575,38 @@ def voice_listener():
     return _VOICE
 
 
+def ember_live_start(body: dict) -> dict:
+    """Start a live spoken conversation with Ember (aethron_live): one open
+    line to Gemini Live, with the same rules spoken requests follow, what
+    the window shows, and the person's projects. The Mac's own microphone
+    feeds it when there is one; otherwise the window sends its own."""
+    import aethron_live
+    if not _ember:
+        return {"ok": False, "why": "the companion is not available"}
+    if _ember.norm_live(body.get("liveMode")) not in aethron_live.MODELS:
+        return {"ok": False, "why": "live voice is not switched on (Settings, Companion, Live voice)"}
+    av = aethron_live.available()
+    if not av.get("ok"):
+        return av
+    att = str(body.get("attitude") or "sassy")
+    if att not in _ember.ATTITUDES or (att == "savage" and not _ember.savage_allowed()):
+        att = "sassy"
+    names = body.get("projects")
+    if not isinstance(names, list):
+        try:
+            names = [p.name for p in PROJECTS.iterdir() if (p / "forge.json").exists()]
+        except Exception:
+            names = []
+    names = [str(n) for n in names][:200]
+    plist = ("Their projects: " + ", ".join(names) + ".") if names else "They have no projects yet."
+    system = (_ember.act_rules(att) + "\n\nSTATE (what Aethron shows as the conversation starts):\n"
+              + str(body.get("state") or "")[:2000] + "\n" + plist)
+    native = body.get("mic") != "page" and voice_listener() is not None
+    return aethron_live.begin(system, model=_ember.norm_live(body.get("liveMode")),
+                              voice=_ember.active_voice(str(body.get("voice") or "")),
+                              projects=names, native_mic=native)
+
+
 def focus_app():
     if not FOCUS_APP:
         return
@@ -2119,6 +2151,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(limits_report())
             if u.path == "/api/voice":
                 return self.send_json({"available": voice_listener() is not None})
+            if u.path == "/api/ember/live":
+                import aethron_live
+                cur = aethron_live.current()
+                return self.send_json(dict(aethron_live.available(), native_mic=voice_listener() is not None,
+                                           live=cur.status() if cur else None))
+            if u.path == "/api/ember/live/events":
+                import aethron_live
+                sid = (q.get("id") or [""])[0]
+                cur = aethron_live.find(sid)
+                if not cur:          # an older conversation, or none: it is over, whatever runs now
+                    return self.send_json({"events": [], "seq": 0, "closed": True, "why": "none", "id": sid})
+                try:
+                    since = int((q.get("since") or ["0"])[0])
+                    wait = min(25.0, max(0.0, float((q.get("wait") or ["20"])[0])))
+                except ValueError:
+                    since, wait = 0, 20.0
+                return self.send_json(cur.read(since, wait))
             if u.path == "/api/voice/poll":
                 v = voice_listener()
                 return self.send_json(v.poll() if v else {"state": "error", "text": "", "why": "no microphone here"})
@@ -3567,6 +3616,53 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"state": "error", "text": "",
                                            "why": "this computer's own speech recognition is not available"})
                 self.send_json(v.start() if u.path.endswith("start") else v.stop())
+            elif u.path == "/api/ember/live/start":
+                self.send_json(ember_live_start(body))
+            elif u.path == "/api/ember/live/relay":
+                # Ember on the desktop heard a request in a live conversation:
+                # the app window types it or presses the button (validated
+                # again here: only a request to type or a known control)
+                r = body.get("r") if isinstance(body.get("r"), dict) else {}
+                kind = r.get("kind")
+                if kind not in ("send", "action") or (kind == "action" and r.get("action") not in getattr(_ember, "ACTIONS", ())):
+                    return self.fail("not something Ember can hand over")
+                item = {"kind": kind, "action": str(r.get("action") or "none")[:40], "target": str(r.get("target") or "")[:120],
+                        "prompt": str(r.get("prompt") or "")[:1500], "say": str(r.get("say") or "")[:120]}
+                if kind == "send" and not item["prompt"]:
+                    return self.fail("nothing to type")
+                EMBER_INBOX.append(item)
+                del EMBER_INBOX[:-5]
+                try:
+                    if callable(EMBER_FOCUS):
+                        EMBER_FOCUS()
+                except Exception:
+                    pass
+                self.send_json({"ok": True})
+            elif u.path in ("/api/ember/live/audio", "/api/ember/live/text", "/api/ember/live/state", "/api/ember/live/stop"):
+                import aethron_live
+                cur = aethron_live.current()
+                sid = str(body.get("id") or "")
+                if u.path.endswith("/stop"):
+                    if not sid or (cur and cur.id == sid):     # stopping an older talk never ends the new one
+                        aethron_live.end(str(body.get("why") or "done")[:40])
+                    return self.send_json({"ok": True})
+                if sid and cur and cur.id != sid:
+                    cur = None
+                if not cur:
+                    return self.send_json({"ok": False, "closed": True})
+                if u.path.endswith("/audio"):
+                    try:
+                        pcm = base64.b64decode(str(body.get("pcm") or ""))
+                    except Exception:
+                        return self.fail("the audio could not be read")
+                    if len(pcm) > 64000:          # 2 s at most in one piece
+                        return self.fail("too much audio at once")
+                    return self.send_json({"ok": True, "sent": cur.audio(pcm), "speaking": cur.gate.speaking()})
+                if u.path.endswith("/text"):
+                    cur.text(str(body.get("text") or ""))
+                else:
+                    cur.state(str(body.get("state") or ""))
+                self.send_json({"ok": True})
             elif u.path == "/api/ember/act":
                 # what the person said -> a clear request typed into the chat,
                 # a button pressed, or a line Ember answers itself
@@ -17023,7 +17119,7 @@ function emberCard(){
     <div class="hint">When Aethron is hidden or another app is in front, what Ember would offer also comes as one system notification. Clicking it brings Aethron back, with the offer waiting. Never more than a few an hour.</div>
     <div class="kv"><span>Mind AI</span><b class="rowbtns">${seg('ai',[['auto','Auto'],['gemini','Gemini'],['groq','Groq']])}</b></div>
     <div class="kv"><span>Live voice</span><b class="rowbtns">${seg('liveMode',[['gemini-3.8-live','Gemini 3.8 Live'],['gemini-3.8-live-extended-thinking','Gemini Live + thinking'],['gemini-tts','Gemini TTS'],['groq','Groq + system voice']])}</b></div>
-    <div class="hint">Mind AI writes what Ember does and says. Live voice powers talking out loud (double-click Ember): Gemini 3.8 Live answers, acts and speaks in one go and is the fastest. Whatever the AI asks for, Ember only does what its body really can.</div>
+    <div class="hint">Mind AI writes what Ember does and says. Live voice powers talking out loud (double-click Ember): with Gemini 3.8 Live it is one live conversation, Ember's voice starts as soon as it is made and you can talk over it to stop it. It uses a saved Gemini key. With speakers, talk a little louder than Ember to cut in; headphones need nothing. Whatever the AI asks for, Ember only does what its body really can.</div>
     <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
     <div class="hint" id="ember-mind-status">${esc(e.mindStatus||'Mind: off')}</div>
     ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}

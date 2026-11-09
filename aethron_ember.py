@@ -1915,7 +1915,7 @@ function applyJoints(s){if(!s)return;let any=0;
   if(s.feel)feel(s.feel);
   if(any)J.held=1}
 function releaseJoints(){J.hold=[null,null];J.body=null;J.osc=[];J.speed=1;J.held=0}
-const isTalking=()=>!!((E.bubble&&E.bubble.type&&E.bubble.t*E.bubble.cps<E.bubble.text.length)||(VOICE_EL&&!VOICE_EL.paused&&!VOICE_EL.ended)||E.flap>.3);
+const isTalking=()=>!!((E.bubble&&E.bubble.type&&E.bubble.t*E.bubble.cps<E.bubble.text.length)||(VOICE_EL&&!VOICE_EL.paused&&!VOICE_EL.ended)||E.flap>.3||(typeof LV!=='undefined'&&livePlaying()));
 /* a beat: the small stroke of a hand, a nod, a shift of weight that comes
    with stressed words. Nobody plans these; they come with talking. */
 function beat(){if(REDUCE)return;const e=.6+AFF.a*.8,r=Math.random(),arms=r<.55?[1]:r<.8?[0]:[0,1],d=rnd(.28,.55);
@@ -2717,13 +2717,100 @@ async function perform(r){if(!r||DRV.on)return false;
     const sb=shown('#sendbtn,button[onclick^="consoleSend"]');if(sb)await press(sb);else ta.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
     CTX.last='Ember sent: '+r.prompt.slice(0,80);CTX.lastT=now;return true
   }finally{DRV.on=0;setMood(null);if(running)go(SP.perch,{speed:.8})}}
+/* ===== talking live =====
+   With Live voice on (Gemini 3.8 Live) a conversation is one open line:
+   the microphone streams to Aethron (the Mac's own microphone feeds it
+   directly; elsewhere this window sends its own, echo-cancelled), Ember's
+   voice is played the moment its first piece arrives, and talking over it
+   stops it at once. What Ember does comes from the same body tool spoken
+   requests use; the key never reaches this window (aethron_live). */
+const LV={on:0,seq:0,ctx:null,an:null,abuf:null,next:0,srcs:[],chunks:0,played:0,heard:'',said:'',mode:'',stream:null,proc:null,
+  sendP:Promise.resolve(),inflight:0,fails:0,interrupts:0,acts:0,stateSent:'',stateT:0,micWhy:'',ph:0,acc:[],sent:0,ended:'',lip:0,lastSpeak:0};
+const liveWanted=()=>/^gemini-3\.8-live/.test(String(CFG.liveMode||''))&&!REDUCE_VOICE();
+function liveCtx(){const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;
+  if(!LV.ctx){try{LV.ctx=new AC();LV.an=LV.ctx.createAnalyser();LV.an.fftSize=512;LV.an.connect(LV.ctx.destination);LV.abuf=new Uint8Array(LV.an.fftSize)}catch(_){LV.ctx=null}}
+  try{if(LV.ctx&&LV.ctx.state==='suspended')LV.ctx.resume()}catch(_){}return LV.ctx}
+function livePlaying(){return !!(LV.ctx&&LV.srcs.length&&LV.next>LV.ctx.currentTime)}
+/* each piece is queued straight after the one before it: no gaps, no waiting for the whole answer */
+function livePlay(b64,rate){const c=liveCtx();if(!c||!b64)return;let bin;try{bin=atob(b64)}catch(_){return}const n=bin.length>>1;if(!n)return;
+  const buf=c.createBuffer(1,n,rate||24000),ch=buf.getChannelData(0);
+  for(let i=0;i<n;i++){let v=bin.charCodeAt(2*i)|(bin.charCodeAt(2*i+1)<<8);if(v>=32768)v-=65536;ch[i]=v/32768}
+  const src=c.createBufferSource();src.buffer=buf;src.connect(LV.an);const at=Math.max(c.currentTime+.04,LV.next);
+  try{src.start(at)}catch(_){return}LV.next=at+buf.duration;LV.srcs.push(src);LV.chunks++;LV.lastSpeak=now;
+  src.onended=()=>{LV.srcs=LV.srcs.filter(x=>x!==src);LV.played++}}
+function liveHush(){for(const x of LV.srcs){try{x.stop()}catch(_){}}LV.srcs=[];LV.next=0;E.flapT=0}
+function liveLip(){if(!LV.an||!livePlaying())return;LV.an.getByteTimeDomainData(LV.abuf);let m=0;for(const v of LV.abuf)m=Math.max(m,Math.abs(v-128));E.flapT=cl(m/44,0,1)}
+function liveB64(i16){const u=new Uint8Array(i16.buffer);let s='';for(let i=0;i<u.length;i+=0x8000)s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));return btoa(s)}
+function liveSend(i16){if(LV.inflight>12)return;LV.inflight++;const pcm=liveB64(i16);
+  const id=LV.id,gen=LV.gen;LV.sendP=LV.sendP.then(()=>post('/api/ember/live/audio',{pcm,id})).then(r=>{LV.sent++;if(r&&r.closed&&LV.on&&LV.gen===gen)liveEnd('lost',1)}).catch(()=>{}).finally(()=>{LV.inflight--})}
+/* this window's own microphone (where the Mac's is not used): echo-cancelled by the browser, brought down to 16 kHz, sent in 100 ms pieces */
+async function liveMic(){const md=navigator.mediaDevices;if(!md||!md.getUserMedia){LV.micWhy='this window cannot use the microphone';return false}
+  let st;try{st=await md.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true,channelCount:1}})}
+  catch(e){LV.micWhy=e&&(e.name==='NotAllowedError'||e.name==='SecurityError')?'the microphone is switched off for Aethron':'the microphone did not start';return false}
+  if(!LV.on){st.getTracks().forEach(t=>t.stop());return false}
+  const c=liveCtx();if(!c){st.getTracks().forEach(t=>t.stop());LV.micWhy='this window cannot play or record sound';return false}
+  LV.stream=st;const src=c.createMediaStreamSource(st),proc=c.createScriptProcessor(4096,1,1),mute=c.createGain();mute.gain.value=0;
+  const step=c.sampleRate/16000;LV.ph=0;LV.acc=[];
+  proc.onaudioprocess=e=>{if(!LV.on)return;const d=e.inputBuffer.getChannelData(0);let p=LV.ph;
+    while(p+step<=d.length){const a=Math.floor(p),b=Math.max(a+1,Math.floor(p+step));let sm=0;for(let i=a;i<b;i++)sm+=d[i];LV.acc.push(sm/(b-a));p+=step}
+    LV.ph=p-d.length;while(LV.acc.length>=1600){const part=LV.acc.splice(0,1600),out=new Int16Array(1600);for(let i=0;i<1600;i++)out[i]=Math.max(-32768,Math.min(32767,Math.round(part[i]*32767)));liveSend(out)}};
+  src.connect(proc);proc.connect(mute);mute.connect(c.destination);LV.proc=[src,proc,mute];return true}
+function liveNames(){try{if(typeof S!=='undefined'&&Array.isArray(S.projects))return S.projects.map(p=>p&&p.name).filter(Boolean)}catch(_){}return null}
+async function liveStart(){
+  let st=null;try{st=await (await fetch('/api/ember/live',{credentials:'same-origin'})).json()}catch(_){}
+  if(!st||!st.ok)return false;
+  const body={state:stateText(),attitude:ATT(),liveMode:CFG.liveMode,mic:st.native_mic?'native':'page'};const nm=liveNames();if(nm)body.projects=nm;
+  let r=null;try{r=await post('/api/ember/live/start',body)}catch(e){r={ok:false,why:String(e&&e.message||e)}}
+  if(!r||!r.ok){VLOG.push('live: '+String(r&&r.why||'did not start'));return false}
+  Object.assign(LV,{on:1,seq:0,id:r.id||'',gen:(LV.gen||0)+1,mode:r.mic||'page',heard:'',said:'',fails:0,ended:'',micWhy:'',sent:0,stateSent:stateText(),stateT:now});
+  V.conv=1;V.quiet=0;V.state='listening';V.t0=now;V.last=now;
+  if(!DRV.on){SEQ=null;setMood({kind:'listen',d:1200,pose:'listen',face:ATT()==='sweet'?'curious':'sideeye',look:'viewer'})}   // mid-press, the hands finish first
+  listenSay('');VLOG.push('live: '+LV.mode);
+  if(LV.mode!=='native'&&!await liveMic()){const why=LV.micWhy;liveEnd('mic');play([{d:3,pose:'shrug',face:'calm',look:'viewer',say:why||"I can't hear on this computer."}]);return true}
+  livePoll();return true}
+/* one poll loop per conversation: a loop left over from an earlier talk stops itself, and never ends the new one */
+async function livePoll(){const gen=LV.gen,id=LV.id;while(LV.on&&LV.gen===gen){let r=null;
+  try{r=await (await fetch('/api/ember/live/events?id='+encodeURIComponent(id)+'&since='+LV.seq+'&wait=20',{credentials:'same-origin'})).json()}catch(_){}
+  if(!LV.on||LV.gen!==gen)break;if(!r){if(++LV.fails>6){liveEnd('lost',1);break}await sleep(600);continue}
+  LV.fails=0;for(const e of r.events||[]){LV.seq=Math.max(LV.seq,e.n||0);try{liveEvent(e)}catch(err){VLOG.push('live event: '+err)}}
+  if(r.closed){liveEnd(r.why||'done',1);break}
+  if(now-LV.stateT>4){LV.stateT=now;const t=stateText();if(t!==LV.stateSent){LV.stateSent=t;post('/api/ember/live/state',{state:t,id}).catch(()=>{})}}}}
+const LIVE_BYE={quiet:["I'll be here when you need me.","quiet, huh. I'll be around.","okay, silent treatment. bye."],
+  long:['that was a long chat. double-tap me anytime.','long chat. double-tap me again anytime.','my voice needs a break. later.'],
+  lost:['I lost the line to my voice. double-tap me to try again.','lost my voice. try again?','my voice dropped. not my fault.']};
+function liveEvent(e){V.last=now;
+  if(e.t==='heard'){LV.heard=e.text||'';if(!livePlaying()){V.state='listening';listenSay(LV.heard)}return}
+  if(e.t==='audio'){if(!livePlaying()&&mood){mood.face=idleFace();mood.pose='rest'}livePlay(e.pcm,e.rate);V.state='speaking';return}
+  if(e.t==='said'){LV.said=e.text||'';live(LV.said);return}
+  if(e.t==='act'){LV.acts++;const r=e.r||{};CTX.last='Ember heard: '+(LV.heard||'').slice(0,80);CTX.lastT=now;
+    if(DESK&&r.kind!=='answer'){post('/api/ember/live/relay',{r}).catch(()=>{});return}
+    perform(Object.assign({},r,{say:''}));return}        // the live voice is Ember's line: nothing drawn over its caption
+  if(e.t==='interrupted'){liveHush();LV.interrupts++;V.state='listening';if(mood){mood.pose='listen';mood.face=ATT()==='sweet'?'curious':'sideeye'}listenSay(LV.heard||'');return}
+  if(e.t==='turn'){const h=String(e.heard||'').trim();if(h&&STOP_WORDS.test(h)){liveEnd('bye');return}
+    setTimeout(()=>{if(LV.on&&!livePlaying()){V.state='listening';if(mood){mood.pose='listen'}listenSay('')}},Math.max(0,((LV.next-(LV.ctx?LV.ctx.currentTime:0))*1000)|0)+150);return}
+  if(e.t==='log'){VLOG.push('live: '+(e.text||''));return}}
+function liveEnd(why,fromServer){if(!LV.on&&LV.ended)return;LV.on=0;LV.ended=why||'done';
+  if(LV.stream){try{LV.stream.getTracks().forEach(t=>t.stop())}catch(_){}LV.stream=null}
+  if(LV.proc){for(const n of LV.proc){try{n.disconnect()}catch(_){}}LV.proc=null}
+  if(!fromServer)post('/api/ember/live/stop',{why:LV.ended,id:LV.id}).catch(()=>{});
+  if(why==='esc'||why==='replaced')liveHush();
+  V.conv=0;V.quiet=0;V.state='idle';if(mood&&mood.kind==='listen')setMood(null);hush();
+  const line=LIVE_BYE[why];if(line&&running)play([{d:2.6,face:'calm',look:'viewer',say:L(line)}])}
+setInterval(()=>{if(LV.on||livePlaying())try{liveLip()}catch(_){}},50);
 /* A conversation: double-tap once and talk. Ember answers (out loud) or does
    what you asked, then listens again by itself, until you say stop / bye,
    press Esc, double-tap, or stay quiet twice in a row. */
 const STOP_WORDS=/^(?:ok(?:ay)?[, ]*)?(?:stop(?: listening)?|bye|goodbye|good night|that'?s all|that is all|we'?re done|i'?m done|thanks,? that'?s it|nothing|never ?mind|end(?: the)? conversation)[.!]*$/i;
-function converse(){if(V.conv){endConv(L(['okay, talk later!','okay. bye.','finally. bye.']));return}
-  if(DRV.on)return;V.conv=1;V.quiet=0;listen()}
-function endConv(line){V.conv=0;V.quiet=0;try{window.speechSynthesis&&speechSynthesis.cancel();VOICE_EL&&VOICE_EL.pause()}catch(_){}
+function converse(){if(VLOG.length>40)VLOG.splice(0,VLOG.length-40);VLOG.push('converse: conv='+(V.conv?1:0)+' drive='+(DRV.on?1:0)+' live='+(LV.on?1:0)+' state='+V.state);
+  if(V.conv){endConv(L(['okay, talk later!','okay. bye.','finally. bye.']));return}
+  /* a talk never waits on Ember's hands: live, it starts now and Ember talks while it works; the old way
+     listens as soon as the press it is in the middle of is done. A tap is never dropped without a word. */
+  if(liveWanted()){liveCtx();V.conv=1;V.quiet=0;V.state='asking';V.t0=now;listenSay('');   // sound is unlocked inside the tap itself
+    liveStart().then(ok=>{if(!ok&&V.conv&&!LV.on){V.state='idle';(async()=>{for(let i=0;i<60&&DRV.on;i++)await sleep(100);if(V.conv)listen()})()}});return}
+  V.conv=1;V.quiet=0;
+  if(DRV.on){(async()=>{for(let i=0;i<60&&DRV.on;i++)await sleep(100);if(V.conv)listen()})();return}
+  listen()}
+function endConv(line){if(LV.on){liveEnd('bye');if(line)play([{d:readTime(line),face:'calm',look:'viewer',say:line}]);return}V.conv=0;V.quiet=0;try{window.speechSynthesis&&speechSynthesis.cancel();VOICE_EL&&VOICE_EL.pause()}catch(_){}
   if(V.state==='listening'||V.state==='asking')stopListen(1);if(line)play([{d:readTime(line),face:'calm',look:'viewer',say:line}])}
 /* Ember's voice: the audio Gemini Live (or Gemini TTS) made for this line,
    with the mouth moving to its loudness; the system voice when there is none */
@@ -2801,7 +2888,7 @@ let inboxT=0;
 function inboxTick(){if(DESK||!CFG.desktop||DRV.on)return;if(performance.now()-inboxT<1400)return;inboxT=performance.now();
   fetch('/api/ember/inbox',{credentials:'same-origin'}).then(x=>x.json()).then(d=>{const it=(d&&d.items||[]).filter(x=>x&&x.kind!=='answer');if(it.length)perform(it[it.length-1])}).catch(()=>{})}
 setInterval(inboxTick,700);
-addEventListener('keydown',e=>{if(e.key==='Escape'&&(V.conv||V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;V.conv=0;try{window.speechSynthesis&&speechSynthesis.cancel();VOICE_EL&&VOICE_EL.pause()}catch(_){}stopListen(1)}},true);
+addEventListener('keydown',e=>{if(e.key==='Escape'&&LV.on){liveEnd('esc');return}if(e.key==='Escape'&&(V.conv||V.state==='listening'||V.state==='asking'||DRV.on)){V.cancel=1;V.conv=0;try{window.speechSynthesis&&speechSynthesis.cancel();VOICE_EL&&VOICE_EL.pause()}catch(_){}stopListen(1)}},true);
 
 /* ===== the welcome =====
    The first time Aethron opens on a machine Ember introduces itself and
@@ -3000,7 +3087,7 @@ function drawAll(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);const 
     else if(p.k==='star'){X.fillStyle=`rgba(${p.c},${p.l})`;X.font=`${p.s}px ${FONT}`;X.fillText('✦',p.x,p.y)}
     else if(p.k==='heart'){X.fillStyle=`rgba(255,120,150,${p.l})`;const s=p.s;X.beginPath();X.moveTo(p.x,p.y+s*.35);X.bezierCurveTo(p.x-s*.7,p.y-s*.2,p.x-s*.35,p.y-s*.8,p.x,p.y-s*.4);X.bezierCurveTo(p.x+s*.35,p.y-s*.8,p.x+s*.7,p.y-s*.2,p.x,p.y+s*.35);X.fill()}
     else{X.fillStyle=`rgba(255,225,200,${Math.sin(p.l*Math.PI)})`;X.font=`600 ${p.s}px ${FONT}`;X.fillText(p.k==='z'?'z':'♪',p.x,p.y)}}
-  if((V.state==='listening'||V.state==='asking')&&E.alpha>.3){const k0=REDUCE?0:now*.9;for(let k=0;k<3;k++){const ph=REDUCE?k/3:(k0+k/3)%1;X.strokeStyle=`rgba(255,165,95,${(.5*(1-ph)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.arc(E.x,E.y-rr*.25,rr*(1.25+ph*1.6),0,7);X.stroke()}}
+  if((V.state==='listening'||V.state==='asking'||(LV.on&&!livePlaying()))&&E.alpha>.3){const k0=REDUCE?0:now*.9;for(let k=0;k<3;k++){const ph=REDUCE?k/3:(k0+k/3)%1;X.strokeStyle=`rgba(255,165,95,${(.5*(1-ph)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.arc(E.x,E.y-rr*.25,rr*(1.25+ph*1.6),0,7);X.stroke()}}
   if(E.alpha<.03||rr<1.5)return;X.globalAlpha=E.alpha;
   const glowC=E.tint?E.tint.join(','):F.angry>.5?'255,60,40':'255,120,50';
   const lg=X.createRadialGradient(E.x,E.y,0,E.x,E.y,rr*6);lg.addColorStop(0,`rgba(${glowC},${.12*F.bright})`);lg.addColorStop(1,`rgba(${glowC},0)`);X.fillStyle=lg;X.fillRect(E.x-rr*6,E.y-rr*6,rr*12,rr*12);
@@ -3096,6 +3183,9 @@ window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG
   saveSettings:s=>post('/api/ember/settings',s),
   adoptCharacter:c=>post('/api/ember/adopt_character',{character:c}),
   talk:()=>startTalk(),listen:()=>listen(),welcome:f=>welcome(f),willWelcome:()=>willWelcome(),tour:()=>({on:!!TW.on,step:TW.n?(TW.bar&&TW.bar.querySelector('.n').textContent):''}),hear:t=>heard(String(t||'')),speak:(t,a)=>speakAloud(t,a),voiceLog:()=>VLOG.slice(-10),perform:r=>perform(r),voice:()=>({conv:!!V.conv,state:V.state,text:V.text,driving:!!DRV.on,press:DRV.press||null}),
+  clock:()=>now,                    // Ember's own clock: it advances at most 50 ms a frame, so on a slow machine it runs behind the wall
+  live:()=>({on:!!LV.on,mode:LV.mode,chunks:LV.chunks,played:LV.played,queued:LV.srcs.length,playing:livePlaying(),heard:LV.heard,said:LV.said,interrupts:LV.interrupts,acts:LV.acts,sent:LV.sent,ended:LV.ended,ctx:LV.ctx?LV.ctx.state:''}),
+  converse:()=>converse(),
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
   state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',actBy:act&&act.by||'',stage:act&&act.stage||'',mode:E.mode,seat:!!E.seat,body:Object.assign({},J.b),arms:J.a.map(a=>Object.assign({},a)),held:!!J.held,feeling:{v:AFF.v,a:AFF.a},talking:isTalking(),outfit:outfit(),shades:!!E.shadesOn,drives:Object.assign({},N),noErrands:Object.fromEntries(Object.entries(NO_ERR).filter(([,u])=>u>now).map(([k,u])=>[k,Math.round(u-now)]))}),
   fall:()=>fall(),perch:()=>{SEQ=null;mood=null;act={k:'perch',by:'test',a:{w:()=>0,run(){},dur:[60,60]},t:0,dur:60};go(SP.perch,{speed:.8})},
