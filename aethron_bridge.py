@@ -1599,65 +1599,111 @@ def _handler(cfg: BridgeConfig, log=None):
                         args = str(args)
                     call["arguments"].append(args)
 
-            try:
-                for line in up:
-                    line = line.decode("utf-8", "replace").strip()
-                    if line.startswith(":"):
-                        # A QUEUED REQUEST IS NOT A DEAD ONE. DeepSeek, under
-                        # load, holds a stream open with ": keep-alive"
-                        # comments before the first word. Say so, so the
-                        # screen waits instead of calling the model quiet.
-                        _status("queued", "The provider has queued the "
-                                          "request and is keeping it open.")
+            # AN ANSWER THAT STOPPED BEFORE SAYING ANYTHING IS ASKED AGAIN,
+            # INSIDE THE SAME STREAM. Tool calls are held until they are
+            # whole, so until the first word of text nothing has reached the
+            # engine but the opening and pings. Passing such a cut on handed
+            # the engine an empty answer; it ended the turn with
+            # "[ede_diagnostic] … stop_reason=tool_use/null" (21 field
+            # reports on 1.1.121) and the run stopped mid-migration. Up to
+            # CUT_RETRIES more asks; a cut after words have gone out is
+            # closed as before.
+            def read_once(up):
+                nonlocal stop, usage
+                try:
+                    for line in up:
+                        line = line.decode("utf-8", "replace").strip()
+                        if line.startswith(":"):
+                            # A QUEUED REQUEST IS NOT A DEAD ONE. DeepSeek, under
+                            # load, holds a stream open with ": keep-alive"
+                            # comments before the first word. Say so, so the
+                            # screen waits instead of calling the model quiet.
+                            _status("queued", "The provider has queued the "
+                                              "request and is keeping it open.")
+                            alive()
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+                        payload = line[5:].strip()
+                        if payload == "[DONE]":
+                            break
+                        try:
+                            d = json.loads(payload)
+                        except ValueError:
+                            continue
+                        # every chunk is proof of life; the screen measures
+                        # silence from here, not from the start of the request
+                        _status("writing", "The model is writing its answer.")
                         alive()
-                        continue
-                    if not line.startswith("data:"):
-                        continue
-                    payload = line[5:].strip()
-                    if payload == "[DONE]":
-                        break
-                    try:
-                        d = json.loads(payload)
-                    except ValueError:
-                        continue
-                    # every chunk is proof of life; the screen measures
-                    # silence from here, not from the start of the request
-                    _status("writing", "The model is writing its answer.")
+                        if d.get("usage"):
+                            u = d["usage"]
+                            usage = {"input_tokens": u.get("prompt_tokens", 0),
+                                     "output_tokens": u.get("completion_tokens", 0)}
+                            _account(cfg.model, usage["input_tokens"],
+                                     usage["output_tokens"], cached_tokens(u))
+                        for ch in d.get("choices") or []:
+                            delta = ch.get("delta") or {}
+                            if delta.get("reasoning_content"):
+                                reasoning.append(delta["reasoning_content"])
+                            for tc in (delta.get("tool_calls") or []):
+                                sg = _sig_of(tc)
+                                if sg and tc.get("id"):
+                                    sigs[tc["id"]] = sg
+                            if delta.get("content"):
+                                text_seen.append(delta["content"])
+                                out.text(delta["content"])
+                            for tc in delta.get("tool_calls") or []:
+                                if tc.get("id"):
+                                    call_ids.append(tc["id"])
+                                remember_tool(tc)
+                            if ch.get("finish_reason"):
+                                stop = STOP_MAP.get(ch["finish_reason"],
+                                                    "end_turn")
+                except Exception as e:                   # upstream died
+                    return e
+                return None
+            tries = 0
+            while True:
+                died = read_once(up)
+                # a tool call whose arguments never closed, with no finish
+                # reason, is an answer that was cut, not one to run
+                half = died is None and stop is None and not text_seen and any(
+                    _normalize_tool_input("".join(pending_tools[k]["arguments"]))[1]
+                    for k in tool_order)
+                empty = died is None and stop is None and not text_seen \
+                    and not tool_order
+                if not (died is not None or half or empty) or text_seen \
+                        or tries >= CUT_RETRIES:
+                    if half:
+                        died = ConnectionError("a tool call was cut half-way")
+                    break
+                tries += 1
+                _status("busy", f"The answer stopped before it began "
+                                f"({type(died).__name__ if died else 'empty'}); "
+                                f"asking again ({tries}).")
+                try:
+                    up.close()
+                except Exception:
+                    pass
+                for k in range(int(CUT_WAIT * tries / .5) or 1):
+                    time.sleep(.5)
                     alive()
-                    if d.get("usage"):
-                        u = d["usage"]
-                        usage = {"input_tokens": u.get("prompt_tokens", 0),
-                                 "output_tokens": u.get("completion_tokens", 0)}
-                        _account(cfg.model, usage["input_tokens"],
-                                 usage["output_tokens"], cached_tokens(u))
-                    for ch in d.get("choices") or []:
-                        delta = ch.get("delta") or {}
-                        if delta.get("reasoning_content"):
-                            reasoning.append(delta["reasoning_content"])
-                        for tc in (delta.get("tool_calls") or []):
-                            sg = _sig_of(tc)
-                            if sg and tc.get("id"):
-                                sigs[tc["id"]] = sg
-                        if delta.get("content"):
-                            text_seen.append(delta["content"])
-                            out.text(delta["content"])
-                        for tc in delta.get("tool_calls") or []:
-                            if tc.get("id"):
-                                call_ids.append(tc["id"])
-                            remember_tool(tc)
-                        if ch.get("finish_reason"):
-                            stop = STOP_MAP.get(ch["finish_reason"],
-                                                "end_turn")
-            except Exception as e:                       # upstream died
+                pending_tools.clear(); tool_order.clear(); call_slots.clear()
+                reasoning.clear(); call_ids.clear(); sigs.clear()
+                stop, usage = None, {}
+                try:
+                    up = self._open_fit(req)
+                except Exception as e2:
+                    died = e2
+                    break
+            if died is not None:
+                e = died
                 # A STREAM THAT STALLS MID-ANSWER IS CUT, NOT FINISHED.
                 # Finishing it handed the engine half an answer plus
                 # "[bridge: upstream stream failed]" as if the model had
                 # meant it: the turn ended there and the whole run with
-                # it. A response that simply stops before message_stop is
-                # what the engine retries — measured: it asks again at
-                # once and carries on with the full answer. So the
-                # connection is closed with nothing more written; the
-                # half-built tool calls are dropped, never run.
+                # it. A cut after words went out is closed with nothing more
+                # written; the half-built tool calls are dropped, never run.
                 _retry_not_repeat()
                 _failed()
                 _status("busy", f"The answer stopped arriving "
@@ -1707,6 +1753,10 @@ def _handler(cfg: BridgeConfig, log=None):
             up.close()
 
     return H
+
+
+CUT_RETRIES = 2     # asks again when an answer stops before its first word
+CUT_WAIT = 1.5      # seconds before each, times the try
 
 
 def _error_body(e) -> str:
@@ -1888,6 +1938,12 @@ def _hint(code, body: str) -> str:
                 "platform.openai.com/settings/organization/billing, that credit "
                 "has not EXPIRED (prepaid credit expires after a year), and the "
                 "key's project budget under Projects → Limits.")
+    if code == 401 and re.search(r"(?i)sign in to aethron|signed out", b):
+        # Aethron's own AI refused this copy: it is signed out (or the team
+        # signed it out). There is no key to paste; it needs a sign-in.
+        return ("this copy of Aethron is signed out, so Aethron's AI will not "
+                "answer it — sign out and back in (Settings → Profile), or switch to "
+                "your own key in Settings → Model and key.")
     if code == 401:
         return ("the key was refused — it is wrong, revoked or deleted; "
                 "paste a fresh one in Settings → Model and key.")
@@ -2301,6 +2357,96 @@ def selftest() -> int:
        and args[0] == {} and args[1].get("url") == "https://www.jomiez.com/",
        f"{names} {args}")
     srv4.shutdown()
+
+    # AN ANSWER CUT BEFORE ITS FIRST WORD IS ASKED AGAIN. The field logs:
+    # 21 turns ended with "[ede_diagnostic] … stop_reason=tool_use/null"
+    # because a provider's answer stopped (half a tool call, or nothing at
+    # all) and the engine was handed an empty message. Ask 1 cuts mid tool
+    # call, ask 2 ends with nothing, ask 3 answers: the engine must see ONE
+    # whole answer. And a cut AFTER words went out is not asked again.
+    global CUT_WAIT
+    keep_wait, CUT_WAIT = CUT_WAIT, 0.05
+    asks = []
+
+    class _Up5(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.0"
+
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            asks.append(1)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            n = len(asks)
+            mode = SCRIPT5[min(n, len(SCRIPT5)) - 1]
+            if mode == "cut-tool":
+                c = {"choices": [{"index": 0, "delta": {"tool_calls": [{
+                    "index": 0, "id": "call_x", "type": "function",
+                    "function": {"name": "mcp__aethron__build",
+                                 "arguments": '{"proj'}}]}}]}
+                self.wfile.write(f"data: {json.dumps(c)}\n\n".encode())
+            elif mode == "cut-text":
+                c = {"choices": [{"index": 0, "delta": {"content": "Half an ans"}}]}
+                self.wfile.write(f"data: {json.dumps(c)}\n\n".encode())
+            elif mode == "whole":
+                for c in ({"choices": [{"index": 0, "delta": {"content": "All done."}}]},
+                          {"choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}):
+                    self.wfile.write(f"data: {json.dumps(c)}\n\n".encode())
+                self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()             # "empty": headers, then nothing
+
+    def ask5(word):
+        up5 = ThreadingHTTPServer(("127.0.0.1", 0), _Up5)
+        threading.Thread(target=up5.serve_forever, daemon=True).start()
+        srv5, url5 = start(BridgeConfig(
+            f"http://127.0.0.1:{up5.server_address[1]}", "k", model="m"))
+        evs, text, stopr = [], "", None
+        try:
+            rq = urllib.request.Request(
+                url5 + "/v1/messages",
+                data=json.dumps({"model": "claude", "max_tokens": 64, "stream": True,
+                                 "messages": [{"role": "user", "content": word}]}).encode(),
+                headers={"Content-Type": "application/json", "x-api-key": "aethron"})
+            with urllib.request.urlopen(rq, timeout=30) as rs:
+                for raw in rs.read().decode().splitlines():
+                    if raw.startswith("data: "):
+                        ev = json.loads(raw[6:])
+                        evs.append(ev.get("type"))
+                        if ev.get("type") == "content_block_delta":
+                            text += ev["delta"].get("text", "")
+                        if ev.get("type") == "message_delta":
+                            stopr = ev["delta"].get("stop_reason")
+        except Exception as e:
+            evs.append(f"<{type(e).__name__}>")
+        srv5.shutdown(); up5.shutdown()
+        return evs, text, stopr
+
+    h401 = _hint(401, '{"error":{"message":"Sign in to Aethron to use its AI."}}')
+    ck("Aethron's own AI refusing a signed-out copy says sign in, not 'paste a key'",
+       "signed out" in h401 and "paste a fresh one" not in h401, h401)
+    ck("a provider refusing a key still says the key was refused",
+       "key was refused" in _hint(401, '{"error":"invalid api key"}'))
+    SCRIPT5 = ["cut-tool", "empty", "whole"]
+    asks.clear()
+    evs, text, stopr = ask5("first ask")
+    ck("an answer cut before its first word is asked again until it arrives whole",
+       len(asks) == 3 and text == "All done." and stopr == "end_turn"
+       and evs and evs[-1] == "message_stop" and "content_block_start" in evs,
+       f"asks={len(asks)} text={text!r} stop={stopr} evs={evs[-4:]}")
+    SCRIPT5 = ["cut-text", "whole"]
+    asks.clear()
+    evs, text, stopr = ask5("second ask")
+    ck("an answer cut after words went out is not asked again (no double text)",
+       len(asks) == 1 and text.count("Half an ans") == 1, f"asks={len(asks)} text={text!r}")
+    SCRIPT5 = ["empty"]
+    asks.clear()
+    evs, text, stopr = ask5("third ask")
+    ck("and the asking stops after CUT_RETRIES more tries",
+       len(asks) == 1 + CUT_RETRIES, f"asks={len(asks)}")
+    CUT_WAIT = keep_wait
     up4.shutdown()
 
     # ── A SPENT KEY IS BENCHED, NOT FATAL — the owner's stalled fill ──
