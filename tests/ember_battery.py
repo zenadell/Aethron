@@ -468,13 +468,18 @@ try:
             x0 = (st["x"], st["y"])
         check("while a slow mind thinks, Ember is never parked waiting for it", "mind_wait" not in seen_acts, str(seen_acts))
         check("and its body keeps living meanwhile", max(shs) - min(shs) > 1, f"{min(shs):.1f}..{max(shs):.1f}")
-        got_plan, wait_s, said = False, 0.0, set()
+        # the pause is measured on Ember's own clock: a busy machine draws fewer frames, Ember's time
+        # then runs behind the wall's, and counting wall-clock polls measured the machine, not the cap
+        got_plan, wait_s, said, w0, w1 = False, 0.0, set(), None, None
         for _ in range(120):
             sp.wait_for_timeout(250)
-            st = sp.evaluate("ember.state()"); a = str(st.get("act") or ""); said.add(st.get("bubble") or "")
+            st, clk = sp.evaluate("[ember.state(),ember.clock()]"); a = str(st.get("act") or ""); said.add(st.get("bubble") or "")
             if a.startswith("m_"): got_plan = True
-            if a == "m_wait": wait_s += .25
-            if got_plan and wait_s > 0 and a != "m_wait": break
+            if a == "m_wait":
+                w0 = clk if w0 is None else w0; w1 = clk
+            if got_plan and w0 is not None and a != "m_wait":
+                w1 = clk; break
+        wait_s = round(w1 - w0, 2) if w0 is not None else 0.0
         check("when the plan arrives it plays", got_plan and "slow thought" in said, str(said))
         check("and a 30-second pause the mind asked for is kept to a few seconds", 0 < wait_s <= 5, f"{wait_s}s")
         sp.close(); slow.shutdown()

@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Talking with Ember live (a pretend service)
+        run: python aethron_live.py --selftest
       - name: Build
         run: |
           # a real release number, so the team's minimum-version switch lets it run

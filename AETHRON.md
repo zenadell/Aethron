@@ -7291,6 +7291,87 @@ waits; off sends nothing though the offer is made; in front sends nothing;
 the studio route answers honestly). NOT PROVEN until it runs on a Mac:
 the permission prompt, the banner and the click.
 
+## TALKING WITH EMBER LIVE — `aethron_live.py` — 2026-11-09
+A spoken turn used to be: listen until 1.8s of silence, send the words as
+text, wait for the WHOLE spoken answer (gemini_live_call buffered every
+piece until turnComplete), then play it — seconds of dead air, and no
+way to talk over Ember. Now, with Live voice on (gemini-3.8-live, the ID
+in Google's current Live docs), a double-tap opens ONE Gemini Live
+session for the whole conversation:
+- aethron_live.Session holds the WebSocket (the key stays in this
+  process, never the window): setup with AUDIO out in Ember's voice,
+  both transcriptions, START_OF_ACTIVITY_INTERRUPTS, sliding-window
+  compression and session resumption (goAway -> reconnect with the
+  handle, the conversation goes on). Events go to the window by
+  long-poll (/api/ember/live/events): audio pieces as they are made,
+  what the person said (as they say it), what Ember says, the body
+  tool, "interrupted", turn ends.
+- THE BODY IS THE SAME TOOL AS EVER: ember_behave's JSON goes through
+  aethron_ember.act_parse, so a live turn is an answer with a plan, one
+  of Aethron's own controls pressed on screen, or a clear request typed
+  into the chat — validated exactly like a spoken request. The act's own
+  line is not drawn: the live voice is Ember's line, captioned from the
+  output transcription.
+- THE WINDOW queues each piece straight after the last (Web Audio, no
+  gaps) and drops the queue on "interrupted"; the mouth follows an
+  analyser on what is playing, so isTalking() and the talking body work
+  as before. Sound is unlocked inside the double-tap itself.
+- MICROPHONE: the Mac's own (aethron_voice.Streamer: AVAudioEngine tap ->
+  16 kHz PCM in 100 ms pieces, handed on from a thread of its own; needs
+  only the microphone permission, not speech recognition). Elsewhere the
+  window's own getUserMedia with echo cancellation — which gives Windows
+  a voice for the first time. pywebview does not answer WKWebView's
+  media-capture delegate and reports describe getUserMedia hanging there
+  with no prompt, so the Mac stays native.
+- ECHO: Ember's voice comes back through the speakers into the Mac's
+  microphone and Gemini would interrupt itself. EchoGate learns the
+  room's echo (mic loudness / voice loudness while the person is quiet)
+  and, while Ember speaks, forwards the microphone only when it is
+  clearly louder than that for two pieces running, with the 300 ms
+  before it so the first word is not lost. Headphones: nothing held back.
+- Ends on "that's all"/"bye", Esc, a second double-tap, 45s of nobody
+  speaking, or 20 min. Each turn's usageMetadata is recorded in
+  aethron_usage (purpose ember-voice) at $3/M audio in, $12/M audio out,
+  $0.75/$4.50 text (aggregator listings — Google's own page was not
+  found); free keys first, paid turns count toward the session limit,
+  and a paid key is not used once the limit is reached.
+- No Gemini key, or Live voice not Gemini 3.8 Live: the old listening
+  path, unchanged. Desktop Ember relays a request to the app window
+  (/api/ember/live/relay, only send or a known control).
+TWO BUGS THE BATTERY FOUND, both intermittent and both real:
+1. A TAP WAS DROPPED WHILE EMBER'S HANDS WERE BUSY. After a press Ember
+   holds the drive lock ~0.5s while it backs away, and converse() did
+   `if(DRV.on)return` — a double-tap in that window did nothing, without
+   a word. Caught only by logging which guard turned converse away
+   (VLOG "converse: conv= drive= live="). Live now starts regardless
+   (Ember already talks while it works); the old way listens as soon as
+   the press is done. A tap is never dropped.
+2. A POLL BELONGS TO ONE CONVERSATION. Every Session has an id; events,
+   audio, state and stop name it, a poll for an older talk is answered
+   "over" and never with the new one's events, stopping an older talk
+   never ends the new one, and the window's poll loop for an older talk
+   (a generation counter) stops itself.
+AND MY OWN INSTRUMENT, AGAIN: tests/ember_battery's "a 30-second pause is
+kept to a few seconds" counted wall-clock polls while the cap is 4s of
+EMBER's clock, which advances at most 50ms a frame — on a busy machine
+Ember's time runs behind the wall and the check read 5.25s twice.
+ember.clock() exposes Ember's clock and the pause is measured on it; the
+5s bar is unchanged.
+Tests: aethron_live --selftest 30/30 (resampler, echo gate on synthetic
+signals, a whole conversation against FakeLive: setup shape, key only in
+the address, audio out, transcripts, tool -> validated act + toolResponse,
+pricing, interruption, goAway resume with the handle, state told without
+asking for an answer, refusals, quiet end); aethron_voice --selftest 12
+(the Mac stream's pieces); tests/live_battery.py 34/34, three runs in a
+row (real studio +
+Chromium's fake microphone: streams 16 kHz, plays as it arrives, the
+mouth and the wave, interruption stops it within a frame, "open the demo
+project" pressed on screen, "that's all" ends both sides, a new talk
+50ms after the last is not ended by it, a tap while Ember is pressing
+starts the talk, Esc, the key never in the window, the old way when off). NOT PROVEN until it runs on a
+Mac with a real key: the Mac's microphone stream, the echo gate in a real
+room, and gemini-3.8-live's own answers.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7588,6 +7669,8 @@ the permission prompt, the banner and the click.
   A download waits for a restart; a restart, a retry, a fix or a heal is
   offered and pressed in front of them, unless they chose otherwise; it
   never publishes, unpublishes, deletes or undoes by itself.
+- A VOICE IS PLAYED AS IT IS MADE AND STOPS WHEN SOMEONE TALKS OVER IT.
+  Never wait for a whole spoken answer, and never let Ember hear itself.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
   really happened. What it presses for you, it presses where you can see it,
   and it never adds to what you asked.

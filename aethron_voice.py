@@ -53,6 +53,133 @@ def decide(state, text, started, last_change, now, silence=SILENCE, nothing=NOTH
     return "listening", ""
 
 
+def mic_permission() -> str:
+    """Ask macOS for the microphone once, waiting for the person to answer
+    its own dialog. -> a refusal, or ''."""
+    import AVFoundation as AV
+    mic = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeAudio)
+    if mic == 0:                                     # not determined
+        ev, got = threading.Event(), {}
+
+        def ok(granted):
+            got["mic"] = bool(granted)
+            ev.set()
+        AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(AV.AVMediaTypeAudio, ok)
+        ev.wait(60)
+        mic = 3 if got.get("mic") else 2
+    if mic != 3:
+        return ("the microphone is switched off for Aethron: System Settings, "
+                "Privacy & Security, Microphone")
+    return ""
+
+
+def _floats(buf, n):
+    """Channel 0 of an AVAudioPCMBuffer as an array of floats. PyObjC hands
+    the samples over as a pointer; read it as one block when it can, sample
+    by sample when it cannot."""
+    from array import array
+    ch = buf.floatChannelData()
+    if ch is None:
+        return array("f")
+    p = ch[0]
+    out = array("f")
+    try:
+        raw = bytes(p.as_buffer(n))
+        if len(raw) == n:                 # counted in bytes: ask for the whole block
+            raw = bytes(p.as_buffer(n * 4))
+        out.frombytes(raw[: n * 4])
+        if len(out) == n:
+            return out
+    except Exception:
+        pass
+    return array("f", (p[i] for i in range(n)))
+
+
+class Streamer:
+    """The Mac's own microphone, as a stream of 16 kHz 16-bit PCM pieces
+    of about 100 ms, for a live conversation (aethron_live). The pieces are
+    handed on from a thread of their own: nothing slow ever runs on the
+    audio thread. Only the microphone permission is needed, not speech
+    recognition: the words are heard by the voice service itself."""
+
+    PIECE = 0.1
+
+    def __init__(self, on_pcm):
+        self.on_pcm = on_pcm
+        self.engine = None
+        self.acc = []
+        self.rate = 48000.0
+        self.q = []
+        self.cv = threading.Condition()
+        self.running = False
+
+    def start(self) -> str:
+        if not available():
+            return "this computer's own microphone is not available to Aethron"
+        why = mic_permission()
+        if why:
+            return why
+        try:
+            import AVFoundation as AV
+            eng = AV.AVAudioEngine.alloc().init()
+            node = eng.inputNode()
+            fmt = node.outputFormatForBus_(0)
+            self.rate = float(fmt.sampleRate() or 48000.0)
+
+            def tap(buf, when):
+                try:
+                    self.feed(_floats(buf, int(buf.frameLength())))
+                except Exception:
+                    pass
+            node.installTapOnBus_bufferSize_format_block_(0, max(1024, int(self.rate * 0.05)), fmt, tap)
+            eng.prepare()
+            ok, err = eng.startAndReturnError_(None)
+            if not ok:
+                return f"the microphone did not start ({err})"
+            self.engine, self.running = eng, True
+            threading.Thread(target=self._hand_on, daemon=True).start()
+            return ""
+        except Exception as e:
+            return f"the microphone did not start ({type(e).__name__})"
+
+    def feed(self, samples):
+        """Samples (floats) at self.rate, from the audio thread or a test."""
+        import aethron_live
+        self.acc.extend(samples)
+        need = int(self.rate * self.PIECE)
+        while len(self.acc) >= need:
+            chunk, self.acc = self.acc[:need], self.acc[need:]
+            pcm = aethron_live.to16k(chunk, self.rate)
+            with self.cv:
+                self.q.append(pcm)
+                del self.q[:-20]                 # never more than 2 s behind
+                self.cv.notify()
+
+    def _hand_on(self):
+        while self.running:
+            with self.cv:
+                while not self.q and self.running:
+                    self.cv.wait(0.5)
+                items, self.q = self.q, []
+            for pcm in items:
+                try:
+                    self.on_pcm(pcm)
+                except Exception:
+                    pass
+
+    def stop(self):
+        self.running = False
+        with self.cv:
+            self.cv.notify_all()
+        eng, self.engine = self.engine, None
+        try:
+            if eng is not None:
+                eng.stop()
+                eng.inputNode().removeTapOnBus_(0)
+        except Exception:
+            pass
+
+
 class Listener:
     """One listening turn at a time."""
 
@@ -112,20 +239,7 @@ class Listener:
         if st != 3:                                  # 3 = authorized
             return ("speech recognition is switched off for Aethron: System Settings, "
                     "Privacy & Security, Speech Recognition")
-        mic = AV.AVCaptureDevice.authorizationStatusForMediaType_(AV.AVMediaTypeAudio)
-        if mic == 0:
-            ev.clear()
-
-            def ok(granted):
-                got["mic"] = bool(granted)
-                ev.set()
-            AV.AVCaptureDevice.requestAccessForMediaType_completionHandler_(AV.AVMediaTypeAudio, ok)
-            ev.wait(60)
-            mic = 3 if got.get("mic") else 2
-        if mic != 3:
-            return ("the microphone is switched off for Aethron: System Settings, "
-                    "Privacy & Security, Microphone")
-        return ""
+        return mic_permission()
 
     def _begin(self):
         try:
@@ -230,6 +344,23 @@ def _selftest() -> int:
     L = Listener()
     check("a fresh listener is idle", L.poll() == {"state": "idle", "text": "", "why": ""})
     check("off a Mac it is simply unavailable", sys.platform == "darwin" or not available())
+    import math
+    got = []
+    st = Streamer(got.append)
+    st.rate, st.running = 48000.0, True
+    threading.Thread(target=st._hand_on, daemon=True).start()
+    st.feed([math.sin(i / 10) * .3 for i in range(4800 * 3 + 100)])
+    for _ in range(50):
+        if len(got) >= 3:
+            break
+        time.sleep(.02)
+    st.stop()
+    check("the stream hands on 100 ms pieces at 16 kHz", len(got) == 3 and all(len(p) == 3200 for p in got))
+    check("and keeps what is left over for the next piece", len(st.acc) == 100)
+    check("a stream off a Mac says why it cannot start", sys.platform == "darwin" or "not available" in Streamer(print).start())
+    if sys.platform == "darwin" and available():
+        import AVFoundation as AV
+        check("on a Mac the audio engine is there", hasattr(AV, "AVAudioEngine") and hasattr(AV.AVAudioPCMBuffer, "floatChannelData"))
     print(f"\n{ok} passed, {fails} failed")
     return 1 if fails else 0
 

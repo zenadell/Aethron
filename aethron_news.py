@@ -99,6 +99,15 @@ NEWS = [
              "and offers to heal or fix what a check found. You choose how "
              "much it does by itself: Settings, Companion.",
      "art": "ember", "go": "ember-agency", "label": "Choose"},
+    {"id": "2026-11-ember-live",
+     "title": "Talk with Ember, live",
+     "body": "Double-tap Ember and just talk. It answers while you are still "
+             "settling in: its voice starts the moment it starts thinking, and "
+             "you can talk over it to stop it. Ask it to open a project, "
+             "publish, or change something, and it does it on screen. Say "
+             "\"that's all\" or press Esc to end it. Needs a Gemini key "
+             "(Settings, Model); headphones work best.",
+     "art": "ember", "go": "ember", "label": "Try it"},
 ]
 
 SEEN = ".news-seen.json"
