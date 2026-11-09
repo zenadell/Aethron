@@ -215,11 +215,61 @@ try:
         st, _ = api("/api/ember/relay", {"id": "rm -rf", "project": "demo"})
         check("only known actions are handed over", st >= 400)
 
+        print("── while Aethron is not in front: one notification, and the card waits")
+        job("other", status="running", heartbeat=time.time())
+        sent = []
+        pg = page()
+        pg.route("**/api/notify", lambda r: (sent.append(json.loads(r.request.post_data or "{}")),
+                                             r.fulfill(status=200, content_type="application/json", body='{"ok":true,"how":"test"}')))
+        pg.evaluate("ember.agTick()"); pg.wait_for_timeout(1200)
+        pg.evaluate("document.hasFocus=()=>false")             # another app is in front
+        job("other", status="waiting", question="Which colour should the buttons be?", ask_kind="question", heartbeat=time.time() + 3)
+        pg.evaluate("ember.agTick(1)")
+        for _ in range(12):                                     # offers wait out their few seconds first
+            if any("Which colour" in (x.get("body") or "") for x in sent): break
+            pg.wait_for_timeout(1000); pg.evaluate("ember.agTick(1)")
+        check("an offer made while they are elsewhere goes out as a notification",
+              any("Which colour" in (x.get("body") or "") for x in sent), str(sent))
+        for _ in range(4): pg.evaluate("ember.agTick(1)"); pg.wait_for_timeout(400)
+        check("once, not on every tick", sum("Which colour" in (x.get("body") or "") for x in sent) == 1, str(sent))
+        check("with words the notification can show", sent and len(sent[0].get("body", "")) <= 400 and sent[0].get("key", "").startswith("ask:other"), str(sent[:1]))
+        pg.evaluate("document.hasFocus=()=>true")             # they clicked it: Aethron is in front again
+        check("and the offer is waiting when they come back", wait(pg, "/Which colour/.test((ember.agency().offer||{}).text||'')", 12), str(pg.evaluate("ember.agency()")))
+        pg.close()
+
+        sent.clear()
+        job("other", status="running", heartbeat=time.time())
+        pg = page("localStorage.ember_cfg=JSON.stringify({notify:'off'});")
+        pg.route("**/api/notify", lambda r: (sent.append(1), r.fulfill(status=200, content_type="application/json", body='{"ok":true}')))
+        pg.evaluate("ember.agTick()"); pg.wait_for_timeout(1200)
+        pg.evaluate("document.hasFocus=()=>false")
+        job("other", status="waiting", question="Which font?", ask_kind="question", heartbeat=time.time() + 3)
+        for _ in range(6): pg.evaluate("ember.agTick(1)"); pg.wait_for_timeout(1200)
+        made = pg.evaluate("/Which font/.test((ember.agency().offer||{}).text||'')||ember.agency().queue.some(i=>/^ask:other/.test(i))")
+        check("switched off, nothing is sent (the offer itself was still made)", made and not sent, f"{made} {sent}")
+        pg.evaluate("document.hasFocus=()=>true")
+        pg.close()
+
+        sent.clear()
+        job("other", status="running", heartbeat=time.time())
+        pg = page()
+        pg.route("**/api/notify", lambda r: (sent.append(1), r.fulfill(status=200, content_type="application/json", body='{"ok":true}')))
+        pg.evaluate("ember.agTick()"); pg.wait_for_timeout(1200)
+        job("other", status="waiting", question="Which footer?", ask_kind="question", heartbeat=time.time() + 3)
+        for _ in range(6): pg.evaluate("ember.agTick(1)"); pg.wait_for_timeout(1200)
+        check("in front, Ember shows the card and sends nothing", not sent and wait(pg, "/Which footer/.test((ember.agency().offer||{}).text||'')", 8), str(sent))
+        pg.close()
+        job("other", status="done", finished=time.time(), result={"ok": True})
+
+        st, r = api("/api/notify", {"title": "Aethron", "body": "a\x00test" + "x" * 500, "key": "battery"})
+        check("the studio's notify answers honestly (sent, or why not)", st == 200 and (r.get("ok") or r.get("why")), str(r))
+
         print("── the setting")
         pg = page()
         pg.evaluate("openSettings()"); pg.wait_for_timeout(900)
         card = pg.evaluate("(document.getElementById('embercard')||{}).innerText||''")
         check("Settings says what Ember may do", "What Ember may do" in card and "Only suggest" in card and "Everything it can" in card, card[:300])
+        check("and whether to tell you when you are elsewhere", "Tell me when" in card, card[:400])
         pg.evaluate("emberSet('agency','all')")
         check("and it sticks", pg.evaluate("ember.agency().level") == "all" and "all" in pg.evaluate("localStorage.ember_cfg"))
         pg.close()

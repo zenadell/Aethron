@@ -204,6 +204,37 @@ def main():
             pass
 
     studio.FOCUS_APP = raise_window
+    # A notification Ember sent while Aethron was behind other windows:
+    # clicking it brings Aethron forward, where the offer is waiting.
+    try:
+        import aethron_notify
+        _back = {}
+        def bring_back(key=""):
+            # A click on the notification: in front, and out of the Dock if
+            # it was minimised (activating alone leaves a minimised window
+            # where it is). AppKit wants this on the main thread, and an
+            # Objective-C class can be defined only once per process.
+            raise_window()
+            try:
+                if "h" not in _back:
+                    from AppKit import NSApp
+                    from Foundation import NSObject
+                    class AethronBringBack(NSObject):
+                        def run_(self, _):
+                            for w in NSApp.windows():
+                                try:
+                                    if w.isMiniaturized():
+                                        w.deminiaturize_(None)
+                                except Exception:
+                                    pass
+                    _back["h"] = AethronBringBack.alloc().init()
+                _back["h"].performSelectorOnMainThread_withObject_waitUntilDone_("run:", None, False)
+            except Exception:
+                pass
+        aethron_notify.ON_CLICK = bring_back
+        _log(f"notifications: {aethron_notify.available()}")
+    except Exception as e:
+        _log(f"notifications: off ({type(e).__name__}: {e})")
     # Paste and drop read the Mac's own pasteboards when the web view comes
     # back empty-handed (Cmd+V with nothing focused, a screenshot dragged
     # from its floating thumbnail, a photo dragged out of Photos).

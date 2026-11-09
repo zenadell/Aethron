@@ -3531,6 +3531,14 @@ class Handler(BaseHTTPRequestHandler):
                 if EMBER_DESKTOP is None:
                     return self.fail("Ember can live on the desktop only in the Mac app")
                 self.send_json(EMBER_DESKTOP(bool(body.get("on"))))
+            elif u.path == "/api/notify":
+                # ONE system notification, for an offer made while the window
+                # is not in front of the person (aethron_notify keeps the
+                # rules: no repeats, a few an hour, words passed as data).
+                import aethron_notify
+                return self.send_json(aethron_notify.send(
+                    str(body.get("title") or ""), str(body.get("body") or ""),
+                    str(body.get("key") or "")))
             elif u.path == "/api/ember/relay":
                 # Ember on the desktop was told yes; the app window does the
                 # pressing (open the project, answer, try again), in front of
@@ -17011,6 +17019,8 @@ function emberCard(){
     <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
     <div class="kv"><span>What Ember may do</span><b class="rowbtns">${seg('agency',[['ask','Only suggest'],['safe','Safe things itself'],['all','Everything it can']])}</b></div>
     <div class="hint">Ember watches what Aethron is doing and helps. <b>Safe things itself</b>: it downloads updates as soon as they are out and asks before restarting, answering, retrying or fixing anything. <b>Everything it can</b>: it also retries a stopped migration once, heals edits that did not land, and restarts for an update while you are away and nothing is running. It never publishes, unpublishes, deletes or undoes by itself.</div>
+    <div class="kv"><span>Tell me when I'm elsewhere</span><b class="rowbtns">${seg('notify',[['on','On'],['off','Off']])}</b></div>
+    <div class="hint">When Aethron is hidden or another app is in front, what Ember would offer also comes as one system notification. Clicking it brings Aethron back, with the offer waiting. Never more than a few an hour.</div>
     <div class="kv"><span>Mind AI</span><b class="rowbtns">${seg('ai',[['auto','Auto'],['gemini','Gemini'],['groq','Groq']])}</b></div>
     <div class="kv"><span>Live voice</span><b class="rowbtns">${seg('liveMode',[['gemini-3.8-live','Gemini 3.8 Live'],['gemini-3.8-live-extended-thinking','Gemini Live + thinking'],['gemini-tts','Gemini TTS'],['groq','Groq + system voice']])}</b></div>
     <div class="hint">Mind AI writes what Ember does and says. Live voice powers talking out loud (double-click Ember): Gemini 3.8 Live answers, acts and speaks in one go and is the fastest. Whatever the AI asks for, Ember only does what its body really can.</div>
