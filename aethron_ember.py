@@ -1920,6 +1920,84 @@ function physio(dt){
   const kb=Math.min(700,90*J.speed),db=2*Math.sqrt(kb)*.8;
   for(const key in BODY0){if(REDUCE){J.b[key]=t[key];continue}J.bv[key]+=((t[key]-J.b[key])*kb-J.bv[key]*db)*dt;J.b[key]+=J.bv[key]*dt}
   J.b.turn=cl(J.b.turn,-1.2,1.2)}
+
+/* ===== the nervous system =====
+   A living body between decisions is never a statue. Its attention drifts to
+   whatever moves on screen, it shifts how it holds itself, wanders off to
+   look at something, stretches when it has sat too long, fidgets, dozes when
+   it is tired. None of that is a sequence: every impulse draws its targets
+   fresh — a real thing on the screen, a new place, a new way to hold its
+   arms, a new face — from how Ember feels and how long it has been still,
+   and what it did a moment ago weighs against doing it again. It never
+   speaks: words are the mind's. Its mind's plans always come first. */
+const NS={quiet:0,stillT:0,lastGo:-99,fresh:[],kinds:[],count:0};
+const SIGHTS='.msg,.mtext,.atext,.pitem,.rcard,.jobc,.truth,.composer,#sendbtn,.newbtn,#setbtn,h1,h2,h3,img,button,a,input,textarea';
+function sights(){const out=[];for(const el of document.querySelectorAll(SIGHTS)){if(out.length>60)break;if(el.closest&&el.closest('#ember-talk,#ember-menu,#ember-tour'))continue;
+  const r=rect(el);if(!r||r.w<14||r.h<10||r.b<8||r.t>H-8||r.r<8||r.l>W-8)continue;out.push({el,r})}return out}
+function freshSight(){NS.fresh=NS.fresh.filter(f=>now-f.t<25&&f.el.isConnected);for(let i=NS.fresh.length-1;i>=0;i--){const r=rect(NS.fresh[i].el);if(r&&r.w>14&&r.h>10&&r.b>0&&r.t<H){const el=NS.fresh[i].el;NS.fresh.splice(i,1);return{el,r}}}return null}
+function watchScreen(){try{new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes){if(n.nodeType!==1||!n.isConnected||(n.id||'').startsWith('ember')||n===cv)continue;
+  if(n.closest&&n.closest('#ember-talk,#ember-menu,#ember-tour'))continue;NS.fresh.push({el:n,t:now})}if(NS.fresh.length>10)NS.fresh=NS.fresh.slice(-10)}).observe(document.body,{childList:true,subtree:true})}catch(_){}}
+const ptOf=el=>()=>{const r=rect(el);return r?{x:r.cx,y:r.cy}:{x:E.x,y:E.y+40}};
+/* a face for the moment, from how it feels, never the same twice */
+function mien(o){const v=AFF.v,a=AFF.a;return Object.assign({mc:cl(.12+v*.45+rnd(-.12,.12),-.6,.7),bH:cl(rnd(-.05,.12)+(a-.45)*.25,-.3,.4),lidU:cl(.14+(.5-a)*.4+rnd(0,.12),0,.8),
+  mas:rnd(-.35,.35),bT:v<-.35?rnd(.05,.3):0,pup:cl(1+(a-.5)*.2,.6,1.2)},o||{})}
+/* an arm held some new way: an angle pair drawn fresh until the hand lands somewhere a hand can rest */
+function armPose(i,high){for(let k=0;k<14;k++){const a={sh:rnd(-55,high?165:95),el:rnd(-150,150),wr:rnd(-25,25),grip:Math.random()<.3?rnd(.4,.9):rnd(0,.25),reach:rnd(.92,1.12)};
+    const f=armFK(i,a),d=Math.hypot(f[2],f[3]-.2);if(d>.5&&d<1.75&&f[3]>-1.4&&!(Math.abs(f[2])<.5&&f[3]>-.1&&f[3]<.5))return a}return{sh:-10,el:125,reach:1}}
+/* the angles that put a hand near a point on or around the body */
+function reachFor(i,x,y){const a=armIK(i,x,y,null);return{sh:a.sh,el:a.el,reach:a.reach,wr:rnd(-20,20),grip:rnd(0,.3)}}
+const AR=a=>{const o={};if(a[0])o.L=a[0];if(a[1])o.R=a[1];return o};
+function spot(){const m=area(),here={x:E.x,y:E.y},sg=sights();for(let k=0;k<10;k++){let p;
+    if(sg.length&&Math.random()<.55){const s=sg[Math.floor(Math.random()*sg.length)].r,side=Math.random()<.5?-1:1;p={x:side<0?s.l-R*1.8:s.r+R*1.8,y:s.t+Math.min(s.h*.5,R*2)}}
+    else p={x:rnd(m.l+R*2.5,m.r-R*2.5),y:rnd(m.t+R*2.8,m.b-R*2.4)};
+    p.x=cl(p.x,m.l+R*2,m.r-R*2);p.y=cl(p.y,m.t+R*2.6,m.b-R*2);if(Math.hypot(p.x-here.x,p.y-here.y)>R*3.5)return p}return null}
+function seatSpot(){if(DESK)return deskPerch();const c=[];const cp=composer();if(cp)c.push({x:cl(cp.l+cp.w*rnd(.15,.85),R*2,W-R*2),y:cp.t-R*1.02,perch:1});
+  for(const s of sights())if(s.r.w>R*5&&s.r.t>R*3&&/^(msg|rcard|pitem|jobc)/.test(String(s.el.className||'')))c.push({x:cl(s.r.l+s.r.w*rnd(.2,.8),R*2,W-R*2),y:s.r.t-R*1.02,perch:1});
+  return c.length?c[Math.floor(Math.random()*c.length)]:null}
+const IMPULSES={
+  notice(){const f=freshSight(),sg=sights(),t=f||(sg.length?sg[Math.floor(Math.random()*sg.length)]:null);if(!t)return null;
+    const dx=t.r.cx-E.x,dir=Math.sign(dx)||1,pt=ptOf(t.el),st=[{d:rnd(.3,.6),look:{pt},fx:mien({bH:rnd(.08,.3),lidU:rnd(0,.12)}),body:{lean:dir*rnd(3,10),turn:dir*rnd(.15,.45)}}];
+    const r=Math.random();
+    if(r<.3){const s=dir>0?1:0,dy=t.r.cy-E.y,ang=Math.atan2(Math.abs(dx),dy)/DEG,a={sh:cl(ang,10,170),el:rnd(-10,15),reach:rnd(1.05,1.3),wr:0,grip:0};st.push({d:rnd(1.2,2.4),look:{pt},arms:AR(s?[null,a]:[a,null]),fx:mien({bH:rnd(.1,.3)})})}
+    else if(r<.55&&Math.hypot(dx,t.r.cy-E.y)>R*5)st.push({d:rnd(1.6,2.6),look:{pt},fx:mien({bH:rnd(.05,.2)}),fn:()=>{const m=area();go({x:cl(t.r.cx-dir*(t.r.w/2+R*1.9),m.l+R*2,m.r-R*2),y:cl(t.r.cy-R*.6,m.t+R*2.6,m.b-R*2)},{speed:rnd(.4,.7)})}},{d:rnd(1,2.2),look:{pt},fx:mien()});
+    else st.push({d:rnd(1.4,3.2),look:{pt},fx:mien({lidU:rnd(.15,.4)}),body:{lean:dir*rnd(2,8),turn:dir*rnd(.1,.35),crouch:rnd(-.05,.12)},arms:Math.random()<.4?AR([null,reachFor(1,rnd(.1,.4),rnd(.55,.8))]):null});
+    return st},
+  posture(){const both=Math.random()<.4,hi=AFF.a>.6;let a=[Math.random()<.65?armPose(0,hi):null,Math.random()<.75?armPose(1,hi):null];
+    if(both&&a[1])a[0]=Math.random()<.5?Object.assign({},a[1]):armPose(0,hi);
+    return[{d:rnd(3.5,10),arms:AR(a),body:{lean:rnd(-12,12),crouch:rnd(-.15,.25),turn:rnd(-.4,.4)},fx:mien(),speed:rnd(.5,1.1),look:Math.random()<.5?null:{dir:[rnd(-.9,.9),rnd(-.5,.4)]}}]},
+  wander(){const p=spot();if(!p)return null;NS.lastGo=now;const sp=rnd(.4,.85)*(.6+N.energy*.6);
+    return[{d:rnd(.25,.45),look:{pt:{x:p.x,y:p.y}},fx:mien({bH:rnd(0,.15)}),body:{crouch:.15},fn:()=>go(p,{speed:sp})},{d:rnd(2,3.5),look:{pt:{x:p.x,y:p.y}},fx:mien(),body:{crouch:-.05}},{d:rnd(.8,2),fx:mien()}]},
+  settle(){const p=seatSpot();if(!p)return null;NS.lastGo=now;const s=rnd(.4,.7);
+    return[{d:rnd(2,3),fx:mien(),fn:()=>go(p,{speed:s})},{d:rnd(4,10),fx:mien({lidU:rnd(.2,.45)}),body:{crouch:rnd(.05,.25),lean:rnd(-8,8)},arms:Math.random()<.5?AR([armPose(0,false),armPose(1,false)]):null}]},
+  stretch(){NS.stillT=now;const up=()=>({sh:rnd(148,176),el:rnd(-12,18),reach:rnd(1.2,1.5),wr:rnd(-20,20),grip:rnd(0,.3)});
+    return[{d:rnd(.6,1),arms:AR([up(),up()]),body:{crouch:rnd(-.5,-.3),lean:rnd(-6,6)},fx:mien({lidU:rnd(.6,.85),mo:rnd(.3,.9),bH:rnd(.1,.25)}),speed:.55,look:{dir:[0,-1]}},
+      {d:rnd(.9,1.6),arms:AR([up(),up()]),body:{crouch:rnd(-.55,-.35),lean:rnd(-14,14)},fx:mien({lidU:rnd(.7,.95),mo:rnd(.5,1.1)}),speed:.5},
+      {d:rnd(.8,1.4),body:{crouch:rnd(.1,.25)},fx:mien({lidU:rnd(.2,.4)}),speed:.8}]},
+  fidget(){const i=Math.random()<.65?1:0,s=i?1:-1,kind=Math.floor(Math.random()*4);
+    if(kind===0){const a=reachFor(i,s*rnd(.15,.5),rnd(.5,.9));return[{d:rnd(1.5,3.5),arms:AR(i?[null,a]:[a,null]),osc:[{j:(i?'R':'L')+'.wr',amp:rnd(12,30),t0:now,hz:rnd(1.5,4)}],look:{pt:()=>({x:E.hands[i].x,y:E.hands[i].y})},fx:mien({lidU:rnd(.2,.45)})}]}
+    if(kind===1){const a=reachFor(i,s*rnd(.55,.85),rnd(-.75,-.35));return[{d:rnd(1.2,2.5),arms:AR(i?[null,a]:[a,null]),osc:[{j:(i?'R':'L')+'.el',amp:rnd(6,12),t0:now,hz:rnd(5,8)}],fx:mien({bH:rnd(.05,.2),mas:s*rnd(.2,.5)}),body:{turn:-s*rnd(.1,.3)},look:{dir:[rnd(-.5,.5),-.6]}}]}
+    if(kind===2){const a=reachFor(i,s*rnd(.95,1.2),rnd(.75,1));return[{d:rnd(1.5,3.5),arms:AR(i?[null,a]:[a,null]),osc:[{j:(i?'R':'L')+'.el',amp:rnd(5,10),t0:now,hz:rnd(3,6)}],fx:mien(),look:{dir:[s*.4,.5]}}]}
+    const a=reachFor(0,rnd(-.4,-.15),rnd(.75,.95)),b=reachFor(1,rnd(.15,.4),rnd(.75,.95));
+    return[{d:rnd(2,4),arms:AR([a,b]),osc:[{j:'R.wr',amp:rnd(10,22),t0:now,hz:rnd(2,4)}],fx:mien({lidU:rnd(.25,.5)}),look:{dir:[rnd(-.3,.3),.7]}}]},
+  bounce(){return[{d:rnd(1,2.2),osc:[{j:'B.rise',amp:rnd(.15,.35),t0:now,hz:rnd(1.8,3.2)},{j:'B.lean',amp:rnd(4,9),t0:now,hz:rnd(.9,1.6)}],
+    arms:Math.random()<.5?AR([armPose(0,true),armPose(1,true)]):null,fx:mien({mc:rnd(.3,.7),bH:rnd(.1,.3)}),fn:()=>{if(Math.random()<.4)effects({hop:rnd(.2,.5)})}}]},
+  regard(){const warm=AFF.v>0;return[{d:rnd(1.5,3.5),look:'viewer',fx:mien(warm?{mc:rnd(.3,.65),lidU:rnd(.25,.45)}:{lidU:rnd(.4,.6),mc:rnd(-.2,.05)}),
+    body:{turn:rnd(-.15,.15),lean:rnd(-5,5)},fn:()=>{if(Math.random()<.5)E.blinkT=.16}}]},
+  gaze(){return[{d:rnd(2.5,6),look:{dir:[rnd(-1,1),rnd(-.8,.2)]},fx:mien({lidU:rnd(.3,.55),bH:rnd(-.05,.1)}),body:{crouch:rnd(0,.2),lean:rnd(-10,10)},
+    arms:Math.random()<.5?AR([null,reachFor(1,rnd(.1,.35),rnd(.55,.8))]):null,speed:.6}]},
+  doze(){const d=rnd(18,50);return[{d:rnd(1,1.6),fx:mien({lidU:.7}),body:{crouch:.15}},{d,face:'asleep',pose:'limp',sleep:1,body:{crouch:.3,lean:rnd(-10,10)}},{d:rnd(.8,1.4),fx:mien({lidU:.5,bH:.2}),body:{crouch:.05}}]},
+};
+function urges(){const still=now-NS.stillT,c=N.curiosity,e=N.energy,b=N.boredom,a=AFF.a,v=AFF.v,idle=now-cur.t;
+  return{notice:.9+c*.9+(NS.fresh.length?1.6:0),posture:1,wander:(.35+e*.6+b*.8+a*.4)*(now-NS.lastGo<20?.25:1),settle:(.25+(1-e)*.6)*(E.perch?.1:1),
+    stretch:still>60?1.4:.04,fidget:.5+a*.6+b*.5,bounce:a>.6&&v>.1?.7:.04,regard:.4+N.social*.6+N.fond*.4,gaze:.3+(1-a)*.6,doze:e<.25&&idle>120?1.4:0}}
+function impulse(){const u=urges(),rec=k=>NS.kinds.filter(x=>x===k).length;let best=null,bw=-1;
+  for(const k in u){const w=u[k]*rnd(.4,1.6)/(1+rec(k)*1.8);if(w>bw){bw=w;best=k}}
+  const st=best&&IMPULSES[best]();if(!st||!st.length)return false;NS.kinds.push(best);NS.kinds=NS.kinds.slice(-4);NS.count++;
+  const dur=st.reduce((t,x)=>t+(x.d||0),0);if(best!=='stretch'&&best!=='wander'&&best!=='settle'&&best!=='bounce')NS.stillT=NS.stillT||now;
+  const me={k:'ns_'+best,by:'body',a:{w:()=>0,run(){},dur:[dur,dur]},t:0,dur:dur+.2};act=me;play(st,()=>{if(act===me)me.t=me.dur+1});return true}
+/* nothing chosen: a beat of simply being, then the next impulse */
+function be(){if(!NS.stillT)NS.stillT=now;if(now>=NS.quiet&&!REDUCE&&!SEQ&&Math.random()<.85&&impulse())return;
+  act={k:'be',by:'body',a:{w:()=>0,run(){},dur:[2,2]},t:0,dur:rnd(1.2,4.5)/(.6+AFF.a)}}
 /* what the body shows of a feeling, on whatever face it is making */
 function feltFace(F){const D=Object.assign({},F),held=!!(cur_('face')||cur_('fx')||mood||(act&&act.k==='m_wait'&&act.face)),w=held?.4:1,v=AFF.v*w,a=(AFF.a-.45)*w,n=REDUCE?0:1;
   if(F.name==='asleep'||F.name==='dizzy')return D;
@@ -2100,7 +2178,7 @@ function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
     if(s.glasses){const me=mindAct(4,'m_glasses');if(s.glasses==='on'){E.shadesUntil=now+60;E.shadesOn=true;play([{d:1.2,pose:'glasses',face:'smug'}],()=>{if(act===me)me.t=me.dur+1})}
       else if(s.glasses==='off'){E.shadesUntil=0;if(FITOV&&FITOV.n==='shades')FITOV=null;if(CFG.fit==='shades'){CFG.fit='auto';store.set('ember_cfg',CFG)}E.shadesOn=false;me.dur=1}
       else{E.shadesUntil=now+8;E.shadesOn=true;play([{d:.6,pose:'glasses',face:'calm'},{d:2.4,face:'unimpressed',look:'viewer',fn:()=>{E.noBlink=2.4}},{d:1.2,face:'smug',look:'viewer'}],()=>{if(act===me)me.t=me.dur+1})}return true}
-    if(s.stop){mindAct(.2,'m_stop');return true}
+    if(s.stop){NS.quiet=now+Math.min(240,+s.for||5)*60;mindAct(.2,'m_stop');return true}
     if((s.face||s.pose)&&!s.wait){const hd=s._m?Math.min(4,s.for||2):(s.for||2),me=mindAct(hd,'m_pose');play([{d:hd,face:s.face,pose:s.pose,fx:s.fx||null,look:s.look&&LOOKS[s.look]?LOOKS[s.look]():null}],()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.wait&&(s.arms||s.body||s.osc)){const d=s._m?Math.min(6,Math.max(.8,+s.wait||2)):(+s.wait||2),me=mindAct(d,'m_wait');play([{d,face:s.face,fx:s.fx||null,pose:s.pose,arms:s.arms,body:s.body,osc:s.osc,look:s.look&&LOOKS[s.look]?LOOKS[s.look]():null}],()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.wait){const me=mindAct(s._m?Math.min(4,Math.max(.8,+s.wait||2)):(+s.wait||2),'m_wait');me.look=LOOKS[s.look]?LOOKS[s.look]():(cur.x>=0?LOOKS.cursor&&LOOKS.cursor():null);if(s.face)me.face=s.face;if(s.pose)me.pose=s.pose;if(s.fx)me.fx=s.fx;return true}}catch(e){}
@@ -2120,7 +2198,7 @@ function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='
     person:{seconds_since_they_moved:Math.round(now-cur.t),typing:now-(CHAT.typing||-99)<6||now-MIND.key<6,near_ember:cur.x>=0&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*5,
       last_talked_to_ember_s:CHAT.lastChat>0?Math.round(now-CHAT.lastChat):null,name:m.name||''},
     ember:{energy:+N.energy.toFixed(2),boredom:+N.boredom.toFixed(2),curiosity:+N.curiosity.toFixed(2),playfulness:+(N.playfulness||.5).toFixed(2),wants_company:+N.social.toFixed(2),annoyed:+N.annoy.toFixed(2),
-      fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),glasses:!!E.shadesOn,doing:act?act.k:'',focus:MIND.focus||'',last_outcome:mindOutcome(),feeling:{valence:+AFF.v.toFixed(2),arousal:+AFF.a.toFixed(2),word:moodWord(AFF.v,AFF.a)},
+      fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),glasses:!!E.shadesOn,doing:act?act.k:'',focus:MIND.focus||'',last_outcome:mindOutcome(),feeling:{valence:+AFF.v.toFixed(2),arousal:+AFF.a.toFixed(2),word:moodWord(AFF.v,AFF.a)},body_was_doing:NS.kinds.slice(-3),
       recent_actions:MIND.done.slice(-8)},
     screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
 function think(reason){if(MIND.busy)return;
@@ -2138,16 +2216,19 @@ function think(reason){if(MIND.busy)return;
     MIND.hist.push((r.thought||'')+(r.new&&r.new.length?' (invented '+r.new.map(b=>b.name).join(', ')+')':''));MIND.hist=MIND.hist.slice(-6);
     if(r.remember){const f=CHAT.mem.facts||(CHAT.mem.facts=[]);if(!f.includes(r.remember)){f.push(r.remember);CHAT.mem.facts=f.slice(-6);saveMem()}}
     const midway=act&&act.by==='mind';
-    if(act&&!midway)act.t=act.dur+1;
+    if(act&&!midway){act.t=act.dur+1;if(act.by==='body'&&SEQ)SEQ=null}
     MIND.next=now+mindGap()}).catch(e=>{MIND.fail++;MIND.next=now+Math.min(900,15*Math.pow(2,MIND.fail));if(MIND.fail>=3){MIND.live=0;if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard()}}).finally(()=>{MIND.busy=0})}
-function mindGap(){return Math.max(18,3600/Math.max(1,MIND.perHour)*.9)}
+function mindGap(){return Math.max(18,3600/Math.max(1,MIND.perHour)*.9)*mindPace()}
 function mindAhead(){if(!MIND.plan.length&&MIND.live&&!MIND.off&&!MIND.busy&&now>=MIND.next&&mindActive()&&!CHAT.open&&V.state==='idle')think('next')}
-function mindActive(){return now<300||now-cur.t<300||now-MIND.key<300||now-(CHAT.typing||-99)<300}
-function be(){act={k:'be',by:'body',a:{w:()=>0,run(){},dur:[2,2]},t:0,dur:2}}
+function mindActive(){if(document.hidden)return false;const seen=Math.max(cur.t,MIND.key,CHAT.typing||-99);let f=false;try{f=document.hasFocus()}catch(_){}
+  return now<1800||now-seen<1800||f}
+/* watched but untouched for a while: think half as often */
+const mindPace=()=>now-Math.max(cur.t,MIND.key,CHAT.typing||-99)>600?2:1;
+
 function mindTick(){if(!started||MIND.busy||TW.on||DRV.on||V.state!=='idle'||CHAT.open||document.hidden||E.mode!=='fly')return;
   if(MIND.off){if(now<MIND.retry)return;MIND.off=0;MIND.why=''}
   if(!mindActive())return;
-  if(now>=MIND.next&&!MIND.plan.length&&(!MIND.live||!act||act.k==='be'||act.t>act.dur))think(MIND.live?'idle':'time')}
+  if(now>=MIND.next&&!MIND.plan.length&&(!MIND.live||!act||act.by!=='mind'||act.t>act.dur))think(MIND.live?'idle':'time')}
 /* something happened: let the mind react soon (not more than every 20s) */
 const MIND_NOW={broke:1,pass:1,published:1,error:1,gaps:1,back:1,page:1,poked:1,thrown:1,fell:1,startled:1,petted:1};let MIND_JOB='';
 function mindEvent(name,data){const d=data||{};let w=name;if(d.what)w+=': '+String(d.what).slice(0,80);else if(d.tool)w+=': '+String(d.tool).slice(0,40);else if(d.job&&d.job.status)w+=': '+d.job.status;
@@ -2615,9 +2696,9 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   if(CHAT.open&&E.mode==='fly')chatTick(dt);
   else if(mood){base.pose=mood.pose||'rest';base.face=mood.face||idleFace();base.look=mood.look||null}
   else if(E.mode==='fly'&&!hideUntil){
-    if(!act||act.t>act.dur){if(!mindStep())be()}
+    if(!act||act.t>act.dur){if(!mindStep()){if(!SEQ)be();else if(!act)act={k:'seq',by:'body',a:{w:()=>0,run(){},dur:[1,1]},t:0,dur:.5}}}
     if(act&&act.k&&act.k.startsWith('m_go_')&&Math.hypot(E.tx-E.x,E.ty-E.y)<R*.8&&Math.hypot(E.vx,E.vy)<120&&act.t>.4)act.t=act.dur+1;
-    act.t+=dt;
+    if(act)act.t+=dt;
     if(cur.x>=0&&!SEQ&&Math.hypot(cur.x-E.x,cur.y-E.y)<R*3.6&&!cur.over){if(!cur.nearSince)cur.nearSince=now;if(now-cur.nearSince>2.6&&now-cur.moveT>1.8){cur.nearSince=now+15;try{mindEvent('near',{what:'their cursor is hovering near Ember'})}catch(_){}}}
     else if(cur.x<0||Math.hypot(cur.x-E.x,cur.y-E.y)>R*3.6)cur.nearSince=0;
     let bf=idleFace();if(annoyed())bf=N.annoy>.8?'glare':'unimpressed';else if(N.fond>.7&&ATT()!=='savage')bf='content';
@@ -2635,7 +2716,7 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   E.pose=pose;const fx=E.mode==='fly'&&(cur_('fx')||(act&&act.k==='m_wait'&&act.fx));if(fx){const key='fx:'+(SEQ?SEQ.i+':'+SEQ.steps.length:'wait')+':'+fn;if(E.FT.name!==key)E.FT=Object.assign(face(fn),fx,{name:key})}else if(fn!==E.FT.name)E.FT=driveFx(face(fn));
   if(look)E.look=look;else if(E.look&&!(E.look.until>now))E.look=null;
   simulate(dt);draw(dt);requestAnimationFrame(frame)}
-function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=!!cur_('sleep'),
+function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=!!cur_('sleep');if(moving)NS.stillT=now;const _=0,
   still=!moving&&(!act||act.k==='be'||act.k==='perch'||act.k==='m_wait')&&!SEQ;
   N.energy=cl(N.energy+(napping?.04:still?.005:-(.002+(moving?.006:0)))*k,0,1);
   N.curiosity=cl(N.curiosity+(act&&act.k==='watch'?-.05:.01)*k,0,1);
@@ -2816,7 +2897,7 @@ function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(2,devicePixelRatio||1)
 function start(){if(running)return;if(!started){started=true;(document.head||document.documentElement).append(css);document.body.append(cv,talk,menu);tin=talk.querySelector('input');
     talk.querySelector('#ember-go').onclick=send;talk.querySelector('#ember-mic').onclick=()=>{closeChat();listen()};tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
     tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now;talk.classList.toggle('ae-empty',!tin.value.trim())});
-    addEventListener('keydown',()=>{MIND.key=now},true);for(const b of store.get('ember_lib',[]))learnB(b);
+    addEventListener('keydown',()=>{MIND.key=now},true);watchScreen();for(const b of store.get('ember_lib',[]))learnB(b);
     fetch('/api/ember/behaviors').then(r=>r.json()).then(j=>{for(const b of(j&&j.behaviors)||[])learnB(b)}).catch(()=>{});
     addEventListener('pointermove',onMove,true);addEventListener('pointerdown',onDown,true);addEventListener('pointerup',onUp,true);
     for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(mine(e))return;if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();converse();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
@@ -2840,7 +2921,8 @@ window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG
   forget(){CHAT.mem={name:'',facts:[]};saveMem()},memory:()=>JSON.parse(JSON.stringify(CHAT.mem)),
   state:()=>({face:E.FT.name,pose:E.pose,bubble:E.bubble?E.bubble.text:'',x:E.x,y:E.y,r:R*E.r,mood:mood?(mood.kind||'on'):'',chat:!!CHAT.open,alpha:E.alpha,running,act:act?act.k:'',actBy:act&&act.by||'',stage:act&&act.stage||'',mode:E.mode,seat:!!E.seat,body:Object.assign({},J.b),arms:J.a.map(a=>Object.assign({},a)),held:!!J.held,feeling:{v:AFF.v,a:AFF.a},talking:isTalking(),outfit:outfit(),shades:!!E.shadesOn,drives:Object.assign({},N),noErrands:Object.fromEntries(Object.entries(NO_ERR).filter(([,u])=>u>now).map(([k,u])=>[k,Math.round(u-now)]))}),
   fall:()=>fall(),perch:()=>{SEQ=null;mood=null;act={k:'perch',by:'test',a:{w:()=>0,run(){},dur:[60,60]},t:0,dur:60};go(SP.perch,{speed:.8})},
-  feel:f=>feel(f),play:st=>play(compileB({steps:st})),
+  feel:f=>feel(f),play:st=>{const c=compileB({steps:st}),d=c.reduce((t,x)=>t+(x.d||0),0);act={k:'test',by:'test',a:{w:()=>0,run(){},dur:[d,d]},t:0,dur:d+.3};play(c)},
+  still:s=>{NS.quiet=now+(+s||0);if(act&&act.by==='body'){act.t=act.dur+1;SEQ=null}},nervous:()=>({count:NS.count,kinds:NS.kinds.slice(),quiet:NS.quiet>now,fresh:NS.fresh.length}),
   mind:()=>({live:!!MIND.live,off:!!MIND.off,why:MIND.why||'',busy:!!MIND.busy,cue:!!(MIND.busy||now<MIND.cueUntil),thought:MIND.thought,focus:MIND.focus||'',plan:MIND.plan.slice(),hist:MIND.hist.slice(),ev:MIND.ev.map(e=>e.what),lib:Object.keys(LIB),next:Math.round(MIND.next-now),today:MSTAT.today,lastAt:MSTAT.lastAt,status:mindStatus(),acts:ACTS_LOG.slice(-12)}),think:r=>{MIND.off=0;MIND.next=0;think(r||'asked')},
   hurry:()=>{N.energy=.8;N.boredom=.4;MIND.next=0;if(act)act.t=act.dur+1}};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}

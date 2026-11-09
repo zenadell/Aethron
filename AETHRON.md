@@ -7147,6 +7147,37 @@ barge-in and the body driven by function calls. Today a turn is: local
 speech recognition waits for 1.8s of silence, sends TEXT, and the whole
 answer's audio is buffered before it plays — that is the latency.
 
+## "IT JUST SITS THERE" — A BODY NEEDS A NERVOUS SYSTEM — 2026-11-09
+Owner, on the jointed Ember (#120): it sat still for 30+ minutes, watching
+the cursor, then once moved to the chat and asked a question — "lazy",
+"not a living organism". Two causes, both measured:
+- ITS MIND ONLY THOUGHT WHILE THE MOUSE MOVED. mindActive() needed input in
+  the last 5 minutes, so a person watching without touching got no thoughts
+  at all. Field logs: the team's cloud mind last answered on Nov 6
+  (gemini-4-argon, 7-14s a thought); since then thinking ran on the owner's
+  own Gemini key, and stopped whenever the mouse rested. Now it thinks
+  while the window is visible and focused (or touched in the last 30 min),
+  at half rate after 10 minutes untouched, never while hidden.
+- BETWEEN THOUGHTS NOTHING MOVED. Removing the scripts removed everything
+  that filled the gaps; an AI cannot steer a body every frame, and a living
+  body is not still between decisions. EMBER_JS "the nervous system": when
+  no plan plays and nothing else does (`!SEQ`), an impulse is drawn by
+  urges from feeling and needs (notice / posture / wander / settle /
+  stretch / fidget / bounce / regard / gaze / doze), and the impulse
+  GENERATES its keyframes: a real element on screen (newly added ones
+  first, via a MutationObserver), a new place, arm angles drawn until the
+  hand lands somewhere a hand can rest, a face from mien() (feeling +
+  noise). What it did recently weighs against doing it again. It never
+  speaks. A plan from the mind ends it at once; a mind/person "stop" step
+  quiets it (NS.quiet). Measured with no mind over 40s: be -> notice ->
+  wander -> notice -> posture -> regard -> fidget -> wander, x 294..1220,
+  arm angles -16..127, no words. ember.still(s) holds it (tests use it);
+  ember.nervous() reports it; the mind sees body_was_doing.
+LESSON: "no prepared behaviour" never meant "no motion of its own". What
+the owner rejected was REPLAY (the same named sequence, the same lines);
+what makes something look alive is a body that moves without being told,
+differently every time, with a mind on top that chooses the big things.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7432,9 +7463,11 @@ answer's audio is buffered before it plays — that is the latency.
 - A MARKETPLACE IS READ LIKE A PERSON READS IT. One page at a time, a
   rate limit or bot check is reported, never worked around; only free
   templates are ever offered.
-- EMBER HAS NO ROUTINES. What it does and says is its mind's; the code only
-  gives it a body (joints, reflexes, involuntary movement). Never add a
-  behaviour that runs on its own.
+- EMBER REPLAYS NOTHING. No named sequences, no canned lines: what it says
+  and the big things it does are its mind's; between them its nervous system
+  GENERATES every movement fresh from the screen and its feelings. A body
+  that waits for permission to move is not alive, and a body that repeats
+  itself is not either.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
   really happened. What it presses for you, it presses where you can see it,
   and it never adds to what you asked.
