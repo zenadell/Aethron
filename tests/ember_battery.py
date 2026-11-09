@@ -61,6 +61,7 @@ try:
         drawn = pg.evaluate("""(()=>{const c=document.getElementById('ember-cv'),x=c.getContext('2d');const s=ember.state(),d=Math.min(2,devicePixelRatio||1);
           const im=x.getImageData(Math.round((s.x-s.r)*d),Math.round((s.y-s.r)*d),Math.round(s.r*2*d),Math.round(s.r*2*d)).data;let n=0;for(let i=3;i<im.length;i+=4)if(im[i]>200)n++;return n})()""")
         check("it is drawn", drawn > 50, f"opaque pixels {drawn}")
+        pg.evaluate("ember.still(900)")
         pg.evaluate("ember.signal('job',{project:'p',job:{status:'running',progress:{done:10,total:100},steps:[]}})"); pg.wait_for_timeout(600)
         check("a running job puts it to work", pg.evaluate("ember.state().mood") == "job")
         pg.evaluate("ember.signal('job',{project:'p',job:{status:'done',result:{ok:true,total:100,filled:100}}})"); pg.wait_for_timeout(1200)
@@ -119,7 +120,7 @@ try:
             const t=window.__said.shift()||'';if(t)r.onresult&&r.onresult({results:[Object.assign([{transcript:t}],{isFinal:true})]});
             setTimeout(()=>r.onend&&r.onend(),250)},100)};r.stop=()=>{};r.abort=()=>{r.onend&&r.onend()}};""")
         c.route("**/api/voice", lambda rt: rt.fulfill(json={"available": False}))
-        c.goto(BASE + "/?ember=1"); c.wait_for_timeout(3500)
+        c.goto(BASE + "/?ember=1"); c.wait_for_timeout(3500); c.evaluate("ember.still(900)")
         c.evaluate("window.consoleSend=()=>{window.__sent=document.getElementById('npurl').value}")
         st = c.evaluate("ember.state()")
         c.mouse.dblclick(st["x"], st["y"]); c.wait_for_timeout(500)
@@ -135,7 +136,7 @@ try:
         v = b.new_page(viewport={"width": 1400, "height": 900})
         v.on("pageerror", lambda e: errs.append("voice: " + str(e)))
         v.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1'}catch(e){}")
-        v.goto(BASE + "/?ember=1"); v.wait_for_timeout(3500)
+        v.goto(BASE + "/?ember=1"); v.wait_for_timeout(3500); v.evaluate("ember.still(900)")
         v.evaluate("window.consoleSend=()=>{window.__sent=document.getElementById('npurl').value}")
         st = v.evaluate("ember.state()")
         v.mouse.dblclick(st["x"], st["y"]); v.wait_for_timeout(700)
@@ -252,20 +253,28 @@ try:
         b_ = v.evaluate("ember.state().bubble") or ""
         check("a reply that never comes is answered anyway, not left loading", bool(b_.strip()), repr(b_))
         v.evaluate("void (window.api=window.__api0)"); v.keyboard.press("Escape"); v.wait_for_timeout(500)
-        # ---- left alone with no mind, Ember runs no routine and says nothing scripted, but its body lives
+        # ---- left alone with no mind, its body lives on by itself: never a statue, never a script, never a word
         for _ in range(80):                      # the offline answer to the last message finishes first
             if not v.evaluate("ember.state().bubble"): break
             v.wait_for_timeout(250)
-        v.evaluate("ember.hurry()")
-        acts, words, sh, lean = set(), set(), [], []
-        for _ in range(40):
-            v.wait_for_timeout(250)
-            st = v.evaluate("ember.state()"); acts.add(st.get("act")); words.add(st.get("bubble") or "")
-            sh.append(st["arms"][1]["sh"]); lean.append(st["body"]["lean"])
-        check("left alone with no mind, Ember runs no routine of its own", acts <= {"be", "", None}, str(acts))
-        check("and says nothing written in advance", words <= {""}, str(words))
-        check("but its body still lives: it breathes and shifts its weight",
-              max(sh) - min(sh) > 1 and max(lean) - min(lean) > .5, f"sh {min(sh):.1f}..{max(sh):.1f} lean {min(lean):.2f}..{max(lean):.2f}")
+        v.evaluate("ember.still(0);ember.hurry()")
+        acts, words, xs, ys, sh = [], set(), [], [], []
+        for _ in range(64):
+            v.wait_for_timeout(375)
+            st = v.evaluate("ember.state()"); acts.append(st.get("act")); words.add(st.get("bubble") or "")
+            xs.append(st["x"]); ys.append(st["y"]); sh.append(st["arms"][0]["sh"] + st["arms"][1]["sh"])
+        ns = v.evaluate("ember.nervous()")
+        kinds = {a for a in acts if a and a.startswith("ns_")}
+        check("left alone with no mind, Ember keeps doing things by itself", ns["count"] >= 4 and len(kinds) >= 3, f"{ns} {kinds}")
+        check("it moves about the window rather than sitting in one place",
+              max(xs) - min(xs) + max(ys) - min(ys) > 120, f"x {min(xs):.0f}..{max(xs):.0f} y {min(ys):.0f}..{max(ys):.0f}")
+        check("it holds itself in different ways", max(sh) - min(sh) > 40, f"{min(sh):.0f}..{max(sh):.0f}")
+        check("and says nothing written in advance: words are its mind's", words <= {""}, str(words))
+        v.evaluate("ember.perform({kind:'answer',say:'',plan:[{stop:'all',for:1}]})"); v.wait_for_timeout(600)
+        n0 = v.evaluate("ember.nervous().count"); v.wait_for_timeout(4000)
+        check("'sit still' quiets the body for as long as asked", v.evaluate("ember.nervous()")["quiet"] and v.evaluate("ember.nervous().count") == n0,
+              str(v.evaluate("ember.nervous()")))
+        v.evaluate("ember.still(900)")
         # ---- every joint is the mind's to move, in degrees, carried there by springs
         v.evaluate("ember.play([{t:3,arms:{R:{sh:150,el:30}},body:{lean:12,turn:.5}}])"); v.wait_for_timeout(1400)
         st = v.evaluate("ember.state()")
@@ -288,7 +297,7 @@ try:
                 if prev: tot += sum(abs(x - y) for x, y in zip(a[:5], prev[:5]))
                 prev = a
             return tot, prev[5]
-        quiet, _ = motion(20)
+        v.evaluate("ember.play([{t:2.6,face:'calm'}])"); quiet, _ = motion(20)
         v.evaluate("ember.perform({kind:'answer',say:'okay listen, this is a long thing I want to tell you about, and I am going to keep talking for a while, alright?'})")
         talking, was = motion(20)
         check("while it talks its hands and body move by themselves, more than when it is quiet",
@@ -396,7 +405,7 @@ try:
             acts = mp.evaluate("ember.mind().acts") or []
             if "m_celebrate" in [a["k"] for a in acts]:
                 break
-            if mp.evaluate("ember.state().act") == "be":   # between plans: let the next thought come now
+            if mp.evaluate("ember.state().actBy") != "mind":   # between plans: let the next thought come now
                 mp.evaluate("ember.hurry()")
         mm2 = mp.evaluate("ember.mind()")
         acts2 = mm2.get("acts") or []
@@ -508,7 +517,7 @@ try:
         # the desktop page itself
         d = b.new_page(viewport={"width": 1440, "height": 900})
         d.on("pageerror", lambda e: errs.append("desk: " + str(e)))
-        d.goto(BASE + "/ember-desk"); d.wait_for_timeout(2500)
+        d.goto(BASE + "/ember-desk"); d.wait_for_timeout(2500); d.evaluate("ember.still(900)")
         check("the desktop page runs Ember", d.evaluate("ember.get().running && ember.get().desk") is True)
         bg = d.evaluate("getComputedStyle(document.body).backgroundColor")
         check("and is see-through", bg in ("rgba(0, 0, 0, 0)", "transparent"), bg)
