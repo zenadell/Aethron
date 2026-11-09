@@ -171,11 +171,65 @@ class Result(str):
         return o
 
 
+# A data folder chosen on purpose is never left; one taken by default is.
+EXPLICIT_HOME = bool(os.environ.get("AETHRON_HOME"))
+
+
+def _app_home() -> Path:
+    """Where the Aethron APP keeps its projects on this computer."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Aethron"
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA", Path.home())) / "Aethron"
+    return Path(os.environ.get("XDG_DATA_HOME",
+                               Path.home() / ".local" / "share")) / "Aethron"
+
+
+def _use_home(h: Path, why: str):
+    """Follow the projects to another data folder for the rest of this
+    session: an agent started from a code folder (its MCP config pointing
+    at forge_mcp.py) read the repo's own projects/ and answered "unknown
+    project" for every project the app had made — 30 field reports from
+    two Macs, and one agent gave up and filed it as a missing tool."""
+    global HOME, PROJECTS, LIBRARY, PAGES
+    HOME = Path(h).resolve()
+    PROJECTS, LIBRARY, PAGES = HOME / "projects", HOME / "library", HOME / "pages"
+    os.environ["AETHRON_HOME"] = str(HOME)     # the engine's runs follow too
+    sys.stderr.write(f"aethron mcp: using the projects in {HOME} ({why})\n")
+
+
 def pdir(name: str) -> Path:
-    d = (PROJECTS / str(name)).resolve()
-    if not d.is_relative_to(PROJECTS) or not (d / "forge.json").exists():
-        raise ValueError(f"unknown project {name!r} — try list_projects")
-    return d
+    t = str(name or "").strip()
+    # a project FOLDER instead of its name (".", a path): an agent working
+    # inside the project's folder passes where it is
+    if t in (".", "./") or "/" in t or "\\" in t or t.startswith("~"):
+        p = Path(t).expanduser()
+        p = (p if p.is_absolute() else Path.cwd() / p).resolve()
+        if (p / "forge.json").exists():
+            if p.parent != PROJECTS.resolve() and p.parent.name == "projects" \
+                    and not EXPLICIT_HOME:
+                _use_home(p.parent.parent, f"{p.name} was given by its folder")
+            if p.parent == PROJECTS.resolve():
+                return p
+            raise ValueError(f"{t!r} is a project folder outside this server's "
+                             f"projects ({PROJECTS}) — pass its name, or start "
+                             f"the server with AETHRON_HOME={p.parent.parent}")
+        raise ValueError(f"unknown project {t!r} — pass a project's name "
+                         f"(see list_projects), not a path")
+    d = (PROJECTS / t).resolve()
+    if d.is_relative_to(PROJECTS) and (d / "forge.json").exists():
+        return d
+    ah = _app_home()
+    if t and "/" not in t and ah.resolve() != HOME and \
+            (ah / "projects" / t / "forge.json").exists():
+        if not EXPLICIT_HOME:
+            _use_home(ah, f"{t} lives in the Aethron app's data")
+            return (PROJECTS / t).resolve()
+        raise ValueError(
+            f"unknown project {t!r} here ({PROJECTS}); it is in the Aethron "
+            f"app's data ({ah / 'projects'}). Point the agent's MCP at the app "
+            f"(Aethron --mcp) or set AETHRON_HOME={ah}.")
+    raise ValueError(f"unknown project {t!r} — try list_projects")
 
 
 def page_path(raw) -> Path:
@@ -343,6 +397,18 @@ def t_list_projects(a):
                    f"filled {filled}/{total}, "
                    f"built={'yes' if (d / 'site').exists() else 'no'}, "
                    f"pages={len(cfg.get('pages', []))}")
+    # the app's own projects, when this server reads a different folder:
+    # naming one is enough, the server follows it there
+    ah = _app_home()
+    if ah.resolve() != HOME and (ah / "projects").is_dir():
+        more = sorted(d.name for d in (ah / "projects").iterdir()
+                      if (d / "forge.json").exists() and not (PROJECTS / d.name).exists())
+        if more:
+            out.append(f"\nIn the Aethron app's data ({ah / 'projects'}): "
+                       + ", ".join(more[:40])
+                       + (" — name one and this server uses that folder."
+                          if not EXPLICIT_HOME else
+                          f" — set AETHRON_HOME={ah} to use them."))
     return "\n".join(out) or "no projects yet — create_project to start"
 
 

@@ -28,6 +28,7 @@ design constraint.
     python3 aethron_update.py --check      what is available
     python3 aethron_update.py --selftest   prove the mechanism, offline
 """
+import http.client
 import json
 import os
 import re
@@ -35,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -380,20 +382,41 @@ def stage(url, into: Path, timeout=180, progress=None, note=None) -> Path:
 
     into.mkdir(parents=True, exist_ok=True)
     zpath = into / "download.zip"
-    req = urllib.request.Request(url, headers={
-        "User-Agent": f"Aethron/{VERSION}"})
-    with urllib.request.urlopen(req, timeout=timeout) as r, \
-            open(zpath, "wb") as f:
-        total = int(r.headers.get("Content-Length") or 0)
-        got = 0
+    # A SLOW LINE DROPS A DOWNLOAD HALF-WAY ("The read operation timed out",
+    # field report on 1.1.111): the next try asks only for the bytes still
+    # missing (Range), so 40 MB on a weak connection is finished, not begun
+    # again. A server that ignores Range sends it all, and we start over.
+    total, got, tries = 0, 0, 0
+    with open(zpath, "wb") as f:
         while True:
-            chunk = r.read(65536)
-            if not chunk:
+            hdrs = {"User-Agent": f"Aethron/{VERSION}"}
+            if got:
+                hdrs["Range"] = f"bytes={got}-"
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=hdrs),
+                                            timeout=timeout) as r:
+                    if got and r.status != 206:
+                        f.seek(0); f.truncate(); got = 0
+                    if not total:
+                        total = int(r.headers.get("Content-Length") or 0) + got
+                    while True:
+                        chunk = r.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        got += len(chunk)
+                        if progress and total:
+                            progress(min(1.0, got / total))
+                if total and got < total:
+                    raise ConnectionError(f"the download stopped at {got} of {total} bytes")
                 break
-            f.write(chunk)
-            got += len(chunk)
-            if progress and total:
-                progress(got / total)
+            except (OSError, ConnectionError, http.client.HTTPException) as e:
+                tries += 1
+                if tries > 4 or isinstance(e, urllib.error.HTTPError) and e.code not in (408, 429, 500, 502, 503, 504):
+                    raise
+                say(f"the download was interrupted ({type(e).__name__}); "
+                    f"continuing from {got // 1024} KB")
+                time.sleep(min(30, 2 * tries))
     if progress:
         progress(1.0)            # a server that sends no length still finishes
     say("unpacking the download")
@@ -872,6 +895,24 @@ def _selftest() -> int:
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             hits[self.path] = hits.get(self.path, 0) + 1
+            if self.path == "/flaky.zip":
+                # the first answer stops half-way; the next one honours Range
+                data = body["/app.zip"]
+                rng = self.headers.get("Range", "")
+                if not rng:
+                    self.send_response(200)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data[:len(data) // 2])
+                    self.wfile.flush()
+                    self.close_connection = True
+                    return
+                start = int(rng.split("=")[1].split("-")[0])
+                self.send_response(206)
+                self.send_header("Content-Length", str(len(data) - start))
+                self.end_headers()
+                self.wfile.write(data[start:])
+                return
             b = body.get(self.path)
             self.send_response(200 if b else 404)
             self.send_header("Content-Type", "application/json")
@@ -971,6 +1012,11 @@ def _selftest() -> int:
                 check_("and nothing is left waiting afterwards",
                        staged() is None
                        and not any(staging_dir().glob("v*")))
+            notes = []
+            got_app = stage(base + "/flaky.zip", tmp / "flaky", note=notes.append)
+            check_("a download cut half-way continues from where it stopped",
+                   _verify_bundle(got_app) and hits.get("/flaky.zip") == 2
+                   and any("continuing from" in n for n in notes), str(notes))
             (staging_dir() / "staged.json").write_text(json.dumps(
                 {"version": VERSION, "path": str(tmp)}))
             check_("a copy that is not newer is never offered",

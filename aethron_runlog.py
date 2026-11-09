@@ -519,8 +519,19 @@ def get_run(caller: str, run: str = "") -> dict:
     """One run in full. run "" (or an index like "0") = newest."""
     d = runs_dir() / slug(caller)
     files = sorted(d.glob("*.jsonl"), reverse=True) if d.is_dir() else []
+    # A RUN ID IS ENOUGH. Agents guessed the caller ("forge", their own
+    # name) and were told "no runs recorded" — 9 field reports. A run named
+    # by its id is found under whichever caller holds it.
+    if run and not run.isdigit() and (d / (slug(run) + ".jsonl")) not in files:
+        for f in sorted(runs_dir().glob(f"*/{slug(run)}.jsonl")):
+            head, calls = _read(f)
+            return {"run": f.stem, "session": head, "calls": calls}
     if not files:
-        raise ValueError(f"no runs recorded for caller {caller!r}")
+        have = sorted(x.name for x in runs_dir().iterdir()
+                      if x.is_dir() and any(x.glob("*.jsonl"))) if runs_dir().is_dir() else []
+        raise ValueError(f"no runs recorded for caller {caller!r}"
+                         + (f" — callers with runs: {', '.join(have)}" if have
+                            else " — no runs recorded yet"))
     if not run or run.isdigit():
         k = int(run or 0)
         if k >= len(files):
@@ -529,7 +540,7 @@ def get_run(caller: str, run: str = "") -> dict:
     else:
         f = d / (slug(run) + ".jsonl")
         if f not in files:
-            raise ValueError(f"no run {run!r} for {caller!r}")
+            raise ValueError(f"no run {run!r} for {caller!r} or any other caller")
     head, calls = _read(f)
     return {"run": f.stem, "session": head, "calls": calls}
 

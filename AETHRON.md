@@ -7228,6 +7228,37 @@ and recorded with its source (ember.health()), which the battery fails
 on. ember.frames(ms, n) drives it: 1,200 frames of 50 ms broke it before,
 3,000 leave nothing to mend now.
 
+## FIELD LOGS, 2026-11-09 — four fixes from what users hit
+Read with the read-logs workflow (last 10 days, now its default):
+- 21 TURNS ENDED "[ede_diagnostic] … stop_reason=tool_use/null" (1.1.121):
+  a provider's answer stopped before its first word (half a tool call,
+  or nothing) and the bridge handed the engine an empty message, so the
+  turn ended mid-migration. The bridge now asks again inside the same
+  stream (CUT_RETRIES=2, CUT_WAIT 1.5s x try) while nothing has gone out;
+  tool calls are held until whole, so only text counts as "gone out". A
+  complete tool call without a finish reason is still delivered (only
+  half-closed arguments count as cut); a cut after words is closed as
+  before. Bridge selftest 34 -> 39.
+- 30 "UNKNOWN PROJECT" REPORTS FROM TWO MACS: an agent started from the
+  repo (its MCP config pointing at forge_mcp.py) read the repo's
+  projects/ while the app's projects live in its data folder; one agent
+  filed it as a missing tool. pdir() now follows a project name to the
+  app's data folder when no AETHRON_HOME was set on purpose (and says so
+  on stderr); with one set, the error names where the project is. A
+  project folder given as a path ("." inside it) is accepted.
+  list_projects lists the app's projects too.
+- A SIGNED-OUT COPY WAS TOLD ITS KEY WAS WRONG (3x today): Aethron's own
+  AI answers 401 "Sign in to Aethron"; the bridge's hint now says sign
+  out and back in (Settings → Profile), or use your own key.
+- get_run with a guessed caller ("forge") failed 9x: a run id is now
+  found under whichever caller holds it, and an unknown caller is told
+  which callers have runs.
+- UPDATE DOWNLOADS RESUME: a cut download (TimeoutError on a slow line,
+  1.1.111) continues with Range from the bytes it has, up to 4 tries.
+Field-log battery 27 -> 33, update selftest 44 -> 45.
+STILL A GAP (filed by an agent): CMS detail pages (/blog/<slug>) inside
+a migrated project cannot be created; only the listing is migrated.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

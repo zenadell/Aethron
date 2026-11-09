@@ -24,9 +24,9 @@ import forge, forge_mcp as M, aethron_reports as R  # noqa: E402
 ok = bad = 0
 
 
-def check(name, cond):
+def check(name, cond, extra=""):
     global ok, bad
-    print(("PASS " if cond else "FAIL ") + name)
+    print(("PASS " if cond else "FAIL ") + name + ("" if cond or not extra else f"   {extra}"))
     ok += bool(cond)
     bad += not cond
 
@@ -178,6 +178,58 @@ check("a brand used only as code names is not a leftover",
       not forge._brand_in_copy(code, "Bloop"))
 check("the brand in readable text still is",
       forge._brand_in_copy(code + 'z=`Powered by BloopAI`', "Bloop"))
+
+# AN AGENT STARTED FROM A CODE FOLDER STILL FINDS THE APP'S PROJECTS
+# (30 reports: "unknown project 'onward-express'" while the app had it)
+app = Path(tempfile.mkdtemp()) / "Aethron"
+(app / "projects" / "onward-express").mkdir(parents=True)
+(app / "projects" / "onward-express" / "forge.json").write_text(
+    json.dumps({"name": "onward-express", "platform": "framer", "pages": ["index.html"]}))
+keep = (M.HOME, M.PROJECTS, M.LIBRARY, M.PAGES, M.EXPLICIT_HOME, M._app_home,
+        os.environ.get("AETHRON_HOME"))
+M._app_home = lambda: app
+M.EXPLICIT_HOME = True
+try:
+    M.pdir("onward-express"); told = ""
+except ValueError as e:
+    told = str(e)
+check("with a data folder set on purpose, the error says where the project is",
+      "app's data" in told and str(app) in told, told)
+check("and list_projects names the app's projects", "onward-express" in M.t_list_projects({}))
+M.EXPLICIT_HOME = False
+try:
+    got = M.pdir("onward-express")
+except ValueError as e:
+    got = e
+check("taken by default, the server follows the project to the app's data",
+      isinstance(got, Path) and got == (app / "projects" / "onward-express").resolve()
+      and M.HOME == app.resolve(), str(got))
+cwd0 = os.getcwd(); os.chdir(app / "projects" / "onward-express")
+try:
+    dot = M.pdir(".")
+except ValueError as e:
+    dot = e
+os.chdir(cwd0)
+check("'.' inside a project's folder is that project", isinstance(dot, Path)
+      and dot.name == "onward-express", str(dot))
+M.HOME, M.PROJECTS, M.LIBRARY, M.PAGES, M.EXPLICIT_HOME, M._app_home = keep[:6]
+os.environ["AETHRON_HOME"] = keep[6]
+
+# A RUN ID IS ENOUGH (agents guessed the caller: "no runs recorded for 'forge'")
+import aethron_runlog as RL
+rd = RL.runs_dir() / "claude-code"; rd.mkdir(parents=True, exist_ok=True)
+(rd / "20261107-000000-abc123.jsonl").write_text(json.dumps({"caller": "claude-code"}) + "\n")
+try:
+    r = RL.get_run("forge", "20261107-000000-abc123"); found = r["run"]
+except ValueError as e:
+    found = str(e)
+check("a run named by its id is found under whichever caller holds it",
+      found == "20261107-000000-abc123", found)
+try:
+    RL.get_run("forge"); said = ""
+except ValueError as e:
+    said = str(e)
+check("and an unknown caller is told which callers have runs", "claude-code" in said, said)
 
 print(f"\n{ok}/{ok + bad} field-log checks passed")
 sys.exit(1 if bad else 0)
