@@ -352,6 +352,12 @@ try:
         v.evaluate("ember.think('test')"); v.wait_for_timeout(2500)
         mm = v.evaluate("ember.mind()")
         check("with no mind switched on, Ember knows it and just lives", mm["off"] and not mm["live"], str(mm))
+        v.evaluate("ember.frames(50,1500)")          # a busy page: half a minute and more of 50 ms frames
+        st = v.evaluate("ember.state()")
+        check("slow frames never fling Ember's body apart", not v.evaluate("ember.health().bad")
+              and all(abs(a["sh"]) < 400 and abs(a["el"]) < 400 for a in st["arms"]) and 0 < st["x"] < 1400, str(v.evaluate("ember.health().bad"))[:300])
+        mended = v.evaluate("ember.health().bad")
+        check("no number in Ember's body went bad (nothing had to be mended)", not mended, " || ".join(mended[:3]))
         v.close()
         # ---- with a mind: it plans, invents a behaviour, plays it, and keeps it
         mp = b.new_page(viewport={"width": 1400, "height": 900})

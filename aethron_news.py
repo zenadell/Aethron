@@ -91,6 +91,14 @@ NEWS = [
              "box and presses Send. Say \"publish\" and it presses Publish. "
              "Esc stops it. Right-click Ember to type instead.",
      "art": "ember", "go": "ember", "label": "Try it"},
+    {"id": "2026-11-ember-agency",
+     "title": "Ember does things for you",
+     "body": "When an update comes out, Ember downloads it straight away and "
+             "asks before restarting, so the restart takes seconds. It also "
+             "tells you when a migration needs an answer, stops or finishes, "
+             "and offers to heal or fix what a check found. You choose how "
+             "much it does by itself: Settings, Companion.",
+     "art": "ember", "go": "ember-agency", "label": "Choose"},
 ]
 
 SEEN = ".news-seen.json"
@@ -203,7 +211,8 @@ def _selftest() -> int:
           all(n["art"] in ("rail", "back", "runs", "gallery", "compare",
                            "devices", "history", "cmdk", "publish", "ember")
               and n["go"] in ("preview", "back", "runs", "home", "compare",
-                              "phone", "history", "cmdk", "publish", "ember")
+                              "phone", "history", "cmdk", "publish", "ember",
+                              "ember-agency")
               for n in NEWS))
     print("ALL PASS" if ok else "FAILED")
     return 0 if ok else 1
