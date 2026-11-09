@@ -1016,15 +1016,18 @@ def mind_rules(att: str, known: list) -> str:
         "drives (energy, curiosity, playfulness, boredom, wants_company, annoyed, fond_of_them), memory, "
         "focus, and free will. Look at PERCEPTION (including last_outcome and your drives) and choose your "
         "own intention. Never follow a predictable cycle (do NOT loop patrol -> clean -> ask -> sleep -> hat). "
-        "Often the most lifelike choice is to sit quietly, observe what they are doing, daydream, wander to a "
-        "spot, make a subtle expression, or ignore them for a while. Only do chores (dust, patrol) rarely when "
-        "it genuinely fits your mood. Do not repeat recent_errands, recent_actions, or what you_recently did. "
-        "Talk to the person only when you have a real reason, and only say what is true in PERCEPTION.\n"
+        "Be VISIBLY alive: the person is watching a small character on their screen, and a plan they cannot see "
+        "is wasted. Every plan moves (go somewhere, or do a behaviour, or a keyframe sequence) and changes your "
+        "face at least once. Quiet moments are short (wait 1-4 seconds) and sit between actions, never instead "
+        "of them. A good plan is 3-6 steps lasting 15-40 seconds, with a little story: notice something, react, "
+        "do something about it, then a beat. Chores (dust, patrol) are rare. Do not repeat recent_errands, "
+        "recent_actions, or what you_recently did. Talk only when you have a real reason, and only say what is "
+        "true in PERCEPTION; a line is said while you keep moving.\n"
         "Answer with ONE JSON object, no prose:\n"
         '{"thought":"one private line: your internal intention and why","focus":"what you are paying attention to","mood":"a face name","plan":[steps],"new":[behaviours],"remember":""}\n'
         "PLAN steps (1-" + str(MIND_MAX_STEPS) + "), composed from your capabilities:\n"
         ' 1. Direct expression & body keyframes: {"steps":[keyframes]} (or a single keyframe step directly in plan) to move your face dials, hands, and body freely.\n'
-        ' 2. Stillness / observation: {"wait":seconds,"look":"' + "|".join(LOOKS) + '","face":"<face>","fx":{dials},"pose":"<pose>"} (sit, watch, daydream, or ignore them).\n'
+        ' 2. A short pause (1-4 seconds): {"wait":seconds,"look":"' + "|".join(LOOKS) + '","face":"<face>","fx":{dials},"pose":"<pose>"} (sit, watch, daydream, or ignore them).\n'
         ' 3. Free spatial movement: {"go":"' + "|".join(PLACES) + '"} or {"go":[x,y]} where x,y are 0.05..0.95 of the window.\n'
         ' 4. Known or learned behaviours: {"do":"<behaviour name>"}  known behaviours: ' + ", ".join(known) + "\n"
         ' 5. Speech & appearance: {"say":"short line"}  {"ask":"a question (opens reply box, use sparingly)"}  {"outfit":"' + "|".join(OUTFITS) + '","for":minutes}  {"glasses":"on|off|peek"}  {"stop":"' + "|".join(list(ERRAND_NAMES) + ["all"]) + '","for":minutes}  {"face":"<face>","pose":"<pose>","for":seconds}\n'
@@ -1805,7 +1808,7 @@ function drawGrime(){if(!GRIME)return;const r=rect(GRIME.el);if(!r)return;const 
   X.restore()}
 /* an errand: where to go, then what to do there */
 const ERRANDS={
-  dust:{w:()=>visible('.pitem,.rcard').length?.9:0,spot(){const el=pick(visible('.pitem,.rcard'));this.el=el;const r=rect(el);return r&&{x:cl(r.l+R*1.3,R*2,W-R*2),y:r.cy-R*.58}},
+  dust:{w:()=>visible('.pitem,.rcard').length?.45:0,spot(){const el=pick(visible('.pitem,.rcard'));this.el=el;const r=rect(el);return r&&{x:cl(r.l+R*1.3,R*2,W-R*2),y:r.cy-R*.58}},
     steps(){const el0=this.el,EL=()=>GRIME&&GRIME.el===el0||!GRIME?el0:(grimeEl()||el0);const pt=()=>{const r=rect(EL());return r?{x:cl(E.x+R*.4,r.l,r.r),y:r.cy}:{x:E.x,y:E.y+40}};
       return[{d:1.1,pose:'rest',look:{pt},face:'unimpressed',fn:()=>grime(el0),say:maybe(['oh no, dust!','ugh. dusty.','who let it get this filthy?'],.5)},
         {d:.35,pose:'rest',face:'focus',look:{pt}},
@@ -1974,7 +1977,7 @@ function placeOf(n){const m=area(),c=composer();
   return SP.rest()}
 function mindAct(dur,k){const m={k:k||'mind',by:'mind',a:{mind:1,w:()=>0,run(){},dur:[dur,dur]},t:0,dur};ACTS_LOG.push({k:m.k,by:'mind',t:Math.round(now)});if(ACTS_LOG.length>20)ACTS_LOG.shift();act=m;return m}
 /* the next step of the mind's plan, if it has one */
-function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
+function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();mindAhead();
   try{if(!s.steps&&!s.do&&!s.go&&!s.wait&&!s.outfit&&!s.glasses&&!s.stop&&!s.ask&&(s.fx||s.hands||s.hop||s.spin||s.squash||s.tilt||s.shake||s.scale||s.nudge||s.glow||s.burst||s.wiggle))
       s.steps=[Object.assign({t:s.t||s.for||1.4},s)];
     if(Array.isArray(s.steps)&&s.steps.length){const st=compileB({steps:s.steps.map(k=>Object.assign({t:k.t||k.d||1.2},k))});
@@ -1987,7 +1990,7 @@ function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
       let st=null;if(LIB[n])st=compileB(LIB[n]);else if(FIDGETS[n])st=FIDGETS[n].s();else if(n==='workout')st=workout();else if(n==='celebrate')st=[{d:2,face:'joy',pose:'cheer',fn:celebrate}];
       if(!st)return mindStep();const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.6,'m_'+n);play(st,()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.go){const tag=Array.isArray(s.go)?'xy':s.go;go(placeOf(s.go),{speed:.75});mindAct(2.8,'m_go_'+tag);return true}
-    if(s.say){say(s.say);mindAct(readTime(s.say)+.5,'m_say');return true}
+    if(s.say){say(s.say);const nx=MIND.plan[0];if(s._m&&nx&&!nx.say&&!nx.ask&&!nx.wait&&mindStep())return true;mindAct(s._m?Math.min(3.5,readTime(s.say)):readTime(s.say)+.5,'m_say');return true}
     if(s.ask){if(MIND.asks>2||now-CHAT.lastChat<60)return mindStep();MIND.asks++;openChat(s.ask,0);mindAct(2,'m_ask');return true}
     if(s.outfit){FITOV={n:s.outfit,until:Date.now()+(s.for||20)*60000};if(CFG.fit!=='auto'){CFG.fit='auto';store.set('ember_cfg',CFG)}
       if(s.outfit==='shades')E.shadesUntil=now+(s.for||20)*60;else if(E.shadesOn&&!(E.shadesUntil>now))E.shadesOn=false;
@@ -1999,8 +2002,8 @@ function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
       if(s.stop==='dust'||s.stop==='all')GRIME=null;
       if(act&&act.a&&act.a.errand&&(s.stop==='all'||act.k==='e_'+s.stop)){SEQ=null;act.t=act.dur+1}
       mindAct(1,'m_stop');return true}
-    if((s.face||s.pose)&&!s.wait){const me=mindAct(s.for||2,'m_pose');play([{d:s.for||2,face:s.face,pose:s.pose,fx:s.fx||null,look:s.look&&LOOKS[s.look]?LOOKS[s.look]():null}],()=>{if(act===me)me.t=me.dur+1});return true}
-    if(s.wait){const me=mindAct(s.wait,'m_wait');if(s.look&&LOOKS[s.look])me.look=LOOKS[s.look]();if(s.face)me.face=s.face;if(s.pose)me.pose=s.pose;if(s.fx)me.fx=s.fx;return true}}catch(e){}
+    if((s.face||s.pose)&&!s.wait){const hd=s._m?Math.min(4,s.for||2):(s.for||2),me=mindAct(hd,'m_pose');play([{d:hd,face:s.face,pose:s.pose,fx:s.fx||null,look:s.look&&LOOKS[s.look]?LOOKS[s.look]():null}],()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.wait){const me=mindAct(s._m?Math.min(4,Math.max(.8,+s.wait||2)):(+s.wait||2),'m_wait');me.look=LOOKS[s.look]?LOOKS[s.look]():(cur.x>=0?LOOKS.cursor&&LOOKS.cursor():null);if(s.face)me.face=s.face;if(s.pose)me.pose=s.pose;if(s.fx)me.fx=s.fx;return true}}catch(e){}
   return mindStep()}
 function applyPlan(r){if(!r)return;
   for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
@@ -2029,19 +2032,22 @@ function think(reason){if(MIND.busy)return;
     if(r.off){MIND.live=0;MIND.off=1;MIND.why=r.why||'off';MIND.retry=now+(r.retry||1800);MIND.plan=[];if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard();return}
     for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
     const wasLive=MIND.live;MIND.live=1;MIND.off=0;MIND.why='';MIND.fail=0;if(!wasLive)ACTS_LOG.length=0;
-    MIND.plan=(r.plan||[]).slice();MIND.thought=r.thought||'';if(r.focus)MIND.focus=r.focus;
+    MIND.plan=(r.plan||[]).map(x=>Object.assign({_m:1},x));MIND.thought=r.thought||'';if(r.focus)MIND.focus=r.focus;
     MIND.snap={t:now,ig:CHAT.ignored,asked:MIND.plan.some(x=>x&&x.ask)};MIND.cueUntil=now+1.2;if(!REDUCE)burst({kind:'spark',n:6,color:'#ffd89a'});
     bumpMindStat();
     MIND.hist.push((r.thought||'')+(r.new&&r.new.length?' (invented '+r.new.map(b=>b.name).join(', ')+')':''));MIND.hist=MIND.hist.slice(-6);
     if(r.remember){const f=CHAT.mem.facts||(CHAT.mem.facts=[]);if(!f.includes(r.remember)){f.push(r.remember);CHAT.mem.facts=f.slice(-6);saveMem()}}
-    if(act&&(act.k==='mind_wait'||act.by!=='mind'||(!SEQ&&!act.a.errand&&!act.a.mind&&!act.a.nap))){if(act.by!=='mind'&&act.a&&act.a.errand){SEQ=null;GRIME=null}act.t=act.dur+1}
-    MIND.next=now+2+Math.pow(MIND.hour.length/Math.max(1,MIND.perHour),2)*30}).catch(e=>{MIND.fail++;MIND.next=now+Math.min(900,15*Math.pow(2,MIND.fail));if(MIND.fail>=3){MIND.live=0;if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard()}}).finally(()=>{MIND.busy=0})}
+    const midway=act&&act.a&&((act.a.errand&&act.stage==='do')||act.a.nap||act.by==='mind');
+    if(act&&!midway){if(act.a&&act.a.errand){SEQ=null;GRIME=null}act.t=act.dur+1}
+    MIND.next=now+mindGap()}).catch(e=>{MIND.fail++;MIND.next=now+Math.min(900,15*Math.pow(2,MIND.fail));if(MIND.fail>=3){MIND.live=0;if(act&&act.k==='mind_wait')act.t=act.dur+1;refreshCard()}}).finally(()=>{MIND.busy=0})}
+function mindGap(){return Math.max(18,3600/Math.max(1,MIND.perHour)*.9)}
+function mindAhead(){if(!MIND.plan.length&&MIND.live&&!MIND.off&&!MIND.busy&&now>=MIND.next&&mindActive()&&!CHAT.open&&V.state==='idle')think('next')}
 function mindActive(){return now<300||now-cur.t<300||now-MIND.key<300||now-(CHAT.typing||-99)<300}
 function mindIdle(){
   const hr=Date.now()-3600000;MIND.hour=MIND.hour.filter(t=>t>hr);
   if(MIND.hour.length>=MIND.perHour){MIND.live=0;MIND.off=1;MIND.why='resting';MIND.retry=now+900;refreshCard();choose();return}
-  act={k:'mind_wait',by:'mind',a:{mind:1,w:()=>0,run(){},dur:[2,4]},t:0,dur:2};
-  if(!MIND.busy&&mindActive()&&now>=MIND.next)think('idle')}
+  if(!MIND.busy&&mindActive()&&now>=MIND.next)think('idle');
+  choose()}
 function mindTick(){if(!started||MIND.busy||TW.on||DRV.on||V.state!=='idle'||CHAT.open||document.hidden||E.mode!=='fly')return;
   if(MIND.off){if(now<MIND.retry)return;MIND.off=0;MIND.why=''}
   if(!mindActive())return;

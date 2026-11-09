@@ -377,20 +377,20 @@ try:
         check("then the rest of the plan: it speaks and changes into a beanie",
               "brr. it's freezing." in said and mp.evaluate("ember.state().outfit") == "beanie", str(said))
         check("the invented behaviour is kept for next time", "shiver" in mm["lib"] and "shiver" in (mp.evaluate("localStorage.ember_lib") or ""))
-        for _ in range(45):
+        for _ in range(60):
             mp.wait_for_timeout(200)
-            acts = [a["k"] for a in (mp.evaluate("ember.mind().acts") or [])]
-            if "m_hum" in acts and "m_slowblink" not in acts:
-                mp.evaluate("ember.hurry()")
-            if "m_slowblink" in acts:
+            acts = mp.evaluate("ember.mind().acts") or []
+            if "m_slowblink" in [a["k"] for a in acts]:
                 break
+            if acts and acts[-1].get("by") != "mind":      # between plans: let the next thought come now
+                mp.evaluate("ember.hurry()")
         mm2 = mp.evaluate("ember.mind()")
         acts2 = mm2.get("acts") or []
-        check("when live, consecutive idle actions come from mind plans and not choose()",
+        check("while live, the mind's plans keep coming and Ember is never parked waiting for one",
               len(asked) >= 3 and any(a["k"] == "m_hum" for a in acts2) and any(a["k"] == "m_slowblink" for a in acts2)
-              and all(a.get("by") == "mind" for a in acts2), str(acts2))
-        check("idle mind requests pass recent actions so the mind varies them",
-              len(asked) >= 2 and (asked[1].get("state") or {}).get("reason") == "idle"
+              and not any(a["k"] == "mind_wait" for a in acts2), str(acts2))
+        check("the next request passes recent actions so the mind varies them",
+              len(asked) >= 2 and (asked[1].get("state") or {}).get("reason") in ("idle", "next")
               and "shiver" in ((asked[1].get("state") or {}).get("ember") or {}).get("recent_actions", []),
               str(asked[1].get("state") if len(asked) >= 2 else {}))
         mp.evaluate("ember.hurry()")
@@ -415,6 +415,40 @@ try:
         mp.reload(); mp.wait_for_timeout(2500)
         check("and it is still known after a restart", "shiver" in mp.evaluate("ember.mind().lib"))
         mp.close()
+        # ---- a slow mind never freezes Ember: it keeps living while the mind thinks
+        import threading
+        from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+        class SlowMind(BaseHTTPRequestHandler):
+            def log_message(self, *a): pass
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length") or 0)); time.sleep(8)
+                body = json.dumps({"thought": "x", "plan": [{"go": "top"}, {"say": "slow thought"}, {"wait": 30, "face": "sleepy"}], "new": []}).encode()
+                self.send_response(200); self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+        slow = ThreadingHTTPServer(("127.0.0.1", 0), SlowMind); threading.Thread(target=slow.serve_forever, daemon=True).start()
+        sp = b.new_page(viewport={"width": 1400, "height": 900})
+        sp.add_init_script("try{localStorage.forge_tour='done';localStorage.ember_welcomed='1'}catch(e){}")
+        sp.route("**/api/ember/mind", lambda rt: rt.continue_(url=f"http://127.0.0.1:{slow.server_address[1]}/mind"))
+        sp.goto(BASE + "/?ember=1"); sp.wait_for_timeout(1500)
+        sp.evaluate("ember.think('test')")
+        seen_acts, moved, x0 = set(), 0.0, None
+        for _ in range(28):
+            sp.wait_for_timeout(250)
+            st = sp.evaluate("ember.state()"); seen_acts.add(st.get("act"))
+            if x0 is not None: moved += abs(st["x"] - x0[0]) + abs(st["y"] - x0[1])
+            x0 = (st["x"], st["y"])
+        check("while a slow mind thinks, Ember is never parked waiting for it", "mind_wait" not in seen_acts, str(seen_acts))
+        check("and it keeps doing things of its own meanwhile", any(a and not a.startswith("m_") for a in seen_acts), str(seen_acts))
+        got_plan, wait_s, said = False, 0.0, set()
+        for _ in range(120):
+            sp.wait_for_timeout(250)
+            st = sp.evaluate("ember.state()"); a = str(st.get("act") or ""); said.add(st.get("bubble") or "")
+            if a.startswith("m_"): got_plan = True
+            if a == "m_wait": wait_s += .25
+            if got_plan and wait_s > 0 and a != "m_wait": break
+        check("when the plan arrives it plays", got_plan and "slow thought" in said, str(said))
+        check("and a 30-second pause the mind asked for is kept to a few seconds", 0 < wait_s <= 5, f"{wait_s}s")
+        sp.close(); slow.shutdown()
         # ---- a first launch: Ember welcomes the person and shows them around
         w = b.new_page(viewport={"width": 1400, "height": 900})
         w.on("pageerror", lambda e: errs.append("welcome: " + str(e)))
