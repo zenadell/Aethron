@@ -7259,6 +7259,38 @@ Field-log battery 27 -> 33, update selftest 44 -> 45.
 STILL A GAP (filed by an agent): CMS detail pages (/blog/<slug>) inside
 a migrated project cannot be created; only the listing is migrated.
 
+## WHEN AETHRON IS NOT IN FRONT — `aethron_notify.py` — 2026-11-09
+Ember's offers (restart for the update, a migration that needs an answer,
+one that stopped or finished, a page to fix) were cards beside it in the
+window — useless while the person is in another app. Now an offer made
+while Aethron is hidden or not focused also goes out ONCE as a system
+notification; clicking it brings Aethron forward (and out of the Dock if
+minimised), where the card is waiting.
+- aethron_notify: macOS UNUserNotificationCenter through pyobjc when
+  bundled (asks for permission once; a bare python has no bundle identity,
+  so from source it is AppleScript `display notification`); Windows toast
+  through PowerShell with PowerShell's own registered app id (an
+  unregistered one is dropped without a word), words in environment
+  variables; Linux notify-send. Never the same thing twice in 30 min,
+  never more than 8 an hour, control characters out, words cut to fit,
+  passed as data, never pasted into a script. POST /api/notify.
+- THE AGENCY KEEPS THE WALL CLOCK NOW. Ember's own clock (`now`) stops
+  whenever the window is not drawn, so every agency timer read a frozen
+  number while Aethron was behind; they use performance.now() (T()). A
+  15s background tick keeps it watching (browsers slow hidden timers to
+  about once a minute, which is fine for a notification).
+- an offer shown while nobody is looking does not run out (its 45s
+  timeout starts when they come back); a notification is never sent for
+  an offer that is held, snoozed, not yet due or no longer true.
+- Settings → Companion → "Tell me when I'm elsewhere" (on by default).
+  Desktop Ember sends none: it is already on screen over other apps.
+Tests: aethron_notify --selftest 6/6 (and on the Mac release, that the
+notification centre and its delegate protocol are in the bundle); agency
+battery 36 -> 44 (one notification while elsewhere, not repeated, the card
+waits; off sends nothing though the offer is made; in front sends nothing;
+the studio route answers honestly). NOT PROVEN until it runs on a Mac:
+the permission prompt, the banner and the click.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

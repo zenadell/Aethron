@@ -1734,7 +1734,7 @@ EMBER_JS = r"""
 (()=>{
 if(window.ember)return;
 const qs=location.search||'';
-let CFG={on:true,att:'sassy',fit:'auto',ai:'auto',liveMode:'gemini-3.8-live',agency:'safe'};
+let CFG={on:true,att:'sassy',fit:'auto',ai:'auto',liveMode:'gemini-3.8-live',agency:'safe',notify:'on'};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem('ember_cfg')||'{}'))}catch(_){}
 const DESK=location.pathname==='/ember-desk';
 const forced=/[?&]ember=1/.test(qs)||DESK;
@@ -2223,7 +2223,7 @@ function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='
     ember:{energy:+N.energy.toFixed(2),boredom:+N.boredom.toFixed(2),curiosity:+N.curiosity.toFixed(2),playfulness:+(N.playfulness||.5).toFixed(2),wants_company:+N.social.toFixed(2),annoyed:+N.annoy.toFixed(2),
       fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),glasses:!!E.shadesOn,doing:act?act.k:'',focus:MIND.focus||'',last_outcome:mindOutcome(),feeling:{valence:+AFF.v.toFixed(2),arousal:+AFF.a.toFixed(2),word:moodWord(AFF.v,AFF.a)},body_was_doing:NS.kinds.slice(-3),
       recent_actions:MIND.done.slice(-8)},
-    doing_for_you:AG.log.slice(-4).map(x=>Math.round(now-x.t)+'s ago: '+x.what),offering:AG.offer?AG.offer.text:'',may_do:agency(),
+    doing_for_you:AG.log.slice(-4).map(x=>Math.round(T()-x.t)+'s ago: '+x.what),offering:AG.offer?AG.offer.text:'',may_do:agency(),
     screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
 function think(reason){if(MIND.busy)return;
   const hr=Date.now()-3600000;MIND.hour=MIND.hour.filter(t=>t>hr);
@@ -2322,12 +2322,14 @@ function fromEvents(evs,bridge){if(!evs)return;if(!DESK&&CFG.desktop){
    itself, 'all' also retries a stopped migration once, heals edits that did
    not land and restarts for an update while you are away and nothing runs.
    It never publishes, unpublishes, deletes or undoes by itself. */
+/* the agency keeps the wall clock: Ember's own clock (now) stops whenever the window is not drawn, and the agency must keep watching then */
+const T=()=>performance.now()/1000;
 const APP=(()=>{try{return typeof S!=='undefined'}catch(_){return false}})();
-const AG={offer:null,queue:[],later:{},jobs:null,retried:{},world:null,worldT:-99,checkT:-99,
+const AG={offer:null,queue:[],later:{},notified:{},hiddenAt:0,jobs:null,retried:{},world:null,worldT:-99,checkT:-99,
   fetching:0,failT:-1e9,staged:'',latest:'',avail:0,restarting:0,log:[],healed:{},offeredAt:0};
 function agency(){return['ask','safe','all'].includes(CFG.agency)?CFG.agency:'safe'}
-function agLog(t){AG.log.push({t:now,what:t});if(AG.log.length>12)AG.log.shift();CTX.last=t;CTX.lastT=now}
-function away(s){return now>60&&now-Math.max(cur.moveT,MIND.key,CHAT.typing||-99)>s}
+function agLog(t){AG.log.push({t:T(),what:t});if(AG.log.length>12)AG.log.shift();CTX.last=t;CTX.lastT=now}
+function away(s){if(document.hidden&&AG.hiddenAt&&T()-AG.hiddenAt>s)return true;return now>60&&now-Math.max(cur.moveT,MIND.key,CHAT.typing||-99)>s}
 function appBusy(){if(!APP)return false;try{return!!((typeof CODE!=='undefined'&&CODE.runT0)||S.running||S.autoRunning)}catch(_){return false}}
 /* a sheet the app opened (What's new, publish, the update gate) has the floor: Ember waits for it to close */
 function quiet(){return CHAT.open||DRV.on||!!document.querySelector('#newsov.on,#updgate,#pubov')||V.state!=='idle'||TW.on||cur.grab||document.hidden||now-(CHAT.typing||-99)<8||now-MIND.key<6}
@@ -2339,16 +2341,16 @@ function offerHit(x,y){if(ofr.hidden)return false;const r=ofr.getBoundingClientR
 /* the card stays where it was put while you reach for it: it moves only when Ember really goes somewhere, never with its breathing */
 function placeOffer(){if(ofr.hidden)return;if(AG.ax!=null&&(offerHit(cur.x,cur.y)||Math.hypot(E.x-AG.ax,E.y-AG.ay)<R*2.5))return;AG.ax=E.x;AG.ay=E.y;const rr=R*E.r,w=ofr.offsetWidth||300,h=ofr.offsetHeight||90;
   let x=cl(E.x-w/2,12,W-w-12),y=E.y+rr*1.5;if(y+h>H-12)y=E.y-rr*(E.tipH||1.6)-h-24;ofr.style.left=Math.round(x)+'px';ofr.style.top=Math.round(cl(y,12,H-h-12))+'px'}
-/* an offer is {id, text, yes, no, run, at (where to stand), snooze (min), hold() (not now)} */
-function offer(o){if(!o||!o.id||(AG.later[o.id]||0)>now)return;if(AG.offer&&AG.offer.id===o.id)return;
-  const was=AG.queue.find(x=>x.id===o.id);o.notBefore=was?was.notBefore:now+5;   /* whatever it reacts with first (a cheer, a wince) plays before the card */
+/* an offer is {id, text, yes, no, run, at (where to stand), snooze (min), hold() (not T())} */
+function offer(o){if(!o||!o.id||(AG.later[o.id]||0)>T())return;if(AG.offer&&AG.offer.id===o.id)return;
+  const was=AG.queue.find(x=>x.id===o.id);o.notBefore=was?was.notBefore:T()+5;   /* whatever it reacts with first (a cheer, a wince) plays before the card */
   AG.queue=AG.queue.filter(x=>x.id!==o.id);AG.queue.push(o);AG.queue.sort((a,b)=>(b.prio||0)-(a.prio||0))}
-function showOffer(o){AG.offer=o;o.shownAt=now;AG.offeredAt=now;ofr.querySelector('p').textContent=o.text;ofr.querySelector('.yes').textContent=o.yes||'Yes';
+function showOffer(o){AG.offer=o;o.shownAt=T();AG.offeredAt=T();ofr.querySelector('p').textContent=o.text;ofr.querySelector('.yes').textContent=o.yes||'Yes';
   ofr.querySelector('.no').textContent=o.no||'Later';ofr.hidden=false;ofr.style.animation='none';void ofr.offsetWidth;ofr.style.animation='';
   if(SEQ&&SEQ.ns)SEQ=null;if(act&&act.by==='body')act.t=act.dur+1;const t=o.at&&o.at();
   AG.ax=null;if(t&&running)flyTo(t);setMood({kind:'offer',d:8,pose:'point',face:'curious',look:'viewer'});placeOffer();E.q-=.25}
 function closeOffer(snooze){const o=AG.offer;if(!o)return;AG.offer=null;ofr.hidden=true;AG.ax=null;if(mood&&mood.kind==='offer')setMood(null);
-  if(snooze)AG.later[o.id]=now+snooze*60}
+  if(snooze)AG.later[o.id]=T()+snooze*60}
 async function yesOffer(){const o=AG.offer;if(!o)return;closeOffer(o.after||0);agLog('they said yes: '+o.text);
   try{mindEvent('agreed',{what:'they said yes to: '+o.text})}catch(_){}
   try{await drive(o.run)}catch(e){said('that did not work: '+String(e&&e.message||e).slice(0,80))}}
@@ -2371,7 +2373,7 @@ async function agDownload(){if(AG.fetching)return;const u=upd(),ver=u.latest;AG.
   let r;try{r=(APP&&typeof prefetchUpdate==='function')?await prefetchUpdate():await prefetchDirect()}catch(e){r={ok:false,why:String(e&&e.message||e)}}
   AG.fetching=0;
   if(r&&r.ok){AG.staged=r.version||ver;agLog('Ember downloaded Aethron '+AG.staged+'; it installs on the next restart');try{mindEvent('did',{what:'finished downloading the Aethron '+AG.staged+' update for them'})}catch(_){}agTick(1)}
-  else{AG.failT=now;said(`The download didn't finish (${String(r&&r.why||'unknown').slice(0,70)}). I'll try again later.`,4);agLog('the update download failed')}}
+  else{AG.failT=T();said(`The download didn't finish (${String(r&&r.why||'unknown').slice(0,70)}). I'll try again later.`,4);agLog('the update download failed')}}
 async function prefetchDirect(){const r=await post('/api/update/prefetch',{});if(!r||!r.job)return{ok:false,why:(r&&r.error)||'no download started'};
   for(let i=0;i<2400;i++){await sleep(1000);let j;try{j=await(await fetch('/api/update/status?id='+r.job,{credentials:'same-origin'})).json()}catch(_){continue}
     if(j.done){const m=(j.log||'').match(/downloaded (\S+)/);return j.ok?{ok:true,version:m?m[1]:AG.latest}:{ok:false,why:((j.log||'').match(/download failed: (.*)/)||[])[1]||'unknown'}}}
@@ -2409,27 +2411,38 @@ function agJob(j){if(!j||!j.project)return;const p=j.project,sig=[j.status,j.fin
     if(j.ok)offer({id:'done:'+p+':'+(j.finished||''),text:`${p} is finished and checked in a browser. Want to see it?`,yes:'Show me',run:()=>agShow(p),at:card,prio:1,snooze:60,still});
     else offer({id:'done:'+p+':'+(j.finished||''),text:`${p} finished, with ${n||'some'} thing${n===1?'':'s'} to look at.`,yes:'Show me',run:()=>agShow(p,1),at:card,prio:1,snooze:60,still})}}
 function fromJobCard(project,j){if(!j)return;const r=j.result||{};agJob({project,status:j.status,finished:j.finished,question:j.question,ask_kind:j.ask_kind||(typeof jobBlocked==='function'&&jobBlocked(j)?'blocked':'question'),error:j.error,ok:!!r.ok,problems:r.problems||[]})}
-function agWorld(){if(now-AG.worldT<(document.hidden?120:30))return;AG.worldT=now;
+function agWorld(){if(T()-AG.worldT<(document.hidden?120:30))return;AG.worldT=T();
   fetch('/api/ember/world',{credentials:'same-origin'}).then(r=>r.json()).then(w=>{AG.world=w;for(const j of w.jobs||[])agJob(j)}).catch(()=>{})}
-function agUpdateCheck(){if(APP||now-AG.checkT<1800)return;AG.checkT=now;   // the app window checks for itself
+function agUpdateCheck(){if(APP||T()-AG.checkT<1800)return;AG.checkT=T();   // the app window checks for itself
   fetch('/api/update/check',{credentials:'same-origin'}).then(r=>r.json()).then(u=>{AG.avail=!!u.available;AG.latest=u.latest||'';if(u.staged)AG.staged=u.staged;if(u.fetching&&!AG.fetching)agDownload()}).catch(()=>{})}
 let agLast=-99;
-function agTick(force){if(!started||(!force&&now-agLast<2))return;agLast=now;agWorld();agUpdateCheck();
+/* WHILE NOBODY IS LOOKING. The frame loop stops when the window is hidden, so
+   the agency keeps its own slow tick then; and an offer made while Aethron is
+   not in front goes out once as a system notification (aethron_notify), whose
+   click brings the app forward to the card. */
+function behind(){let f=true;try{f=document.hasFocus()}catch(_){}return document.hidden||!f}
+function agNotify(){if(CFG.notify==='off'||DESK||!behind())return;
+  for(const o of[AG.offer,...AG.queue]){if(!o||AG.notified[o.id]||(o.hold&&o.hold())||(AG.later[o.id]||0)>T()||(o.notBefore||0)>T()||(o.still&&!o.still()))continue;
+    AG.notified[o.id]=1;post('/api/notify',{title:o.title||'Aethron',body:o.text,key:o.id}).then(r=>{if(r&&r.ok)agLog('Ember sent a notification: '+o.text)}).catch(()=>{})}}
+document.addEventListener('visibilitychange',()=>{AG.hiddenAt=document.hidden?T():0});
+setInterval(()=>{if(started&&behind())try{agTick(1)}catch(_){}},15000);
+function agTick(force){if(!started||(!force&&T()-agLast<2))return;agLast=T();agWorld();agUpdateCheck();try{agNotify()}catch(_){}
   const u=upd();
   if(u.available&&u.latest){
     if(u.staged===u.latest){
       if(agency()==='all'&&away(300)&&!appBusy()&&!AG.restarting&&!AG.offer){AG.restarting=1;agLog('they were away and nothing was running, so Ember restarted Aethron for the update');drive(agRestart)}
       else offer({id:'restart:'+u.latest,text:`Aethron ${u.latest} is downloaded. Restart now to finish? It takes a few seconds, and your projects and chats stay.`,yes:'Restart now',no:'Later',run:agRestart,at:()=>APP&&shown('.uc'),prio:2,snooze:45,hold:appBusy,still:(v=>()=>upd().staged===v)(u.latest)})}
-    else if(!AG.fetching&&now-AG.failT>1800){
+    else if(!AG.fetching&&T()-AG.failT>1800){
       if(u.fetching||agency()!=='ask')agDownload();
       else offer({id:'download:'+u.latest,text:`Aethron ${u.latest} is out. Want me to download it? Nothing changes until you restart.`,yes:'Download',run:agDownload,at:()=>APP&&shown('.uc'),prio:2,snooze:120,still:()=>!upd().staged&&!AG.fetching})}}
-  if(APP){try{const zf=S.zeroFx,p=S.cur;if(p&&zf&&zf.length&&now-(AG.healed[p]||-1e9)>3600){const id='heal:'+p+':'+zf.length;
-    if(agency()==='all'){AG.healed[p]=now;drive(()=>agHeal(p))}
-    else offer({id,text:`${zf.length} edit${zf.length>1?'s':''} on ${p} did not land on the site. Want me to heal ${zf.length>1?'them':'it'}? Undo covers it.`,yes:'Heal',run:()=>{AG.healed[p]=now;return agHeal(p)},at:()=>shown('#steps .warn'),prio:1,snooze:30,still:()=>{try{return S.cur===p&&(S.zeroFx||[]).length===zf.length&&now-(AG.healed[p]||-1e9)>3600}catch(_){return false}}})}}catch(_){}}
+  if(APP){try{const zf=S.zeroFx,p=S.cur;if(p&&zf&&zf.length&&T()-(AG.healed[p]||-1e9)>3600){const id='heal:'+p+':'+zf.length;
+    if(agency()==='all'){AG.healed[p]=T();drive(()=>agHeal(p))}
+    else offer({id,text:`${zf.length} edit${zf.length>1?'s':''} on ${p} did not land on the site. Want me to heal ${zf.length>1?'them':'it'}? Undo covers it.`,yes:'Heal',run:()=>{AG.healed[p]=T();return agHeal(p)},at:()=>shown('#steps .warn'),prio:1,snooze:30,still:()=>{try{return S.cur===p&&(S.zeroFx||[]).length===zf.length&&T()-(AG.healed[p]||-1e9)>3600}catch(_){return false}}})}}catch(_){}}
   AG.queue=AG.queue.filter(o=>!o.still||o.still());if(AG.offer&&AG.offer.still&&!AG.offer.still())closeOffer(0);
   if(AG.offer&&document.querySelector('#newsov.on,#updgate,#pubov')){const o=AG.offer;closeOffer(0);AG.queue.unshift(o)}
-  if(AG.offer){if(now-AG.offer.shownAt>45){agLog('they did not answer: '+AG.offer.text);closeOffer(AG.offer.snooze||30)}else if(AG.offer.hold&&AG.offer.hold()){const o=AG.offer;closeOffer(0);AG.queue.unshift(o)}}
-  else if(AG.queue.length&&!quiet()&&!(SEQ&&!SEQ.ns)&&now-AG.offeredAt>4){const i=AG.queue.findIndex(o=>!(o.hold&&o.hold())&&(AG.later[o.id]||0)<=now&&(o.notBefore||0)<=now);if(i>=0)showOffer(AG.queue.splice(i,1)[0])}}
+  if(AG.offer&&behind())AG.offer.shownAt=T();   // nobody is looking: the card waits, as the notification promised
+  if(AG.offer){if(T()-AG.offer.shownAt>45){agLog('they did not answer: '+AG.offer.text);closeOffer(AG.offer.snooze||30)}else if(AG.offer.hold&&AG.offer.hold()){const o=AG.offer;closeOffer(0);AG.queue.unshift(o)}}
+  else if(AG.queue.length&&!quiet()&&!(SEQ&&!SEQ.ns)&&T()-AG.offeredAt>4){const i=AG.queue.findIndex(o=>!(o.hold&&o.hold())&&(AG.later[o.id]||0)<=T()&&(o.notBefore||0)<=T());if(i>=0)showOffer(AG.queue.splice(i,1)[0])}}
 
 /* ===== the person ===== */
 const cur={x:-1,y:-1,t:-99,moveT:-99,over:0,down:0,grab:0,sx:0,sy:0,hist:[],rev:[],lastDx:0,boops:[],nearSince:0,

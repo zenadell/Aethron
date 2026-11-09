@@ -147,6 +147,12 @@ jobs:
           python3 aethron_voice.py --selftest
           python3 -c "import aethron_voice,sys;sys.exit(0 if aethron_voice.available() else 1)" \
             || { echo "::error::Ember cannot listen (pyobjc Speech/AVFoundation missing)"; exit 1; }
+          # Ember tells the person what needs them when Aethron is behind
+          # other windows, through the Mac's own notification centre
+          python3 aethron_notify.py --selftest
+          # the build carries the notification centre's bridge (named in aethron.spec)
+          python3 -c "import UserNotifications, objc; assert objc.protocolNamed('UNUserNotificationCenterDelegate')" \
+            || { echo "::error::the app cannot send notifications (pyobjc UserNotifications missing)"; exit 1; }
           # screenshot to code with the Mac's own OCR: pictures stay
           # pictures, type and placement fitted from the pixels
           python3 tests/pictures_fit_battery.py | tee /tmp/pictures.log
