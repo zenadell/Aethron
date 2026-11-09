@@ -7178,6 +7178,56 @@ the owner rejected was REPLAY (the same named sequence, the same lines);
 what makes something look alive is a body that moves without being told,
 differently every time, with a mind on top that chooses the big things.
 
+## EMBER DOES THINGS FOR YOU — agency — 2026-11-09
+Owner: Ember should be autonomous: "if there's an update it should react,
+and can even go download it for the user, not just that, a lot more".
+- UPDATES DOWNLOAD AHEAD (aethron_update.prefetch/staged): the newest
+  build is downloaded and checked into HOME/updates/v<ver>/ (with
+  .metadata_never_index, so Spotlight never lists a second Aethron);
+  update() installs that copy with no second download, then clears it.
+  POST /api/update/prefetch (one at a time); /api/update/check carries
+  staged/fetching. The chip shows Downloading N%, then Restart.
+- EMBER'S AGENCY (EMBER_JS "agency"): it watches the screen's state and
+  GET /api/ember/world (every project's migration + the waiting update,
+  files on disk only). Safe things it does and says (downloads the
+  update); everything else is an OFFER card next to it, naming the button,
+  and on yes Ember presses it in front of you: restart for the update
+  (held while an agent turn runs), a migration that needs an answer (opens
+  the project, cursor in the answer box), a stopped one (Try again), a
+  finished one (Show me), a page the browser check found broken (Fix it),
+  edits that did not land (Heal), the provider out of credit (Settings).
+  Settings → Companion → What Ember may do: Only suggest / Safe things
+  itself (default) / Everything it can (also retries a stopped migration
+  ONCE, heals, and restarts for an update while you are away and nothing
+  runs). Never publishes, unpublishes, deletes or undoes by itself.
+- Offers wait for quiet (not while typing, talking, driving, or a sheet
+  like What's new / publish is open), come 5s after the reaction they
+  follow, stay put while you reach for them, time out after 45s into a
+  snooze. While waiting Ember keeps living in place. The mind sees
+  doing_for_you / offering / may_do and is told not to repeat the card.
+- Desktop Ember: yes is handed to the app window (POST /api/ember/relay,
+  known actions only) and the app is brought forward.
+Two bugs the battery caught: the first-download guard started at -999s
+(so it waited 17 min after launch), and the What's new sheet sat over
+the offer card, unclickable — offers now wait for any open sheet.
+tests/agency_battery.py (in run_all; Linux, fake feed + real tiny
+bundle); aethron_update selftest 36 -> 44.
+Offers re-check themselves: each carries still() (the job still in that
+state, the problem not already sent to be fixed, the update still waiting)
+and goes away without a snooze when it no longer applies; an offer waits
+for a reaction or a mind plan to finish (only the nervous system's own
+idle motion, SEQ.ns, gives way to it).
+SLOW FRAMES FLUNG EMBER APART (found by the battery, a #120 bug): the hand
+spring (700/45) is unstable above ~44 ms per frame, and frames are capped
+at 50 ms, so a busy page that gave Ember 50 ms frames for ~40 s sent its
+hands off screen and then to Infinity; the next draw threw and the
+animation loop died for good. Physics now steps in slices of at most
+20 ms; a frame that throws is caught and the loop goes on; any
+non-finite position, joint, face dial or particle is put back to rest
+and recorded with its source (ember.health()), which the battery fails
+on. ember.frames(ms, n) drives it: 1,200 frames of 50 ms broke it before,
+3,000 leave nothing to mend now.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7468,6 +7518,13 @@ differently every time, with a mind on top that chooses the big things.
   GENERATES every movement fresh from the screen and its feelings. A body
   that waits for permission to move is not alive, and a body that repeats
   itself is not either.
+- A LIVING THING NEVER FREEZES ON ONE BAD NUMBER. Step physics in slices
+  a spring can survive, mend what goes non-finite, keep the loop running,
+  and record each repair so a test still fails on it.
+- EMBER ACTS ALONE ONLY WHERE NOTHING CHANGES UNTIL THE PERSON AGREES.
+  A download waits for a restart; a restart, a retry, a fix or a heal is
+  offered and pressed in front of them, unless they chose otherwise; it
+  never publishes, unpublishes, deletes or undoes by itself.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
   really happened. What it presses for you, it presses where you can see it,
   and it never adds to what you asked.

@@ -455,6 +455,7 @@ PENDING = {}
 
 JOBS = {}       # job id -> {"done": bool, "ok": bool|None, "log": str}
 UPDATE_JOBS = set()   # jobs started by /api/update/apply
+PREFETCH = {"job": None}   # the download Ember started ahead of a restart
 PREVIEWS = {}   # project -> (port, Popen)
 RUN_CMDS = {"fetch", "inventory", "build", "verify", "probe",
             "localize"}
@@ -1030,6 +1031,53 @@ def _published_url(name):
         return (aethron_publish.record("project:" + name) or {}).get("url", "")
     except Exception:
         return ""
+
+
+def ember_world() -> dict:
+    """WHAT EMBER CAN SEE OF THE WHOLE APP, beyond the screen in front of
+    the person: the migration on every project, an update already
+    downloaded or downloading. Files on disk only, never a network call,
+    so Ember can look often without costing anything."""
+    out = {"jobs": [], "update": {}}
+    try:
+        for f in sorted((HOME / "jobs").glob("*/state.json"))[:60]:
+            try:
+                st = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            res = st.get("result") or {}
+            status = st.get("status")
+            if status in ("queued", "running"):
+                try:
+                    import aethron_jobs
+                    if not aethron_jobs.alive(st.get("pid")):
+                        status = "resuming"
+                except Exception:
+                    pass
+            out["jobs"].append({
+                "project": st.get("project") or f.parent.name,
+                "status": status, "step": st.get("step"),
+                "question": str(st.get("question") or "")[:300],
+                "ask_kind": st.get("ask_kind", "question"),
+                "error": str(st.get("error") or "")[:300],
+                "ok": bool(res.get("ok")),
+                "problems": [str(x)[:160] for x in (res.get("problems") or [])[:3]],
+                "finished": st.get("finished"),
+                "progress": st.get("progress") or {}})
+    except Exception:
+        pass
+    if updater:
+        try:
+            st = updater.staged()
+            if st:
+                out["update"]["staged"] = st["version"]
+        except Exception:
+            pass
+        pj = PREFETCH.get("job")
+        if pj and pj in JOBS and not JOBS[pj].get("done"):
+            line = (JOBS[pj].get("log") or "").strip().split("\n")[-1:]
+            out["update"]["fetching"] = line[0] if line else "downloading"
+    return out
 
 
 def project_info(d: Path) -> dict:
@@ -2360,9 +2408,19 @@ class Handler(BaseHTTPRequestHandler):
                 # Never blocks the UI on a network call it cannot
                 # control: a failed check reports why and the app
                 # carries on unchanged.
-                self.send_json(updater.check(timeout=8) if updater else
-                               {"available": False,
-                                "why": "updater unavailable"})
+                r = (updater.check(timeout=8) if updater else
+                     {"available": False, "why": "updater unavailable"})
+                # what is already downloaded, and a download under way
+                if updater and r.get("available"):
+                    st = updater.staged()
+                    if st and st["version"] == r.get("latest"):
+                        r["staged"] = st["version"]
+                    pj = PREFETCH.get("job")
+                    if pj and pj in JOBS and not JOBS[pj].get("done"):
+                        r["fetching"] = pj
+                self.send_json(r)
+            elif u.path == "/api/ember/world":
+                return self.send_json(ember_world())
             elif u.path == "/api/job" and not q.get("id"):
                 # A BACKGROUND MIGRATION JOB, as the screen draws it.
                 # ?id= is a studio task (publish, update, heal…) and is
@@ -2891,6 +2949,38 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
                 return self.send_json({"ok": True})
+            if u.path == "/api/update/prefetch":
+                # DOWNLOAD AHEAD, INSTALL NOTHING. Ember starts this when an
+                # update appears, so the restart the person agrees to later
+                # takes seconds. One at a time.
+                if not updater:
+                    return self.fail("updater unavailable")
+                pj = PREFETCH.get("job")
+                if pj and pj in JOBS and not JOBS[pj].get("done"):
+                    return self.send_json({"job": pj, "running": True})
+
+                def run_prefetch(append):
+                    seen = [-1]
+
+                    def progress(frac):
+                        pct = int(frac * 100)
+                        if pct != seen[0]:
+                            seen[0] = pct
+                            append(f"downloading {pct}%")
+
+                    append("checking for a newer build")
+                    r = updater.prefetch(progress=progress, note=append)
+                    if not r.get("ok"):
+                        append(f"download failed: {r.get('why', 'unknown')}")
+                        return False
+                    append(f"downloaded {r['version']}"
+                           + (" (already here)" if r.get("already") else ""))
+                    return True
+
+                jid = start_fn_job(run_prefetch, "")
+                UPDATE_JOBS.add(jid)
+                PREFETCH["job"] = jid
+                return self.send_json({"job": jid})
             if u.path == "/api/update/apply":
                 if not updater:
                     return self.fail("updater unavailable")
@@ -3441,6 +3531,22 @@ class Handler(BaseHTTPRequestHandler):
                 if EMBER_DESKTOP is None:
                     return self.fail("Ember can live on the desktop only in the Mac app")
                 self.send_json(EMBER_DESKTOP(bool(body.get("on"))))
+            elif u.path == "/api/ember/relay":
+                # Ember on the desktop was told yes; the app window does the
+                # pressing (open the project, answer, try again), in front of
+                # the person, so the app is brought forward too.
+                did = str(body.get("id") or "")
+                if did not in ("answer", "retry", "show", "look"):
+                    return self.fail("unknown action")
+                EMBER_INBOX.append({"kind": "agency", "id": did,
+                                    "project": str(body.get("project") or "")[:120]})
+                del EMBER_INBOX[:-5]
+                try:
+                    if callable(EMBER_FOCUS):
+                        EMBER_FOCUS()
+                except Exception:
+                    pass
+                self.send_json({"ok": True})
             elif u.path == "/api/ember/signal":
                 name = str(body.get("name") or "")[:24]
                 if re.fullmatch(r"[a-z]+", name):
@@ -14659,7 +14765,17 @@ function ucRender(){
   c.hidden=false;
   const latest=esc((UPD&&UPD.latest)||''), have=esc((UPD&&UPD.version)||'');
   let chip='',pop='';
-  if(UC.mode==='ready'){
+  if(UC.mode==='ready'&&UPD&&UPD.staged===UPD.latest){
+    chip=`<button class="uc" onclick="ucToggle()" title="Downloaded: restart to finish"><span class="ucdot"></span>Restart<span class="ucv">${latest}</span></button>`;
+    pop=`<b>Aethron ${latest} is downloaded</b>Restart to finish: it takes a few seconds. Your projects and settings stay.`
+      +(UPD&&UPD.notes?`<div class="ucn">${esc(UPD.notes)}</div>`:'')
+      +`<div class="ucb"><button class="btn primary" onclick="applyUpdate()">Restart now</button><button class="btn" onclick="ucToggle(false)">Later</button></div>`;
+  }else if(UC.mode==='fetch'){
+    const p=UC.pct;
+    chip=`<button class="uc" onclick="ucToggle()" title="Downloading the update"><span class="ucspin"></span>Downloading<span class="ucv">${p!=null&&p<100?p+'%':''}</span>`
+      +(p==null?`<span class="ucbar ind"></span>`:`<span class="ucbar" style="width:${p}%"></span>`)+`</button>`;
+    pop=`<b>Downloading Aethron ${latest}</b>Nothing changes until you restart. Keep working.<div class="ucn">${esc(UC.line||'')}</div>`;
+  }else if(UC.mode==='ready'){
     chip=`<button class="uc" onclick="ucToggle()" title="An update is ready"><span class="ucdot"></span>Update<span class="ucv">${latest}</span></button>`;
     pop=`<b>Aethron ${latest} is ready</b>You have ${have}. It updates in place and restarts; your projects and settings stay.`
       +(UPD&&UPD.notes?`<div class="ucn">${esc(UPD.notes)}</div>`:'')
@@ -14684,6 +14800,9 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&UC&&UC.open){UC.open=false;ucRender();}});
 function versionBox(){
   const v=(UPD&&UPD.version)||'…';
+  if(UPD&&UPD.available&&UPD.staged===UPD.latest)return '<div class="kv"><span>Installed</span><b>'+esc(v)
+    +'</b></div><div class="kv"><span>Downloaded</span><b>'+esc(UPD.latest||'')
+    +'</b></div><button class="btn primary" onclick="applyUpdate()" style="margin-top:10px">Restart now</button>';
   if(UPD&&UPD.available)return '<div class="kv"><span>Installed</span><b>'+esc(v)
     +'</b></div><div class="kv"><span>Available</span><b>'+esc(UPD.latest||'')
     +'</b></div><button class="btn primary" onclick="applyUpdate()" '
@@ -14710,12 +14829,31 @@ async function checkUpdate(){
     newsCheck(done&&done.updated?done.version:'');
   }catch(e){}
   try{ UPD=await api('/api/update/check'); }catch(e){ return }
-  if(UPD&&UPD.available&&!(UC&&(UC.mode==='busy'||UC.mode==='fail'))){
+  if(UPD&&UPD.available&&!(UC&&(UC.mode==='busy'||UC.mode==='fail'||UC.mode==='fetch'))){
     UC={mode:'ready',open:UC&&UC.mode==='ready'?UC.open:false};
     ucRender(); renderHeader();
     try{window.ember&&ember.signal('update',{})}catch(e){}
   }
   if(S.view==='settings'&&$('verbox'))$('verbox').innerHTML=versionBox();
+}
+/* DOWNLOAD AHEAD. Ember starts this the moment an update appears; nothing
+   changes until a restart, which then takes seconds instead of minutes.
+   The chip shows the download while it runs. -> {ok, version} | {ok:false, why} */
+async function prefetchUpdate(){
+  let r; try{ r=await api('/api/update/prefetch',{}); }catch(e){ return {ok:false,why:e.message}; }
+  const ver=(UPD&&UPD.latest)||''; let j={};
+  for(;;){
+    await new Promise(s=>setTimeout(s,900));
+    try{ j=await api('/api/update/status?id='+r.job); }catch(e){ break; }
+    const line=(j.log||'').trim().split('\n').pop()||'';
+    if(!(UC&&UC.mode==='busy')){UC={mode:'fetch',pct:updPct(line),line,open:!!(UC&&UC.open)}; ucRender();}
+    if(j.done)break;
+  }
+  const ok=!!(j.done&&j.ok);
+  if(ok&&UPD)UPD.staged=ver;
+  if(!(UC&&UC.mode==='busy')){UC={mode:'ready',open:false}; ucRender(); renderHeader();}
+  if(S.view==='settings'&&$('verbox'))$('verbox').innerHTML=versionBox();
+  return ok?{ok:true,version:ver}:{ok:false,why:((j.log||'').match(/download failed: (.*)/)||[])[1]||'unknown'};
 }
 /* The updater names its phase; the bar shape follows from the name.
    Unpacking and verifying report no percentage, so they show a moving
@@ -16871,6 +17009,8 @@ function emberCard(){
     <div class="kv"><span>Show Ember</span><b><button class="${e.on?'primary':''}" onclick="emberSet('on',${!e.on})">${e.on?'On':'Off'}</button></b></div>
     ${e.deskAvail?`<div class="kv"><span>On your desktop</span><b><button class="${e.desktop?'primary':''}" onclick="emberSet('desktop',${!e.desktop})">${e.desktop?'Out on the desktop':'Only in this window'}</button></b></div>`:''}
     <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
+    <div class="kv"><span>What Ember may do</span><b class="rowbtns">${seg('agency',[['ask','Only suggest'],['safe','Safe things itself'],['all','Everything it can']])}</b></div>
+    <div class="hint">Ember watches what Aethron is doing and helps. <b>Safe things itself</b>: it downloads updates as soon as they are out and asks before restarting, answering, retrying or fixing anything. <b>Everything it can</b>: it also retries a stopped migration once, heals edits that did not land, and restarts for an update while you are away and nothing is running. It never publishes, unpublishes, deletes or undoes by itself.</div>
     <div class="kv"><span>Mind AI</span><b class="rowbtns">${seg('ai',[['auto','Auto'],['gemini','Gemini'],['groq','Groq']])}</b></div>
     <div class="kv"><span>Live voice</span><b class="rowbtns">${seg('liveMode',[['gemini-3.8-live','Gemini 3.8 Live'],['gemini-3.8-live-extended-thinking','Gemini Live + thinking'],['gemini-tts','Gemini TTS'],['groq','Groq + system voice']])}</b></div>
     <div class="hint">Mind AI writes what Ember does and says. Live voice powers talking out loud (double-click Ember): Gemini 3.8 Live answers, acts and speaks in one go and is the fastest. Whatever the AI asks for, Ember only does what its body really can.</div>
@@ -21914,6 +22054,7 @@ async function newsGo(go){
   if(go==='back'){ openSettings(); return aeSpot('#backbtn','This takes you back to where you were'); }
   if(go==='home'){ goHome(); return aeSpot('#hgal','Your projects, with a picture of each site'); }
   if(go==='cmdk'){ return cmdkOpen(); }
+  if(go==='ember-agency'){ openSettings(); return setTimeout(()=>aeSpot('#embercard','Choose how much Ember does by itself'),400); }
   if(go==='ember'){ if(window.ember&&ember.get().running){ return ember.talk(); } openSettings(); return setTimeout(()=>aeSpot('#embercard','Ember lives here: switch it on, pick its attitude'),400); }
   if(go==='publish'){
     const ps=S.projects||[], p=(S.cur&&S.info&&S.info.built)?S.info:ps.find(x=>x.built);

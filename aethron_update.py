@@ -394,6 +394,8 @@ def stage(url, into: Path, timeout=180, progress=None, note=None) -> Path:
             got += len(chunk)
             if progress and total:
                 progress(got / total)
+    if progress:
+        progress(1.0)            # a server that sends no length still finishes
     say("unpacking the download")
     _extract(zpath, into)
     zpath.unlink(missing_ok=True)
@@ -407,6 +409,83 @@ def stage(url, into: Path, timeout=180, progress=None, note=None) -> Path:
         raise ValueError("the downloaded app is not launchable "
                          "(damaged signature) — keeping the current one")
     return app
+
+
+# ─────────────────────────── downloading ahead ───────────────────────
+#
+# Ember downloads an update the moment one appears, so that "restart now"
+# is instant instead of six minutes on a slow line. Nothing is installed
+# here: the checked copy waits in the data folder until the person agrees
+# to restart, and update() uses it instead of downloading again.
+
+def staging_dir() -> Path | None:
+    home = os.environ.get("AETHRON_HOME", "")
+    return Path(home).expanduser() / "updates" if home else None
+
+
+def staged() -> dict | None:
+    """The update already downloaded and checked, waiting for a restart.
+    -> {version, path} only while it is newer than this app and its
+    bundle is still whole; anything else is not offered."""
+    d = staging_dir()
+    if not d:
+        return None
+    try:
+        rec = json.loads((d / "staged.json").read_text(encoding="utf-8"))
+        p = Path(rec.get("path") or "")
+        if is_newer(str(rec.get("version") or "")) and _verify_bundle(p):
+            return {"version": str(rec["version"]), "path": str(p)}
+    except Exception:
+        pass
+    return None
+
+
+def _clear_staged(keep: str = ""):
+    d = staging_dir()
+    if not d or not d.is_dir():
+        return
+    for child in d.iterdir():
+        if child.name.startswith(("v", ".dl-")) and child.name != keep:
+            shutil.rmtree(child, ignore_errors=True)
+    if not keep:
+        (d / "staged.json").unlink(missing_ok=True)
+
+
+def prefetch(progress=None, note=None, info=None) -> dict:
+    """Download the newest update and check it; install nothing.
+    -> {ok, version, path, already} | {ok: False, why}"""
+    info = info or check()
+    if not info.get("available"):
+        return {"ok": False, "why": info.get("why", "no update available")}
+    ver = info["latest"]
+    s = staged()
+    if s and s["version"] == ver:
+        return {"ok": True, "version": ver, "path": s["path"],
+                "already": True}
+    d = staging_dir()
+    if not d:
+        return {"ok": False, "why": "no data folder to download into"}
+    d.mkdir(parents=True, exist_ok=True)
+    # A waiting .app is still an app: keep Spotlight from listing it as
+    # a second Aethron (the owner's "it installs a new one" complaint).
+    (d / ".metadata_never_index").touch(exist_ok=True)
+    _clear_staged()
+    tmp = d / f".dl-{ver}"
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        app = stage(info["url"], tmp, progress=progress, note=note)
+        dest = d / f"v{ver}"
+        shutil.rmtree(dest, ignore_errors=True)
+        os.rename(tmp, dest)
+        path = dest / app.relative_to(tmp)
+        (d / "staged.json").write_text(json.dumps(
+            {"version": ver, "path": str(path), "from": VERSION}),
+            encoding="utf-8")
+        return {"ok": True, "version": ver, "path": str(path),
+                "already": False}
+    except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        return {"ok": False, "why": f"{type(e).__name__}: {e}"}
 
 
 # ─────────────────────────── the swap ────────────────────────────────
@@ -543,8 +622,16 @@ def update(progress=None, note=None) -> dict:
     if cur != app_bundle():
         say(f"installing into {cur} (macOS was running a read-only copy)")
     tmp = Path(tempfile.mkdtemp(prefix="aethron-update-"))
+    ready = staged()
     try:
-        newapp = stage(info["url"], tmp, progress=progress, note=note)
+        if ready and ready["version"] == info["latest"]:
+            # already downloaded and checked: no second download
+            say("using the copy downloaded ahead")
+            if progress:
+                progress(1.0)
+            newapp = Path(ready["path"])
+        else:
+            newapp = stage(info["url"], tmp, progress=progress, note=note)
         say("installing the new version")
         installed = apply(newapp, cur)
         # WHAT JUST HAPPENED, LEFT WHERE THE NEXT PROCESS CAN READ IT.
@@ -561,6 +648,7 @@ def update(progress=None, note=None) -> dict:
                     encoding="utf-8")
         except Exception:
             pass                      # a missing banner is not a failure
+        _clear_staged()
         return {"ok": True, "version": info["latest"],
                 "path": str(installed)}
     except Exception as e:
@@ -779,8 +867,11 @@ def _selftest() -> int:
                 "assets": [{"name": f"Aethron-{platform_key()}.zip",
                             "browser_download_url": "https://x/A.zip"}]}).encode()}
 
+    hits = {}
+
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
+            hits[self.path] = hits.get(self.path, 0) + 1
             b = body.get(self.path)
             self.send_response(200 if b else 404)
             self.send_header("Content-Type", "application/json")
@@ -818,6 +909,78 @@ def _selftest() -> int:
         r = check(timeout=5)
         check_("nothing published yet is not an error",
                not r.get("available") and r.get("why"), str(r))
+
+        print("── downloading ahead (Ember fetches it, the restart is instant)")
+        # a bundle of this system's shape, zipped, served by the feed
+        ahead = tmp / "ahead-src"
+        if sys.platform == "darwin":
+            b = ahead / "Aethron.app" / "Contents" / "MacOS"
+            b.mkdir(parents=True)
+            (b / "Aethron").write_text("AHEAD")
+        else:
+            b = ahead / "Aethron"
+            (b / "_internal").mkdir(parents=True)
+            (b / EXE_NAME).write_text("AHEAD")
+        zbuf = tmp / "ahead.zip"
+        with zipfile.ZipFile(zbuf, "w") as z:
+            for f in ahead.rglob("*"):
+                z.write(f, str(f.relative_to(ahead)))
+        body["/app.zip"] = zbuf.read_bytes()
+        body["/ahead.json"] = json.dumps(
+            {"version": "9.9.9", "url": base + "/app.zip"}).encode()
+        os.environ["AETHRON_UPDATE_FEED"] = base + "/ahead.json"
+        old_home = os.environ.get("AETHRON_HOME")
+        os.environ["AETHRON_HOME"] = str(tmp / "home")
+        keep2 = (g["_runnable"], g["install_target"], g["app_bundle"])
+        g["_runnable"] = lambda a: True     # a hand-made app cannot be signed
+        try:
+            seen = []
+            r = prefetch(progress=seen.append)
+            check_("it downloads and checks the update, installing nothing",
+                   r.get("ok") and not r.get("already"), str(r))
+            st = staged()
+            check_("the checked copy waits, with its version",
+                   st and st["version"] == "9.9.9"
+                   and _verify_bundle(Path(st["path"])), str(st))
+            check_("the download reported its progress",
+                   seen and seen[-1] >= 1.0, str(seen[-3:]))
+            check_("Spotlight is told not to list the waiting copy",
+                   (staging_dir() / ".metadata_never_index").exists())
+            n = hits.get("/app.zip", 0)
+            r2 = prefetch()
+            check_("asked again, it does not download twice",
+                   r2.get("already") and hits.get("/app.zip", 0) == n, str(r2))
+            if os.name != "nt":
+                inst = tmp / "inst"
+                cur = (inst / "Aethron.app") if sys.platform == "darwin" \
+                    else (inst / "Aethron")
+                if sys.platform == "darwin":
+                    (cur / "Contents" / "MacOS").mkdir(parents=True)
+                    (cur / "Contents" / "MacOS" / "Aethron").write_text("OLD")
+                else:
+                    (cur / "_internal").mkdir(parents=True)
+                    (cur / EXE_NAME).write_text("OLD")
+                g["install_target"] = lambda: cur
+                g["app_bundle"] = lambda: cur
+                r3 = update()
+                exe = (cur / "Contents" / "MacOS" / "Aethron") \
+                    if sys.platform == "darwin" else (cur / EXE_NAME)
+                check_("the restart installs the waiting copy, no second download",
+                       r3.get("ok") and exe.read_text() == "AHEAD"
+                       and hits.get("/app.zip", 0) == n, str(r3))
+                check_("and nothing is left waiting afterwards",
+                       staged() is None
+                       and not any(staging_dir().glob("v*")))
+            (staging_dir() / "staged.json").write_text(json.dumps(
+                {"version": VERSION, "path": str(tmp)}))
+            check_("a copy that is not newer is never offered",
+                   staged() is None)
+        finally:
+            g["_runnable"], g["install_target"], g["app_bundle"] = keep2
+            if old_home is None:
+                os.environ.pop("AETHRON_HOME", None)
+            else:
+                os.environ["AETHRON_HOME"] = old_home
     finally:
         srv.shutdown()
         if old_env is None:

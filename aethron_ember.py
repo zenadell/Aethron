@@ -1154,6 +1154,11 @@ def mind_rules(att: str, known: list) -> str:
         "Be visibly alive. A plan is 3-8 steps lasting 20-45 seconds with a small story (notice, react, do, a "
         "beat). Hold real postures with your joints (lean, arms, turn) rather than standing straight. Talk only "
         "with a real reason and only about what is true in PERCEPTION; a line is said while you keep moving.\n"
+        "You also do real work for the person, by yourself: PERCEPTION.ember.doing_for_you is what you just did "
+        "(downloaded an update, offered a restart, pointed out a migration that needs them). React to it as "
+        "yourself, proud or smug or caring, and never pretend you did something not listed there. When "
+        "'offering' is set, a card with that question is already in front of them: do not ask it again; stay "
+        "near, look at them, wait. may_do is how much they let you do alone.\n"
         "Answer with ONE JSON object, no prose:\n"
         '{"thought":"one private line: what you want and why","focus":"what you are paying attention to","mood":"a face name","plan":[steps],"new":[behaviours],"remember":""}\n'
         "PLAN steps (1-" + str(MIND_MAX_STEPS) + "):\n"
@@ -1729,7 +1734,7 @@ EMBER_JS = r"""
 (()=>{
 if(window.ember)return;
 const qs=location.search||'';
-let CFG={on:true,att:'sassy',fit:'auto',ai:'auto',liveMode:'gemini-3.8-live'};
+let CFG={on:true,att:'sassy',fit:'auto',ai:'auto',liveMode:'gemini-3.8-live',agency:'safe'};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem('ember_cfg')||'{}'))}catch(_){}
 const DESK=location.pathname==='/ember-desk';
 const forced=/[?&]ember=1/.test(qs)||DESK;
@@ -1764,7 +1769,15 @@ const css=document.createElement('style');css.textContent=`html.ember-over,html.
 #ember-menu{position:fixed;z-index:8802;background:#1c1917;border:1px solid #33302c;border-radius:10px;padding:4px;min-width:170px;box-shadow:0 12px 30px rgba(0,0,0,.4);font:500 12.5px -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 #ember-menu[hidden]{display:none!important}
 #ember-menu button{all:unset;display:block;width:calc(100% - 20px);padding:7px 10px;border-radius:6px;color:#eee3db;cursor:pointer}
-#ember-menu button:hover{background:#2a2622}`;
+#ember-menu button:hover{background:#2a2622}
+#ember-offer{position:fixed;z-index:8802;width:min(300px,calc(100vw - 24px));box-sizing:border-box;padding:12px 12px 10px 14px;border-radius:16px;background:rgba(30,27,25,.92);-webkit-backdrop-filter:blur(20px) saturate(1.5);backdrop-filter:blur(20px) saturate(1.5);border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.25);font:500 13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#f1e8e0;animation:emberIn .34s cubic-bezier(.2,.9,.25,1.12)}
+#ember-offer[hidden]{display:none!important}
+#ember-offer p{margin:0 0 10px}
+#ember-offer .b{display:flex;justify-content:flex-end;gap:6px}
+#ember-offer button{all:unset;cursor:pointer;padding:7px 14px;border-radius:999px;font-weight:600;font-size:12.5px;color:#e9dfd6}
+#ember-offer .no:hover{background:rgba(255,255,255,.08)}
+#ember-offer .yes{background:#d97757;color:#fff}#ember-offer .yes:hover{background:#e3875f}
+@media (prefers-reduced-motion:reduce){#ember-offer{animation:none}}`;
 const talk=document.createElement('div');talk.id='ember-talk';talk.hidden=true;
 talk.innerHTML='<button id="ember-mic" aria-label="Talk out loud" title="Talk out loud"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><input id="ember-in" placeholder="Tell Ember…" maxlength="300" autocomplete="off" aria-label="Tell Ember"><button id="ember-go" aria-label="Send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>';talk.classList.add('ae-empty');
 const menu=document.createElement('div');menu.id='ember-menu';menu.hidden=true;
@@ -1851,6 +1864,15 @@ const E={x:0,y:0,vx:0,vy:0,tx:0,ty:0,speed:1,perch:0,landed:0,mode:'fly',q:0,qv:
   F:face('calm'),FT:face('calm'),pose:'rest',hands:[{x:0,y:0,vx:0,vy:0},{x:0,y:0,vx:0,vy:0}],
   bubble:null,look:null,antic:0,pointDir:[1,0],sweat:0,zz:0,think:0,hum:0,shadesDown:0,flap:0,flapT:0,shadesUntil:0,tint:null};
 const parts=[];
+/* A BODY MADE OF NUMBERS MUST NEVER BE STOPPED BY ONE BAD NUMBER. A particle
+   born with a non-finite field is refused; a position, joint or face dial that
+   goes non-finite is put back to rest every frame; a frame that throws is
+   caught and the loop goes on. Each repair is recorded with where it came from
+   (ember.health()), so a test still fails on it and names the source, while a
+   person never sees Ember freeze. */
+const BAD=[];function bad(what){if(BAD.length<12)BAD.push(what+' @ '+String(new Error().stack||'').split('\n').slice(2,6).map(x=>x.trim()).join(' | '))}
+const fin=v=>typeof v!=='number'||isFinite(v);
+parts.push=function(...ps){for(const p of ps){if(!p||![p.x,p.y,p.vx,p.vy,p.s,p.d,p.l].every(fin)||!(p.d>0)){bad('particle '+(p&&p.k));continue}Array.prototype.push.call(parts,p)}return parts.length};
 
 /* ===== the body =====
    Every part Ember moves is a JOINT on a spring: the body's lean, crouch,
@@ -1932,11 +1954,11 @@ function physio(dt){
    speaks: words are the mind's. Its mind's plans always come first. */
 const NS={quiet:0,stillT:0,lastGo:-99,fresh:[],kinds:[],count:0};
 const SIGHTS='.msg,.mtext,.atext,.pitem,.rcard,.jobc,.truth,.composer,#sendbtn,.newbtn,#setbtn,h1,h2,h3,img,button,a,input,textarea';
-function sights(){const out=[];for(const el of document.querySelectorAll(SIGHTS)){if(out.length>60)break;if(el.closest&&el.closest('#ember-talk,#ember-menu,#ember-tour'))continue;
+function sights(){const out=[];for(const el of document.querySelectorAll(SIGHTS)){if(out.length>60)break;if(el.closest&&el.closest('#ember-talk,#ember-menu,#ember-tour,#ember-offer'))continue;
   const r=rect(el);if(!r||r.w<14||r.h<10||r.b<8||r.t>H-8||r.r<8||r.l>W-8)continue;out.push({el,r})}return out}
 function freshSight(){NS.fresh=NS.fresh.filter(f=>now-f.t<25&&f.el.isConnected);for(let i=NS.fresh.length-1;i>=0;i--){const r=rect(NS.fresh[i].el);if(r&&r.w>14&&r.h>10&&r.b>0&&r.t<H){const el=NS.fresh[i].el;NS.fresh.splice(i,1);return{el,r}}}return null}
 function watchScreen(){try{new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes){if(n.nodeType!==1||!n.isConnected||(n.id||'').startsWith('ember')||n===cv)continue;
-  if(n.closest&&n.closest('#ember-talk,#ember-menu,#ember-tour'))continue;NS.fresh.push({el:n,t:now})}if(NS.fresh.length>10)NS.fresh=NS.fresh.slice(-10)}).observe(document.body,{childList:true,subtree:true})}catch(_){}}
+  if(n.closest&&n.closest('#ember-talk,#ember-menu,#ember-tour,#ember-offer'))continue;NS.fresh.push({el:n,t:now})}if(NS.fresh.length>10)NS.fresh=NS.fresh.slice(-10)}).observe(document.body,{childList:true,subtree:true})}catch(_){}}
 const ptOf=el=>()=>{const r=rect(el);return r?{x:r.cx,y:r.cy}:{x:E.x,y:E.y+40}};
 /* a face for the moment, from how it feels, never the same twice */
 function mien(o){const v=AFF.v,a=AFF.a;return Object.assign({mc:cl(.12+v*.45+rnd(-.12,.12),-.6,.7),bH:cl(rnd(-.05,.12)+(a-.45)*.25,-.3,.4),lidU:cl(.14+(.5-a)*.4+rnd(0,.12),0,.8),
@@ -1988,13 +2010,14 @@ const IMPULSES={
   doze(){const d=rnd(18,50);return[{d:rnd(1,1.6),fx:mien({lidU:.7}),body:{crouch:.15}},{d,face:'asleep',pose:'limp',sleep:1,body:{crouch:.3,lean:rnd(-10,10)}},{d:rnd(.8,1.4),fx:mien({lidU:.5,bH:.2}),body:{crouch:.05}}]},
 };
 function urges(){const still=now-NS.stillT,c=N.curiosity,e=N.energy,b=N.boredom,a=AFF.a,v=AFF.v,idle=now-cur.t;
+  if(AG.offer)return{posture:1,fidget:.5+a*.6,regard:1.2,gaze:.3};   /* waiting for an answer: it stays by its card */
   return{notice:.9+c*.9+(NS.fresh.length?1.6:0),posture:1,wander:(.35+e*.6+b*.8+a*.4)*(now-NS.lastGo<20?.25:1),settle:(.25+(1-e)*.6)*(E.perch?.1:1),
     stretch:still>60?1.4:.04,fidget:.5+a*.6+b*.5,bounce:a>.6&&v>.1?.7:.04,regard:.4+N.social*.6+N.fond*.4,gaze:.3+(1-a)*.6,doze:e<.25&&idle>120?1.4:0}}
 function impulse(){const u=urges(),rec=k=>NS.kinds.filter(x=>x===k).length;let best=null,bw=-1;
   for(const k in u){const w=u[k]*rnd(.4,1.6)/(1+rec(k)*1.8);if(w>bw){bw=w;best=k}}
   const st=best&&IMPULSES[best]();if(!st||!st.length)return false;NS.kinds.push(best);NS.kinds=NS.kinds.slice(-4);NS.count++;
   const dur=st.reduce((t,x)=>t+(x.d||0),0);if(best!=='stretch'&&best!=='wander'&&best!=='settle'&&best!=='bounce')NS.stillT=NS.stillT||now;
-  const me={k:'ns_'+best,by:'body',a:{w:()=>0,run(){},dur:[dur,dur]},t:0,dur:dur+.2};act=me;play(st,()=>{if(act===me)me.t=me.dur+1});return true}
+  const me={k:'ns_'+best,by:'body',a:{w:()=>0,run(){},dur:[dur,dur]},t:0,dur:dur+.2};act=me;play(st,()=>{if(act===me)me.t=me.dur+1});SEQ.ns=1;return true}
 /* nothing chosen: a beat of simply being, then the next impulse */
 function be(){if(!NS.stillT)NS.stillT=now;if(now>=NS.quiet&&!REDUCE&&!SEQ&&Math.random()<.85&&impulse())return;
   act={k:'be',by:'body',a:{w:()=>0,run(){},dur:[2,2]},t:0,dur:rnd(1.2,4.5)/(.6+AFF.a)}}
@@ -2200,6 +2223,7 @@ function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='
     ember:{energy:+N.energy.toFixed(2),boredom:+N.boredom.toFixed(2),curiosity:+N.curiosity.toFixed(2),playfulness:+(N.playfulness||.5).toFixed(2),wants_company:+N.social.toFixed(2),annoyed:+N.annoy.toFixed(2),
       fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),glasses:!!E.shadesOn,doing:act?act.k:'',focus:MIND.focus||'',last_outcome:mindOutcome(),feeling:{valence:+AFF.v.toFixed(2),arousal:+AFF.a.toFixed(2),word:moodWord(AFF.v,AFF.a)},body_was_doing:NS.kinds.slice(-3),
       recent_actions:MIND.done.slice(-8)},
+    doing_for_you:AG.log.slice(-4).map(x=>Math.round(now-x.t)+'s ago: '+x.what),offering:AG.offer?AG.offer.text:'',may_do:agency(),
     screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
 function think(reason){if(MIND.busy)return;
   const hr=Date.now()-3600000;MIND.hour=MIND.hour.filter(t=>t>hr);
@@ -2249,7 +2273,7 @@ const SIG={
   retry(d){if(!fresh('retry',45))return;const n=d&&d.tries||'';CTX.last='the provider is not answering; Aethron is asking again'+(n?' (try '+n+')':'');CTX.lastT=now;
     setMood({d:8,pose:'tap',face:ATT()==='sweet'?'calm':'unimpressed',look:{dir:[.4,.6]}});
     setTimeout(()=>{if(!CHAT.open)play([{d:1.8,pose:'shrug',face:'tfman',look:'viewer',say:[`still trying${n?' · try '+n:''}`,`try ${n||'again'}. the provider is having a day.`,`try ${n||'again'}. this provider is trash today.`]}])},1800)},
-  job(d){const j=d&&d.job;if(!j)return;CTX.project=d.project||CTX.project;CTX.job=j;const st=j.status,p=j.progress||{},r=j.result||{};
+  job(d){const j=d&&d.job;if(!j)return;CTX.project=d.project||CTX.project;CTX.job=j;try{fromJobCard(d.project,j)}catch(_){}const st=j.status,p=j.progress||{},r=j.result||{};
     if(['queued','running','resuming'].includes(st)){if(!mood||mood.kind!=='job'){go(SP.work);setMood({kind:'job',d:600,pose:'type',face:'focus',look:{pt:()=>{const c=lastOf('.jobc');return c?{x:c.cx,y:c.cy}:{x:E.x-90,y:E.y}}}})}
       if(p.total&&fresh('jobline',50)&&!CHAT.open){const n=p.done||0;play([{d:2.2,look:'viewer',face:ATT()==='sweet'?'happy':'calm',pose:ATT()==='sweet'?'rest':'crossed',say:[`${n} of ${p.total} lines written`,`${n} lines. you're welcome.`,`${n} lines. I'm basically carrying you.`]}])}}
     else if(st==='done'&&fresh('jobdone:'+d.project,120)){setMood(null);if(r.ok)SIG.pass({project:d.project});else SIG.broke({what:(r.problems||[])[0]||'something'})}
@@ -2258,15 +2282,16 @@ const SIG={
     if(ATT()==='sweet')play([{d:.18,face:'surprised'},{d:1.6,face:'joy',pose:'cheer',say:'it all works!',fn:celebrate},{d:1.2,face:'happy',pose:'hips',look:'viewer'}]);
     else play([{d:.18,face:'surprised'},{d:1.1,face:'joy',pose:'cheer',fn:celebrate},{d:.9,pose:'glasses',face:'smug',look:'viewer',fn:()=>{E.shadesUntil=now+5}},
       {d:2.6,pose:'crossed',face:'smug',look:'viewer',say:['','told you. every page checked, all clean.',"every page works. you're welcome."]}])},
-  broke(d){const what=String(d&&d.what||'something').slice(0,40);CTX.issue=(d&&d.gaps&&d.gaps.length?d.gaps.join('; '):what+' is broken').slice(0,500);CTX.issueT=now;if(!fresh('broke',25))return;CTX.last=what+' failed';CTX.lastT=now;E.sweat=1;
+  broke(d){const what=String(d&&d.what||'something').slice(0,40);CTX.issue=(d&&d.gaps&&d.gaps.length?d.gaps.join('; '):what+' is broken').slice(0,500);CTX.issueT=now;
+    if(!DESK&&APP&&d&&d.gaps&&d.gaps.length)offer({id:'fix:'+CTX.issue.slice(0,60),   /* only what a browser check measured, never a vague error */
+text:`${what} broke. Want me to ask Aethron to fix it, then check every page again?`,yes:'Fix it',run:fixIssue,prio:2,snooze:20,still:(i=>()=>CTX.issue===i&&AG.fixed!==i)(CTX.issue)});if(!fresh('broke',25))return;CTX.last=what+' failed';CTX.lastT=now;E.sweat=1;
     const r=lastOf('.jobc')||lastOf('.truth')||lastOf('.run');if(r){go({x:r.r+R*1.6,y:r.cy});const dx=r.cx-E.x;E.pointDir=[dx<0?-1:1,.1]}
     setMood({d:7,pose:'point',face:ATT()==='sweet'?'worried':'tfman',look:r?{pt:{x:r.cx,y:r.cy}}:'viewer',end(){E.sweat=0}});
     play([{d:.9,face:'shocked',pose:'cheeks',look:'viewer'},{d:2.6,say:[`${what} broke. look here.`,`${what} broke. relax, look here.`,`${what} shit the bed. look.`]}])},
   refused(){if(!fresh('refused',60)||CHAT.open)return;play([{d:1.8,pose:'shrug',face:'calm',look:'viewer',say:["that's a rule, not a bug",'rules are rules. not a bug.','nope. rules. deal with it.']}])},
   ask(){if(!fresh('ask',60))return;play([{d:2.4,pose:'point',face:'curious',look:'viewer',fn:()=>{E.pointDir=[-1,.3]},say:['it needs an answer from you','it has a question. answer it.','it asked you something. hello?']}])},
   published(d){if(!fresh('pub',20))return;CTX.last='the site went live';CTX.lastT=now;play([{d:.2,face:'surprised'},{d:1.6,face:'joy',pose:'cheer',fn:celebrate,say:['your site is live!','live. on the internet. wow.','live. try not to break it.']},{d:1.2,face:'smug',pose:'hips',look:'viewer'}])},
-  update(){if(!fresh('update',3600)||CHAT.open)return;const r=rect('.uc');if(r){go({x:r.cx,y:r.b+R*2.2});E.pointDir=[0,-1]}
-    play([{d:2.6,pose:'point',face:'curious',look:'viewer',say:['ooh, an update is ready','update. go on, click it.','update ready. click it already.']}])},
+  update(){agTick(1)},
   back(d){if(!fresh('back',600))return;const p=CTX.project;E.F=face('sleepy');
     play([{d:.6,face:'sleepy'},{d:1,pose:'rub',face:'sleepy'},{d:1.2,pose:'stretch',face:'yawn'},
       {d:2.6,pose:ATT()==='sweet'?'wave':'crossed',face:ATT()==='sweet'?'joy':'calm',look:'viewer',say:[`welcome back!`,`oh. you're back.`,`look who finally showed up.`]}])},
@@ -2282,9 +2307,129 @@ function fromEvents(evs,bridge){if(!evs)return;if(!DESK&&CFG.desktop){
   if(!started||DRV.on||V.state!=='idle')return;
   for(const e of evs){if(e.type==='tool'&&/blocked|denied|refused/i.test(String(e.status||'')))SIG.refused();
     else if(e.type==='tool')SIG.working({tool:String(e.label||e.name||'').replace(/^mcp__aethron__/,'')});
-    else if(e.type==='done'&&e.error&&!String(e.text||'').startsWith('[ede_diagnostic]'))SIG.error({});
+    else if(e.type==='done'&&e.error&&!String(e.text||'').startsWith('[ede_diagnostic]')){SIG.error({});agCredit(String(e.text||''))}
     else if(e.type==='done'){if(mood&&mood.kind==='work')setMood(null)}}
   if(bridge&&/retry/i.test(String(bridge.state||bridge.status||'')))SIG.retry({tries:bridge.tries||bridge.failures||''})}
+
+/* ===== agency: Ember does things for you =====
+   Ember watches what the app is really doing: the screen's own state, and
+   /api/ember/world, which sees the migration on every project and an update
+   already downloaded. What is safe it simply does, and says so: downloading
+   an update changes nothing until a restart. Anything that changes your work,
+   costs money or restarts the app it OFFERS, naming the button it will press,
+   and presses it in front of you when you say yes. How far it goes is yours
+   (CFG.agency): 'ask' only offers, 'safe' (default) does the safe things
+   itself, 'all' also retries a stopped migration once, heals edits that did
+   not land and restarts for an update while you are away and nothing runs.
+   It never publishes, unpublishes, deletes or undoes by itself. */
+const APP=(()=>{try{return typeof S!=='undefined'}catch(_){return false}})();
+const AG={offer:null,queue:[],later:{},jobs:null,retried:{},world:null,worldT:-99,checkT:-99,
+  fetching:0,failT:-1e9,staged:'',latest:'',avail:0,restarting:0,log:[],healed:{},offeredAt:0};
+function agency(){return['ask','safe','all'].includes(CFG.agency)?CFG.agency:'safe'}
+function agLog(t){AG.log.push({t:now,what:t});if(AG.log.length>12)AG.log.shift();CTX.last=t;CTX.lastT=now}
+function away(s){return now>60&&now-Math.max(cur.moveT,MIND.key,CHAT.typing||-99)>s}
+function appBusy(){if(!APP)return false;try{return!!((typeof CODE!=='undefined'&&CODE.runT0)||S.running||S.autoRunning)}catch(_){return false}}
+/* a sheet the app opened (What's new, publish, the update gate) has the floor: Ember waits for it to close */
+function quiet(){return CHAT.open||DRV.on||!!document.querySelector('#newsov.on,#updgate,#pubov')||V.state!=='idle'||TW.on||cur.grab||document.hidden||now-(CHAT.typing||-99)<8||now-MIND.key<6}
+function upd(){let u=null;try{u=typeof UPD!=='undefined'?UPD:null}catch(_){}const w=(AG.world&&AG.world.update)||{};
+  return{available:!!((u&&u.available)||AG.avail),latest:(u&&u.latest)||AG.latest||'',staged:(u&&u.staged)||w.staged||AG.staged||'',fetching:!!((u&&u.fetching)||w.fetching||AG.fetching)}}
+const ofr=document.createElement('div');ofr.id='ember-offer';ofr.hidden=true;ofr.setAttribute('role','dialog');ofr.setAttribute('aria-live','polite');
+ofr.innerHTML='<p></p><div class="b"><button class="no">Later</button><button class="yes">Yes</button></div>';
+function offerHit(x,y){if(ofr.hidden)return false;const r=ofr.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6}
+/* the card stays where it was put while you reach for it: it moves only when Ember really goes somewhere, never with its breathing */
+function placeOffer(){if(ofr.hidden)return;if(AG.ax!=null&&(offerHit(cur.x,cur.y)||Math.hypot(E.x-AG.ax,E.y-AG.ay)<R*2.5))return;AG.ax=E.x;AG.ay=E.y;const rr=R*E.r,w=ofr.offsetWidth||300,h=ofr.offsetHeight||90;
+  let x=cl(E.x-w/2,12,W-w-12),y=E.y+rr*1.5;if(y+h>H-12)y=E.y-rr*(E.tipH||1.6)-h-24;ofr.style.left=Math.round(x)+'px';ofr.style.top=Math.round(cl(y,12,H-h-12))+'px'}
+/* an offer is {id, text, yes, no, run, at (where to stand), snooze (min), hold() (not now)} */
+function offer(o){if(!o||!o.id||(AG.later[o.id]||0)>now)return;if(AG.offer&&AG.offer.id===o.id)return;
+  const was=AG.queue.find(x=>x.id===o.id);o.notBefore=was?was.notBefore:now+5;   /* whatever it reacts with first (a cheer, a wince) plays before the card */
+  AG.queue=AG.queue.filter(x=>x.id!==o.id);AG.queue.push(o);AG.queue.sort((a,b)=>(b.prio||0)-(a.prio||0))}
+function showOffer(o){AG.offer=o;o.shownAt=now;AG.offeredAt=now;ofr.querySelector('p').textContent=o.text;ofr.querySelector('.yes').textContent=o.yes||'Yes';
+  ofr.querySelector('.no').textContent=o.no||'Later';ofr.hidden=false;ofr.style.animation='none';void ofr.offsetWidth;ofr.style.animation='';
+  if(SEQ&&SEQ.ns)SEQ=null;if(act&&act.by==='body')act.t=act.dur+1;const t=o.at&&o.at();
+  AG.ax=null;if(t&&running)flyTo(t);setMood({kind:'offer',d:8,pose:'point',face:'curious',look:'viewer'});placeOffer();E.q-=.25}
+function closeOffer(snooze){const o=AG.offer;if(!o)return;AG.offer=null;ofr.hidden=true;AG.ax=null;if(mood&&mood.kind==='offer')setMood(null);
+  if(snooze)AG.later[o.id]=now+snooze*60}
+async function yesOffer(){const o=AG.offer;if(!o)return;closeOffer(o.after||0);agLog('they said yes: '+o.text);
+  try{mindEvent('agreed',{what:'they said yes to: '+o.text})}catch(_){}
+  try{await drive(o.run)}catch(e){said('that did not work: '+String(e&&e.message||e).slice(0,80))}}
+ofr.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('button');if(!b)return;e.stopPropagation();
+  if(b.classList.contains('yes'))yesOffer();else{const o=AG.offer;closeOffer((o&&o.snooze)||30);if(o)agLog('they said not now to: '+o.text)}});
+addEventListener('keydown',e=>{if(e.key==='Escape'&&AG.offer){closeOffer((AG.offer.snooze)||30)}},true);
+/* run a job with Ember's hands, the way perform() does */
+async function drive(fn){if(!fn)return;if(DRV.on)return;DRV.on=1;V.cancel=0;SEQ=null;setMood({kind:'drive',d:120,pose:'point',face:'focus',look:null});
+  try{return await fn()}finally{DRV.on=0;setMood(null);if(running)go(SP.perch,{speed:.8})}}
+function cssq(s){return String(s).replace(/["\\]/g,'\\$&')}
+async function openProject(p){if(!APP)return false;try{if(S.cur===p)return true}catch(_){}const el=projectEl(p);if(!el)return false;
+  el.scrollIntoView({block:'nearest',behavior:REDUCE?'auto':'smooth'});await sleep(REDUCE?60:380);await press(el);
+  for(let i=0;i<20;i++){await sleep(150);try{if(S.cur===p)break}catch(_){}}await sleep(500);return true}
+/* on the desktop the app window does the pressing: hand it over */
+function relay(item){return post('/api/ember/relay',item).catch(()=>{})}
+/* ---- the duties ---- */
+async function agDownload(){if(AG.fetching)return;const u=upd(),ver=u.latest;AG.fetching=1;
+  const chip=APP&&shown('.uc');if(chip&&running){await flyTo(chip);E.pointDir=[0,-1]}
+  said(`Aethron ${ver} is out. I'm downloading it for you.`,3.5);agLog('Ember started downloading Aethron '+ver);
+  let r;try{r=(APP&&typeof prefetchUpdate==='function')?await prefetchUpdate():await prefetchDirect()}catch(e){r={ok:false,why:String(e&&e.message||e)}}
+  AG.fetching=0;
+  if(r&&r.ok){AG.staged=r.version||ver;agLog('Ember downloaded Aethron '+AG.staged+'; it installs on the next restart');try{mindEvent('did',{what:'finished downloading the Aethron '+AG.staged+' update for them'})}catch(_){}agTick(1)}
+  else{AG.failT=now;said(`The download didn't finish (${String(r&&r.why||'unknown').slice(0,70)}). I'll try again later.`,4);agLog('the update download failed')}}
+async function prefetchDirect(){const r=await post('/api/update/prefetch',{});if(!r||!r.job)return{ok:false,why:(r&&r.error)||'no download started'};
+  for(let i=0;i<2400;i++){await sleep(1000);let j;try{j=await(await fetch('/api/update/status?id='+r.job,{credentials:'same-origin'})).json()}catch(_){continue}
+    if(j.done){const m=(j.log||'').match(/downloaded (\S+)/);return j.ok?{ok:true,version:m?m[1]:AG.latest}:{ok:false,why:((j.log||'').match(/download failed: (.*)/)||[])[1]||'unknown'}}}
+  return{ok:false,why:'it took too long'}}
+async function agRestart(){agLog('Ember is restarting Aethron to install the update');
+  if(!APP){await post('/api/update/apply',{});return}
+  const chip=shown('.uc');if(chip){await press(chip);await sleep(450);const b=shown('#updchip .ucpop .btn.primary');if(b){await press(b);return}}
+  if(typeof applyUpdate==='function')applyUpdate()}
+async function agAnswer(p){if(!APP)return relay({kind:'agency',id:'answer',project:p});if(!await openProject(p))return;
+  const inp=shown('#jobans-'+cssq(p).replace(/[^\w-]/g,'\\$&'))||shown('.jobc.waiting input');if(inp){await press(inp);inp.focus()}}
+async function agRetry(p){if(!APP)return relay({kind:'agency',id:'retry',project:p});if(!await openProject(p))return;
+  const b=shown(`.jobc[data-job="${cssq(p)}"] .jbtn`);if(b){await press(b);agLog('Ember pressed Try again on '+p)}}
+async function agShow(p,problems){if(!APP)return relay({kind:'agency',id:problems?'look':'show',project:p});if(!await openProject(p))return;
+  if(!problems){const pv=shown(CONTROLS.preview);if(pv){await press(pv);return}}
+  const row=shown(`.jobc[data-job="${cssq(p)}"] .jobc-row`)||shown('.truth');if(row){row.scrollIntoView({block:'center',behavior:REDUCE?'auto':'smooth'});await sleep(400);await press(row)}}
+async function agHeal(p){const h=await post('/api/heal',{project:p});if(h&&h.healed>0&&typeof runStep==='function')await runStep('build');
+  const n=(h&&h.healed)||0,st=(h&&h.stuck)||0;said(n||st?`fixed ${n}${st?`, ${st} still need${st>1?'':'s'} you`:''}.`:'nothing I could fix by myself.',3.5);
+  agLog(`Ember healed ${n} edit(s) on ${p}${st?`, ${st} stuck`:''}`)}
+/* the provider said the account has no credit left: only the person can fix that, so Ember takes them to where it is fixed */
+function agCredit(t){if(!APP||!/out of credit|insufficient.{0,20}(balance|quota|funds|credit)|credit balance|no credit|billing|payment required|exceeded your current quota/i.test(t))return;
+  offer({id:'credit',text:'Your AI provider says the account is out of credit, so Aethron stopped. Want to open Settings to add credit or switch to another provider?',yes:'Open Settings',
+    run:async()=>{const b=shown(CONTROLS.settings);if(b)await press(b);else if(typeof openSettings==='function')openSettings()},prio:3,snooze:30})}
+function agRun(item){const p=item.project||'';return drive(()=>item.id==='answer'?agAnswer(p):item.id==='retry'?agRetry(p):item.id==='show'?agShow(p):item.id==='look'?agShow(p,1):null)}
+/* a migration changed state: what Ember does about it */
+function agJob(j){if(!j||!j.project)return;const p=j.project,sig=[j.status,j.finished||'',(j.question||'').slice(0,60),(j.error||'').slice(0,60)].join('|');
+  if(!AG.jobs)AG.jobs={};const first=!(p in AG.jobs);if(!first&&AG.jobs[p]===sig)return;AG.jobs[p]=sig;
+  /* first sight is a baseline (no news about jobs that ended before this window opened), except a question still waiting for them */
+  if(first&&!(j.status==='waiting'&&j.ask_kind!=='blocked'))return;
+  const card=()=>shown(`.jobc[data-job="${cssq(p)}"]`),still=()=>AG.jobs[p]===sig;
+  if(j.status==='waiting'&&j.ask_kind!=='blocked')offer({id:'ask:'+p+':'+(j.question||'').slice(0,40),text:`${p} needs one answer from you: ${(j.question||'').slice(0,160)}`,yes:'Answer it',run:()=>agAnswer(p),at:card,prio:3,snooze:10,still});
+  else if(j.status==='waiting'||j.status==='failed'){const why=String(j.question||j.error||'it stopped').replace(/^The AI provider refused:\s*/,'').slice(0,140);
+    if(j.status==='failed'&&agency()==='all'&&!AG.retried[p]&&APP){AG.retried[p]=1;said(`${p} stopped (${why.slice(0,60)}). Trying it again.`,3.5);drive(()=>agRetry(p))}
+    else offer({id:'stop:'+p+':'+why.slice(0,30),text:`${p} stopped: ${why}`,yes:'Try again',run:()=>agRetry(p),at:card,prio:2,snooze:20,still})}
+  else if(j.status==='done'){AG.retried[p]=0;const n=(j.problems||[]).length;
+    if(j.ok)offer({id:'done:'+p+':'+(j.finished||''),text:`${p} is finished and checked in a browser. Want to see it?`,yes:'Show me',run:()=>agShow(p),at:card,prio:1,snooze:60,still});
+    else offer({id:'done:'+p+':'+(j.finished||''),text:`${p} finished, with ${n||'some'} thing${n===1?'':'s'} to look at.`,yes:'Show me',run:()=>agShow(p,1),at:card,prio:1,snooze:60,still})}}
+function fromJobCard(project,j){if(!j)return;const r=j.result||{};agJob({project,status:j.status,finished:j.finished,question:j.question,ask_kind:j.ask_kind||(typeof jobBlocked==='function'&&jobBlocked(j)?'blocked':'question'),error:j.error,ok:!!r.ok,problems:r.problems||[]})}
+function agWorld(){if(now-AG.worldT<(document.hidden?120:30))return;AG.worldT=now;
+  fetch('/api/ember/world',{credentials:'same-origin'}).then(r=>r.json()).then(w=>{AG.world=w;for(const j of w.jobs||[])agJob(j)}).catch(()=>{})}
+function agUpdateCheck(){if(APP||now-AG.checkT<1800)return;AG.checkT=now;   // the app window checks for itself
+  fetch('/api/update/check',{credentials:'same-origin'}).then(r=>r.json()).then(u=>{AG.avail=!!u.available;AG.latest=u.latest||'';if(u.staged)AG.staged=u.staged;if(u.fetching&&!AG.fetching)agDownload()}).catch(()=>{})}
+let agLast=-99;
+function agTick(force){if(!started||(!force&&now-agLast<2))return;agLast=now;agWorld();agUpdateCheck();
+  const u=upd();
+  if(u.available&&u.latest){
+    if(u.staged===u.latest){
+      if(agency()==='all'&&away(300)&&!appBusy()&&!AG.restarting&&!AG.offer){AG.restarting=1;agLog('they were away and nothing was running, so Ember restarted Aethron for the update');drive(agRestart)}
+      else offer({id:'restart:'+u.latest,text:`Aethron ${u.latest} is downloaded. Restart now to finish? It takes a few seconds, and your projects and chats stay.`,yes:'Restart now',no:'Later',run:agRestart,at:()=>APP&&shown('.uc'),prio:2,snooze:45,hold:appBusy,still:(v=>()=>upd().staged===v)(u.latest)})}
+    else if(!AG.fetching&&now-AG.failT>1800){
+      if(u.fetching||agency()!=='ask')agDownload();
+      else offer({id:'download:'+u.latest,text:`Aethron ${u.latest} is out. Want me to download it? Nothing changes until you restart.`,yes:'Download',run:agDownload,at:()=>APP&&shown('.uc'),prio:2,snooze:120,still:()=>!upd().staged&&!AG.fetching})}}
+  if(APP){try{const zf=S.zeroFx,p=S.cur;if(p&&zf&&zf.length&&now-(AG.healed[p]||-1e9)>3600){const id='heal:'+p+':'+zf.length;
+    if(agency()==='all'){AG.healed[p]=now;drive(()=>agHeal(p))}
+    else offer({id,text:`${zf.length} edit${zf.length>1?'s':''} on ${p} did not land on the site. Want me to heal ${zf.length>1?'them':'it'}? Undo covers it.`,yes:'Heal',run:()=>{AG.healed[p]=now;return agHeal(p)},at:()=>shown('#steps .warn'),prio:1,snooze:30,still:()=>{try{return S.cur===p&&(S.zeroFx||[]).length===zf.length&&now-(AG.healed[p]||-1e9)>3600}catch(_){return false}}})}}catch(_){}}
+  AG.queue=AG.queue.filter(o=>!o.still||o.still());if(AG.offer&&AG.offer.still&&!AG.offer.still())closeOffer(0);
+  if(AG.offer&&document.querySelector('#newsov.on,#updgate,#pubov')){const o=AG.offer;closeOffer(0);AG.queue.unshift(o)}
+  if(AG.offer){if(now-AG.offer.shownAt>45){agLog('they did not answer: '+AG.offer.text);closeOffer(AG.offer.snooze||30)}else if(AG.offer.hold&&AG.offer.hold()){const o=AG.offer;closeOffer(0);AG.queue.unshift(o)}}
+  else if(AG.queue.length&&!quiet()&&!(SEQ&&!SEQ.ns)&&now-AG.offeredAt>4){const i=AG.queue.findIndex(o=>!(o.hold&&o.hold())&&(AG.later[o.id]||0)<=now&&(o.notBefore||0)<=now);if(i>=0)showOffer(AG.queue.splice(i,1)[0])}}
 
 /* ===== the person ===== */
 const cur={x:-1,y:-1,t:-99,moveT:-99,over:0,down:0,grab:0,sx:0,sy:0,hist:[],rev:[],lastDx:0,boops:[],nearSince:0,
@@ -2301,7 +2446,7 @@ function onMove(e){const x=e.clientX,y=e.clientY;const dx=x-cur.x,dist=Math.hypo
   if(over&&!cur.grab&&Math.abs(dx)>1.5){const s=Math.sign(dx);if(s!==cur.lastDx&&cur.lastDx)cur.rev.push(now);cur.lastDx=s;cur.rev=cur.rev.filter(t=>now-t<1.1);
     if(cur.rev.length>=3&&!(E.purr>0)&&!SEQ){
       if(!annoyed()){E.purr=ATT()==='sweet'?3:2.4;SEQ=null}}}}
-function mine(e){const t=e&&e.target;return !!(t&&t.nodeType===1&&(menu.contains(t)||talk.contains(t)))}
+function mine(e){const t=e&&e.target;return !!(t&&t.nodeType===1&&(menu.contains(t)||talk.contains(t)||ofr.contains(t)))}
 function onDown(e){if(mine(e))return;if(e.button!==0&&e.button!==undefined&&e.pointerType==='mouse'){if(e.button===2&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();openMenu(e.clientX,e.clientY)}return}
   menu.hidden=true;if(!onBody(e.clientX,e.clientY)){tookDown=false;return}
   e.preventDefault();e.stopPropagation();tookDown=true;cur.down=1;cur.sx=e.clientX;cur.sy=e.clientY;cur.hist=[{x:e.clientX,y:e.clientY,t:now}]}
@@ -2325,7 +2470,7 @@ function desk(p){p=p||{};if(p.windows)DW.windows=p.windows;if('dock' in p)DW.doc
   for(const s of p.signals||[])try{SIG[s.name]&&SIG[s.name](s.data||{})}catch(_){}
   const m=p.mouse;let hit=false;
   if(m&&m.length===2){const x=m[0],y=m[1];if(x!==cur.x||y!==cur.y){if(Math.hypot(x-cur.x,y-cur.y)>1)cur.moveT=now;cur.x=x;cur.y=y}cur.t=now;
-    hit=!!(onBody(x,y)||talkHit(x,y)||menuHit(x,y)||cur.down)}
+    hit=!!(onBody(x,y)||talkHit(x,y)||menuHit(x,y)||offerHit(x,y)||cur.down)}
   return{hit,key:!!CHAT.open}}
 function hide(sec){hideUntil=Date.now()+sec*1000;E.alphaT=0;E.rT=0;say('')}
 
@@ -2527,6 +2672,7 @@ const said=(t,d)=>{if(t&&running)say(t,d||0,{type:1})};
 /* the app's own controls Ember can press for you */
 const CONTROLS={settings:'#setbtn',new_chat:'.newbtn',home:'.brand',preview:'button[onclick^="openPreviewPane(false)"],.pshot'};
 async function perform(r){if(!r||DRV.on)return false;
+  if(r.kind==='agency')return agRun(r);
   if(r.kind==='answer'){const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.steps||s.fx||s.hands||s.hop||s.spin||s.pose||s.face||s.go||s.wait));applyPlan(r);if(running){if(hasDo&&(SEQ||(act&&act.by==='mind')))say(r.say,2.4,{type:1});else play([{d:Math.max(2.4,readTime(r.say)),face:idleFace(),look:'viewer',say:r.say}])}return true}
   if(CHAT.open)closeChat();DRV.on=1;V.cancel=0;SEQ=null;setMood({kind:'drive',d:120,pose:'point',face:'focus',look:null});
   let cur_=null;try{cur_=(typeof S!=='undefined'&&S.cur)||null}catch(_){}
@@ -2636,7 +2782,7 @@ async function heard(text){V.state='thinking';let r=null;
   if(!r||!r.kind){V.conv=0;play([{d:2.6,face:'worried',look:'viewer',say:["I couldn't reach Aethron","can't reach Aethron right now.","Aethron's not answering. not my fault."]}]);return null}
   if(DESK){if(r.kind==='answer')perform(r);else play([{d:2.6,pose:'point',face:'calm',look:'viewer',fn:()=>{E.pointDir=[0,1]},say:['sending it to Aethron','handing it to Aethron.','fine. Aethron gets it.']}]);return r}
   await perform(r);nextTurn(r);return r}
-function fixIssue(){if(!CTX.issue)return;perform({kind:'send',prompt:'Fix what the last check found: '+CTX.issue+'. Then check every page again in the browser.',say:L(['let me tell it','telling it.','fine. I\'ll tell it what you broke.'])})}
+function fixIssue(){if(!CTX.issue)return;AG.fixed=CTX.issue;perform({kind:'send',prompt:'Fix what the last check found: '+CTX.issue+'. Then check every page again in the browser.',say:L(['let me tell it','telling it.','fine. I\'ll tell it what you broke.'])})}
 /* On the desktop Ember hears you; the app window does the typing. */
 let inboxT=0;
 function inboxTick(){if(DESK||!CFG.desktop||DRV.on)return;if(performance.now()-inboxT<1400)return;inboxT=performance.now();
@@ -2688,10 +2834,11 @@ async function welcome(force){if(TW.on||DESK)return;if(!running){if(!force)retur
 
 /* ===== the loop ===== */
 let last=performance.now(),acc=0;
-function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t;now+=dt;acc+=dt;if(acc>.25){needs(acc);acc=0}
+function tick(t){const dt=Math.max(0,Math.min(.05,(t-last)/1000));last=t;now+=dt;acc+=dt;if(acc>.25){needs(acc);acc=0}
   if(hideUntil&&Date.now()>hideUntil){hideUntil=0;E.alphaT=1;E.rT=1;go(SP.rest,{now:1})}
   if(mood){mood.t+=dt;if(mood.t>mood.d){const m=mood;mood=null;m.end&&m.end()}}
   if(CHAT.open)placeTalk();
+  if(AG.offer)placeOffer();agTick();
   if(E.bubble&&E.bubble.box&&cur.x>=0){const k=E.bubble.box;if(cur.x>k.x-6&&cur.x<k.x+k.w+6&&cur.y>k.y-6&&cur.y<k.y+k.h+6)E.bubble.d=Math.max(E.bubble.d,E.bubble.t+1.2)}
   if(CHAT.open&&E.mode==='fly')chatTick(dt);
   else if(mood){base.pose=mood.pose||'rest';base.face=mood.face||idleFace();base.look=mood.look||null}
@@ -2715,7 +2862,12 @@ function frame(t){if(!running)return;const dt=Math.min(.05,(t-last)/1000);last=t
   if(E.purr>0){pose='hands';fn='content';look='viewer'}
   E.pose=pose;const fx=E.mode==='fly'&&(cur_('fx')||(act&&act.k==='m_wait'&&act.fx));if(fx){const key='fx:'+(SEQ?SEQ.i+':'+SEQ.steps.length:'wait')+':'+fn;if(E.FT.name!==key)E.FT=Object.assign(face(fn),fx,{name:key})}else if(fn!==E.FT.name)E.FT=driveFx(face(fn));
   if(look)E.look=look;else if(E.look&&!(E.look.until>now))E.look=null;
-  simulate(dt);draw(dt);requestAnimationFrame(frame)}
+  /* springs are stepped in slices of at most 20 ms: the hand spring (700/45) is
+     unstable above ~44 ms, so a page that hands Ember 50 ms frames for half a
+     minute flung its hands off screen and then made them infinite */
+  for(let n=Math.ceil(dt/.02),i=0;i<n;i++)simulate(dt/n);mend();draw(dt)}
+function frame(t){if(!running)return;try{tick(t)}catch(err){bad('frame: '+(err&&err.message));try{mend();X.setTransform(1,0,0,1,0,0);X.globalCompositeOperation='source-over';X.globalAlpha=1}catch(_){}}
+  requestAnimationFrame(frame)}
 function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=!!cur_('sleep');if(moving)NS.stillT=now;const _=0,
   still=!moving&&(!act||act.k==='be'||act.k==='perch'||act.k==='m_wait')&&!SEQ;
   N.energy=cl(N.energy+(napping?.04:still?.005:-(.002+(moving?.006:0)))*k,0,1);
@@ -2807,6 +2959,19 @@ function mixc(a,b,t){return a.map((v,i)=>Math.round(lerp(v,b[i],t)))}
 function bodyGrad(b,ang){const g=X.createLinearGradient(0,1.05,0,-E.tipH),dim=[205,86,48];
   for(const [o,c0] of[[0,[255,205,64]],[.38,[255,160,52]],[.68,[255,104,72]],[1,[255,72,104]]]){let c=c0;if(E.tint)c=mixc(c,E.tint,.68);if(ang>0)c=mixc(c,o>.4?[255,40,30]:[255,140,40],ang*.6);if(b<1)c=mixc(c,dim,Math.min(1,(1-b)*1.7));else c=c.map(v=>Math.min(255,Math.round(v*b)));g.addColorStop(o,`rgb(${c.join(',')})`)}return g}
 const FONT='-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif';
+function mendObj(o,def,what){let n=0;for(const k in o){if(typeof o[k]==='number'&&!isFinite(o[k])){o[k]=k in def?def[k]:0;n++}}if(n)bad(what);return n}
+function mend(){
+  const e0={r:1,rT:1,alpha:1,alphaT:1,tipH:1.85,speed:1,nextBlink:2};
+  if(!isFinite(E.x)||!isFinite(E.y)){const s=SP.rest();E.x=E.tx=s.x;E.y=E.ty=s.y;E.vx=E.vy=0;bad('body position')}
+  mendObj(E,e0,'body value');
+  for(const h of E.hands)mendObj(h,{},'hand');for(const a of[E.side,E.ms,E.pointDir])for(let i=0;i<a.length;i++)if(!isFinite(a[i])){a[i]=0;bad('body vector')}
+  for(const f of[E.F,E.FT])if(f&&typeof f==='object')mendObj(f,{},'face dial');
+  mendObj(J.b,{},'body joint');mendObj(J.bv,{},'body joint speed');
+  J.a.forEach((a,i)=>{mendObj(a,{sh:-10,el:125,reach:1},'arm joint');mendObj(J.av[i],{},'arm joint speed');mendObj(J.elbow[i],{},'elbow')});
+  for(let i=0;i<2;i++)if(J.hold[i]&&!Object.values(J.hold[i]).every(fin)){J.hold[i]=null;bad('held pose')}
+  if(J.body&&!Object.values(J.body).every(fin)){J.body=null;bad('held body')}
+  if(!isFinite(J.lift)){J.lift=0;bad('lift')}if(!isFinite(J.speed)){J.speed=1;bad('joint speed')}
+  J.beats=J.beats.filter(b=>Object.values(b).every(fin));mendObj(AFF,{a:.4},'feeling')}
 function draw(dt){const keep=E.F;E.F=feltFace(keep);try{drawAll(dt)}finally{E.F=keep}}
 function drawAll(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);const rr=R*E.r,F=E.F;
   if(TW.on&&TW.el){const s=rect(TW.el)||TW.spot;TW.spot=s;if(s){const p=8;X.save();X.fillStyle='rgba(8,6,5,.5)';X.fillRect(0,0,W,H);
@@ -2894,7 +3059,7 @@ function bubble(rr){const b=E.bubble;if(!b.text&&!b.dots)return;const a=Math.min
 
 /* ===== on / off ===== */
 function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(2,devicePixelRatio||1);cv.width=Math.round(W*DPR);cv.height=Math.round(H*DPR);R=Math.max(16,Math.min(26,Math.min(W,H)*.024))}
-function start(){if(running)return;if(!started){started=true;(document.head||document.documentElement).append(css);document.body.append(cv,talk,menu);tin=talk.querySelector('input');
+function start(){if(running)return;if(!started){started=true;(document.head||document.documentElement).append(css);document.body.append(cv,talk,menu,ofr);tin=talk.querySelector('input');
     talk.querySelector('#ember-go').onclick=send;talk.querySelector('#ember-mic').onclick=()=>{closeChat();listen()};tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
     tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now;talk.classList.toggle('ae-empty',!tin.value.trim())});
     addEventListener('keydown',()=>{MIND.key=now},true);watchScreen();for(const b of store.get('ember_lib',[]))learnB(b);
@@ -2907,7 +3072,7 @@ function start(){if(running)return;if(!started){started=true;(document.head||doc
   resize();running=true;cv.hidden=false;E.alpha=0;E.alphaT=1;const s=SP.rest();E.x=s.x+R*3;E.y=s.y-R*4;E.tx=s.x;E.ty=s.y;last=performance.now();
   if(willWelcome())setTimeout(()=>welcome(),1200);
   requestAnimationFrame(frame)}
-function stop(){running=false;cv.hidden=true;talk.hidden=true;menu.hidden=true;CHAT.open=0;document.documentElement.classList.remove('ember-over','ember-grab');if(started)X.clearRect(0,0,cv.width,cv.height)}
+function stop(){running=false;cv.hidden=true;talk.hidden=true;menu.hidden=true;ofr.hidden=true;AG.offer=null;CHAT.open=0;document.documentElement.classList.remove('ember-over','ember-grab');if(started)X.clearRect(0,0,cv.width,cv.height)}
 function set(o){if(o&&'fit' in o)FITOV=null;Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);
   if(DESK){start();return}
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
@@ -2924,6 +3089,10 @@ window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG
   feel:f=>feel(f),play:st=>{const c=compileB({steps:st}),d=c.reduce((t,x)=>t+(x.d||0),0);act={k:'test',by:'test',a:{w:()=>0,run(){},dur:[d,d]},t:0,dur:d+.3};play(c)},
   still:s=>{NS.quiet=now+(+s||0);if(act&&act.by==='body'){act.t=act.dur+1;SEQ=null}},nervous:()=>({count:NS.count,kinds:NS.kinds.slice(),quiet:NS.quiet>now,fresh:NS.fresh.length}),
   mind:()=>({live:!!MIND.live,off:!!MIND.off,why:MIND.why||'',busy:!!MIND.busy,cue:!!(MIND.busy||now<MIND.cueUntil),thought:MIND.thought,focus:MIND.focus||'',plan:MIND.plan.slice(),hist:MIND.hist.slice(),ev:MIND.ev.map(e=>e.what),lib:Object.keys(LIB),next:Math.round(MIND.next-now),today:MSTAT.today,lastAt:MSTAT.lastAt,status:mindStatus(),acts:ACTS_LOG.slice(-12)}),think:r=>{MIND.off=0;MIND.next=0;think(r||'asked')},
+  agency:()=>({level:agency(),offer:AG.offer?{id:AG.offer.id,text:AG.offer.text,yes:AG.offer.yes}:null,queue:AG.queue.map(o=>o.id),log:AG.log.map(x=>x.what),fetching:!!AG.fetching,staged:AG.staged,jobs:Object.assign({},AG.jobs||{})}),
+  agTick:()=>{AG.worldT=-99;agTick(1)},
+  health:()=>({bad:BAD.slice()}),
+  frames:(ms,n)=>{for(let i=0;i<(n|0);i++)frame(last+(+ms||16))},
   hurry:()=>{N.energy=.8;N.boredom=.4;MIND.next=0;if(act)act.t=act.dur+1}};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
   fetch('/api/ember/desktop').then(r=>r.json()).then(d=>{CFG.desktop=!!(d&&d.on);CFG.deskAvail=!!(d&&d.available);if(CFG.on&&!CFG.desktop&&!automation)start()}).catch(()=>{if(CFG.on&&!automation)start()})}
