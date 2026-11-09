@@ -149,6 +149,17 @@ try:
         pg.wait_for_timeout(3000)
         pg.evaluate("ember.signal('broke',{what:'about.html'})"); pg.wait_for_timeout(200)
         check("and sputters when something breaks", pg.evaluate("ember.fire().sput") > .5)
+        # a pointer swept past bends the flame like a draft, then it settles
+        pg.evaluate("ember.still(900)"); pg.wait_for_timeout(1500)
+        st = pg.evaluate("ember.state()"); y = st["y"] - st["r"] * 1.2
+        pg.mouse.move(st["x"] - 160, y); pg.wait_for_timeout(120)
+        drafts = []
+        for i in range(1, 9):
+            pg.mouse.move(st["x"] - 160 + i * 40, y); pg.wait_for_timeout(16)
+            drafts.append(pg.evaluate("ember.fire().draft"))
+        check("a pointer swept past bends the flame the way it went", max(drafts) > .08, str([round(d, 2) for d in drafts]))
+        pg.mouse.move(5, 5); pg.wait_for_timeout(2500)
+        check("and the flame settles back", abs(pg.evaluate("ember.fire().draft")) < .04, str(pg.evaluate("ember.fire().draft")))
         # a rogue value never breaks it
         pg.evaluate("ember.set({fire:'lava-lamp'})"); pg.wait_for_timeout(600)
         check("an unknown kind falls back to the classic flame", pg.evaluate("ember.fire().kind") == "classic")
@@ -160,7 +171,10 @@ try:
         q.goto(BASE + "/?ember=1"); q.wait_for_timeout(3500); q.evaluate("ember.still(900)"); q.wait_for_timeout(1500)
         grab = """(()=>{const c=document.getElementById('ember-cv'),x=c.getContext('2d'),s=ember.state(),d=Math.min(2,devicePixelRatio||1);
           return Array.from(x.getImageData(Math.round((s.x-s.r*1.5)*d),Math.round((s.y-s.r*2.6)*d),Math.round(s.r*3*d),Math.round(s.r*2.05*d)).data)})()"""   # the fire above the face: eyes still look around
-        g1 = q.evaluate(grab); q.wait_for_timeout(700); g2 = q.evaluate(grab)
+        for _ in range(6):   # a speech bubble coming or going over the flame is not the flame moving
+            b1 = q.evaluate("ember.state().bubble"); g1 = q.evaluate(grab); q.wait_for_timeout(700); g2 = q.evaluate(grab)
+            if not b1 and not q.evaluate("ember.state().bubble"): break
+            q.wait_for_timeout(2500)
         diff = sum(1 for i in range(0, min(len(g1), len(g2)), 4) if abs(g1[i] - g2[i]) + abs(g1[i + 3] - g2[i + 3]) > 24)
         check("with motion off the flame holds still", diff < len(g1) // 4 * .01, f"{diff} of {len(g1)//4} pixels moved")
         check("and still burns as the kind it was set to", q.evaluate("ember.fire().kind") == "inferno")

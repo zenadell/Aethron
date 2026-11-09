@@ -2561,7 +2561,7 @@ const cur={x:-1,y:-1,t:-99,moveT:-99,over:0,down:0,grab:0,sx:0,sy:0,hist:[],rev:
 function onBody(x,y){const rr=R*E.r;return running&&E.alpha>.3&&(Math.hypot(x-E.x,(y-E.y)*1.05)<rr*1.2||Math.hypot(x-E.x-E.tipX*rr,y-E.y+rr*1.2)<rr*.6)}
 let tookDown=false;
 function onMove(e){const x=e.clientX,y=e.clientY;const dx=x-cur.x,dist=Math.hypot(dx,y-cur.y),dt=Math.max(.008,now-cur.t);
-  if(dist>1)cur.moveT=now;cur.x=x;cur.y=y;cur.t=now;cur.hist.push({x,y,t:now});if(cur.hist.length>6)cur.hist.shift();if(!running)return;
+  if(dist>1)cur.moveT=now;if(cur.x>=0){const k=Math.min(1,dt*12);cur.vx=(cur.vx||0)+(cl(dx/dt,-4000,4000)-(cur.vx||0))*k}cur.x=x;cur.y=y;cur.t=now;cur.hist.push({x,y,t:now});if(cur.hist.length>6)cur.hist.shift();if(!running)return;
   const near=Math.hypot(x-E.x,y-E.y);
   if(!cur.grab&&!CHAT.open&&dist/dt>2200&&near<R*3&&E.mode==='fly'){E.vx+=(E.x-x)/near*240;E.vy+=(E.y-y)/near*240;E.q-=.15;J.bv.lean+=(E.x>x?1:-1)*90;bump('annoy',.04);
     if(fresh('startled',20))try{mindEvent('startled',{what:'their cursor shot past Ember fast'})}catch(_){}}
@@ -3131,7 +3131,9 @@ function simulate(dt){const rr=R*E.r;physio(dt);
   if(E.shakeOff>0){E.shakeOff-=dt;tT+=Math.sin(now*30)*.2*E.shakeOff}
   E.tv+=((tT-E.tilt)*110-E.tv*11)*dt;E.tilt+=E.tv*dt;
   const fl=REDUCE?0:(Math.sin(now*3.1)*.07+Math.sin(now*7.7)*.03);
-  const tipXT=cl(-E.vx/700,-.7,.7)+fl-E.tilt*.3;E.tipXv+=((tipXT-E.tipX)*90-E.tipXv*9)*dt;E.tipX+=E.tipXv*dt;
+  let draft=0;if(!REDUCE&&cur.x>=0&&now-cur.t<.35&&!cur.grab){const nd=Math.hypot(cur.x-E.x,cur.y-(E.y-R*E.r));if(nd<R*E.r*6)draft=cl((cur.vx||0)/2600,-.45,.45)*(1-nd/(R*E.r*6))}
+  FIRE.draft+=(draft-FIRE.draft)*Math.min(1,dt*(Math.abs(draft)>Math.abs(FIRE.draft)?10:2.2));
+  const tipXT=cl(-E.vx/700+FIRE.draft,-.75,.75)+fl-E.tilt*.3;E.tipXv+=((tipXT-E.tipX)*90-E.tipXv*9)*dt;E.tipX+=E.tipXv*dt;
   const ang=E.F.angry;const tipHT=1.85*E.F.flame*(1+cl(E.vy/1800,-.15,.25))+(REDUCE?0:Math.sin(now*(5.3+ang*9))*(.05+ang*.07));E.tipHv+=((tipHT-E.tipH)*80-E.tipHv*8)*dt;E.tipH+=E.tipHv*dt;
   for(let i=0;i<2;i++)E.side[i]+=((E.tipX*.7+(REDUCE?0:Math.sin(now*(4+i)+i*2)*.06))-E.side[i])*Math.min(1,dt*(4+i*2));
   E.r+=(E.rT-E.r)*Math.min(1,dt*5);E.alpha+=(E.alphaT-E.alpha)*Math.min(1,dt*5);
@@ -3205,7 +3207,7 @@ function prismPal(){const h=REDUCE?20:now*36;return Object.assign({},FK.prism,{
   arm:hsl(h+30,.85,.55),armHi:hsl(h+30,1,.86),hand:[hsl(h+10,1,.93),hsl(h+20,.95,.75),hsl(h+30,.85,.55)],ink:hsl(h+40,.7,.14),brow:hsl(h+40,.6,.24),lid:hsl(h+40,.7,.17),
   iris:[hsl(h+180,.5,.32),hsl(h+180,.6,.18),hsl(h+180,.6,.08)],edge:hsl(h+60,.8,.3),dim:hsl(h,.4,.5)})}
 let FIREOV=null;
-const FIRE={k:'',cur:null,flare:0,stoke:0,stokeUntil:0,sput:0,mc:'classic',mcT:0,mk:'classic',moodAt:-99,tips:null,swap:-99};
+const FIRE={k:'',cur:null,flare:0,draft:0,stoke:0,stokeUntil:0,sput:0,mc:'classic',mcT:0,mk:'classic',moodAt:-99,tips:null,swap:-99};
 function moodFire(){const n=E.FT.name,F=E.F;let k='classic';
   if(F.angry>.4||n==='glare')k='inferno';
   else if(['sad','worried','disappointed'].includes(n)||AFF.v<-.35)k='blue';
@@ -3328,7 +3330,7 @@ function drawAll(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);fireSt
     p.vy+=(p.k==='spark'?40:p.k==='dust'?260:p.k==='fire'?-40:-6)*dt;p.vx*=.985;p.x+=p.vx*dt;p.y+=p.vy*dt;
     if(p.k==='spark'){X.globalCompositeOperation='lighter';const g=X.createRadialGradient(p.x,p.y,0,p.x,p.y,p.s*3);g.addColorStop(0,`rgba(${p.c},${p.l})`);g.addColorStop(1,`rgba(${p.c},0)`);X.fillStyle=g;X.beginPath();X.arc(p.x,p.y,p.s*3,0,7);X.fill();X.globalCompositeOperation='source-over'}
     else if(p.k==='dust'){X.fillStyle=`rgba(${p.c||'112,94,70'},${(.8*p.l).toFixed(3)})`;X.beginPath();X.arc(p.x,p.y,p.s,0,7);X.fill()}
-    else if(p.k==='smoke'){X.fillStyle=`rgba(${p.c||'120,110,110'},${.35*p.l})`;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.fill()}
+    else if(p.k==='smoke'){const rs=p.s*(2.2-p.l)*1.3,sg=X.createRadialGradient(p.x,p.y,0,p.x,p.y,rs);sg.addColorStop(0,`rgba(${p.c||'120,110,110'},${(.3*p.l).toFixed(3)})`);sg.addColorStop(.6,`rgba(${p.c||'120,110,110'},${(.14*p.l).toFixed(3)})`);sg.addColorStop(1,`rgba(${p.c||'120,110,110'},0)`);X.fillStyle=sg;X.beginPath();X.arc(p.x,p.y,rs,0,7);X.fill()}
     else if(p.k==='fire'){X.globalCompositeOperation='lighter';const g=X.createRadialGradient(p.x,p.y,0,p.x,p.y,p.s*2);g.addColorStop(0,`rgba(${p.c},${p.l})`);g.addColorStop(1,`rgba(${p.c},0)`);X.fillStyle=g;X.beginPath();X.arc(p.x,p.y,p.s*2,0,7);X.fill();X.globalCompositeOperation='source-over'}
     else if(p.k==='lick'){const s=p.s*(.4+.6*p.l),wv=Math.sin((1-p.l)*7+p.ph)*.35;X.save();X.translate(p.x,p.y);X.rotate(p.vx*.004);X.scale(s,s*(1.5+(1-p.l)*.9));const g=X.createLinearGradient(0,1,0,-1.6);g.addColorStop(0,`rgba(${p.c2||p.c},0)`);g.addColorStop(.45,`rgba(${p.c2||p.c},${(.85*p.l).toFixed(3)})`);g.addColorStop(1,`rgba(${p.c},${(.7*p.l).toFixed(3)})`);X.fillStyle=g;X.beginPath();X.moveTo(wv,-1.6);X.bezierCurveTo(.55+wv*.5,-.7,.6,.2,.35,1);X.bezierCurveTo(.1,.6,-.1,.6,-.35,1);X.bezierCurveTo(-.6,.2,-.55+wv*.5,-.7,wv,-1.6);X.fill();X.restore()}
     else if(p.k==='ring'){X.strokeStyle=`rgba(${p.c},${(p.l*.75).toFixed(3)})`;X.lineWidth=2.5*p.l;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.stroke()}
@@ -3445,7 +3447,7 @@ window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG
   agency:()=>({level:agency(),offer:AG.offer?{id:AG.offer.id,text:AG.offer.text,yes:AG.offer.yes}:null,queue:AG.queue.map(o=>o.id),log:AG.log.map(x=>x.what),fetching:!!AG.fetching,staged:AG.staged,jobs:Object.assign({},AG.jobs||{})}),
   agTick:()=>{AG.worldT=-99;agTick(1)},
   health:()=>({bad:BAD.slice()}),
-  fire:()=>({kind:FIRE.k,chosen:CFG.fire||'classic',over:FIREOV&&FIREOV.until>Date.now()?FIREOV.n:'',flare:FIRE.flare,stoke:FIRE.stoke,sput:FIRE.sput,stops:FIRE.cur.stops.map(c=>c.map(Math.round)),glow:FIRE.cur.glow.map(Math.round),target:palOf(FIRE.k).stops.map(c=>c.map(Math.round))}),
+  fire:()=>({kind:FIRE.k,chosen:CFG.fire||'classic',over:FIREOV&&FIREOV.until>Date.now()?FIREOV.n:'',flare:FIRE.flare,draft:FIRE.draft,stoke:FIRE.stoke,sput:FIRE.sput,stops:FIRE.cur.stops.map(c=>c.map(Math.round)),glow:FIRE.cur.glow.map(Math.round),target:palOf(FIRE.k).stops.map(c=>c.map(Math.round))}),
   setFire:(k,mins)=>setFire(k,!mins,mins),
   fireKinds:()=>FIRE_IDS.map(k=>({id:k,label:FK[k].label,css:fireCss(k),stops:palOf(k).stops.map(c=>'#'+c.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')),rim:'#'+palOf(k).outer[0].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')})).concat([{id:'mood',label:'Mood',css:'conic-gradient(from 200deg,#ff7a3a,#ffd23f,#4fd1ff,#a868ff,#ff5fa2,#ff7a3a)',stops:['#ffd23f','#ff7a3a','#ff5fa2','#a868ff','#4fd1ff'],rim:'#ff7a3a'}]),
   frames:(ms,n)=>{for(let i=0;i<(n|0);i++)frame(last+(+ms||16))},
