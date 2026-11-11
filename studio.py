@@ -973,6 +973,21 @@ def project_status(d: Path) -> str:
             "said:\n" + "\n".join(out))
 
 
+def _ai_sig() -> str:
+    """Which AI a new session would run on right now. A session's endpoint
+    is fixed when it starts, so when the team switches between its own AI
+    and people's own keys (or a provider changes), a session started before
+    the switch keeps asking the old one; the admin's switch "did not
+    reflect". Compared on every message; a mismatch starts a new session on
+    the same conversation."""
+    try:
+        c = brain.load() if brain else {}
+        return json.dumps([c.get("provider"), c.get("model"), c.get("base_url"),
+                           bool(c.get("managed"))])
+    except Exception:
+        return ""
+
+
 def end_code_sessions() -> int:
     """End every open agent session and then stop the bridge. A session's
     endpoint is fixed at spawn, so one left open after a switch or a new
@@ -3257,6 +3272,7 @@ class Handler(BaseHTTPRequestHandler):
                     s.prior = prior if s.resumed else []
                 except Exception as e:
                     return self.fail(str(e))
+                s._ai_sig = _ai_sig()
                 CODE_SESSIONS[key] = s
                 conv_set(key, s.id)
                 self._track("code_session", runtime=s.cfg.get("runtime", ""),
@@ -3279,6 +3295,14 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/code/send":
                 key = body.get("key", "")
                 s = CODE_SESSIONS.get(key)
+                if s and s.alive and getattr(s, "_ai_sig", None) is not None \
+                        and not getattr(s, "busy", False) and s._ai_sig != _ai_sig():
+                    try:
+                        s.close()
+                    except Exception:
+                        pass
+                    CODE_SESSIONS.pop(key, None)
+                    s = None
                 if (not s or not s.alive) and key and codelayer:
                     d = Path(key)
                     if d.is_dir():
@@ -3292,6 +3316,7 @@ class Handler(BaseHTTPRequestHandler):
                         try:
                             s = codelayer.CodeSession(
                                 d, cfg=rcfg, home=HOME).start()
+                            s._ai_sig = _ai_sig()
                             CODE_SESSIONS[key] = s
                             conv_set(key, s.id)
                         except Exception:
@@ -3654,6 +3679,15 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
                 self.send_json({"ok": True})
+            elif u.path == "/api/ember/live/outcome":
+                # what really happened on screen after a spoken request:
+                # the only thing the voice is allowed to report
+                import aethron_live
+                cur = aethron_live.current()
+                if not cur or cur.id != str(body.get("id") or ""):
+                    return self.send_json({"ok": False, "closed": True})
+                self.send_json({"ok": cur.outcome(str(body.get("call") or ""), bool(body.get("done")),
+                                                  str(body.get("detail") or "")[:240])})
             elif u.path in ("/api/ember/live/audio", "/api/ember/live/text", "/api/ember/live/state", "/api/ember/live/stop"):
                 import aethron_live
                 cur = aethron_live.current()
@@ -3697,8 +3731,8 @@ class Handler(BaseHTTPRequestHandler):
                                                             str(body.get("attitude") or "sassy"), projects=names,
                                                             call=_ember_brain(body, EMBER_ACT_S - 5, want, box)), EMBER_ACT_S + 5)
                     if isinstance(out, Exception):   # too slow: the words as said
-                        out = dict(_ember.act_local(body.get("text") or "", names), by="local", why=str(out))
-                        out.pop("unsure", None)
+                        out = _ember.act_fallback(body.get("text") or "", names, str(out),
+                                                  str(body.get("attitude") or "sassy"))
                 except ValueError as e:
                     return self.fail(str(e))
                 if want and isinstance(out, dict) and out.get("say"):
@@ -16354,6 +16388,12 @@ function endTurn(){
 const SLOW_NOTICE_MS=90000;
 const PROVIDER_STALL_MS=150000;
 const TOOL_STALL_MS=20*60*1000;
+/* A MODEL THAT NEVER ANSWERS IS NOT A MODEL THINKING. The bridge gives up
+   on an answer after 90s and the engine asks again; each new ask reset
+   the clock below, so a dead provider spun "Thinking" for a quarter of an
+   hour. Past this with no word from the agent and two unanswered asks,
+   the run stops and says so (reconnecting would only ask the same model). */
+const PROVIDER_TOTAL_MS=4*60*1000;
 function hasWaitingPermission(){
   const ids=new Set();
   for(const e of CODE.events||[]){
@@ -16420,13 +16460,19 @@ async function reconnectRun(){
   await api('/api/code/send',{key:CODE.key,text});
   if(!CODE.poll)CODE.poll=setInterval(pollCode,900);
 }
-async function stopForSilence(tool,last){
+async function stopForSilence(tool,last,why){
   const key=CODE.key;
   if(!key)return;
   /* Do not leave a real child process working after the UI says it ended. */
   CODE.key='';
   try{await api('/api/code/stop',{key});}catch(e){}
   clearSlowNote();
+  if(why==='noanswer'){
+    CODE.events.push({type:'error',text:'The model has not answered any request for '
+      +Math.round((Date.now()-CODE.lastEv)/60000)+' minutes, so Aethron stopped asking. Nothing was changed. '
+      +'Its provider may be down or out of credit: try again in a moment, or switch the model in Settings → Model and key.'});
+    endTurn();return;
+  }
   if(!tool&&(CODE.recoveries||0)<RECOVER_MAX){
     CODE.recoveries=(CODE.recoveries||0)+1;
     CODE.events.push({type:'recover',n:CODE.recoveries});
@@ -16785,14 +16831,16 @@ async function pollCode(){
     const viaBridge=!tool&&br&&(br.inflight>0||br.state==='retrying');
     /* waiting on a key or a busy provider is worth saying at once, not
        after 90 seconds of an unexplained spinner */
-    const waiting=viaBridge&&['pacing','busy','waiting','spent','retrying','queued'].includes(br.state);
+    const offline=!!(br&&br.state==='offline');
+    const waiting=(viaBridge||offline)&&['pacing','busy','waiting','spent','retrying','queued','offline'].includes(br.state);
     if(CODE.poll&&r.running&&!hasWaitingPermission()
-       &&(quiet>SLOW_NOTICE_MS||(waiting&&quiet>15000))){
+       &&(quiet>SLOW_NOTICE_MS||(waiting&&quiet>15000)||offline)){
       const limit=tool?TOOL_STALL_MS:PROVIDER_STALL_MS;
       const idle=viaBridge?Math.min(quiet,br.for_s*1000):(tool&&ts&&ts.for_s!=null?Math.min(quiet,ts.for_s*1000):quiet);
-      const note=viaBridge?bridgeNote(br):slowNoteFor(tool,ts);
+      const note=(viaBridge||offline)?bridgeNote(br):slowNoteFor(tool,ts);
       if(CODE.slowNote!==note){CODE.slowNote=note;renderChat();}
       if(idle>limit)return stopForSilence(tool,viaBridge?br.detail:'');
+      if(!tool&&br&&(br.fails||0)>=2&&quiet>PROVIDER_TOTAL_MS)return stopForSilence(false,br.detail,'noanswer');
     }
     syncComposer();            // stop becomes send the moment it is over
   }catch(e){}
@@ -20574,6 +20622,35 @@ function timingText(t){
   if(t.failures)bits.push(t.failures+' provider error'+(t.failures===1?'':'s')+' retried');
   return bits.join(' · ');
 }
+/* THE CONVERSATION IS UPDATED, NOT REPAINTED. Every poll that changed
+   the waiting note ("… (12s)" ticks every second) rebuilt the whole log
+   with innerHTML: every message replayed its entrance, every picture was
+   re-decoded and every orb restarted, so while a run waited — offline
+   most of all — the entire chat blinked. Each block is now compared with
+   what is on screen and only the blocks that changed are replaced. */
+function patchLog(box,parts){
+  const segs=box.__segs;
+  if(!segs||box.__n!==box.childNodes.length){
+    box.innerHTML=parts.join('');box.__segs=null;
+    /* map nodes back to their parts */
+    const out=[];let k=0;const kids=[...box.childNodes];
+    for(const h of parts){const t=document.createElement('template');t.innerHTML=h;
+      const n=t.content.childNodes.length;out.push({h,nodes:kids.slice(k,k+n)});k+=n;}
+    box.__segs=out;box.__n=box.childNodes.length;return;
+  }
+  const out=[];let anchor=null;
+  for(let i=0;i<Math.max(parts.length,segs.length);i++){
+    const h=parts[i],old=segs[i];
+    if(h===undefined){old.nodes.forEach(n=>n.remove());continue;}
+    if(old&&old.h===h){out.push(old);anchor=old.nodes[old.nodes.length-1]||anchor;continue;}
+    const t=document.createElement('template');t.innerHTML=h;const nodes=[...t.content.childNodes];
+    const ref=old&&old.nodes.length?old.nodes[0]:(anchor?anchor.nextSibling:box.firstChild);
+    nodes.forEach(n=>box.insertBefore(n,ref));
+    if(old)old.nodes.forEach(n=>n.remove());
+    out.push({h,nodes});if(nodes.length)anchor=nodes[nodes.length-1];
+  }
+  box.__segs=out;box.__n=box.childNodes.length;
+}
 function renderChat(){
   if(CODE.pending&&CODE.pending.length)renderPending();
   const box=$('chatlog');if(!box)return;
@@ -20594,7 +20671,7 @@ function renderChat(){
   /* a project with a job shows its card even when the chat did not start it */
   if(S.cur&&JOBUI[S.cur]&&!_blocks.some(b=>b.kind==='job'&&b.project===S.cur))
     _blocks.push({kind:'job',project:S.cur});
-  box.innerHTML=_blocks.map(b=>
+  patchLog(box,_blocks.map(b=>
       b.kind==='you' ?`<div class="turn you">${(b.images||[]).length?`<div class="youpics">${
           b.images.map(u=>`<a href="${u}" target="_blank" rel="noopener"><img src="${u}" alt="attached image" loading="lazy"></a>`).join('')}</div>`:''}${
           b.text&&b.text!=='(image attached)'?youHtml(b.text):''}</div>`
@@ -20616,7 +20693,7 @@ function renderChat(){
     : b.text        ?`<div class="turn sys${b.bad?' bad':''}">${esc(b.text)}${
         b.detail?`<details class="errdet"><summary>what the provider said</summary>
           <div>${esc(b.detail)}</div></details>`:''}</div>`
-    : '').join('')+nowHtml();
+    : '').concat([nowHtml()]));
   dockMeta(); mountDots(box); mountOrbs(box);
   if(TEAM&&TEAM.blocked_why&&!$('teamhold'))teamRender();   // the dock was redrawn
   /* Follow the conversation only while the reader is already at the

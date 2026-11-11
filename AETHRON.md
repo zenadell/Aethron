@@ -7468,6 +7468,57 @@ return after 3 days reaches body and mind). Two traps: the spark was
 pointer (now the pointer must move after the offer); and a closing
 window's last save overwrote the file the test had just edited.
 
+## "IT DOESN'T RESPOND, IT JUST BLINKS" — four faults, one evening — 2026-11-11
+Owner on 1.1.131: no model answered text (chat or typed Ember) while live
+voice worked; the whole chat blinked while it waited, worst offline; the
+admin's switch to people's own keys "did not reflect"; and Ember said
+"done" about things it never did. Field log: the owner's Mac (1.1.130) sent
+the chat to Aethron's own gateway and got "nodename nor servname" — no DNS.
+1. OFFLINE SPUN FOREVER. A request that could not be made came back 502;
+   the engine retries that quietly for minutes and the screen read the
+   bridge's "retrying" as alive. aethron_bridge.unreachable() tells "no
+   connection" (DNS, refused, network down) from slowness; after 3 tries
+   EVERY request gets a 400 "No connection: Aethron can't reach <host>…"
+   (side calls too — the first cut ended one of the engine's title calls
+   while the real one kept retrying) until anything gets through. Status
+   says "offline". Measured: ends in 3s, was endless.
+2. A MODEL THAT NEVER ANSWERS spun ~15 min: each 90s bridge timeout + engine
+   re-ask reset the screen's silence clock. PROVIDER_TOTAL_MS: 4 minutes
+   with no word and 2 unanswered asks -> stop and say so (no reconnect).
+3. THE BLINK: the waiting note carries a seconds count, so every poll
+   changed it and renderChat rebuilt the WHOLE log with innerHTML — every
+   message replayed its entrance, orbs restarted. patchLog() replaces only
+   the blocks whose HTML changed (also keeps a <details> the person opened).
+4. THE SWITCH: a session's endpoint is fixed at spawn. _ai_sig() is stored
+   on every session and compared on each message; a change (managed on/off,
+   provider, model, address) starts a new session on the same conversation.
+   And a per-person switch (user_controls) never touched control.updated_at,
+   the one thing copies watch between full check-ins: up to 10 minutes.
+   userControl now bumps it.
+EMBER:
+- typed with no model, "how are you" was SENT to Aethron's agent as a
+  request. act_fallback(): only words that read as work are sent; talk is
+  answered honestly ("I can't reach my AI. Check your internet.").
+- one 402/403 set CHAT.offline for the rest of the session (stock lines
+  forever); it now expires after 2 minutes. Filler lines after a failure
+  are replaced by the reason; a name/hello still works with no key.
+- LIVE VOICE CLAIMED WHAT IT DID NOT DO: the tool answered "ok: Ember is
+  doing it" before anything was pressed. Now a send/action tool call is
+  answered only when the window reports the outcome (POST
+  /api/ember/live/outcome, perform() records PF.done/PF.fail — "pressed
+  Publish; not live yet", "couldn't find the Publish button"); 25s with no
+  report = "NOT done: not known"; answers are told nothing in the app
+  changed. honest_say() replaces a typed-Ember line that claims finished
+  work ("done, it's published") with what is true before it happens.
+tests/offline_battery.py (14, in run_all); live selftest 30 -> 37; live
+battery 34 -> 35; bridge 39, ember 103, chat-ui, stall, guard, context,
+conversation, agency, life all green; cloud 41.
+OPEN: flame battery "with motion off the flame holds still" fails about 1
+run in 3 — ALSO on 1.1.131 main (228 px). Improved (mood lands at once,
+needs and flame shape step under reduce motion) but not closed: the flame
+outline still shifts by a pixel now and then. Next: find what still moves
+E.F.flame / E.tilt with motion off.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7776,6 +7827,11 @@ window's last save overwrote the file the test had just edited.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what
   really happened. What it presses for you, it presses where you can see it,
   and it never adds to what you asked.
+- A CONNECTION THAT CANNOT BE MADE IS SAID, NOT RETRIED IN SILENCE. And
+  nothing waits forever: every wait has a limit and ends with the reason.
+- A VOICE MAY ONLY REPORT WHAT THE SCREEN REPORTED. An action is "done" only
+  when the window says it happened; until then it is "trying".
+- A LIVE VIEW IS UPDATED, NEVER REPAINTED WHOLE on a timer.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.

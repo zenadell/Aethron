@@ -172,8 +172,9 @@ try:
         grab = """(()=>{const c=document.getElementById('ember-cv'),x=c.getContext('2d'),s=ember.state(),d=Math.min(2,devicePixelRatio||1);
           return Array.from(x.getImageData(Math.round((s.x-s.r*1.5)*d),Math.round((s.y-s.r*2.6)*d),Math.round(s.r*3*d),Math.round(s.r*2.05*d)).data)})()"""   # the fire above the face: eyes still look around
         for _ in range(6):   # a speech bubble coming or going over the flame is not the flame moving
-            b1 = q.evaluate("ember.state().bubble"); g1 = q.evaluate(grab); q.wait_for_timeout(700); g2 = q.evaluate(grab)
-            if not b1 and not q.evaluate("ember.state().bubble"): break
+            over = "ember.state().bubble||ember.life().want"   # a speech or wish bubble passing over is not the flame moving
+            b1 = q.evaluate(over); g1 = q.evaluate(grab); q.wait_for_timeout(700); g2 = q.evaluate(grab)
+            if not b1 and not q.evaluate(over): break
             q.wait_for_timeout(2500)
         diff = sum(1 for i in range(0, min(len(g1), len(g2)), 4) if abs(g1[i] - g2[i]) + abs(g1[i + 3] - g2[i + 3]) > 24)
         check("with motion off the flame holds still", diff < len(g1) // 4 * .01, f"{diff} of {len(g1)//4} pixels moved")

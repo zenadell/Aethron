@@ -283,7 +283,9 @@ def act_rules(att: str) -> str:
         f"\"action\": one of {json.dumps(list(ACTIONS) + ['none'])}, \"target\": "
         "string or null (the project name for open_project), \"say\": "
         "string (what you say out loud while you do it, at most 80 characters, "
-        "in character), \"plan\": [optional plan steps for answer], \"new\": [optional behaviours]}")
+        "in character; it is said BEFORE anything happens, so say what you are about "
+        "to try ('opening it', 'sending that to Aethron'), never that it is done; an "
+        "answer changes nothing in the app, so never claim one did), \"plan\": [optional plan steps for answer], \"new\": [optional behaviours]}")
 
 
 def _bare(text: str) -> str:
@@ -296,6 +298,28 @@ def _bare(text: str) -> str:
 def _action(name, target="", say=""):
     return {"kind": "action", "action": name, "target": target,
             "prompt": ACTION_WORDS.get(name, ""), "say": say}
+
+
+# A LINE IS SPOKEN BEFORE ANYTHING HAPPENS. A model writing "done, it's
+# published" in the same breath as the request has no way to know: the
+# window reports what really happened afterwards. A claim of finished work
+# is replaced with what is true at that moment.
+_CLAIM = re.compile(
+    r"\b(?:i(?:'ve| have)?\s+(?:just\s+|already\s+|now\s+)?(?:published|deployed|fixed|changed|updated|"
+    r"saved|sent|opened|built|rebuilt|deleted|removed|added|renamed|migrated|uploaded|launched|finished|completed)"
+    r"|(?:it'?s|it is|that'?s|all|everything'?s|site'?s|page'?s)\s+(?:now\s+)?(?:done|fixed|live|published|"
+    r"updated|changed|deployed|sorted|finished)|\bdone\b[.!]*$|^done\b)", re.I)
+
+
+def honest_say(kind: str, say: str) -> str:
+    say = str(say or "")
+    if not _CLAIM.search(say):
+        return say
+    if kind == "send":
+        return "sending that to Aethron."
+    if kind == "action":
+        return "on it."
+    return "I can't do that from here. Ask me to send it to Aethron."
 
 
 def act_local(text: str, projects=None, att: str = "sassy") -> dict:
@@ -340,6 +364,7 @@ def act_parse(text: str, heard: str, projects=None) -> dict:
     say = str(d.get("say") or "").strip()[:120]
     target = ""
     plan, new = _plan_from_dict(d)
+    say = honest_say("answer" if plan and kind != "action" else kind, say)
     if plan and kind != "action":
         kind = "answer"
     if kind == "action" and action == "none":
@@ -406,8 +431,32 @@ def act(text: str, state: str, att: str, call=None, projects=None) -> dict:
             learn(out["new"])
         return out
     except Exception as e:   # a misheard name or no provider configured
-        local.pop("unsure", None)
-        return dict(local, by="local", why=str(e)[:200])
+        return act_fallback(heard, projects, str(e), att)
+
+
+# WORK IS SENT, TALK IS ANSWERED. With no model to ask, the words used to
+# go to Aethron's agent as they were said, whatever they were: "how are you
+# doing today" was typed into the chat as a request, Ember said nothing,
+# and (offline) the chat then failed too. Without a model only something
+# that reads as work is handed on; anything else is answered here, honestly.
+_WORK = re.compile(
+    r"\b(?:change|make|add|remove|delete|replace|rename|fix|build|rebuild|migrate|create|update|edit|"
+    r"rewrite|write|translate|publish|deploy|upload|move|resize|recolou?r|hide|show me|swap|set|put|"
+    r"turn (?:the|this|it|my)|use (?:a|the|my)|generate|import|export|check|verify|test|port|convert|"
+    r"redesign|clone|copy)\b", re.I)
+
+
+def act_fallback(heard: str, projects=None, why: str = "", att: str = "sassy") -> dict:
+    local = act_local(heard, projects, att)
+    local.pop("unsure", None)
+    if local.get("kind") == "send" and not _WORK.search(heard or ""):
+        offline = bool(re.search(r"name or service|nodename|unreachable|refused|no connection|timed out|"
+                                 r"urlopen|errno|offline|network", why or "", re.I))
+        say = ("I can't think right now, I can't reach my AI. Check your internet."
+               if offline else "My head's not working right now. Try me again in a moment.")
+        local = {"kind": "answer", "action": "none", "target": "", "prompt": "", "say": say,
+                 "plan": [{"steps": [{"t": 0.4, "face": "sleepy"}, {"t": 1.2, "face": "calm"}]}]}
+    return dict(local, by="local", why=str(why or "")[:200])
 
 
 # ---------------------------------------------------------------- the mind
@@ -2048,7 +2097,7 @@ const beatEnv=b=>{const k=(now-b.t0)/b.d;return k<0||k>1?0:Math.sin(k*Math.PI)};
 function physio(dt){
   if(now-AFF.set>40){AFF.next-=dt;if(AFF.next<=0){AFF.next=rnd(7,24);const t=TEMPER(),v0=AFF.tv,a0=AFF.ta;AFF.tv=cl(t[0]+gauss()*.4,-1,1);AFF.ta=cl(t[1]+gauss()*.24+(N.energy-.6)*.35,0,1);
     if(Math.abs(AFF.tv-v0)+Math.abs(AFF.ta-a0)>.45)try{mindEvent('mood',{what:'a mood came over Ember for no reason: '+moodWord(AFF.tv,AFF.ta)})}catch(_){}}}
-  const k=Math.min(1,dt/3.5);AFF.v+=(AFF.tv-AFF.v)*k;AFF.a+=(AFF.ta-AFF.a)*k;
+  const k=REDUCE?1:Math.min(1,dt/3.5);AFF.v+=(AFF.tv-AFF.v)*k;AFF.a+=(AFF.ta-AFF.a)*k;   // with motion off a mood lands at once, then holds
   E.bph=(E.bph||0)+dt*(1.25+AFF.a*2.3)*(E.zz?.55:1);E.breath=REDUCE?0:Math.sin(E.bph);
   E.brow=Math.max(0,(E.brow||0)-dt*1.3);
   const tk=isTalking();J.lift+=((tk?1:0)-J.lift)*Math.min(1,dt*3);J.beats=J.beats.filter(b=>now-b.t0<b.d);
@@ -2267,7 +2316,7 @@ function lifeView(){const tr=traits(),h=hourNow(),tot=LIFE.hours.reduce((a,b)=>a
     your_nature:top.slice(0,2).map(x=>x[0]).join(' and ')+', not very '+top[top.length-1][0],
     favourite_spot:LIFE.fav?(LIFE.fav[0]<.4?'left':LIFE.fav[0]>.6?'right':'middle')+(LIFE.fav[1]<.45?' top':' bottom')+' of the window':'',
     shared_history:LIFE.journal.slice(-6).map(j=>ago(j.t)+': '+j.what)}}
-function drawWant(rr){let w=LIFE.want;if(cur_('sleep')){const i=Math.floor(now/2.8);w={k:['star','heart','play','flame'][i%4],t0:i*2.8,until:i*2.8+2.8,dream:1}}
+function drawWant(rr){let w=LIFE.want;if(cur_('sleep')){const i=Math.floor(now/2.8);w=REDUCE?{k:'sleep',t0:-1e9,until:1e9,dream:1}:{k:['star','heart','play','flame'][i%4],t0:i*2.8,until:i*2.8+2.8,dream:1}}   // with motion off a dream is one steady z
   if(!w||now>w.until||E.bubble||E.alpha<.5)return;const a=Math.min(1,(now-w.t0)/.25,(w.until-now)/.3)*(w.dream?.7:.95);if(a<=0)return;
   const bx=cl(E.x+rr*1.75,rr,W-rr),by=Math.max(rr,E.y-rr*(E.tipH*FIRE.cur.tall*.55+1.2)+(REDUCE?0:Math.sin(now*1.6)*2)),r=rr*.62,s=r*.52;X.save();X.globalAlpha=E.alpha*a;X.fillStyle='rgba(255,247,238,.95)';
   X.beginPath();X.arc(bx,by,r,0,7);X.fill();X.beginPath();X.arc(bx-r*.95,by+r*.95,r*.26,0,7);X.fill();X.beginPath();X.arc(bx-r*1.4,by+r*1.45,r*.14,0,7);X.fill();
@@ -2328,10 +2377,13 @@ const N={energy:.75,curiosity:.6,social:.35,boredom:.25,playfulness:.5,annoy:.05
 let driveSaveT=0;
 function bump(k,v){N[k]=cl((N[k]||0)+v,0,1)}
 function driveFx(f){if(!f||f.name==='asleep'||f.name==='dizzy')return f;
-  f.lidU=cl(f.lidU+(1-N.energy)*.14-N.curiosity*.05,0,1);
-  f.flame=cl(f.flame+(N.energy-.6)*.22+((N.playfulness||.5)-.5)*.15,.55,1.45);
-  f.bright=cl(f.bright+(N.energy-.6)*.12,.75,1.25);
-  f.mc=cl(f.mc+(N.fond-.3)*.18-N.annoy*.25,-1,1);
+  /* needs drift a little every frame; with motion off they act in steps of
+     a tenth, so the face and flame change now and then and hold between */
+  const q=REDUCE?(x=>Math.round((x||0)*10)/10):(x=>x||0),en=q(N.energy),cu=q(N.curiosity),pl=q(N.playfulness==null?.5:N.playfulness),fo=q(N.fond),an=q(N.annoy);
+  f.lidU=cl(f.lidU+(1-en)*.14-cu*.05,0,1);
+  f.flame=cl(f.flame+(en-.6)*.22+(pl-.5)*.15,.55,1.45);
+  f.bright=cl(f.bright+(en-.6)*.12,.75,1.25);
+  f.mc=cl(f.mc+(fo-.3)*.18-an*.25,-1,1);
   return f}
 const annoyed=()=>N.annoy>.55,idleFace=()=>ATT()==='sweet'?'neutral':(ATT()==='savage'?'unimpressed':'calm');
 /* a person needs time to read: about 13 characters a second, never under 3s */
@@ -2866,15 +2918,27 @@ function localReply(t){const w=localWish(t);if(w)return w;const l=t.toLowerCase(
   if(/tired|sleepy|exhausted|stress|sad|hard day/.test(l))return{say:L(["aw. take a little break? I'll keep watch.","okay. take a break. I've got this, go breathe.","okay real talk, take a break. I'll watch it."]),face:'content',gesture:'nod',mood:.2};
   if(/stupid|dumb|hate you|shut up|ugly/.test(l))return{say:L(["hey, that's not nice…",'wow. okay. noted.','bold words from someone who needs me.']),face:ATT()==='sweet'?'sad':'glare',gesture:'crossed',mood:-.6};
   if(/love|great|awesome|cool|nice|yay|thanks|thank you/.test(l))return{say:L(['yay! that makes my flame go big.',"I know. I'm great.",'obviously. took you long enough.']),face:ATT()==='sweet'?'joy':'smug',gesture:ATT()==='sweet'?'dance':'shades',mood:.4};
-  if(/\?$/.test(l))return{say:L(['good question! ask Aethron in the chat box.',"ask Aethron in the chat. I'm decorative.",'do I look like I know? ask Aethron.']),face:ATT()==='sweet'?'think':'unimpressed',gesture:'shrug',mood:0};
-  return{say:L(['ooh, tell me more!','huh. go on.','cool story. keep going.']),face:ATT()==='sweet'?'curious':'sideeye',gesture:'nod',mood:0}}
+  if(/\?$/.test(l))return{generic:1,say:L(['good question! ask Aethron in the chat box.',"ask Aethron in the chat. I'm decorative.",'do I look like I know? ask Aethron.']),face:ATT()==='sweet'?'think':'unimpressed',gesture:'shrug',mood:0};
+  return{generic:1,say:L(['ooh, tell me more!','huh. go on.','cool story. keep going.']),face:ATT()==='sweet'?'curious':'sideeye',gesture:'nod',mood:0}}
 async function send(){const t=tin.value.trim().slice(0,300);if(!t||CHAT.busy)return;tin.value='';CHAT.last=now;CHAT.ignored=0;
   CHAT.turns.push({role:'user',content:t});CHAT.busy=1;E.FT=face('think');say('',99,{dots:1});
   let r=null;
   /* a reply is never waited on forever: past 24s Ember answers in its own words */
+  if(CHAT.offline&&now-(CHAT.offlineT||0)>120)CHAT.offline=0;   // a refusal is not forever: ask again after 2 minutes
   if(!CHAT.offline){try{r=await Promise.race([(typeof api==='function'?api:post)('/api/ember/say',{turns:CHAT.turns.slice(-12),state:stateText(),attitude:ATT(),ai:CFG.ai,liveMode:CFG.liveMode}),
-      new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),24000))])}catch(e){r=null;const m=String(e&&e.message||'');if(/not configured|no key|save your key|402|403/i.test(m))CHAT.offline=1;if(m==='slow')CHAT.slow=(CHAT.slow||0)+1}}
-  if(!r||typeof r.say!=='string'||!r.say.trim())r=localReply(t);
+      new Promise((_,no)=>setTimeout(()=>no(new Error('slow')),24000))])}catch(e){r=null;const m=String(e&&e.message||'');CHAT.err=m;if(/not configured|no key|save your key|402|403/i.test(m)){CHAT.offline=1;CHAT.offlineT=now}if(m==='slow')CHAT.slow=(CHAT.slow||0)+1}}
+  /* NO MODEL, NO MAKE-BELIEVE. A wish Ember can do by itself is still
+     done; anything else gets the truth about why it cannot think, not a
+     filler line that reads as ignoring the person. */
+  if(!r||typeof r.say!=='string'||!r.say.trim()){r=localReply(t);
+    /* Ember's own small talk still works with no model (a name, a hello);
+       only the filler lines are replaced by the truth about why it cannot
+       think right now. With no key at all, the built-in talk is all there is. */
+    const m=String(CHAT.err||''),off=/name or service|nodename|unreachable|refused|network|offline|failed to fetch|errno|urlopen|no connection/i.test(m);
+    if(r.generic&&!CHAT.offline&&!/no api key|not configured|no key|save your key/i.test(m))
+      r=off?{say:"I can't reach my AI right now. Check your internet, then try me again.",face:'worried',gesture:'shrug',mood:0}
+       :m==='slow'?{say:"my AI is taking too long to answer. try me again in a moment.",face:'worried',gesture:'shrug',mood:0}
+       :m?{say:"my AI said no: "+m.slice(0,120),face:'worried',gesture:'shrug',mood:0}:r}
   else if(!Array.isArray(r.plan)||!r.plan.length){const w=localWish(t);if(w&&w.plan)r.plan=w.plan}
   CHAT.busy=0;const hasDo=Array.isArray(r.plan)&&r.plan.some(s=>s&&(s.do||s.steps||s.fx||s.hands||s.hop||s.spin||s.pose||s.face||s.go||s.wait));
   let g=r.gesture||'none';if(Array.isArray(r.plan)&&r.plan.some(s=>s&&s.glasses==='off')&&g==='shades')g='none';
@@ -2970,7 +3034,10 @@ function scroller(){let el=document.getElementById('chatlog');while(el&&el!==doc
   const m=document.querySelector('body>main');if(m){for(const el of m.querySelectorAll('*')){const cs=getComputedStyle(el);if(/auto|scroll/.test(cs.overflowY)&&el.scrollHeight>el.clientHeight+40&&el.clientHeight>200)return el}}
   return document.scrollingElement}
 function projectEl(name){for(const el of document.querySelectorAll('.pitem')){const n=el.querySelector('.pname');if(n&&n.textContent.trim()===name)return el}return null}
-const said=(t,d)=>{if(t&&running)say(t,d||0,{type:1})};
+const said=(t,d)=>{PF.last=t||PF.last;if(t&&running)say(t,d||0,{type:1})};
+/* WHAT PERFORM REALLY DID. Each outcome is a sentence that is only true
+   when it happened: the voice reports this, never its own guess. */
+const PF={last:'',done:'',fail:''};
 /* the app's own controls Ember can press for you */
 const CONTROLS={settings:'#setbtn',new_chat:'.newbtn',home:'.brand',preview:'button[onclick^="openPreviewPane(false)"],.pshot'};
 async function perform(r){if(!r||DRV.on)return false;
@@ -2981,29 +3048,31 @@ async function perform(r){if(!r||DRV.on)return false;
   try{
     const a=r.kind==='action'?r.action:'';
     if(a==='open_project'){
-      if(cur_===r.target){said(L([`you're already in ${r.target}`,`we're already in ${r.target}.`,`you're IN ${r.target}. look.`]));return true}
+      if(cur_===r.target){PF.done=`${r.target} was already open`;said(L([`you're already in ${r.target}`,`we're already in ${r.target}.`,`you're IN ${r.target}. look.`]));return true}
       const el=projectEl(r.target);if(!el){said(L([`I can't see ${r.target} in your list`,`no ${r.target} in the list.`,`${r.target}? not in the list.`]));return false}
       said(r.say||L([`opening ${r.target}`,`${r.target}. on it.`,`fine. ${r.target}.`]));
       el.scrollIntoView({block:'nearest',behavior:REDUCE?'auto':'smooth'});await sleep(REDUCE?60:420);
-      await press(el);CTX.last='Ember opened '+r.target;CTX.lastT=now;return true}
+      await press(el);PF.done='opened the project '+r.target;CTX.last='Ember opened '+r.target;CTX.lastT=now;return true}
     if(a==='scroll_down'||a==='scroll_up'){const sc=scroller(),sr=sc&&sc.getBoundingClientRect?rect(sc):null;
       if(sr&&running){go({x:cl(sr.r-R*2,R*2,W-R*2),y:sr.cy},{speed:1.1});await arrive(2400);if(mood){mood.pose='swat';E.pointDir=[0,a==='scroll_down'?-1:1]}}
       said(r.say);const h=(sc&&sc.clientHeight)||innerHeight;(sc||window).scrollBy({top:(a==='scroll_down'?1:-1)*h*.7,behavior:REDUCE?'auto':'smooth'});
-      if(running){E.q-=.3;await sleep(700)}return true}
+      PF.done=a==='scroll_down'?'scrolled down':'scrolled up';if(running){E.q-=.3;await sleep(700)}return true}
     if(CONTROLS[a]){const el=shown(CONTROLS[a]);if(!el){said(L(["I can't find that button right now","can't find it on this screen.","not on this screen. look again."]));return false}
-      said(r.say);await press(el);return true}
+      said(r.say);await press(el);PF.done='pressed '+a.replace(/_/g,' ');return true}
     if(a==='publish'){const b=shown('#pubrail');
       if(b){said(r.say);await press(b);await sleep(900);
-        const go_=shown('#pubov button[onclick^="pubGo"]');if(go_){await press(go_);CTX.last='Ember pressed Publish';CTX.lastT=now;return true}
+        const go_=shown('#pubov button[onclick^="pubGo"]');if(go_){await press(go_);PF.done='pressed Publish; the site is being published now, it is not live yet';CTX.last='Ember pressed Publish';CTX.lastT=now;return true}
+        PF.fail='opened the publish sheet, but it needs something from the person first, so nothing was published';
         said(L(['it needs one more thing from you first','your turn. it wants something first.','it wants something from you first. look.']));return true}
       if(!cur_){said(L(['open a project first, then I can publish it','open a project first.','publish what? open a project.']));return false}}
     if(a&&['undo','build','check','stop','status'].includes(a)&&!cur_){said(L(['open a project first','open a project first.',"which project? open one."]));return false}
     const ta=shown('#npurl');
     if(!ta){said(L(["I can't find the chat box","where's the chat box?","no chat box. where'd you put it."]));return false}
     said(r.say,2);
-    await typeInto(ta,r.prompt);if(V.cancel)return false;
+    await typeInto(ta,r.prompt);if(V.cancel){PF.fail='stopped before it was sent';return false}
     if(mood){mood.pose='point';mood.face=ATT()==='sweet'?'happy':'smug'}await sleep(REDUCE?40:420);
     const sb=shown('#sendbtn,button[onclick^="consoleSend"]');if(sb)await press(sb);else ta.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    PF.done='typed the request into the chat and sent it to Aethron\'s agent ("'+r.prompt.slice(0,120)+'"). The agent is working on it now; it is NOT finished yet';
     CTX.last='Ember sent: '+r.prompt.slice(0,80);CTX.lastT=now;return true
   }finally{DRV.on=0;setMood(null);if(running)go(SP.perch,{speed:.8})}}
 /* ===== talking live =====
@@ -3072,8 +3141,12 @@ function liveEvent(e){V.last=now;
   if(e.t==='audio'){if(!livePlaying()&&mood){mood.face=idleFace();mood.pose='rest'}livePlay(e.pcm,e.rate);V.state='speaking';return}
   if(e.t==='said'){LV.said=e.text||'';live(LV.said);return}
   if(e.t==='act'){LV.acts++;const r=e.r||{};CTX.last='Ember heard: '+(LV.heard||'').slice(0,80);CTX.lastT=now;
-    if(DESK&&r.kind!=='answer'){post('/api/ember/live/relay',{r}).catch(()=>{});return}
-    perform(Object.assign({},r,{say:''}));return}        // the live voice is Ember's line: nothing drawn over its caption
+    const call=e.id,sid=LV.id,tell=(done,detail)=>post('/api/ember/live/outcome',{id:sid,call,done,detail}).catch(()=>{});
+    if(r.kind==='answer'){perform(Object.assign({},r,{say:''}));return}
+    if(DESK){post('/api/ember/live/relay',{r}).then(()=>tell(true,'handed to the Aethron window to do')).catch(()=>tell(false,'the Aethron window could not be reached'));return}
+    if(DRV.on){tell(false,'Ember was still busy with the last thing');return}
+    PF.last='';PF.done='';PF.fail='';
+    perform(Object.assign({},r,{say:''})).then(ok=>tell(!!ok&&!PF.fail,(ok&&!PF.fail)?(PF.done||CTX.last||'done'):(PF.fail||PF.last||'it did not work'))).catch(err=>tell(false,String(err&&err.message||err).slice(0,160)));return}        // the live voice is Ember's line: nothing drawn over its caption
   if(e.t==='interrupted'){liveHush();LV.interrupts++;V.state='listening';if(mood){mood.pose='listen';mood.face=ATT()==='sweet'?'curious':'sideeye'}listenSay(LV.heard||'');return}
   if(e.t==='turn'){const h=String(e.heard||'').trim();if(h&&STOP_WORDS.test(h)){liveEnd('bye');return}
     setTimeout(()=>{if(LV.on&&!livePlaying()){V.state='listening';if(mood){mood.pose='listen'}listenSay('')}},Math.max(0,((LV.next-(LV.ctx?LV.ctx.currentTime:0))*1000)|0)+150);return}
@@ -3295,8 +3368,9 @@ function simulate(dt){const rr=R*E.r;physio(dt);
   const fl=REDUCE?0:(Math.sin(now*3.1)*.07+Math.sin(now*7.7)*.03);
   let draft=0;if(!REDUCE&&cur.x>=0&&now-cur.t<.35&&!cur.grab){const nd=Math.hypot(cur.x-E.x,cur.y-(E.y-R*E.r));if(nd<R*E.r*6)draft=cl((cur.vx||0)/2600,-.45,.45)*(1-nd/(R*E.r*6))}
   FIRE.draft+=(draft-FIRE.draft)*Math.min(1,dt*(Math.abs(draft)>Math.abs(FIRE.draft)?10:2.2));
-  const tipXT=cl(-E.vx/700+FIRE.draft,-.75,.75)+fl-E.tilt*.3;E.tipXv+=((tipXT-E.tipX)*90-E.tipXv*9)*dt;E.tipX+=E.tipXv*dt;
-  const ang=E.F.angry;const tipHT=1.85*E.F.flame*(1+cl(E.vy/1800,-.15,.25))+(REDUCE?0:Math.sin(now*(5.3+ang*9))*(.05+ang*.07));E.tipHv+=((tipHT-E.tipH)*80-E.tipHv*8)*dt;E.tipH+=E.tipHv*dt;
+  const stepR=REDUCE?(x=>Math.round(x*20)/20):(x=>x);   // with motion off the flame's shape changes in steps, never creeps
+  const tipXT=stepR(cl(-E.vx/700+FIRE.draft,-.75,.75)+fl-E.tilt*.3);E.tipXv+=((tipXT-E.tipX)*90-E.tipXv*9)*dt;E.tipX+=E.tipXv*dt;
+  const ang=E.F.angry;const tipHT=stepR(1.85*E.F.flame*(1+cl(E.vy/1800,-.15,.25))+(REDUCE?0:Math.sin(now*(5.3+ang*9))*(.05+ang*.07)));E.tipHv+=((tipHT-E.tipH)*80-E.tipHv*8)*dt;E.tipH+=E.tipHv*dt;
   for(let i=0;i<2;i++)E.side[i]+=((E.tipX*.7+(REDUCE?0:Math.sin(now*(4+i)+i*2)*.06))-E.side[i])*Math.min(1,dt*(4+i*2));
   E.r+=(E.rT-E.r)*Math.min(1,dt*5);E.alpha+=(E.alphaT-E.alpha)*Math.min(1,dt*5);
   const fk=Math.min(1,dt*(REDUCE?30:8));for(const k in F0)E.F[k]+=(E.FT[k]-E.F[k])*fk;

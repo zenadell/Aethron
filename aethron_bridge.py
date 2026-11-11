@@ -435,7 +435,9 @@ def _inflight(delta: int) -> None:
             TIMING["_busy_since"] = 0.0
         if not STATUS["inflight"]:
             n = STATUS["fails"]
-            if n:
+            if STATUS.get("offline"):
+                pass            # "offline" stays the truth between tries
+            elif n:
                 _status("retrying", f"The provider did not answer "
                         f"({n} tr{'y' if n == 1 else 'ies'} so far). "
                         f"Aethron is asking again.")
@@ -452,6 +454,61 @@ def _failed() -> None:
 def _answered() -> None:
     with _ST_LOCK:
         STATUS["fails"] = 0
+        STATUS["offline"] = 0
+
+
+# NO CONNECTION IS NOT A SLOW MODEL. A request that cannot even be made
+# (the address does not resolve, nothing answers on the port, the network
+# is down) used to come back as a 502, which the engine retries quietly
+# with back-off for minutes, while the screen read "retrying" as alive and
+# kept spinning. The person was never told the one thing that mattered:
+# their Mac is offline. A few quick tries ride out a blip; then the turn
+# ends with that sentence, in a status the engine does not retry.
+UNREACHABLE_TRIES = 3
+_NET_WORDS = ("nodename nor servname", "name or service not known",
+              "temporary failure in name resolution", "no address associated",
+              "network is unreachable", "no route to host", "connection refused",
+              "getaddrinfo failed", "network is down", "errno 8]", "errno -2]",
+              "errno -3]", "errno 51]", "errno 61]", "errno 65]", "errno 111]",
+              "errno 113]", "errno 11001]", "winerror 10061", "winerror 10065",
+              "winerror 10051")
+
+
+def unreachable(e) -> bool:
+    """True when the request could not reach the provider at all."""
+    import socket
+    r = getattr(e, "reason", e)
+    if isinstance(r, (socket.gaierror, ConnectionRefusedError)):
+        return True
+    t = f"{type(r).__name__}: {r} {e}".lower()
+    return any(w in t for w in _NET_WORDS)
+
+
+def _host_of(url: str) -> str:
+    try:
+        return urllib.parse.urlparse(url).hostname or url
+    except Exception:
+        return url
+
+
+def _unreached(base_url: str) -> str:
+    """Count a request that could not be made; the words to end the turn
+    with once it has happened UNREACHABLE_TRIES times in a row, else ""."""
+    host = _host_of(base_url)
+    with _ST_LOCK:
+        STATUS["offline"] = STATUS.get("offline", 0) + 1
+        n = STATUS["offline"]
+    _status("offline", f"Can't reach {host}. Is this computer online?")
+    if n < UNREACHABLE_TRIES:
+        return ""
+    # every request from here on gets the same answer, side calls included,
+    # or the one carrying the conversation keeps being retried; the count
+    # clears the moment anything gets through
+    with _ST_LOCK:
+        STATUS["fails"] = 0
+    return (f"No connection: Aethron can't reach {host}, so the model never "
+            f"got your message. Check your internet connection, then send it "
+            f"again. Nothing was changed.")
 
 
 def status() -> dict:
@@ -1479,6 +1536,10 @@ def _handler(cfg: BridgeConfig, log=None):
                 return self._error(429, f"upstream 429: {e}")
             except Exception as e:
                 _retry_not_repeat()
+                if unreachable(e):
+                    end = _unreached(cfg.base_url)
+                    if end:
+                        return self._error(400, end)
                 _failed()
                 return self._error(502, f"bridge could not reach "
                                         f"{cfg.base_url}: {e}")
@@ -1498,6 +1559,10 @@ def _handler(cfg: BridgeConfig, log=None):
                 return self._error(429, f"upstream 429: {e}")
             except Exception as e:
                 _retry_not_repeat()
+                if unreachable(e):
+                    end = _unreached(cfg.base_url)
+                    if end:
+                        return self._error(400, end)
                 _failed()
                 return self._error(502, f"bridge could not reach "
                                         f"{cfg.base_url}: {e}")
