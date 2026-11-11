@@ -110,10 +110,16 @@ jobs:
             if [ "$code" -ge 300 ]; then cat /tmp/out.json; echo "::warning::Could not update the sign-in settings ($code) — add the addresses above by hand."; fi
           fi
 
-      - uses: supabase/setup-cli@v1
+      # Installed from npm into a local folder: supabase/setup-cli asks
+      # GitHub's API for "latest", which is rate-limited for shared runners
+      # and failed the deploy of #129 in 19 seconds. Held at major 2: 3.x
+      # replaced --project-ref (used below) with --remote=.
+      - name: Install the Supabase CLI
         if: steps.have.outputs.ok == 'true'
-        with:
-          version: latest
+        run: |
+          for i in 1 2 3; do npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/sb" supabase@2 && break; sleep $((i*10)); done
+          echo "$RUNNER_TEMP/sb/node_modules/.bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/sb/node_modules/.bin/supabase" --version
 
       - name: Set the function's secrets
         if: steps.have.outputs.ok == 'true'
