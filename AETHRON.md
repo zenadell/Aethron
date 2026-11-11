@@ -7411,7 +7411,11 @@ orange gradient. Now (EMBER_JS "kinds of flame" + flamePath):
   thinking, a running job), flares when a check passes or a site goes
   live, sputters with smoke when something breaks.
 - What's New card "Ember is real fire now" (art: five little flames).
-Tests: tests/flame_battery.py (31; every kind drawn and told apart by
+- A POINTER SWEPT PAST bends the flame like a draft (cursor speed near
+  Ember, fast to catch, slow to settle; off with reduced motion). Smoke
+  is a soft radial puff: the old flat disc read as a grey balloon over a
+  light window (desktop Ember sits over light apps — render there too).
+Tests: tests/flame_battery.py (33; every kind drawn and told apart by
 its PIXELS, a change blends then arrives, mood follows the face, a
 spoken wish is kept across a reload, the mind cannot take the person's
 choice, menu, Settings swatches, another window follows, an unknown kind
