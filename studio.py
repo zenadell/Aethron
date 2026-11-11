@@ -2193,6 +2193,12 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"life": json.loads((HOME / "ember_life.json").read_text())})
                 except Exception:
                     return self.send_json({"life": None})
+            if u.path == "/api/ember/weather":
+                # the real weather where this computer is (its time zone's city), for Ember to feel
+                try:
+                    return self.send_json(_ember.weather((q.get("tz") or [""])[0]) if _ember else {"ok": False})
+                except Exception:
+                    return self.send_json({"ok": False})
             if u.path == "/api/ember/behaviors":
                 return self.send_json({"behaviors": _ember.behaviours() if _ember else []})
             if u.path == "/api/ember/settings":
@@ -17179,6 +17185,8 @@ function emberCard(){
     <div class="kv"><span>Attitude</span><b class="rowbtns">${seg('att',atts)}</b></div>
     <div class="kv"><span>What Ember may do</span><b class="rowbtns">${seg('agency',[['ask','Only suggest'],['safe','Safe things itself'],['all','Everything it can']])}</b></div>
     <div class="hint">Ember watches what Aethron is doing and helps. <b>Safe things itself</b>: it downloads updates as soon as they are out and asks before restarting, answering, retrying or fixing anything. <b>Everything it can</b>: it also retries a stopped migration once, heals edits that did not land, and restarts for an update while you are away and nothing is running. It never publishes, unpublishes, deletes or undoes by itself.</div>
+    <div class="kv"><span>Feels the real weather</span><b class="rowbtns">${seg('weather',[['on','On'],['off','Off']])}</b></div>
+    <div class="hint">Ember shivers when it is cold where you are, drinks iced coffee when it is hot, flies a kite only if there is wind. For that, the city of this computer's time zone (nothing else) is sent to the Open-Meteo weather service. Off: Ember does not feel the weather at all.</div>
     <div class="kv"><span>Tell me when I'm elsewhere</span><b class="rowbtns">${seg('notify',[['on','On'],['off','Off']])}</b></div>
     <div class="hint">When Aethron is hidden or another app is in front, what Ember would offer also comes as one system notification. Clicking it brings Aethron back, with the offer waiting. Never more than a few an hour.</div>
     <div class="kv"><span>Mind AI</span><b class="rowbtns">${seg('ai',[['auto','Auto'],['gemini','Gemini'],['groq','Groq']])}</b></div>

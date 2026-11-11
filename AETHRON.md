@@ -7519,6 +7519,38 @@ needs and flame shape step under reduce motion) but not closed: the flame
 outline still shifts by a pixel now and then. Next: find what still moves
 E.F.flame / E.tilt with motion off.
 
+## EMBER HAS A DAY OF ITS OWN — things it does, the real weather, its own voice — 2026-11-11
+Owner: Ember still feels like a robot; wanted a hoop ("wheelie"), an idea
+bulb, chit-chat it starts, headset music, dancing, coffee by the REAL weather,
+shades/aura, a notebook, a laptop, a kite and toys, shivering when really
+cold, fishing that can fail, snacks, a flower field, a sparkler, celebrating,
+the SIU, flirting; speech like a creature, not Gemini; and to know who made it.
+- EMBER_JS "things it does": THINGS (23 builders, each generates its steps
+  fresh: durations, hand, outcome). A step may carry `prop` (PROP, cleared
+  when the sequence ends); drawBack / wear (body space: scarf, headset) /
+  drawProps. Each is an IMPULSE with an urge from real state (thingUrges:
+  energy -> coffee, N.hunger -> snack, cold() -> shiver, boredom -> toy/fish,
+  a win -> party, typing -> headset/laptop, vain -> aura, bond -> flirt) and a
+  cooldown; the mind picks any with {"do": name} (THINGS / THING_ALIAS /
+  THING_DOC in Python; note takes "text"). They never speak.
+- REAL WEATHER: /api/ember/weather?tz= -> aethron_ember.weather(): Open-Meteo
+  (no key), only the time zone's city is sent, cached 30 min in
+  HOME/ember_weather.json, fetched in a thread (first answer "pending").
+  No reading = Ember feels nothing and its mind is told not to mention
+  weather. Settings -> Companion -> Feels the real weather. Iced coffee at
+  feels >= 28, shiver + scarf (WARM.until) at <= 13, kite needs wind >= 7.
+- LIFE gained notes / fish / misses; the notebook holds true lines (ownNote)
+  or the mind's text; right-click -> Read Ember's notebook. DID = what it just
+  did, given to the mind (PERCEPTION.your_day) and the chat STATE.
+- VOICE: SOUL + LORE (Aethron by Jomiez, founded and led by Tim; Chaka) go
+  into rules(), act_rules() (also the live voice) and mind_rules(). deai()
+  removes help-desk sentences ("how can I help", "what are you working on")
+  from typed replies and the mind's say/ask; an emptied line is not said.
+  Sincerely asked, Ember says an AI does its thinking; it never names a vendor.
+- The bulb also lights whenever a real thought arrives (E.bulbT).
+tests/things_battery.py (in run_all). NOT PROVEN: live model output in the new
+voice (no key here); the live VOICE cannot be filtered, only instructed.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
