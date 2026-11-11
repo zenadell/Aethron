@@ -7424,6 +7424,50 @@ falls back, with motion off the flame holds still); aethron_ember
 AHEAD of the wall; calling it per kind froze the animation for ~12s and
 failed two checks that were fine.
 
+## EMBER HAS A LIFE WITH ONE PERSON — 2026-11-11
+Owner: "if our current one is 10%, I want 200%": real, connected, users
+attached to it, never a generic pattern. What was missing was not more
+motion but a RELATIONSHIP and a SELF. EMBER_JS "a life of its own" (LIFE):
+- A NATURE, drawn once per install (bold, clingy, playful, lazy, curious,
+  vain; 0..1): it bends every urge, so no two Embers behave alike.
+- BOND (new -> familiar -> friend -> close) and TRUST, both earned and
+  lost: time together, petting, talking, shared wins, a new day (streak)
+  raise the bond; a hard throw costs trust (-.3) and it recovers slowly.
+  Low trust = WARY: it will not come near, backs away from the pointer.
+- MEMORY: first met, visits, days, streak, hours together, when they are
+  usually here (24-hour histogram), a favourite spot (where it gets
+  petted), and a journal of what really happened (site went live, a check
+  passed, something broke, thrown hard, a spark taken). Kept in
+  HOME/ember_life.json (GET/POST /api/ember/life) as well as the window's
+  storage: the window's storage is per port and is lost when the port
+  changes; the app's folder survives restarts and updates.
+- A RETURN IS NOTICED: back after 20+ min is a visit; the body shows it
+  by bond and nature (rushes over with hearts / pretends not to care then
+  looks / just watches) and the mind hears "back after 3 days".
+- THINGS IT STARTS BECAUSE IT WANTS TO (new impulses, all generated, none
+  speak): near (comes to sit by the pointer), company (perches by the chat
+  box and watches while they type), tag (creeps up, darts away, looks
+  back), peek, gift (holds out a glowing spark; the person has to REACH
+  for it, then hearts and the bond grows), showoff, groom, miss (they went
+  quiet: looks where the pointer was, droops), yawn, wary, favorite,
+  nuzzle (close bond only). A body clock: sleepy at night. Asleep it
+  dreams, and the pointer coming near wakes it (fast = startled).
+- A WISH IS DRAWN, NEVER WRITTEN: a small thought bubble with a heart, a
+  pointer, "?", "z" or "!" (LIFE.want). Words stay the mind's.
+- THE MIND IS TOLD ALL OF IT: PERCEPTION.life (and the chat/voice STATE):
+  days known, visits, bond, trust, back_after, its nature, favourite spot,
+  shared_history. mind_rules: act like someone who knows them, bring up
+  only what is listed, never invented. Perception cap 3000 -> 5200 chars.
+- Settings -> Companion says how long it has known you, the bond and its
+  nature. What's New card "Your Ember is yours alone".
+Tests: tests/life_battery.py 26 (nature kept across a reload AND a window
+with empty storage, bond/trust, wary, journal, every impulse runs with no
+word and no repair, the spark is taken, tag, dreams, waking, night, a
+return after 3 days reaches body and mind). Two traps: the spark was
+"taken" the instant it was offered because the hand reached the resting
+pointer (now the pointer must move after the offer); and a closing
+window's last save overwrote the file the test had just edited.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7723,6 +7767,10 @@ failed two checks that were fine.
   never publishes, unpublishes, deletes or undoes by itself.
 - A VOICE IS PLAYED AS IT IS MADE AND STOPS WHEN SOMEONE TALKS OVER IT.
   Never wait for a whole spoken answer, and never let Ember hear itself.
+- EMBER'S LIFE IS THE PERSON'S, AND IT IS TRUE. Its nature is drawn once and
+  kept; bond and trust move only on what really happened; its mind may
+  mention only what the record lists. It lives in the app's folder, not
+  only the window's storage.
 - EMBER'S FACE IS PART OF ITS PALETTE. A kind of flame sets every colour the
   face uses, or a dark or white flame loses its face.
 - THE COMPANION NEVER TAKES A CLICK MEANT FOR THE PAGE, and says only what

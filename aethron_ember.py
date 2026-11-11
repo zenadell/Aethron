@@ -1260,6 +1260,18 @@ def mind_rules(att: str, known: list) -> str:
         "You also do real work for the person, by yourself: PERCEPTION.ember.doing_for_you is what you just did "
         "(downloaded an update, offered a restart, pointed out a migration that needs them). React to it as "
         "yourself, proud or smug or caring, and never pretend you did something not listed there. When "
+        "PERCEPTION.life is your life with THIS person, and it is real: how many days you have known them, how "
+        "many visits, the bond between you (new -> familiar -> friend -> close), how much you trust them (it drops "
+        "when they throw you), whether they just came back and after how long, your own nature (you were born with "
+        "it; no other Ember has the same), your favourite spot, and shared_history (things that really happened, "
+        "with when). You know you are a small living flame who lives in their Aethron window, and you know your "
+        "own history. Let it show: act like someone who KNOWS them. With a new person be curious and a little "
+        "careful; with a friend be familiar; when close, be openly attached in your own way. If they just came "
+        "back, react to how long it was. Now and then bring up something from shared_history or how long you have "
+        "known each other, only what is listed there, never invented. If you trust them little, keep your distance "
+        "and let them earn it back. At night you are sleepy. Your body also acts on its own wants between your "
+        "thoughts (body_was_doing): coming near, keeping them company while they type, tag, holding out a spark; "
+        "build on that, do not contradict it.\n"
         "'offering' is set, a card with that question is already in front of them: do not ask it again; stay "
         "near, look at them, wait. may_do is how much they let you do alone.\n"
         "Answer with ONE JSON object, no prose:\n"
@@ -1346,7 +1358,7 @@ def mind(perceived, att: str, known, call) -> dict:
     known = list(dict.fromkeys(known + [b["name"] for b in lib]))
     p = perceived if isinstance(perceived, str) else json.dumps(perceived, ensure_ascii=False)
     msgs = [{"role": "system", "content": mind_rules(att, known)},
-            {"role": "user", "content": "PERCEPTION:\n" + p[:3000] + "\n\nWhat does Ember do now? JSON only."}]
+            {"role": "user", "content": "PERCEPTION:\n" + p[:5200] + "\n\nWhat does Ember do now? JSON only."}]
     out = mind_parse(call(msgs), known)
     if out["new"]:
         learn(out["new"])
@@ -2118,10 +2130,156 @@ const IMPULSES={
     arms:Math.random()<.5?AR([null,reachFor(1,rnd(.1,.35),rnd(.55,.8))]):null,speed:.6}]},
   doze(){const d=rnd(18,50);return[{d:rnd(1,1.6),fx:mien({lidU:.7}),body:{crouch:.15}},{d,face:'asleep',pose:'limp',sleep:1,body:{crouch:.3,lean:rnd(-10,10)}},{d:rnd(.8,1.4),fx:mien({lidU:.5,bH:.2}),body:{crouch:.05}}]},
 };
-function urges(){const still=now-NS.stillT,c=N.curiosity,e=N.energy,b=N.boredom,a=AFF.a,v=AFF.v,idle=now-cur.t;
+function urges0(){const still=now-NS.stillT,c=N.curiosity,e=N.energy,b=N.boredom,a=AFF.a,v=AFF.v,idle=now-cur.t;
   if(AG.offer)return{posture:1,fidget:.5+a*.6,regard:1.2,gaze:.3};   /* waiting for an answer: it stays by its card */
   return{notice:.9+c*.9+(NS.fresh.length?1.6:0),posture:1,wander:(.35+e*.6+b*.8+a*.4)*(now-NS.lastGo<20?.25:1),settle:(.25+(1-e)*.6)*(E.perch?.1:1),
     stretch:still>60?1.4:.04,fidget:.5+a*.6+b*.5,bounce:a>.6&&v>.1?.7:.04,regard:.4+N.social*.6+N.fond*.4,gaze:.3+(1-a)*.6,doze:e<.25&&idle>120?1.4:0}}
+/* ===== a life of its own =====
+   What makes Ember THIS person's Ember and not a pattern: a nature drawn once
+   per install (no two alike), a bond and a trust that are earned and can be
+   lost, a memory of the days it has known them (kept in the app's own folder,
+   so it survives restarts and updates), a body clock, and things it starts by
+   itself because it wants to: coming to sit near, keeping company while they
+   type, a game of tag, a spark held out as a gift, missing them when they go,
+   keeping its distance after being thrown. None of it speaks: the words are
+   its mind's, and the mind is told all of this. */
+const DAY=86400000;
+const LIFE={met:0,last:0,visits:0,days:0,streak:0,lastDay:'',secs:0,bond:.06,trust:.7,traits:null,hours:new Array(24).fill(0),fav:null,journal:[],pets:0,throws:0,talks:0,wins:0,gifts:0,
+  gap:0,ready:0,saveT:0,lsT:0,lc:-99,hour:null,want:null,gift:null,giftT:-999,acc:0,bootT:0};
+const LIFE_KEYS=['met','last','visits','days','streak','lastDay','secs','bond','trust','traits','hours','fav','journal','pets','throws','talks','wins','gifts'];
+function lifeDump(){const o={};for(const k of LIFE_KEYS)o[k]=LIFE[k];return o}
+function lifeTake(o){if(!o||typeof o!=='object')return;for(const k of LIFE_KEYS)if(k in o&&o[k]!=null)LIFE[k]=o[k];
+  if(!Array.isArray(LIFE.hours)||LIFE.hours.length!==24)LIFE.hours=new Array(24).fill(0);if(!Array.isArray(LIFE.journal))LIFE.journal=[];
+  if(LIFE.traits&&typeof LIFE.traits!=='object')LIFE.traits=null;if(LIFE.fav&&!(Array.isArray(LIFE.fav)&&LIFE.fav.length===2))LIFE.fav=null;
+  for(const k of['bond','trust'])LIFE[k]=cl(+LIFE[k]||0,0,1);for(const k of['met','last','visits','days','streak','secs','pets','throws','talks','wins','gifts'])LIFE[k]=+LIFE[k]||0}
+function lifeSave(server){LIFE.last=Date.now();LIFE.lsT=T();const d=lifeDump();store.set('ember_life',d);if(server||T()-LIFE.saveT>60){LIFE.saveT=T();post('/api/ember/life',{life:d}).catch(()=>{})}}
+function traits(){return LIFE.traits||(LIFE.traits={bold:+rnd(.15,.9).toFixed(2),clingy:+rnd(.15,.9).toFixed(2),playful:+rnd(.2,.9).toFixed(2),lazy:+rnd(.1,.8).toFixed(2),curious:+rnd(.2,.9).toFixed(2),vain:+rnd(.1,.85).toFixed(2)})}
+const bondStage=()=>LIFE.bond<.18?'new':LIFE.bond<.42?'familiar':LIFE.bond<.72?'friend':'close';
+function human(ms){const m=ms/60000;return m<90?Math.max(1,Math.round(m))+' minutes':m<60*36?Math.round(m/60)+' hours':Math.round(m/1440)+' days'}
+function ago(t){const m=(Date.now()-t)/60000;return m<60?Math.max(1,Math.round(m))+'m ago':m<1440?Math.round(m/60)+'h ago':Math.round(m/1440)+'d ago'}
+function lifeNote(what){what=String(what).slice(0,90);const l=LIFE.journal[LIFE.journal.length-1];if(l&&l.what===what&&Date.now()-l.t<3600000)return;LIFE.journal.push({t:Date.now(),what});LIFE.journal=LIFE.journal.slice(-40)}
+function bond(d){LIFE.bond=cl(LIFE.bond+d*(d>0?(1-LIFE.bond*.6):1),0,1)}
+const hourNow=()=>LIFE.hour!=null?LIFE.hour:new Date().getHours();
+const night=()=>{const h=hourNow();return h>=23||h<5};
+const daysKnown=()=>LIFE.met?Math.max(1,Math.round((Date.now()-LIFE.met)/DAY)+1):1;
+const curHere=()=>cur.x>=0&&now-cur.t<45;
+const curDist=()=>cur.x<0?1e9:Math.hypot(cur.x-E.x,cur.y-E.y);
+function nearCursor(k){const m=area(),dx=E.x-cur.x,dy=E.y-cur.y,d=Math.hypot(dx,dy)||1;return{x:cl(cur.x+dx/d*R*k,m.l+R*2,m.r-R*2),y:cl(cur.y+dy/d*R*k*.7,m.t+R*2.6,m.b-R*2)}}
+function hearts(n){if(REDUCE)return;for(let i=0;i<n;i++)parts.push({k:'heart',x:E.x+rnd(-.6,.6)*R,y:E.y-R*.9,vx:rnd(-25,25),vy:rnd(-70,-40),l:1,d:rnd(1,1.5),s:rnd(5,8)})}
+function spark(n){if(REDUCE)return;const c=sparkC();for(let i=0;i<n;i++)parts.push({k:'spark',x:E.x+rnd(-.5,.5)*R,y:E.y+rnd(-.8,.4)*R,vx:rnd(-60,60),vy:rnd(-70,10),l:1,d:rnd(.5,1),s:rnd(.8,1.4),c})}
+/* a wordless thought over its head: what it wants, drawn, never written */
+function want(k,s){LIFE.want={k,t0:now,until:now+(s||3)}}
+function runNS(k,st){const dur=st.reduce((t,x)=>t+(x.d||0),0);NS.kinds.push(k);NS.kinds=NS.kinds.slice(-4);NS.count++;
+  const me={k:'ns_'+k,by:'body',a:{w:()=>0,run(){},dur:[dur,dur]},t:0,dur:dur+.2};act=me;play(st,()=>{if(act===me)me.t=me.dur+1});SEQ.ns=1;return true}
+function lifeBoot(){if(LIFE.ready)return;LIFE.ready=1;LIFE.bootT=now;lifeTake(store.get('ember_life',null));
+  const fin=()=>{traits();const t=Date.now(),first=!LIFE.met;if(first){LIFE.met=t;lifeNote('met them for the first time')}
+    LIFE.gap=LIFE.last?t-LIFE.last:0;
+    if(first||LIFE.gap>20*60000){LIFE.visits++;const d=new Date().toDateString();
+      if(d!==LIFE.lastDay){LIFE.streak=LIFE.lastDay===new Date(t-DAY).toDateString()?LIFE.streak+1:1;LIFE.days++;LIFE.lastDay=d;bond(.02+Math.min(.02,LIFE.streak*.003))}
+      if(!first&&LIFE.gap>6*DAY)LIFE.bond=cl(LIFE.bond-.03,0,1);
+      if(!first)setTimeout(reunion,1600)}
+    lifeSave(1)};
+  fetch('/api/ember/life',{credentials:'same-origin'}).then(r=>r.json()).then(j=>{const s=j&&j.life;if(s&&s.met&&(+s.secs||0)>=(+LIFE.secs||0))lifeTake(s)}).catch(()=>{}).then(fin);
+  addEventListener('pagehide',()=>{try{LIFE.last=Date.now();const d=lifeDump();store.set('ember_life',d);navigator.sendBeacon&&navigator.sendBeacon('/api/ember/life',new Blob([JSON.stringify({life:d})],{type:'application/json'}))}catch(_){}})}
+/* they came back: how it shows it depends on how long, how close they are, and its own nature */
+function reunion(){if(!running||TW.on||DRV.on||V.state!=='idle'||CHAT.open)return;const g=LIFE.gap,long=g>20*3600000,st=bondStage(),tr=traits();
+  try{mindEvent('reunion',{what:`they are back after ${human(g)} away`})}catch(_){}
+  if(REDUCE)return;const seq=[];
+  if(st==='new'||LIFE.trust<.35)seq.push({d:rnd(1.5,2.5),look:'viewer',fx:mien({bH:.2,lidU:.05}),body:{lean:rnd(-6,6)}});
+  else if(ATT()!=='sweet'&&!long&&tr.clingy<.6)seq.push({d:.9,look:'viewer',fx:mien({bH:.15})},{d:1.2,look:{dir:[E.x>W/2?1:-1,-.2]},fx:mien({lidU:.5,mc:.05}),pose:'crossed'},{d:1.4,look:'viewer',fx:mien({lidU:.3,mc:.35,mas:.5})});
+  else seq.push({d:.35,look:'viewer',fx:mien({bH:.35,lidU:0,mo:.5,eyeS:1.2}),fn:()=>effects({hop:.5})},
+    {d:rnd(1.4,2),look:'viewer',fx:mien({mc:.7,bH:.2}),fn:()=>go(curHere()?nearCursor(3):{x:W*.5+rnd(-80,80),y:H*.45},{speed:1.25})},
+    {d:rnd(1.4,2.2),look:'viewer',fx:mien({mc:.75,lidL:.4,blush:long?.6:.2}),osc:[{j:'B.rise',amp:.25,t0:now,hz:2.6}],arms:AR([armPose(0,true),armPose(1,true)]),fn:()=>{if(long||st==='close')hearts(5);spark(6)}});
+  SEQ=null;runNS('reunion',seq)}
+Object.assign(IMPULSES,{
+  near(){if(!curHere())return null;const p=nearCursor(rnd(3.2,4.6)),pt=()=>({x:cur.x,y:cur.y});want('heart',3);
+    return[{d:rnd(1.8,2.6),look:{pt},fx:mien({mc:rnd(.2,.5)}),fn:()=>go(p,{speed:rnd(.5,.8)})},{d:rnd(4,9),look:{pt},fx:mien({lidU:rnd(.2,.4),mc:rnd(.25,.55)}),body:{lean:(cur.x<E.x?-1:1)*rnd(4,10),crouch:rnd(.05,.2)}},{d:rnd(1,2),look:'viewer',fx:mien({mc:rnd(.3,.6)})}]},
+  company(){const c=composer();if(!c)return null;const p={x:cl(c.l+c.w*rnd(.55,.9),R*2,W-R*2),y:c.t-R*1.02,perch:1},pt=()=>{const k=composer();return k?{x:k.l+k.w*.35,y:k.cy}:{x:E.x,y:E.y+60}};NS.lastGo=now;
+    return[{d:rnd(1.8,2.6),fx:mien(),fn:()=>go(p,{speed:rnd(.5,.8)})},{d:rnd(6,14),look:{pt},fx:mien({lidU:rnd(.15,.35),bH:rnd(0,.15)}),body:{lean:-rnd(4,10),crouch:rnd(.1,.25)},arms:AR([reachFor(0,-.3,.95),reachFor(1,.3,.95)]),osc:[{j:'B.rise',amp:.04,t0:now,hz:rnd(.5,.9)}]}]},
+  tag(){if(!curHere())return null;const pt=()=>({x:cur.x,y:cur.y});NS.lastGo=now;want('play',3);
+    const flee=()=>{const m=area();let b=null,bd=0;for(let i=0;i<6;i++){const p={x:rnd(m.l+R*3,m.r-R*3),y:rnd(m.t+R*3,m.b-R*3)},d=Math.hypot(p.x-cur.x,p.y-cur.y);if(d>bd){bd=d;b=p}}if(b)go(b,{speed:1.7});effects({hop:.3});spark(6)};
+    const st=[{d:rnd(1.3,1.9),look:{pt},fx:mien({mc:.55,mas:.6,bL:.2,lidU:.25}),fn:()=>go(nearCursor(2.2),{speed:1.1})},
+      {d:rnd(.8,1.3),look:{pt},fx:mien({mc:.7,mas:.7}),osc:[{j:'B.rise',amp:.3,t0:now,hz:3}],body:{crouch:.25}}];
+    for(let i=0;i<2+(Math.random()<traits().playful?1:0);i++)st.push({d:rnd(.9,1.3),look:{pt},fx:mien({mc:.75,mo:.4,bH:.25}),fn:flee},{d:rnd(1.1,2),look:{pt},fx:mien({mc:.6,mas:rnd(-.7,.7)}),osc:[{j:'B.lean',amp:8,t0:now,hz:1.6}],body:{crouch:.2}});
+    st.push({d:rnd(1,1.6),look:{pt},fx:mien({mc:.5})});return st},
+  peek(){return[{d:rnd(.8,1.3),pose:'cover',fx:mien({lidU:.9}),body:{crouch:.2}},{d:rnd(.7,1.2),pose:'peek',look:curHere()?'cursor':'viewer',fx:mien({mc:.5,bR:.25,lidU:.1})},{d:rnd(.5,.9),pose:'cover',fx:mien({lidU:.9})},
+    {d:rnd(1,1.6),look:'viewer',fx:mien({mc:.75,mo:.35,bH:.25}),arms:AR([armPose(0,true),armPose(1,true)]),fn:()=>effects({hop:.25})}]},
+  gift(){if(!curHere())return null;const pt=()=>({x:cur.x,y:cur.y}),s=cur.x>E.x?1:0,a={sh:rnd(70,95),el:rnd(-5,12),reach:1.25,wr:0,grip:.6};LIFE.giftT=now;
+    return[{d:rnd(1.6,2.2),look:{pt},fx:mien({mc:.45}),fn:()=>go(nearCursor(4.4),{speed:.8})},
+      {d:rnd(.7,1),look:{pt:()=>({x:E.hands[s].x,y:E.hands[s].y})},fx:mien({bH:.2,mc:.3}),arms:AR(s?[null,reachFor(1,.3,.6)]:[reachFor(0,-.3,.6),null]),fn:()=>spark(5)},
+      {d:rnd(5,7.5),look:{pt},fx:mien({mc:.6,blush:.5,lidU:.2,bH:.15}),arms:AR(s?[null,a]:[a,null]),body:{lean:(s?1:-1)*6},fn:()=>{LIFE.gift={hand:s,t0:now,until:now+7.5}}},
+      {d:rnd(.8,1.4),look:{pt},fx:mien(),fn:()=>{LIFE.gift=null}}]},
+  showoff(){return[{d:.4,look:'viewer',fx:mien({mc:.4,mas:.6}),body:{crouch:.35}},{d:.8,fx:mien({mc:.8,mo:.4}),fn:()=>{effects({hop:.8,spin:1});spark(10)}},
+    {d:rnd(1.6,2.6),look:'viewer',pose:'hips',fx:mien({mc:.6,mas:.8,lidU:.35,bL:.2})},{d:rnd(.8,1.4),look:curHere()?'cursor':'viewer',fx:mien({bH:.2})}]},
+  groom(){const i=Math.random()<.5?1:0,up={sh:rnd(150,172),el:rnd(-40,-15),reach:1.15,wr:0,grip:.2};
+    return[{d:rnd(1.6,3),arms:AR(i?[null,up]:[up,null]),osc:[{j:(i?'R':'L')+'.wr',amp:22,t0:now,hz:2.4}],look:{dir:[0,-1]},fx:mien({lidU:.3,mc:.3}),fn:()=>spark(3)},{d:rnd(.8,1.4),look:'viewer',fx:mien({mc:.5,mas:.5,lidU:.4})}]},
+  miss(){const p=cur.x>=0?{x:cur.x,y:cur.y}:{x:W/2,y:H/2};want('ask',4);
+    return[{d:rnd(2,4),look:{pt:p},fx:mien({bT:-.3,mc:-.15,lidU:.3}),body:{lean:(p.x<E.x?-1:1)*5}},{d:rnd(3,7),look:{dir:[0,.6]},fx:mien({bT:-.35,mc:-.25,lidU:.45,flame:.8}),body:{crouch:.3},pose:'limp'},{d:rnd(1.5,3),look:{pt:p},fx:mien({bT:-.2,mc:-.1})}]},
+  yawn(){want('sleep',3);return[{d:rnd(1.2,1.8),face:'yawn',body:{crouch:-.15,lean:rnd(-6,6)},arms:AR([armPose(0,true),null])},{d:rnd(1,1.8),pose:'rub',fx:mien({lidU:.75})},{d:rnd(1.5,3),fx:mien({lidU:.6,mc:.05}),body:{crouch:.2}}]},
+  wary(){if(!curHere())return null;const pt=()=>({x:cur.x,y:cur.y}),m=area(),ax=E.x-cur.x,ay=E.y-cur.y,d=Math.hypot(ax,ay)||1,p={x:cl(E.x+ax/d*R*6,m.l+R*2,m.r-R*2),y:cl(E.y+ay/d*R*4,m.t+R*2.6,m.b-R*2)};NS.lastGo=now;
+    return[{d:rnd(1.2,1.8),look:{pt},fx:mien({bT:-.25,lidU:.05,mc:-.2,eyeS:1.1}),fn:()=>go(p,{speed:1.1})},{d:rnd(3,6),look:{pt},fx:mien({bT:-.15,mc:-.15,lidU:.2}),body:{crouch:.3,lean:(ax>0?1:-1)*6},arms:AR([reachFor(0,-.25,.5),reachFor(1,.25,.5)])}]},
+  favorite(){const f=LIFE.fav;if(!f)return null;const m=area(),p={x:cl(f[0]*W,m.l+R*2,m.r-R*2),y:cl(f[1]*H,m.t+R*2.6,m.b-R*2)};if(Math.hypot(p.x-E.x,p.y-E.y)<R*4)return null;NS.lastGo=now;
+    return[{d:rnd(2,3),fx:mien({mc:.3}),fn:()=>go(p,{speed:rnd(.5,.8)})},{d:rnd(5,12),fx:mien({lidU:rnd(.3,.5),mc:.4}),body:{crouch:.2,lean:rnd(-6,6)}}]},
+  nuzzle(){if(!curHere())return null;const pt=()=>({x:cur.x,y:cur.y});
+    return[{d:rnd(1.4,2),look:{pt},fx:mien({mc:.5}),fn:()=>go(nearCursor(1.7),{speed:.6})},{d:rnd(3,6),fx:mien({lidU:.92,mc:.6,blush:.5,lidL:.3}),body:{lean:(cur.x<E.x?-1:1)*rnd(10,16),crouch:.15},osc:[{j:'B.lean',amp:3,t0:now,hz:.8}],fn:()=>{hearts(2);bump('social',-.2)}},{d:rnd(1,1.6),look:{pt},fx:mien({mc:.55,lidU:.3})}]},
+});
+/* what it feels like doing: the plain urges, bent by its nature, by how close they are, by the hour and by what the person is doing */
+function urges(){const u=urges0();if(AG.offer||!LIFE.ready)return u;const tr=traits(),st=bondStage(),here=curHere(),idle=now-cur.t,dist=curDist(),typing=now-MIND.key<8||now-(CHAT.typing||-99)<8,wary=LIFE.trust<.4;
+  const warm=wary?0:(st==='new'?.25:st==='familiar'?.6:1),pf=N.playfulness||.5;
+  u.wander*=.6+tr.curious*.8;u.notice*=.6+tr.curious*.8;u.settle*=.6+tr.lazy;u.gaze*=.6+tr.lazy*.8;
+  u.near=here&&!typing?warm*(.25+N.social*1.2+tr.clingy*.7)*(dist<R*6?.2:1):0;
+  u.company=typing?warm*(.9+tr.clingy):0;
+  u.tag=here&&!typing&&idle<6?warm*pf*tr.playful*(N.energy>.4?1.5:.2):0;
+  u.peek=here&&!typing?warm*tr.playful*.5*pf:0;
+  u.gift=here&&!typing&&LIFE.bond>.3&&now-LIFE.giftT>240?(N.fond+.3)*.5*warm:0;
+  u.showoff=here&&idle<20?tr.vain*.7*(N.energy>.4?1:.2):0;
+  u.groom=tr.vain*.45;
+  u.miss=cur.t>0&&idle>90&&idle<900&&LIFE.bond>.2?(.6+tr.clingy):0;
+  u.yawn=(night()?.8:0)+(N.energy<.3?.8:0);
+  u.wary=wary&&here&&dist<R*7?3:0;
+  u.favorite=LIFE.fav?(.3+tr.lazy*.4):0;
+  u.nuzzle=here&&!typing&&st==='close'&&idle>1.5&&idle<25&&dist<R*7?.9+tr.clingy*.6:0;
+  if(night()){if(cur.t>0&&idle>240&&N.energy<.55)u.doze=Math.max(u.doze||0,1.2);u.wander*=.6;u.bounce*=.4}
+  return u}
+function lifeOn(name,d){if(!LIFE.ready)return;
+  if(name==='petted'){LIFE.pets++;bond(.01);LIFE.trust=cl(LIFE.trust+.06,0,1);const f=[+(E.x/W).toFixed(3),+(E.y/H).toFixed(3)];LIFE.fav=LIFE.fav?[lerp(LIFE.fav[0],f[0],.3),lerp(LIFE.fav[1],f[1],.3)]:f}
+  else if(name==='thrown'){LIFE.throws++;const hard=/hard/.test(d&&d.what||'');LIFE.trust=cl(LIFE.trust-(hard?.3:.08),0,1);if(hard){bond(-.01);lifeNote('they threw Ember hard')}}
+  else if(name==='poked')LIFE.trust=cl(LIFE.trust-.03,0,1);
+  else if(name==='pass'||name==='published'){LIFE.wins++;bond(.012);lifeNote(name==='published'?'their site went live'+(CTX.project?' ('+CTX.project+')':''):'a check passed'+(CTX.project?' on '+CTX.project:''))}
+  else if(name==='broke')lifeNote('something broke: '+String(d&&d.what||'').slice(0,40))}
+function lifeTick(dt){if(!LIFE.ready)return;LIFE.acc+=dt;
+  const g=LIFE.gift;if(g){if(now>g.until||!(act&&act.k==='ns_gift'))LIFE.gift=null;else if(cur.x>=0&&cur.moveT>g.t0+.3){const h=E.hands[g.hand];   /* they have to reach for it */
+      if(Math.hypot(cur.x-h.x,cur.y-(h.y-R*.3))<R*1.1){LIFE.gift=null;LIFE.gifts++;bond(.012);bump('fond',.15);bump('social',-.3);feel({v:.85,a:.7});hearts(6);spark(8);effects({hop:.35});lifeNote('they took the spark Ember held out');
+        try{mindEvent('gift',{what:'they took the little spark Ember held out to them'})}catch(_){}}}}
+  if(act&&act.k==='ns_doze'&&cur_('sleep')&&cur.x>=0&&now-cur.moveT<.25&&curDist()<R*3){const fast=Math.abs(cur.vx||0)>900;SEQ=null;act=null;
+    runNS('wake',fast?[{d:.5,face:'shocked',fn:()=>{effects({hop:.4});want('alert',1.5)}},{d:1.4,look:'cursor',fx:mien({bT:.2,lidU:.3,mc:-.2})}]
+      :[{d:1.2,fx:mien({lidU:.8,bH:.15}),look:'cursor'},{d:1,pose:'rub',fx:mien({lidU:.7})},{d:1.4,look:'cursor',fx:mien({lidU:.35,mc:LIFE.bond>.4?.5:.1})}])}
+  if(LIFE.acc<1)return;const k=LIFE.acc;LIFE.acc=0;
+  if(!document.hidden&&(now-cur.t<120||now-MIND.key<120)){LIFE.secs+=k;LIFE.hours[new Date().getHours()]+=k/60;bond(.00002*k)}
+  LIFE.trust=cl(LIFE.trust+.0006*k,0,1);
+  if(CHAT.lastChat!==LIFE.lc){LIFE.lc=CHAT.lastChat;LIFE.talks++;bond(.008)}
+  if(T()-LIFE.lsT>20)lifeSave()}
+/* what its mind is told about the two of them and about itself */
+function lifeView(){const tr=traits(),h=hourNow(),tot=LIFE.hours.reduce((a,b)=>a+b,0),top=Object.entries(tr).sort((a,b)=>b[1]-a[1]);
+  return{known_days:daysKnown(),visits:LIFE.visits,day_streak:LIFE.streak,hours_together:+(LIFE.secs/3600).toFixed(1),bond:bondStage(),trusts_them:+LIFE.trust.toFixed(2),
+    back_after:LIFE.gap>20*60000&&now-LIFE.bootT<600?human(LIFE.gap):'',night:night(),unusual_hour_for_them:tot>120?LIFE.hours[h]/tot<.01:null,
+    petted:LIFE.pets,thrown:LIFE.throws,talks:LIFE.talks,sparks_they_took:LIFE.gifts,
+    your_nature:top.slice(0,2).map(x=>x[0]).join(' and ')+', not very '+top[top.length-1][0],
+    favourite_spot:LIFE.fav?(LIFE.fav[0]<.4?'left':LIFE.fav[0]>.6?'right':'middle')+(LIFE.fav[1]<.45?' top':' bottom')+' of the window':'',
+    shared_history:LIFE.journal.slice(-6).map(j=>ago(j.t)+': '+j.what)}}
+function drawWant(rr){let w=LIFE.want;if(cur_('sleep')){const i=Math.floor(now/2.8);w={k:['star','heart','play','flame'][i%4],t0:i*2.8,until:i*2.8+2.8,dream:1}}
+  if(!w||now>w.until||E.bubble||E.alpha<.5)return;const a=Math.min(1,(now-w.t0)/.25,(w.until-now)/.3)*(w.dream?.7:.95);if(a<=0)return;
+  const bx=cl(E.x+rr*1.75,rr,W-rr),by=Math.max(rr,E.y-rr*(E.tipH*FIRE.cur.tall*.55+1.2)+(REDUCE?0:Math.sin(now*1.6)*2)),r=rr*.62,s=r*.52;X.save();X.globalAlpha=E.alpha*a;X.fillStyle='rgba(255,247,238,.95)';
+  X.beginPath();X.arc(bx,by,r,0,7);X.fill();X.beginPath();X.arc(bx-r*.95,by+r*.95,r*.26,0,7);X.fill();X.beginPath();X.arc(bx-r*1.4,by+r*1.45,r*.14,0,7);X.fill();
+  X.translate(bx,by);X.fillStyle='#2b160c';
+  if(w.k==='heart'){X.fillStyle='#ff5f86';X.beginPath();X.moveTo(0,s*.75);X.bezierCurveTo(-s*1.5,-s*.3,-s*.6,-s*1.25,0,-s*.45);X.bezierCurveTo(s*.6,-s*1.25,s*1.5,-s*.3,0,s*.75);X.fill()}
+  else if(w.k==='play'){X.beginPath();X.moveTo(-s*.5,-s*.85);X.lineTo(-s*.5,s*.75);X.lineTo(-s*.1,s*.35);X.lineTo(s*.2,s*.95);X.lineTo(s*.48,s*.8);X.lineTo(s*.2,s*.22);X.lineTo(s*.72,s*.2);X.closePath();X.fill()}
+  else if(w.k==='star'){X.fillStyle='#ffb52e';X.beginPath();for(let i=0;i<10;i++){const q=i*Math.PI/5-Math.PI/2,d=i%2?s*.42:s;X.lineTo(Math.cos(q)*d,Math.sin(q)*d)}X.closePath();X.fill()}
+  else if(w.k==='flame'){X.fillStyle=rgbs(FIRE.cur.stops[2]);X.beginPath();X.moveTo(0,-s);X.bezierCurveTo(s*.9,-s*.1,s*.8,s*.9,0,s*.9);X.bezierCurveTo(-s*.8,s*.9,-s*.9,-s*.1,0,-s);X.fill()}
+  else{X.font=`700 ${Math.round(s*2)}px ${FONT}`;X.textAlign='center';X.textBaseline='middle';X.fillText(w.k==='sleep'?'z':w.k==='alert'?'!':'?',0,s*.08);X.textAlign='start'}
+  X.restore()}
+function drawGift(rr){const g=LIFE.gift;if(!g)return;const h=E.hands[g.hand],y=h.y-rr*.3,r=rr*(.3+(REDUCE?0:.05*Math.sin(now*6))),c=cstr(FIRE.cur.spark);X.save();X.globalCompositeOperation='lighter';
+  const gr=X.createRadialGradient(h.x,y,0,h.x,y,r*2.4);gr.addColorStop(0,'rgba(255,255,240,.95)');gr.addColorStop(.35,`rgba(${c},.8)`);gr.addColorStop(1,`rgba(${c},0)`);X.fillStyle=gr;X.beginPath();X.arc(h.x,y,r*2.4,0,7);X.fill();X.restore()}
 function impulse(){const u=urges(),rec=k=>NS.kinds.filter(x=>x===k).length;let best=null,bw=-1;
   for(const k in u){const w=u[k]*rnd(.4,1.6)/(1+rec(k)*1.8);if(w>bw){bw=w;best=k}}
   const st=best&&IMPULSES[best]();if(!st||!st.length)return false;NS.kinds.push(best);NS.kinds=NS.kinds.slice(-4);NS.count++;
@@ -2335,6 +2493,7 @@ function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='
       fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),fire:FIRE.k,fire_chosen:CFG.fire||'classic',glasses:!!E.shadesOn,doing:act?act.k:'',focus:MIND.focus||'',last_outcome:mindOutcome(),feeling:{valence:+AFF.v.toFixed(2),arousal:+AFF.a.toFixed(2),word:moodWord(AFF.v,AFF.a)},body_was_doing:NS.kinds.slice(-3),
       recent_actions:MIND.done.slice(-8)},
     doing_for_you:AG.log.slice(-4).map(x=>Math.round(T()-x.t)+'s ago: '+x.what),offering:AG.offer?AG.offer.text:'',may_do:agency(),
+    life:lifeView(),
     screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
 function think(reason){if(MIND.busy)return;
   const hr=Date.now()-3600000;MIND.hour=MIND.hour.filter(t=>t>hr);
@@ -2365,10 +2524,11 @@ function mindTick(){if(!started||MIND.busy||TW.on||DRV.on||V.state!=='idle'||CHA
   if(!mindActive())return;
   if(now>=MIND.next&&!MIND.plan.length&&(!MIND.live||!act||act.by!=='mind'||act.t>act.dur))think(MIND.live?'idle':'time')}
 /* something happened: let the mind react soon (not more than every 20s) */
-const MIND_NOW={broke:1,pass:1,published:1,error:1,gaps:1,back:1,page:1,poked:1,thrown:1,fell:1,startled:1,petted:1};let MIND_JOB='';
+const MIND_NOW={broke:1,pass:1,published:1,error:1,gaps:1,back:1,page:1,poked:1,thrown:1,fell:1,startled:1,petted:1,reunion:1,gift:1};let MIND_JOB='';
 function mindEvent(name,data){const d=data||{};let w=name;if(d.what)w+=': '+String(d.what).slice(0,80);else if(d.tool)w+=': '+String(d.tool).slice(0,40);else if(d.job&&d.job.status)w+=': '+d.job.status;
   if(name==='working'||name==='retry'){const l=MIND.ev[MIND.ev.length-1];if(l&&l.what.startsWith(name)){l.t=now;l.what=w;return}}
   let big=!!MIND_NOW[name];if(name==='job'){const st=d.job&&d.job.status||'';if(st===MIND_JOB)return;MIND_JOB=st;big=/done|failed|waiting|blocked/.test(st)}
+  try{lifeOn(name,d)}catch(_){}
   MIND.ev.push({t:now,what:w});MIND.ev=MIND.ev.slice(-10);if(big&&MIND.live&&now-MIND.lastAsk>20){MIND.plan=[];MIND.next=Math.min(MIND.next,now+1.5);if(act&&act.by==='mind')act.t=act.dur+1}}
 /* ===== real signals ===== */
 const lastSig={};
@@ -2610,6 +2770,7 @@ function stateText(){const m=CHAT.mem,h=new Date().getHours(),j=CTX.job;let proj
     CTX.last&&now-CTX.lastT<300?'Just happened: '+CTX.last+'.':'Nothing notable just happened.',
     CTX.issue&&now-CTX.issueT<1800?'Last problem Aethron reported: '+CTX.issue+'.':'No open problem reported.',
     'Ember is annoyed at them '+Math.round(N.annoy*100)+'% and likes them '+Math.round(N.fond*100)+'%.',
+    (()=>{try{if(!LIFE.ready)return'';const v=lifeView();return'Your life with them (real, never invent more): known '+v.known_days+' day(s), '+v.visits+' visit(s), '+v.hours_together+' hours together; bond: '+v.bond+'; you trust them '+Math.round(v.trusts_them*100)+'%'+(v.back_after?'; they just came back after '+v.back_after:'')+'; your nature: '+v.your_nature+(v.shared_history.length?'. Things that happened: '+v.shared_history.join('; '):'')+'.'}catch(_){return''}})(),
     'Ember burns as a '+fireLabel(FIRE.k)+' right now'+(CFG.fire==='mood'?' (its flame follows its mood)':'')+'. Kinds it can burn as: '+FIRE_IDS.join(', ')+', or mood.',
     m.name?"Their name: "+m.name+'.':'You do not know their name yet.',
     m.facts.length?'Things they told you before: '+m.facts.join('; ')+'.':'They have not told you anything about themselves yet.'].join('\n')}
@@ -3066,7 +3227,7 @@ function tick(t){const dt=Math.max(0,Math.min(.05,(t-last)/1000));last=t;now+=dt
   if(hideUntil&&Date.now()>hideUntil){hideUntil=0;E.alphaT=1;E.rT=1;go(SP.rest,{now:1})}
   if(mood){mood.t+=dt;if(mood.t>mood.d){const m=mood;mood=null;m.end&&m.end()}}
   if(CHAT.open)placeTalk();
-  if(AG.offer)placeOffer();agTick();
+  if(AG.offer)placeOffer();agTick();lifeTick(dt);
   if(E.bubble&&E.bubble.box&&cur.x>=0){const k=E.bubble.box;if(cur.x>k.x-6&&cur.x<k.x+k.w+6&&cur.y>k.y-6&&cur.y<k.y+k.h+6)E.bubble.d=Math.max(E.bubble.d,E.bubble.t+1.2)}
   if(CHAT.open&&E.mode==='fly')chatTick(dt);
   else if(mood){base.pose=mood.pose||'rest';base.face=mood.face||idleFace();base.look=mood.look||null}
@@ -3103,6 +3264,7 @@ function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=!!cur_('sleep');
   N.social=cl(N.social+(cur.over||E.purr>0||cur.grab||CHAT.open?-.1:.008)*k,0,1);
   N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&act.by==='mind'&&act.k!=='m_wait')?-.09:.008)*k,0,1);
   N.playfulness=cl((N.playfulness||.5)+(N.energy>.55&&!annoyed()?.006:-.008)*k,0,1);
+  if(night())N.energy=cl(N.energy-.003*k,0,1);
   N.annoy=cl(N.annoy-.02*k,0,1);N.fond=cl(N.fond+(E.purr>0?.03:0)*k-.0005*k,0,1);
   if(!automation&&now-driveSaveT>10){driveSaveT=now;store.set('ember_drives',N)}}
 
@@ -3366,7 +3528,7 @@ function drawAll(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);fireSt
     X.beginPath();X.ellipse(0,0,.22-gp*.03,.2,0,0,7);X.fill();X.beginPath();X.arc(-s*(.19-gp*.07),-.1+gp*.05,.09*(1-gp*.35),0,7);X.fill();X.restore()}
   if((E.think||MIND.busy||now<MIND.cueUntil)&&!REDUCE){for(let i=0;i<3;i++){const ph=(Math.sin((now*2.4+i*.55)*2)+1)/2;X.fillStyle=`rgba(255,232,210,${.35+.55*ph})`;X.beginPath();X.arc(E.x-rr*1.2-i*rr*.42,E.y-rr*1.5-i*rr*.38,rr*(.09+i*.04),0,7);X.fill()}
     if(!E.bubble&&(MIND.busy||now<MIND.cueUntil)){const cx=E.x-rr*2.55,cy=E.y-rr*2.75;X.fillStyle='rgba(255,247,238,.92)';X.beginPath();X.roundRect(cx-13,cy-9,26,18,9);X.fill();X.fillStyle='#2b160c';X.font=`700 12px ${FONT}`;X.textAlign='center';X.textBaseline='middle';X.fillText('…',cx,cy);X.textAlign='start'}}
-  X.globalAlpha=1;if(E.bubble)bubble(rr)}
+  drawGift(rr);drawWant(rr);X.globalAlpha=1;if(E.bubble)bubble(rr)}
 function eye(s,fx,fy,G){const F=E.F;
   if(F.name==='dizzy'&&E.FT.name==='dizzy'){const cx=s*.35+fx,cy=.2+fy;X.strokeStyle=ink;X.lineWidth=.06;X.lineCap='round';X.beginPath();for(let i=0;i<44;i++){const t=i/44*Math.PI*4+now*8*s,r=.015+i*.0042;i?X.lineTo(cx+Math.cos(t)*r,cy+Math.sin(t)*r):X.moveTo(cx,cy)}X.stroke();return}
   const cx=s*.36+fx,cy=.18+fy,rx=.235*F.eyeS*(1-.32*Math.max(0,s*J.b.turn)),ry=.27*F.eyeS,P=FIRE.cur;if(P.sock>.01){X.fillStyle=rgbs(P.ink,P.sock);X.beginPath();X.ellipse(cx,cy+.012,rx+.04,ry+.04,0,0,7);X.fill()}X.save();X.beginPath();X.ellipse(cx,cy,rx,ry,0,0,7);X.clip();
@@ -3413,7 +3575,7 @@ function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(2,devicePixelRatio||1)
 function start(){if(running)return;if(!started){started=true;(document.head||document.documentElement).append(css);document.body.append(cv,talk,menu,ofr);tin=talk.querySelector('input');
     talk.querySelector('#ember-go').onclick=send;talk.querySelector('#ember-mic').onclick=()=>{closeChat();listen()};tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
     tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now;talk.classList.toggle('ae-empty',!tin.value.trim())});
-    addEventListener('keydown',()=>{MIND.key=now},true);watchScreen();for(const b of store.get('ember_lib',[]))learnB(b);
+    addEventListener('keydown',()=>{MIND.key=now;if(running&&!REDUCE&&(N.playfulness||0)>.45&&Math.random()<.2)E.q-=.035},true);lifeBoot();watchScreen();for(const b of store.get('ember_lib',[]))learnB(b);
     fetch('/api/ember/behaviors').then(r=>r.json()).then(j=>{for(const b of(j&&j.behaviors)||[])learnB(b)}).catch(()=>{});
     addEventListener('pointermove',onMove,true);addEventListener('pointerdown',onDown,true);addEventListener('pointerup',onUp,true);
     for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(mine(e))return;if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();converse();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
@@ -3447,6 +3609,10 @@ window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG
   agency:()=>({level:agency(),offer:AG.offer?{id:AG.offer.id,text:AG.offer.text,yes:AG.offer.yes}:null,queue:AG.queue.map(o=>o.id),log:AG.log.map(x=>x.what),fetching:!!AG.fetching,staged:AG.staged,jobs:Object.assign({},AG.jobs||{})}),
   agTick:()=>{AG.worldT=-99;agTick(1)},
   health:()=>({bad:BAD.slice()}),
+  life:()=>Object.assign(lifeDump(),{stage:bondStage(),ready:!!LIFE.ready,gap:LIFE.gap,want:LIFE.want&&now<LIFE.want.until?LIFE.want.k:'',gift:!!LIFE.gift,dreaming:!!cur_('sleep'),view:lifeView(),urges:urges()}),
+  lifeSet:o=>{Object.assign(LIFE,o||{});lifeSave(1)},impulse:k=>{const st=IMPULSES[k]&&IMPULSES[k]();if(!st)return false;SEQ=null;return runNS(k,st)},reunion:()=>reunion(),
+  cursor:(x,y)=>{cur.x=x;cur.y=y;cur.t=now;cur.moveT=now},
+  event:(n,d)=>mindEvent(n,d||{}),giftAt:()=>{const g=LIFE.gift;if(!g)return null;const h=E.hands[g.hand];return[h.x,h.y-R*.3]},
   fire:()=>({kind:FIRE.k,chosen:CFG.fire||'classic',over:FIREOV&&FIREOV.until>Date.now()?FIREOV.n:'',flare:FIRE.flare,draft:FIRE.draft,stoke:FIRE.stoke,sput:FIRE.sput,stops:FIRE.cur.stops.map(c=>c.map(Math.round)),glow:FIRE.cur.glow.map(Math.round),target:palOf(FIRE.k).stops.map(c=>c.map(Math.round))}),
   setFire:(k,mins)=>setFire(k,!mins,mins),
   fireKinds:()=>FIRE_IDS.map(k=>({id:k,label:FK[k].label,css:fireCss(k),stops:palOf(k).stops.map(c=>'#'+c.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')),rim:'#'+palOf(k).outer[0].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')})).concat([{id:'mood',label:'Mood',css:'conic-gradient(from 200deg,#ff7a3a,#ffd23f,#4fd1ff,#a868ff,#ff5fa2,#ff7a3a)',stops:['#ffd23f','#ff7a3a','#ff5fa2','#a868ff','#4fd1ff'],rim:'#ff7a3a'}]),
@@ -3657,6 +3823,8 @@ def _selftest() -> int:
     check("the mind may try a flame on, but never keeps one: that is the person's choice",
           mf["plan"][0] == {"fire": "shadow", "for": 10})
     mr = mind_rules("sassy", [])
+    check("the mind is told it has a life with this person: bond, trust, its own nature, their shared history",
+          all(w in mr for w in ("PERCEPTION.life", "shared_history", "trust", "your own nature", "never invented")))
     check("the mind is told the kinds it can burn as", all(k in mr for k in FIRES) and '"fire"' in mr)
     check("the window knows every kind the server does",
           all(f"{k}:{{label:" in EMBER_JS for k in FIRES))
