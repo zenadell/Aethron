@@ -2171,6 +2171,13 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/voice/poll":
                 v = voice_listener()
                 return self.send_json(v.poll() if v else {"state": "error", "text": "", "why": "no microphone here"})
+            if u.path == "/api/ember/life":
+                # Ember's life with this person: kept in the app's data folder so it outlives
+                # restarts, updates and a change of port (the window's own storage does not)
+                try:
+                    return self.send_json({"life": json.loads((HOME / "ember_life.json").read_text())})
+                except Exception:
+                    return self.send_json({"life": None})
             if u.path == "/api/ember/behaviors":
                 return self.send_json({"behaviors": _ember.behaviours() if _ember else []})
             if u.path == "/api/ember/settings":
@@ -3603,6 +3610,15 @@ class Handler(BaseHTTPRequestHandler):
                         EMBER_FOCUS()
                 except Exception:
                     pass
+                self.send_json({"ok": True})
+            elif u.path == "/api/ember/life":
+                life = body.get("life")
+                raw = json.dumps(life) if isinstance(life, dict) else ""
+                if not raw or len(raw) > 60000:
+                    return self.fail("not a life")
+                tmp = HOME / "ember_life.json.tmp"
+                tmp.write_text(raw)
+                os.replace(tmp, HOME / "ember_life.json")
                 self.send_json({"ok": True})
             elif u.path == "/api/ember/signal":
                 name = str(body.get("name") or "")[:24]
@@ -17131,6 +17147,8 @@ function emberCard(){
       #embercard .firesw.on svg{filter:drop-shadow(0 0 6px rgba(255,190,120,.55));transform:scale(1.12)}
       #embercard .firesw.on span{font-weight:600}</style>
     <div class="kv"><span>Outfit</span><b class="rowbtns">${seg('fit',[['auto','By date'],['none','None'],['shades','Shades'],['santa','Santa'],['witch','Witch'],['party','Party'],['beanie','Beanie']])}</b></div>
+    <div class="hint" id="ember-life-line">${(()=>{try{const l=ember.life();if(!l.ready||!l.met)return '';const d=l.view.known_days,st={new:'still getting to know you',familiar:'getting used to you',friend:'your friend',close:'very attached to you'}[l.stage];
+      return `Ember has known you for ${d} day${d===1?'':'s'} (${l.visits} visit${l.visits===1?'':'s'}, ${l.view.hours_together} hours together) and is ${st}. Its nature: ${esc(l.view.your_nature)}. No two Embers are alike, and it remembers you across restarts and updates.`}catch(_){return ''}})()}</div>
     <div class="hint" id="ember-mind-status">${esc(e.mindStatus||'Mind: off')}</div>
     ${e.savage?`<div class="hint">Savage swears and roasts. Only admins see it for now.</div>`:''}
     <div class="rowbtns"><button onclick="emberSet('talk')">Talk to Ember</button><button onclick="emberSet('tour')">Show me around again</button><button onclick="emberSet('forget')">Forget what it knows about me</button></div>

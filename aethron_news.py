@@ -116,6 +116,15 @@ NEWS = [
              "mood. Pick one in Settings, Companion, or just tell Ember "
              "\"turn blue\".",
      "art": "flames", "go": "ember-fire", "label": "Pick a flame"},
+    {"id": "2026-11-ember-life",
+     "title": "Your Ember is yours alone",
+     "body": "Ember now has a nature of its own, drawn once: no two are "
+             "alike. It gets to know you, remembers the days you have spent "
+             "together, and notices when you come back. It comes to sit by "
+             "you, keeps you company while you type, starts a game of tag, "
+             "and may hold out a spark for you to take. Be kind: it "
+             "remembers being thrown.",
+     "art": "ember", "go": "ember", "label": "Say hi"},
 ]
 
 SEEN = ".news-seen.json"
