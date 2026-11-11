@@ -57,6 +57,9 @@ IN_RATE, OUT_RATE = 16000, 24000
 IDLE_S = 45.0          # nobody said anything for this long: the conversation is over
 MAX_S = 20 * 60.0      # one conversation is never longer than this
 KEEP_EVENTS = 3000
+OUTCOME_S = 25.0       # an act the screen never reports on is answered "not known"
+BODY_KEYS = {"do", "steps", "fx", "hands", "hop", "spin", "pose", "face", "go", "wait",
+             "arms", "body", "osc", "fire", "outfit", "glasses", "feel", "sleep"}
 # $ per million tokens: audio in, audio out, text in, text out (Google's Live
 # rates for gemini-3.8-live as published, November 2026)
 PRICE = {"gemini-3.8-live": (3.0, 12.0, 0.75, 4.5),
@@ -434,6 +437,7 @@ class Session:
         self.free = False
         self.handle = ""
         self.closed = False
+        self._pending = {}       # tool calls waiting for the screen to report (outcome)
         self.why = ""
         self.started = time.time()
         self.id = base64.b32encode(os.urandom(5)).decode().lower()   # which conversation an answer belongs to
@@ -625,11 +629,26 @@ class Session:
                         except Exception:
                             pass
                     r["by"] = "live"
-                    self._emit("act", r=r, id=fc.get("id"))
-                    result = ("ok: Ember is doing it on screen now. Say your short line."
-                              if r.get("kind") in ("send", "action") else "ok: Ember is doing it. Say your line.")
+                    cid = fc.get("id") or f"c{time.time():.3f}"
+                    if r.get("kind") in ("send", "action"):
+                        # THE ANSWER WAITS FOR THE SCREEN. "ok: doing it" used
+                        # to go back at once, before anything was pressed, and
+                        # the voice said "done" whether it worked or not. Now
+                        # the window reports what really happened and only
+                        # that goes back (outcome()); silence means unknown.
+                        self._pending[cid] = (name, time.time())
+                        self._emit("act", r=r, id=cid)
+                        threading.Timer(OUTCOME_S, self._outcome_late, args=(cid,)).start()
+                        continue
+                    self._emit("act", r=r, id=cid)
+                    has_body = any(isinstance(x, dict) and set(x) & BODY_KEYS for x in (r.get("plan") or []))
+                    result = ("done: Ember is doing that with its body on screen. Nothing in the app was "
+                              "pressed or typed, so never say you changed, opened or sent anything."
+                              if has_body else
+                              "nothing was done: you only answered in words. Nothing in the app was pressed "
+                              "or typed. If they asked for something to be done, say plainly you did not do it.")
                 except Exception as e:
-                    result = f"not done: {str(e)[:120]}. Answer in words."
+                    result = f"not done: {str(e)[:120]}. Say plainly that it was not done."
             else:
                 result = "unknown tool"
             out.append({"id": fc.get("id"), "name": name, "response": {"result": result}})
@@ -680,6 +699,25 @@ class Session:
                 n += 1
                 self.sent_audio += 1
         return n
+
+    def outcome(self, cid: str, ok: bool, detail: str = "") -> bool:
+        """What the screen reports after doing an act: the one truth the voice
+        may speak from."""
+        p = self._pending.pop(str(cid or ""), None)
+        if not p:
+            return False
+        d = str(detail or "").strip()[:240]
+        res = (f"done: {d or 'it happened on screen'}. Say what was done, briefly. Do not add anything that did not happen."
+               if ok else
+               f"NOT done: {d or 'it did not work'}. Tell them plainly it did not happen and why. Never say it worked.")
+        self._send({"toolResponse": {"functionResponses": [
+            {"id": cid, "name": p[0], "response": {"result": res}}]}})
+        return True
+
+    def _outcome_late(self, cid: str):
+        if str(cid) in self._pending and not self.closed:
+            self.outcome(cid, False, "the screen never reported back, so it is not known whether it "
+                                     "happened. Say you are not sure it worked and ask them to look")
 
     def text(self, t: str):
         t = str(t or "").strip()[:2000]
@@ -1027,6 +1065,42 @@ def _selftest() -> int:
     check("and the turn's tokens are priced at the Live rates", abs(_cost("gemini-3.8-live", {"promptTokensDetails": [{"modality": "AUDIO", "tokenCount": 1_000_000}],
                                                                        "responseTokensDetails": [{"modality": "AUDIO", "tokenCount": 1_000_000}]})[2] - 15.0) < 1e-6)
     check("a free key costs nothing against the session limit", s.spent == 0)
+    tr0 = tr[0]["toolResponse"]["functionResponses"][0]["response"]["result"] if tr else ""
+    check("an answer is told that nothing in the app was done", tr0.startswith("done: Ember is doing that with its body")
+          and "never say" in tr0, tr0)
+    # a request to press something: the answer waits for what the screen reports
+    def seen_tool(cid):
+        return [m for m in fake.got if "toolResponse" in m
+                and m["toolResponse"]["functionResponses"][0]["id"] == cid]
+    fake.send(fake.last(), {"toolCall": {"functionCalls": [{"id": "c2", "name": "ember_behave", "args": {
+        "reply_json": json.dumps({"kind": "action", "action": "publish", "say": "publishing"})}}]}})
+    time.sleep(.4)
+    check("a spoken request to press something is NOT answered before the screen does it",
+          not seen_tool("c2") and "c2" in s._pending)
+    check("the outcome is reported back as the truth", s.outcome("c2", False, "couldn't find the Publish button"))
+    time.sleep(.3)
+    r2 = seen_tool("c2")
+    r2 = r2[0]["toolResponse"]["functionResponses"][0]["response"]["result"] if r2 else ""
+    check("and a failure is told as NOT done, with why", r2.startswith("NOT done: couldn't find the Publish button")
+          and "Never say it worked" in r2, r2)
+    check("a second report for the same request changes nothing", not s.outcome("c2", True, "x"))
+    fake.send(fake.last(), {"toolCall": {"functionCalls": [{"id": "c3", "name": "ember_behave", "args": {
+        "reply_json": json.dumps({"kind": "send", "prompt": "Make the hero headline bigger.", "say": "on it"})}}]}})
+    time.sleep(.4)
+    s.outcome("c3", True, "typed the request into the chat and sent it")
+    time.sleep(.3)
+    r3 = seen_tool("c3")
+    r3 = r3[0]["toolResponse"]["functionResponses"][0]["response"]["result"] if r3 else ""
+    check("a success is told as done, with exactly what happened", r3.startswith("done: typed the request"), r3)
+    global OUTCOME_S
+    keep, OUTCOME_S = OUTCOME_S, 0.3
+    fake.send(fake.last(), {"toolCall": {"functionCalls": [{"id": "c4", "name": "ember_behave", "args": {
+        "reply_json": json.dumps({"kind": "action", "action": "build", "say": "building"})}}]}})
+    time.sleep(1.2)
+    OUTCOME_S = keep
+    r4 = seen_tool("c4")
+    r4 = r4[0]["toolResponse"]["functionResponses"][0]["response"]["result"] if r4 else ""
+    check("a request the screen never reports on is told as not known, never as done", r4.startswith("NOT done: the screen never reported"), r4)
     # talking over Ember
     fake.send(fake.last(), {"serverContent": {"modelTurn": {"parts": [{"inlineData": {"data": FakeLive.tone(2.0), "mimeType": "audio/pcm;rate=24000"}}]}}})
     time.sleep(.3)

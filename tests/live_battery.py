@@ -147,7 +147,18 @@ try:
             {"kind": "action", "action": "open_project", "target": "demo", "say": "opening it"})}}]}})
         fake.send(conn, {"serverContent": {"turnComplete": True}})
         check("it opens the project", wait(pg, "S.cur==='demo'", 15), pg.evaluate("S.cur"))
-        check("and answers the tool so Ember goes on", any(m.get("toolResponse", {}).get("functionResponses", [{}])[0].get("id") == "o1" for m in fake.got))
+        def told(cid):
+            for m in fake.got:
+                fr = m.get("toolResponse", {}).get("functionResponses", [{}])[0]
+                if fr.get("id") == cid:
+                    return (fr.get("response") or {}).get("result", "")
+            return ""
+        t_end = time.time() + 8
+        while time.time() < t_end and not told("o1"):
+            time.sleep(.2)
+        check("and answers the tool so Ember goes on", told("o1"))
+        check("with what really happened on screen, only after it happened",
+              told("o1").startswith("done: opened the project demo"), told("o1"))
         check("the conversation is still going", pg.evaluate("ember.live().on"))
 
         print("── that's all")

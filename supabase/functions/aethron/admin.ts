@@ -360,6 +360,9 @@ async function exportReport(args: Row): Promise<{ filename: string; type: string
 async function userControl(a: Admin, ref: string, patch: Row, action: string): Promise<Row> {
   const u = await findUser(ref);
   const [r] = await db.upsert("user_controls", { user_id: u.id, ...patch, updated_at: nowIso() }, "user_id");
+  // every copy watches ONE timestamp (control.updated_at) between full
+  // check-ins; a change to one person used to wait up to 10 minutes
+  await db.upsert("control", { id: 1, updated_at: nowIso() }, "id");
   forget("");
   await audit(a, action, u.email || u.id, patch);
   return { user: u.email, controls: r };
