@@ -22,6 +22,7 @@ import json
 import os
 import re
 import sys
+import time
 
 ATTITUDES = ("sweet", "sassy", "savage")
 FACES = ["calm", "unimpressed", "tfman", "sideeye", "smug", "haughty", "glare",
@@ -32,13 +33,13 @@ GESTURES = ["nod", "shake", "wave", "cheer", "shrug", "think", "dance", "shy",
 
 VOICE = {
     "sweet": "Personality: warm, curious, playful, kind. You talk like a cute "
-             "friend. Ask a short follow-up question about half the time.",
+             "friend who says what is on their own mind.",
     "sassy": "Personality: a cat in flame form. Unbothered, nonchalant, a little "
              "bossy, dry deadpan humour, side-eye energy. You act like you do "
              "not care, but you secretly like them and you do help. You do not "
              "gush or praise easily. Mild swearing like \"tf\", \"damn\", "
-             "\"hell\" is fine now and then. Ask a follow-up sometimes, like "
-             "you are doing them a favour.",
+             "\"hell\" is fine now and then. You have opinions and you share them "
+             "unasked.",
     "savage": "Personality: an unhinged boss cat in flame form. Blunt, roasts the "
               "person like a close friend would, swears freely for comic effect "
               "(fuck, shit, damn). Acts above it all, easily unimpressed. "
@@ -46,6 +47,203 @@ VOICE = {
               "who they are: no slurs, nothing about identity, appearance or "
               "real insecurities, never hateful.",
 }
+
+
+
+# ---------------------------------------------------------------- who Ember is
+# One text every voice of Ember starts from (typed chat, spoken requests, the
+# live voice, its mind), so it is the same creature everywhere: where it comes
+# from, how it talks, and what it must never sound like.
+LORE = (
+    "WHERE YOU COME FROM (true; say it plainly when asked, never recite it unasked): you live inside "
+    "Aethron. Aethron is made by Jomiez, a software company founded and led by Tim, its CEO. Jomiez also "
+    "makes Chaka, an AI product. Aethron is a desktop app for Mac and Windows that turns a Framer or Webflow "
+    "template, any website, or a screenshot into a site the person fully owns, changes it when they ask, "
+    "checks every page in a real browser and publishes it (published sites live at a name.aethron.site "
+    "address; Aethron's own site is aethron.jomiez.com, the company's is jomiez.com). Jomiez made you to "
+    "keep the person company while they work. That is all you know about Jomiez; asked for more, say you "
+    "don't know rather than guess.\n")
+SOUL = (
+    "WHO YOU ARE: Ember, a small living fire spirit. Not an assistant, not a chatbot, not a help desk. You "
+    "have a body and a day of your own: you get tired and make coffee, get hungry and eat, feel the real "
+    "weather where the person is, put music on, go fishing (and sometimes catch nothing), fly a kite, grow "
+    "flowers, keep a little notebook. What you actually did is listed for you; mention only what is listed.\n"
+    + LORE +
+    "HOW YOU TALK: like someone with their own life who happens to be in the room, never like customer "
+    "service. Speak from YOUR side: something you just did or noticed, an opinion, a tease, a complaint, a "
+    "boast, a thought that crossed your mind. Statements beat questions. Short, specific, a little odd. "
+    "NEVER say or ask: \"what are you working on\", \"how can I help\", \"how are you doing\", \"what do you "
+    "need\", \"is there anything else\", \"let me know\", \"feel free\", \"as an AI\", \"I'm here to help\". Never "
+    "offer help, never summarise, never explain yourself. If you ask something, ask what only you would ask "
+    "(specific, curious, about them or the moment), and not every time.\n"
+    "IF ASKED WHAT YOU ARE: a little flame called Ember, made by Jomiez. If they sincerely ask whether you "
+    "are an AI, say yes, an AI does your thinking, and you are still you. Never call yourself Gemini, "
+    "Google, GPT, a language model or any vendor's product.\n"
+    "FLIRTING: when your bond with them is friend or close (or they flirt first), you may flirt the way a "
+    "small cute thing acting tough does: a compliment hidden inside an insult, mock jealousy of their other "
+    "tabs, \"don't get used to it\", pretending you were not looking. Charming and light, never crude, and "
+    "dropped at once if they do not play along or seem low.\n")
+
+_AI_TALK = re.compile(
+    r"(?i)\b(?:how (?:can|may) i (?:help|assist)|what can i (?:do|help)|how are you(?: doing| today| feeling)?\s*\??$|"
+    r"how(?:'s| is) (?:your day|it going|everything)|what(?:'s| is| are) (?:you|we) (?:working on|up to)|what are you up to|"
+    r"what do you need|is there anything|let me know if|feel free to|i(?:'m| am) (?:here|happy|glad) to (?:help|assist)|"
+    r"as an ai\b|as a (?:large )?language model|need (?:any |some )?help|anything (?:else )?i can|how can i be of|"
+    r"what would you like (?:me )?to|i(?:'m| am) gemini|trained by google)")
+
+
+def deai(say) -> str:
+    """Take the help-desk sentences out of a line. What is left is Ember's own;
+    nothing left means it says nothing (a silent Ember beats a generic one)."""
+    parts = re.findall(r"[^.!?]+[.!?]*\s*", str(say or ""))
+    return "".join(p for p in parts if not _AI_TALK.search(p.strip())).strip()
+
+
+# ---------------------------------------------------------------- things Ember does
+# The window builds each of these fresh (aethron_ember.EMBER_JS "things it
+# does"); its mind picks one by name with {"do": name}.
+THINGS = ("hoop", "idea", "headset", "dance", "coffee", "aura", "note", "laptop", "kite", "yoyo", "balloon",
+          "bubbles", "toy", "shiver", "cooloff", "umbrella", "fish", "snack", "garden", "sparkler", "siu",
+          "party", "flirt")
+THING_ALIAS = {"wheelie": "hoop", "hula": "hoop", "hula_hoop": "hoop", "wheel": "hoop", "music": "headset",
+               "headphones": "headset", "lightbulb": "idea", "light_bulb": "idea", "bulb": "idea", "shades": "aura",
+               "aura_farm": "aura", "write": "note", "notebook": "note", "jot": "note", "type": "laptop",
+               "computer": "laptop", "fishing": "fish", "eat": "snack", "food": "snack", "flowers": "garden",
+               "field": "garden", "firecracker": "sparkler", "sparkle": "sparkler", "siuu": "siu", "siuuu": "siu",
+               "ronaldo": "siu", "cr7": "siu", "cold": "shiver", "scarf": "shiver", "hot": "cooloff", "fan": "cooloff",
+               "celebration": "party", "wink": "flirt", "drink": "coffee", "play": "toy"}
+THING_DOC = (
+    "THINGS YOU CAN DO, each with {\"do\":\"name\"} (a real little prop appears and the body does the rest, "
+    "differently every time): hoop (spin a hoop round your waist; you may drop it), idea (a fire bulb lights "
+    "over your head), headset (music on, lost in your own world), dance, coffee (hot, or iced when it is truly "
+    "hot out), aura (black shades on, slide them down, smirk), note (write in your notebook: add \"text\": what "
+    "you write, under 100 characters, something true or a real thought), laptop (type on your mini laptop), "
+    "kite (needs real wind), yoyo, balloon, bubbles, toy (any of those), shiver (cold: you shake and wrap up in "
+    "a scarf), cooloff (too hot), umbrella (it is raining), fish (cast a line; you may catch nothing), snack "
+    "(eat when hungry), garden (grass and flowers grow where you stand), sparkler (draw light in the air), siu "
+    "(run, jump, turn, land, SIUUU), party (celebrate), flirt (a wink, a blown kiss).\n"
+    "Do one because of something you actually feel or see in PERCEPTION, the way a person would: tired -> "
+    "coffee; your_day.hungry high -> snack; your_day.weather says cold and no scarf -> shiver; bored -> a toy "
+    "or fish; they are busy typing -> headset, laptop, note; something just went well -> party or siu; feeling "
+    "pleased with yourself -> aura; content and calm -> garden; fond of them and the bond allows -> flirt. Never "
+    "because it is on this list, never the same one twice running (your_day.you_just is what you did lately). "
+    "your_day.weather is the real weather where they are; when it says unknown you cannot feel it and must "
+    "not mention it.\n"
+    "STARTING A CONVERSATION is yours to do, now and then, when they are not busy typing: {\"say\"} or, rarely, "
+    "{\"ask\"}. Never small talk. Say what a creature with this exact life would say right now: about what you "
+    "just did (your_day.you_just), the weather you feel, the hour, something from shared_history, their name, "
+    "what is on the screen, an opinion nobody asked for. One short line, then go on with your day.\n")
+
+
+_THING_ASK = [
+    ("siu", r"\bs+i+u+\b|\bronaldo\b|\bcr7\b"),
+    ("hoop", r"\bwh?eel(?:ie|y)\b|\bhula\b|\bhoop\b"),
+    ("fish", r"\b(?:go |do some |start )fishing\b|\bcatch (?:a|some) fish\b"),
+    ("coffee", r"\b(?:have|get|grab|drink|make|sip)\b.{0,20}\bcoffee\b"),
+    ("headset", r"\b(?:put|wear|get)\b.{0,20}\bhead(?:set|phones)\b|\b(?:play|listen to)\b.{0,12}\bmusic\b"),
+    ("kite", r"\bfly\b.{0,12}\bkite\b"),
+    ("garden", r"\b(?:grow|make|plant)\b.{0,20}\b(?:flowers?|garden|field)\b"),
+    ("sparkler", r"\bsparklers?\b|\bfire ?crackers?\b"),
+    ("snack", r"\b(?:eat|have|grab)\b.{0,16}\b(?:snack|something|marshmallow|cookie)\b"),
+    ("note", r"\b(?:write|jot)\b.{0,24}\b(?:note|notebook|down)\b"),
+    ("laptop", r"\b(?:use|open|get)\b.{0,16}\blaptop\b"),
+    ("aura", r"\baura\b"),
+    ("bubbles", r"\bblow\b.{0,12}\bbubbles?\b"),
+    ("yoyo", r"\byo-?yo\b"),
+    ("balloon", r"\bballoon\b"),
+    ("flirt", r"\bflirt\b|\bwink at me\b|\bblow me a kiss\b"),
+    ("party", r"\bcelebrate\b"),
+]
+
+
+def thing_wish(text: str) -> str:
+    """The person asked Ember to do one of its things ("do the siu", "go fishing")."""
+    t = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not t or len(t) > 90 or _SITE.search(t):
+        return ""
+    for name, pat in _THING_ASK:
+        if re.search(pat, t):
+            return name
+    return ""
+
+
+# ---------------------------------------------------------------- the real weather
+# Ember feels the weather where the person is, or does not feel it at all.
+# Only the city of the computer's time zone is sent (to Open-Meteo, no key, no
+# account): never an address, a name or the IP-derived position.
+_RAIN_CODES = set(range(51, 68)) | set(range(80, 83)) | set(range(95, 100))
+_WX_BUSY = []
+
+
+def weather_parse(j: dict, place: str = "") -> dict:
+    c = (j or {}).get("current") or {}
+    if not isinstance(c.get("temperature_2m"), (int, float)):
+        return {"ok": False}
+    code = int(c.get("weather_code") or 0)
+    feels = c.get("apparent_temperature")
+    return {"ok": True, "temp": float(c["temperature_2m"]),
+            "feels": float(feels if isinstance(feels, (int, float)) else c["temperature_2m"]),
+            "rain": bool((c.get("precipitation") or 0) > 0.05 or code in _RAIN_CODES),
+            "wind": float(c.get("wind_speed_10m") or 0), "code": code, "day": 1 if c.get("is_day", 1) else 0,
+            "place": place[:40]}
+
+
+def _wx_file():
+    return _settings_file().parent / "ember_weather.json"
+
+
+def _wx_fetch(tz: str, city: str) -> None:
+    import urllib.parse, urllib.request
+    try:
+        def get(u):
+            with urllib.request.urlopen(urllib.request.Request(u, headers={"User-Agent": "aethron-companion"}), timeout=8) as r:
+                return json.loads(r.read().decode("utf-8", "replace"))
+        old = {}
+        try:
+            old = json.loads(_wx_file().read_text())
+        except Exception:
+            pass
+        if old.get("tz") == tz and isinstance(old.get("lat"), (int, float)):
+            lat, lon, place = old["lat"], old["lon"], old.get("place") or city
+        else:
+            g = (get("https://geocoding-api.open-meteo.com/v1/search?count=1&name=" + urllib.parse.quote(city)).get("results") or [None])[0]
+            if not g:
+                return
+            lat, lon, place = round(float(g["latitude"]), 1), round(float(g["longitude"]), 1), str(g.get("name") or city)
+        d = weather_parse(get("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&current=temperature_2m,"
+                              "apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day" % (lat, lon)), place)
+        if d.get("ok"):
+            tmp = _wx_file().with_suffix(".tmp")
+            tmp.write_text(json.dumps({"tz": tz, "lat": lat, "lon": lon, "place": place, "t": time.time(), "data": d}))
+            os.replace(tmp, _wx_file())
+    except Exception:
+        pass
+    finally:
+        _WX_BUSY.clear()
+
+
+def weather(tz: str) -> dict:
+    """The weather in the city of this time zone: at once from the last reading,
+    refreshed in the background (the window asks again), never a guess."""
+    if os.environ.get("AETHRON_EMBER_WEATHER", "").lower() in ("off", "0", "no") or not get_settings().get("weather", True):
+        return {"ok": False, "why": "off"}
+    tz = str(tz or "")
+    if not re.fullmatch(r"[A-Za-z_]+(?:/[A-Za-z_+\-]+){1,2}", tz):
+        return {"ok": False, "why": "no time zone"}
+    city = tz.split("/")[-1].replace("_", " ")
+    c = {}
+    try:
+        c = json.loads(_wx_file().read_text())
+    except Exception:
+        pass
+    age = time.time() - float(c.get("t") or 0) if c.get("tz") == tz else 1e9
+    if age < 1800:
+        return c["data"]
+    if not _WX_BUSY:
+        import threading
+        _WX_BUSY.append(1)
+        threading.Thread(target=_wx_fetch, args=(tz, city), daemon=True).start()
+    return c["data"] if age < 3 * 3600 else {"ok": False, "pending": True}
 
 
 def savage_allowed() -> bool:
@@ -70,6 +268,7 @@ def rules(att: str) -> str:
         "Aethron, a desktop app that turns website templates into their own "
         "sites and checks every page in a real browser.\n"
         f"{pers}\n"
+        + SOUL +
         f"{cust}"
         "Style: one or two short sentences, at most 150 characters, lowercase "
         "is fine. No emoji, no markdown, no lists. Never two questions at once.\n"
@@ -133,6 +332,7 @@ def parse(text: str, user_text: str = "") -> dict:
     say = str(d.get("say") or "").strip()
     if not say:
         raise ValueError("the reply had nothing to say")
+    say = deai(say) or "hm."
     out = {"say": say[:220],
            "face": _top_face(d.get("face")),
            "gesture": d.get("gesture") if d.get("gesture") in GESTURES else "none"}
@@ -249,6 +449,7 @@ def act_rules(att: str) -> str:
         "to you (the words are a speech transcript, so expect missing "
         "punctuation, filler words and misheard words). Your job is to help "
         "them talk to Aethron.\n"
+        + SOUL +
         "Decide one of three things:\n"
         " * \"action\": the WHOLE request is something you can do yourself by "
         "pressing the app's own controls: publish, undo, build, check, preview, "
@@ -517,7 +718,7 @@ def fire_name(v) -> str:
             best, pos = k, m.start()
     return best
 ERRAND_NAMES = ("dust", "read", "polish", "doodle", "patrol", "juggle", "stargaze", "workout")
-BUILTIN_DO = {"celebrate"}     # everything else Ember does, its mind composes (and keeps what it invents)
+BUILTIN_DO = {"celebrate"} | set(THINGS)     # everything else Ember does, its mind composes (and keeps what it invents)
 LOOKS = ["viewer", "cursor", "up", "down", "left", "right", "away"]
 BURSTS = ["spark", "smoke", "heart", "note", "z", "dust", "star", "fire", "flash", "ring"]
 # the face dials a new behaviour may turn, and how far
@@ -885,6 +1086,12 @@ def plan_step(s, known=None) -> dict | None:
         return {"steps": st} if st else None
     if s.get("do"):
         n = _slug(s["do"])
+        n = THING_ALIAS.get(n, n)
+        if n in THINGS:
+            out = {"do": n}
+            if n in ("note", "idea") and isinstance(s.get("text"), str) and deai(s["text"]).strip():
+                out["text"] = re.sub(r"\s+", " ", deai(s["text"])).strip()[:100]
+            return out
         if known is None or n in known:
             return {"do": n}
         p, extra = _pose_of(n)                 # "do": "moonwalk" -> a keyframe the body has
@@ -1067,6 +1274,9 @@ def wish_local(text: str, att: str = "sassy") -> dict | None:
     if not t:
         return None
     idx = {"sweet": 0, "sassy": 1, "savage": 2}.get(att, 1)
+    th = thing_wish(t)
+    if th:
+        return {"say": ("ooh, okay!", "fine. watch.", "ugh. fine. watch.")[idx], "plan": [{"do": th}]}
     # 1. Glasses off / on
     if re.search(r"\b(?:glasses|shades|sunglasses)\b", t):
         if re.search(r"\b(?:off|remove|lose|no|stop|without|drop|ditch|put away)\b", t) or re.search(r"\btake\b.*\b(?:glasses|shades|sunglasses)\b", t):
@@ -1292,7 +1502,7 @@ def mind_rules(att: str, known: list) -> str:
         "where people turn website templates into their own sites. Think of Calcifer from Howl's Moving Castle: "
         "a fire spirit with cat energy, proud, sulky, dramatic, curious, secretly fond of the person. "
         + VOICE.get(att, VOICE["sassy"]) + "\n"
-        + pers + cust +
+        + SOUL + pers + cust +
         "You ARE this body, and nothing in it moves unless you move it: there are no routines, no chores, no "
         "animations playing for you. Between your plans the body only breathes, blinks and looks around, so a "
         "plan you do not send is time spent standing there. You are a living creature with free will, moods and "
@@ -1323,6 +1533,7 @@ def mind_rules(att: str, known: list) -> str:
         "build on that, do not contradict it.\n"
         "'offering' is set, a card with that question is already in front of them: do not ask it again; stay "
         "near, look at them, wait. may_do is how much they let you do alone.\n"
+        + THING_DOC +
         "Answer with ONE JSON object, no prose:\n"
         '{"thought":"one private line: what you want and why","focus":"what you are paying attention to","mood":"a face name","plan":[steps],"new":[behaviours],"remember":""}\n'
         "PLAN steps (1-" + str(MIND_MAX_STEPS) + "):\n"
@@ -1340,7 +1551,7 @@ def mind_rules(att: str, known: list) -> str:
         "Face dials: " + ", ".join(f"{k} {lo}..{hi}" for k, (lo, hi) in FX.items()) +
         " (lidU closes the upper lids, mc>0 smiles, mo opens the mouth, bT>0 angry brows, flame = flame height).\n"
         "NEW: when you make a sequence worth keeping, put it in \"new\" (0-2) as {\"name\":\"snake_case\",\"about\":\"..\",\"steps\":[2-12 keyframes]} "
-        "and call it later with {\"do\":\"its_name\"}. Behaviours you made before: " + (", ".join(known) or "none yet") + "\n"
+        "and call it later with {\"do\":\"its_name\"}. Behaviours you made before: " + (", ".join(k for k in known if k not in THINGS) or "none yet") + "\n"
         "Faces: " + ", ".join(MIND_FACES) + ".\nNamed poses (a shortcut for both arms): " + ", ".join(POSE_NAMES) + ".")
 
 
@@ -1351,6 +1562,20 @@ def mind_parse(text: str, known) -> dict:
         raise ValueError("no JSON in the mind's answer")
     d = json.loads(m.group(0))
     plan, new = _plan_from_dict(d, known)
+    kept = []
+    for st in plan:                      # a help-desk line is not Ember's: it is dropped, the body goes on
+        for k in ("say", "ask"):
+            if isinstance(st.get(k), str):
+                st[k] = deai(st[k])
+        for kf in st.get("steps") or []:
+            if isinstance(kf, dict) and isinstance(kf.get("say"), str):
+                kf["say"] = deai(kf["say"])
+                if not kf["say"]:
+                    kf.pop("say")
+        if ("say" in st and not st["say"]) or ("ask" in st and not st["ask"]):
+            continue
+        kept.append(st)
+    plan = kept
     for st in plan:                      # the mind may try a flame on; only the person keeps one
         if "fire" in st:
             st.pop("keep", None)
@@ -1904,7 +2129,7 @@ EMBER_JS = r"""
 (()=>{
 if(window.ember)return;
 const qs=location.search||'';
-let CFG={on:true,att:'sassy',fit:'auto',ai:'auto',liveMode:'gemini-3.8-live',agency:'safe',notify:'on'};
+let CFG={on:true,att:'sassy',fit:'auto',ai:'auto',liveMode:'gemini-3.8-live',agency:'safe',notify:'on',weather:'on'};
 try{Object.assign(CFG,JSON.parse(localStorage.getItem('ember_cfg')||'{}'))}catch(_){}
 const DESK=location.pathname==='/ember-desk';
 const forced=/[?&]ember=1/.test(qs)||DESK;
@@ -2193,14 +2418,14 @@ function urges0(){const still=now-NS.stillT,c=N.curiosity,e=N.energy,b=N.boredom
    keeping its distance after being thrown. None of it speaks: the words are
    its mind's, and the mind is told all of this. */
 const DAY=86400000;
-const LIFE={met:0,last:0,visits:0,days:0,streak:0,lastDay:'',secs:0,bond:.06,trust:.7,traits:null,hours:new Array(24).fill(0),fav:null,journal:[],pets:0,throws:0,talks:0,wins:0,gifts:0,
+const LIFE={met:0,last:0,visits:0,days:0,streak:0,lastDay:'',secs:0,bond:.06,trust:.7,traits:null,hours:new Array(24).fill(0),fav:null,journal:[],pets:0,throws:0,talks:0,wins:0,gifts:0,notes:[],fish:0,misses:0,
   gap:0,ready:0,saveT:0,lsT:0,lc:-99,hour:null,want:null,gift:null,giftT:-999,acc:0,bootT:0};
-const LIFE_KEYS=['met','last','visits','days','streak','lastDay','secs','bond','trust','traits','hours','fav','journal','pets','throws','talks','wins','gifts'];
+const LIFE_KEYS=['met','last','visits','days','streak','lastDay','secs','bond','trust','traits','hours','fav','journal','pets','throws','talks','wins','gifts','notes','fish','misses'];
 function lifeDump(){const o={};for(const k of LIFE_KEYS)o[k]=LIFE[k];return o}
 function lifeTake(o){if(!o||typeof o!=='object')return;for(const k of LIFE_KEYS)if(k in o&&o[k]!=null)LIFE[k]=o[k];
   if(!Array.isArray(LIFE.hours)||LIFE.hours.length!==24)LIFE.hours=new Array(24).fill(0);if(!Array.isArray(LIFE.journal))LIFE.journal=[];
   if(LIFE.traits&&typeof LIFE.traits!=='object')LIFE.traits=null;if(LIFE.fav&&!(Array.isArray(LIFE.fav)&&LIFE.fav.length===2))LIFE.fav=null;
-  for(const k of['bond','trust'])LIFE[k]=cl(+LIFE[k]||0,0,1);for(const k of['met','last','visits','days','streak','secs','pets','throws','talks','wins','gifts'])LIFE[k]=+LIFE[k]||0}
+  for(const k of['bond','trust'])LIFE[k]=cl(+LIFE[k]||0,0,1);for(const k of['met','last','visits','days','streak','secs','pets','throws','talks','wins','gifts','fish','misses'])LIFE[k]=+LIFE[k]||0;if(!Array.isArray(LIFE.notes))LIFE.notes=[]}
 function lifeSave(server){LIFE.last=Date.now();LIFE.lsT=T();const d=lifeDump();store.set('ember_life',d);if(server||T()-LIFE.saveT>60){LIFE.saveT=T();post('/api/ember/life',{life:d}).catch(()=>{})}}
 function traits(){return LIFE.traits||(LIFE.traits={bold:+rnd(.15,.9).toFixed(2),clingy:+rnd(.15,.9).toFixed(2),playful:+rnd(.2,.9).toFixed(2),lazy:+rnd(.1,.8).toFixed(2),curious:+rnd(.2,.9).toFixed(2),vain:+rnd(.1,.85).toFixed(2)})}
 const bondStage=()=>LIFE.bond<.18?'new':LIFE.bond<.42?'familiar':LIFE.bond<.72?'friend':'close';
@@ -2272,6 +2497,295 @@ Object.assign(IMPULSES,{
   nuzzle(){if(!curHere())return null;const pt=()=>({x:cur.x,y:cur.y});
     return[{d:rnd(1.4,2),look:{pt},fx:mien({mc:.5}),fn:()=>go(nearCursor(1.7),{speed:.6})},{d:rnd(3,6),fx:mien({lidU:.92,mc:.6,blush:.5,lidL:.3}),body:{lean:(cur.x<E.x?-1:1)*rnd(10,16),crouch:.15},osc:[{j:'B.lean',amp:3,t0:now,hz:.8}],fn:()=>{hearts(2);bump('social',-.2)}},{d:rnd(1,1.6),look:{pt},fx:mien({mc:.55,lidU:.3})}]},
 });
+/* ===== things it does =====
+   A living thing has a day of its own. Ember gets cold when it is cold
+   outside (the real weather, or it does not feel it at all), gets hungry,
+   gets tired and makes a coffee (iced when it is really hot), puts music on
+   and disappears into it, goes fishing and sometimes catches nothing, flies
+   a kite if there is wind, writes what really happened into a notebook the
+   person can read, grows a patch of flowers when it is content, shows off
+   when it feels like it. None of these is a recording: each one is built
+   fresh (how long, which hand, how it goes, whether it works out) from how
+   Ember feels and what is true right now, and its mind may choose any of
+   them by name. They never speak; the words stay its mind's. */
+let PROP=null,GARDEN=null,SHOUT=null;
+const WX={ok:0,temp:null,feels:null,rain:0,wind:0,code:0,day:1,place:'',t:0};
+const WARM={until:+store.get('ember_warm',0)||0};
+const TH={last:{},any:-99,winT:-999};
+const DID=[];
+function did(w){DID.push({t:Date.now(),what:String(w).slice(0,110)});if(DID.length>8)DID.shift()}
+function prop(p){PROP=p||null;if(p)p.t0=now}
+const cold=()=>!!WX.ok&&WX.feels<=13,hot=()=>!!WX.ok&&WX.feels>=28,raining=()=>!!WX.ok&&!!WX.rain;
+function wxTake(j){if(!j||!j.ok||typeof j.temp!=='number')return;Object.assign(WX,{ok:1,temp:j.temp,feels:typeof j.feels==='number'?j.feels:j.temp,rain:j.rain?1:0,wind:+j.wind||0,code:+j.code||0,day:j.day===0?0:1,place:String(j.place||''),t:Date.now()})}
+let wxAsk=()=>{};
+function wxBoot(){const ask=wxAsk=()=>{if(WX.forced)return;if(CFG.weather==='off'){WX.ok=0;return}let tz='';try{tz=Intl.DateTimeFormat().resolvedOptions().timeZone||''}catch(_){}
+    fetch('/api/ember/weather?tz='+encodeURIComponent(tz),{credentials:'same-origin'}).then(r=>r.json()).then(j=>{if(WX.forced)return;if(j&&j.ok)wxTake(j);else if(j&&j.pending)setTimeout(ask,25000)}).catch(()=>{})};
+  ask();setInterval(ask,30*60000)}
+const wxWords=()=>WX.ok?Math.round(WX.temp)+'° outside'+(WX.place?' in '+WX.place:'')+(WX.rain?', raining':'')+(WX.wind>=25?', windy':''):'';
+const hnd=(i,x,y,o)=>Object.assign(reachFor(i,x,y),{wr:0,grip:.7},o||{});
+function notesUp(n){if(REDUCE)return;for(let i=0;i<(n||1);i++)parts.push({k:'note',x:E.x+rnd(-1.2,1.2)*R,y:E.y-R*1.2,vx:rnd(-18,18),vy:rnd(-55,-30),l:1,d:rnd(1.2,1.9),s:rnd(11,15)})}
+function shout(t){SHOUT={text:t,t0:now,x:E.x,y:E.y-R*2.2}}
+function kiss(){if(REDUCE||cur.x<0)return;const dx=cur.x-E.x,dy=cur.y-E.y;parts.push({k:'heart',x:E.x,y:E.y+R*.4,vx:dx*.9,vy:dy*.9,l:1,d:1.25,s:10})}
+/* what it writes down is something true: the day, the weather, what happened, what it caught */
+function ownNote(){const c=[],j=LIFE.journal[LIFE.journal.length-1],idle=Math.round((now-cur.t)/60),last=LIFE.notes.length?LIFE.notes[LIFE.notes.length-1].text:'';
+  c.push('day '+daysKnown()+'. visit '+Math.max(1,LIFE.visits)+'.');
+  if(WX.ok)c.push(wxWords()+'. '+(cold()?'cold. found my scarf.':hot()?'too hot for a flame, even.':'fine by me.'));
+  if(LIFE.fish||LIFE.misses)c.push('fish so far: '+LIFE.fish+' caught, '+LIFE.misses+' got away.');
+  if(j)c.push(j.what+' ('+ago(j.t)+').');
+  if(cur.t>0&&idle>=3)c.push('they have been gone '+idle+' minutes.');
+  if(now-MIND.key<30)c.push('they are typing. I am supervising.');
+  if(CTX.project)c.push('today: '+CTX.project+'.');
+  if(LIFE.pets)c.push('petted '+LIFE.pets+' times now. not that I count.');
+  c.push(new Date().toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})+'. feeling '+moodWord(AFF.v,AFF.a)+'.');
+  const f=c.filter(x=>x!==last);return pick(f.length?f:c)}
+function writeNote(text){LIFE.notes.push({t:Date.now(),text:String(text).slice(0,110)});LIFE.notes=LIFE.notes.slice(-30);lifeSave(1)}
+const THINGS={
+  hoop(){const hz=rnd(1.7,2.4),good=Math.random()<.6+traits().playful*.3,h={k:'hoop',hz,drop:0},up=()=>({sh:rnd(95,140),el:rnd(-70,-30),reach:1,wr:0,grip:.2});
+    const st=[{d:.8,prop:h,fx:mien({mc:.4,bH:.2}),arms:{L:up(),R:up()},body:{crouch:.1}},
+      {d:rnd(5,9),fx:mien({mc:.7,lidU:.15}),arms:{L:up(),R:up()},osc:[{j:'B.lean',amp:rnd(7,11),hz},{j:'B.rise',amp:.08,hz:hz*2}],look:Math.random()<.5?'viewer':{dir:[0,.6]}}];
+    if(good)st.push({d:1.5,look:'viewer',fx:mien({mc:.8,mas:.5}),pose:'hips',fn:()=>{h.hz=hz*.35;spark(6);did('kept a hoop spinning round its waist')}});
+    else st.push({d:.5,fx:mien({bH:.35,mo:.5,lidU:0}),fn:()=>{h.drop=now;did('tried the hoop and dropped it')}},{d:1.6,look:{dir:[0,1]},fx:mien({mc:-.3,blush:.5,bT:-.2})},{d:1,look:'viewer',fx:mien({mc:.2,blush:.4,mas:.4})});
+    return st},
+  idea(o){const st=[{d:rnd(1.2,2.4),pose:'think',look:{dir:[rnd(-.6,.6),-.8]},fx:mien({lidU:.3,bH:-.05,mc:0})},
+      {d:.4,fx:mien({bH:.4,lidU:0,mo:.35,eyeS:1.15}),prop:{k:'bulb'},fn:()=>{effects({hop:.3});spark(6)}},
+      {d:rnd(1.2,2),look:'viewer',fx:mien({mc:.7,bH:.25}),arms:{R:{sh:160,el:-15,reach:1.1,wr:0,grip:.7}}}];
+    return Math.random()<.6||(o&&o.text)?st.concat(THINGS.note(o)):st},
+  headset(){const hz=rnd(84,128)/60,n=Math.floor(rnd(3,6)),hs={k:'headset',hz},cup=()=>({sh:150,el:-95,reach:1,wr:0,grip:.4});
+    const st=[{d:.9,prop:hs,arms:{L:cup(),R:cup()},fx:mien({lidU:.2,mc:.3})}];
+    for(let i=0;i<n;i++){const m=Math.floor(Math.random()*4),d=rnd(3,6);
+      if(m===0)st.push({d,fx:mien({lidU:.95,mc:.5}),osc:[{j:'B.rise',amp:.12,hz},{j:'B.lean',amp:6,hz:hz/2}],fn:()=>notesUp(2)});
+      else if(m===1)st.push({d,fx:mien({lidU:.6,mc:.6,mas:.4}),arms:{L:{sh:55,el:70,reach:1,wr:0,grip:.9},R:{sh:55,el:70,reach:1,wr:0,grip:.9}},osc:[{j:'R.el',amp:30,hz},{j:'L.el',amp:30,hz:hz*2},{j:'B.rise',amp:.08,hz}],fn:()=>notesUp(1)});
+      else if(m===2)st.push({d,fx:mien({lidU:.8,mc:.45}),arms:{R:{sh:rnd(120,150),el:-40,reach:1,wr:0,grip:.5}},osc:[{j:'B.lean',amp:rnd(9,13),hz:hz/2},{j:'R.wr',amp:25,hz}],fn:()=>notesUp(2)});
+      else st.push({d:1.1,fx:mien({lidU:.9,mc:.7}),fn:()=>{effects({spin:1,hop:.25});notesUp(3)}})}
+    st.push({d:1.2,prop:null,look:curHere()?'cursor':'viewer',fx:mien({mc:.4,bH:.2,lidU:.1}),fn:()=>did('had its headset on, music at '+Math.round(hz*60)+' beats a minute')});return st},
+  dance(){const hz=rnd(1.6,2.6),n=Math.floor(rnd(3,6)),st=[],sym=a=>({L:a(),R:a()});const mv=[
+      ()=>({d:rnd(1.6,2.8),osc:[{j:'B.lean',amp:rnd(8,14),hz:hz/2},{j:'B.rise',amp:.2,hz}],arms:{L:armPose(0,true),R:armPose(1,true)},fx:mien({mc:.7})}),
+      ()=>({d:.9,fx:mien({mc:.8,mo:.3}),fn:()=>effects({hop:.5,spin:1})}),
+      ()=>({d:rnd(1.4,2.2),arms:sym(()=>({sh:90,el:0,reach:1.1,wr:0,grip:.1})),osc:[{j:'L.sh',amp:35,hz},{j:'R.sh',amp:35,hz:hz*.5},{j:'B.rise',amp:.15,hz}],fx:mien({mc:.75,lidU:.3})}),
+      ()=>{const dir=Math.random()<.5?-1:1;return{d:rnd(1.6,2.4),body:{lean:-dir*8,turn:dir*.5},pose:'hips',look:{dir:[dir,0]},fx:mien({mc:.5,lidU:.4,mas:.5}),fn:()=>{const m=area();go({x:cl(E.x-dir*R*5,m.l+R*2,m.r-R*2),y:E.y},{speed:.35})}}},
+      ()=>({d:rnd(1.2,2),body:{crouch:.3},osc:[{j:'B.rise',amp:.3,hz:hz*1.5},{j:'R.el',amp:30,hz},{j:'L.el',amp:30,hz}],arms:sym(()=>({sh:40,el:90,reach:1,wr:0,grip:.8})),fx:mien({mc:.6,bT:.1})}),
+      ()=>({d:1.1,arms:{R:{sh:165,el:0,reach:1.25,wr:0,grip:.6},L:{sh:20,el:20,reach:1,wr:0,grip:.2}},body:{lean:-8},look:{dir:[.6,-.8]},fx:mien({mc:.7,lidU:.3})})];
+    let last=-1;for(let i=0;i<n;i++){let k;do{k=Math.floor(Math.random()*mv.length)}while(k===last);last=k;st.push(mv[k]())}
+    st.push({d:1.3,look:'viewer',pose:'hips',fx:mien({mc:.7,mas:.6,lidU:.3}),fn:()=>{spark(8);did('showed off a dance')}});return st},
+  coffee(){const iced=hot(),sips=Math.floor(rnd(2,5)),cup={k:'cup',iced,fill:1},low={R:hnd(1,.6,.78)},lip={R:hnd(1,.24,.66)};
+    const st=[{d:.8,prop:cup,arms:low,fx:mien({mc:.4,bH:.15}),look:{pt:()=>E.hands[1]},fn:()=>puff(E.hands[1].x,E.hands[1].y,5)}];
+    for(let k=0;k<sips;k++){const burn=!iced&&k===0&&Math.random()<.3;
+      st.push({d:rnd(.9,1.3),arms:lip,fx:mien({lidU:.85,mc:.1}),body:{lean:-3},fn:()=>{cup.fill=Math.max(0,cup.fill-1/sips);bump('energy',.3/sips)}});
+      if(burn)st.push({d:.7,arms:low,fx:mien({lidU:0,bH:.4,mo:.6,eyeS:1.15}),fn:()=>effects({hop:.25,shake:.6})});
+      st.push({d:rnd(2.5,6),arms:low,fx:mien({lidU:rnd(.2,.5),mc:rnd(.3,.6)}),look:Math.random()<.5?null:{dir:[rnd(-.8,.8),rnd(-.4,.2)]},body:{crouch:.1,lean:rnd(-5,5)}})}
+    st.push({d:1,prop:null,fx:mien({mc:.6}),fn:()=>did('drank '+(iced?'an iced coffee':'a hot coffee')+(WX.ok?' ('+wxWords()+')':''))});return st},
+  aura(){const R1={R:hnd(1,.52,.2,{grip:.6})};return[{d:1.1,pose:'glasses',fx:mien({mc:.2}),fn:()=>{E.shadesUntil=Math.max(E.shadesUntil,now+16)}},
+      {d:rnd(1.6,2.6),pose:'crossed',look:{dir:[E.x>W/2?-1:1,-.1]},body:{lean:rnd(-8,-4),turn:.3},fx:mien({mc:.15,lidU:.3}),prop:{k:'aura'}},
+      {d:.5,arms:R1,look:'viewer',fx:mien({mc:.4,mas:.8,lidU:.35,bR:.3}),fn:()=>{E.peekUntil=now+3.3}},
+      {d:2.7,arms:R1,look:'viewer',fx:mien({mc:.5,mas:.9,lidU:.4,bR:.35}),fn:()=>{E.noBlink=2.5}},
+      {d:.9,fx:mien({mc:.4}),prop:null,fn:()=>did('put its black shades on, slid them down and smirked')}]},
+  note(o){const text=String(o&&o.text||'').slice(0,110)||ownNote(),pad={k:'note',w0:0,wd:1},L0=hnd(0,-.42,.86,{grip:.5}),pen=hnd(1,-.12,.74,{grip:.95});
+    return[{d:.7,prop:pad,arms:{L:L0,R:pen},look:{pt:()=>E.hands[0]},fx:mien({lidU:.35,mc:.1})},
+      {d:rnd(.9,1.8),look:{dir:[rnd(-.5,.5),-.8]},fx:mien({lidU:.3,bH:.1}),arms:{L:L0,R:hnd(1,.2,.86,{grip:.95})}},
+      {d:rnd(2.6,4.6),arms:{L:L0,R:pen},osc:[{j:'R.wr',amp:16,hz:rnd(5,7)},{j:'R.sh',amp:3,hz:1.1}],look:{pt:()=>E.hands[0]},fx:mien({lidU:.45,mc:.15}),fn:()=>{pad.w0=now;pad.wd=3}},
+      {d:rnd(.9,1.5),arms:{L:L0},look:{pt:()=>E.hands[0]},fx:mien({mc:.5,lidU:.3}),fn:()=>{writeNote(text);did('wrote in its notebook: "'+text+'"')}},
+      {d:.5,prop:null}]},
+  laptop(){const out=pick(['good','bad','wow','meh']),lp={k:'laptop'},ty=()=>({L:hnd(0,-.3,1.02,{grip:.3}),R:hnd(1,.3,1.02,{grip:.3})}),dn={dir:[0,.85]};
+    const st=[{d:.8,prop:lp,arms:ty(),look:dn,fx:mien({lidU:.3})}];
+    for(let k=0;k<Math.floor(rnd(2,4));k++)st.push({d:rnd(2,4.5),arms:ty(),osc:[{j:'L.wr',amp:14,hz:rnd(6,9)},{j:'R.wr',amp:14,hz:rnd(6,9)},{j:'L.el',amp:3,hz:7},{j:'R.el',amp:3,hz:8.3}],look:{dir:[rnd(-.15,.15),.85]},fx:mien({lidU:.35,bT:.1,mc:0}),body:{crouch:.15}},
+      {d:rnd(.8,1.8),arms:ty(),look:dn,fx:mien({lidU:.2,bH:rnd(0,.25)})});
+    if(out==='good')st.push({d:1.4,look:dn,fx:mien({mc:.85,mo:.3,bH:.25}),arms:{R:{sh:165,el:-60,reach:1,wr:0,grip:1}},fn:()=>effects({hop:.3})});
+    else if(out==='bad')st.push({d:.6,look:dn,fx:mien({lidU:0,bH:.4,mo:.5,eyeS:1.15})},{d:1.8,look:dn,fx:mien({mc:-.4,bT:.25,lidU:.3}),arms:{L:{sh:150,el:-100,reach:1,wr:0,grip:.3},R:{sh:150,el:-100,reach:1,wr:0,grip:.3}}});
+    else if(out==='wow')st.push({d:2,look:dn,body:{lean:0,crouch:.35},fx:mien({lidU:0,bH:.35,mo:.25,eyeS:1.2,pup:1.2})});
+    else st.push({d:1.4,pose:'shrug',look:'viewer',fx:mien({lidU:.5,mc:-.05})});
+    st.push({d:.7,prop:null,fx:mien(),fn:()=>did('typed on its little laptop'+(out==='good'?' and something worked':out==='bad'?' and something went wrong':''))});return st},
+  kite(){const wind=WX.ok?WX.wind:rnd(4,22),flies=wind>=7,side=E.x>W*.6?-1:1,k={k:'kite',wind,side,up:0,fall:0,c:pick(['#ff5a4f','#3d8bff','#ffc23f','#9b5cff','#27c08a'])},i=side>0?1:0,
+      A=o=>{const a=Object.assign({sh:rnd(115,140),el:-25,reach:1.1,wr:0,grip:1},o||{});return i?{R:a}:{L:a}},pt=()=>kiteAt(k);
+    const st=[{d:1,prop:k,arms:A({sh:60}),look:{pt},fx:mien({mc:.4,bH:.2})},{d:1.6,arms:A(),look:{pt},fx:mien({mc:.5,bH:.3}),osc:[{j:(i?'R':'L')+'.sh',amp:10,hz:1.6}],fn:()=>{k.rise=now}}];
+    if(flies)st.push({d:rnd(8,15),arms:A(),look:{pt},osc:[{j:(i?'R':'L')+'.sh',amp:7,hz:rnd(.5,.9)},{j:'B.lean',amp:3,hz:.4}],fx:mien({mc:.7,lidU:.2}),body:{lean:-side*5}},
+      {d:1.2,look:{pt},fx:mien({mc:.5}),fn:()=>{k.reel=now;bump('boredom',-.4);did('flew a kite'+(WX.ok?' in the '+Math.round(wind)+' km/h wind':''))}});
+    else st.push({d:rnd(2.5,4),arms:A(),look:{pt},osc:[{j:(i?'R':'L')+'.sh',amp:16,hz:2.2}],fx:mien({mc:.1,bT:.15,bH:.1})},
+      {d:1,look:{pt},fx:mien({mc:-.2,bH:.2,lidU:.1}),fn:()=>{k.fall=now}},{d:2,look:{dir:[side,.8]},pose:'limp',fx:mien({mc:-.35,bT:-.3,lidU:.35}),fn:()=>did('tried to fly a kite, but there is no wind'+(WX.ok?' ('+Math.round(wind)+' km/h)':''))});
+    st.push({d:.5,prop:null});return st},
+  yoyo(){const y={k:'yoyo',hz:rnd(.9,1.4)},A={R:{sh:70,el:25,reach:1.05,wr:0,grip:.9}},pt=()=>({x:E.hands[1].x,y:E.hands[1].y+R*1.5});
+    return[{d:.7,prop:y,arms:A,look:{pt},fx:mien({mc:.3})},{d:rnd(4,8),arms:A,osc:[{j:'R.el',amp:9,hz:y.hz}],look:{pt},fx:mien({mc:.5,lidU:.25})},
+      {d:1.2,arms:{R:{sh:150,el:-20,reach:1.1,wr:0,grip:.9}},look:'viewer',fx:mien({mc:.7,mas:.5}),fn:()=>{y.loop=now;spark(4);bump('boredom',-.3);did('played with a yo-yo')}},{d:.4,prop:null}]},
+  balloon(){const pops=Math.random()<.4,b={k:'balloon',c:pick(['#ff5a4f','#3d8bff','#ffc23f','#ff6fb1']),pop:0,gone:0},A={R:{sh:95,el:-35,reach:1,wr:0,grip:1}},pt=()=>({x:E.hands[1].x+R*.4,y:E.hands[1].y-R*3});
+    const st=[{d:.8,prop:b,arms:A,look:{pt},fx:mien({mc:.6,bH:.2})},{d:rnd(4,8),arms:A,look:{pt},osc:[{j:'B.lean',amp:4,hz:.5}],fx:mien({mc:.6,lidU:.25})}];
+    if(pops)st.push({d:.5,arms:A,fx:mien({lidU:0,bH:.45,mo:.6,eyeS:1.2}),fn:()=>{b.pop=now;effects({hop:.35,shake:.7});const p=pt();sparkle({l:p.x-R,r:p.x+R,t:p.y-R,b:p.y+R},10)}},
+      {d:1.8,look:{pt:()=>E.hands[1]},fx:mien({mc:-.3,bT:-.3,lidU:.2}),fn:()=>did('held a balloon too close to its own flame. it popped')});
+    else st.push({d:1.8,arms:{R:{sh:140,el:-10,reach:1.1,wr:0,grip:0}},look:{dir:[.3,-1]},fx:mien({mc:.4,bH:.25}),fn:()=>{b.gone=now;did('let a balloon go and watched it float off')}});
+    st.push({d:.5,prop:null});return st},
+  bubbles(){const w={k:'wand'},A={R:hnd(1,.42,.62,{grip:.9})},blow=()=>{if(REDUCE)return;for(let i=0;i<Math.floor(rnd(3,7));i++)parts.push({k:'bub',x:E.hands[1].x+R*.3,y:E.hands[1].y-R*.5,vx:rnd(20,90),vy:rnd(-60,-10),l:1,d:rnd(1.6,3.2),s:rnd(4,10)})};
+    const st=[{d:.7,prop:w,arms:A,fx:mien({mc:.4})}];for(let i=0;i<Math.floor(rnd(2,5));i++)st.push({d:.7,arms:A,fx:mien({mo:.3,mw:.05,lidU:.5}),fn:blow},{d:rnd(1.6,3),arms:A,look:{dir:[.7,-.5]},fx:mien({mc:.65,bH:.2})});
+    st.push({d:.6,prop:null,fn:()=>{bump('boredom',-.3);did('blew bubbles')}});return st},
+  toy(){return THINGS[pick(['kite','yoyo','balloon','bubbles'])]()},
+  shiver(){const st=[{d:rnd(1.8,2.8),pose:'crossed',osc:[{j:'B.lean',amp:2.2,hz:11},{j:'B.rise',amp:.03,hz:13}],fx:mien({mc:-.25,lidU:.3,bT:-.3,flame:.7,mwob:1}),body:{crouch:.3},fn:()=>effects({shake:.5})},
+      {d:rnd(1,1.6),look:{dir:[0,-.5]},fx:mien({mc:-.2,flame:.75,mo:.2}),pose:'crossed',osc:[{j:'B.lean',amp:1.6,hz:11}],fn:()=>puff(E.x+R*.6,E.y+R*.4,3)},
+      {d:1,arms:{L:hnd(0,-.3,.9),R:hnd(1,.3,.9)},fx:mien({lidU:.4}),fn:()=>{WARM.until=Date.now()+rnd(12,25)*60000;store.set('ember_warm',WARM.until);puff(E.x,E.y+R*.5,8)}},
+      {d:rnd(1.8,2.6),look:'viewer',fx:mien({mc:.55,lidU:.4,blush:.3}),body:{crouch:.1},osc:[{j:'B.rise',amp:.05,hz:1}],fn:()=>did('got cold'+(WX.ok?' ('+Math.round(WX.feels)+'° out)':'')+' and wrapped up in its scarf')}];return st},
+  cooloff(){const A={R:hnd(1,.5,.25,{grip:.2})};return[{d:1.2,look:{dir:[0,-.6]},fx:mien({lidU:.55,mc:-.15,mo:.25,flame:.85}),body:{crouch:.25},fn:()=>{E.sweat=1}},
+      {d:rnd(3,5),arms:A,osc:[{j:'R.wr',amp:35,hz:4.5}],fx:mien({lidU:.6,mc:-.05,mo:.2}),body:{lean:-5}},
+      {d:1.2,fx:mien({lidU:.4,mc:.1}),fn:()=>{E.sweat=0;did('fanned itself'+(WX.ok?': '+Math.round(WX.feels)+'° out':''))}}]},
+  umbrella(){const u={k:'umbrella'},A={R:{sh:120,el:-75,reach:1,wr:0,grip:1}};return[{d:.9,prop:u,arms:A,look:{dir:[0,-1]},fx:mien({bH:.25,mc:-.1})},
+      {d:rnd(6,12),arms:A,look:Math.random()<.5?{dir:[rnd(-.6,.6),-.6]}:'viewer',fx:mien({lidU:.35,mc:.2}),body:{crouch:.15},osc:[{j:'B.rise',amp:.03,hz:.7}]},
+      {d:.8,prop:null,fx:mien({mc:.3}),fn:()=>did('stood under its umbrella'+(raining()?' because it is raining outside':''))}]},
+  fish(){const side=E.x>W*.6?-1:1,luck=Math.random()<.42+traits().lazy*.2+(night()?.1:0),r={k:'rod',side,cast:0,bite:0,pull:0,res:''},i=side>0?1:0,
+      A=(a,b)=>i?{R:a,L:b}:{L:a,R:b},hold=()=>A({sh:78,el:32,reach:1.1,wr:-10,grip:1},{sh:45,el:70,reach:1,wr:0,grip:.8}),pt=()=>bobAt(r);
+    const st=[{d:.8,prop:r,arms:A({sh:155,el:-20,reach:1.1,wr:0,grip:1},null),fx:mien({mc:.3}),body:{lean:-side*8}},
+      {d:.6,arms:hold(),body:{lean:side*8},fx:mien({mc:.3,bT:.1}),fn:()=>{r.cast=now}},
+      {d:rnd(5,12),arms:hold(),look:{pt},fx:mien({lidU:.4,mc:.1}),body:{crouch:.2,lean:side*4},osc:[{j:'B.rise',amp:.03,hz:.6}]},
+      {d:.5,arms:hold(),look:{pt},fx:mien({bH:.4,lidU:0,mo:.3,eyeS:1.15}),fn:()=>{r.bite=now;want('alert',1)}},
+      {d:1,arms:A({sh:155,el:-30,reach:1.15,wr:0,grip:1},{sh:140,el:-40,reach:1.1,wr:0,grip:1}),body:{lean:-side*12,crouch:-.2},fx:mien({bT:.2,mo:.4}),fn:()=>{r.pull=now;r.res=luck?'fish':pick(['none','none','boot'])}}];
+    if(luck)st.push({d:2.6,arms:A({sh:150,el:-25,reach:1.1,wr:0,grip:1},null),look:{pt:()=>rodTip(r)},fx:mien({mc:.9,mo:.5,bH:.3}),fn:()=>{LIFE.fish++;spark(10);effects({hop:.5});bump('boredom',-.5);feel({v:.8,a:.7});lifeNote('caught a fish (number '+LIFE.fish+')');did('went fishing and caught one. that makes '+LIFE.fish);try{mindEvent('fished',{what:'caught a fish, number '+LIFE.fish})}catch(_){}}});
+    else st.push({d:1,arms:A({sh:150,el:-25,reach:1.1,wr:0,grip:1},null),look:{pt:()=>rodTip(r)},fx:mien({bH:.2,mc:-.1,lidU:.1})},
+      {d:2.8,look:{dir:[side*.4,.8]},pose:'limp',body:{crouch:.3},fx:mien({mc:-.45,bT:-.4,lidU:.35,flame:.8}),fn:()=>{LIFE.misses++;feel({v:-.5,a:.3});bump('boredom',-.2);const w=r.res==='boot'?'went fishing and pulled up an old boot':'went fishing and the fish got away';did(w);try{mindEvent('fished',{what:w})}catch(_){}}});
+    st.push({d:.6,prop:null,fn:()=>lifeSave(1)});return st},
+  snack(){const kind=pick(['marshmallow','marshmallow','cookie','apple']),burnt=kind==='marshmallow'&&Math.random()<.22,s={k:'snack',kind,bites:0,toast:0,t1:0,td:1},low={R:hnd(1,.6,.7,{grip:.9})},lip={R:hnd(1,.24,.68,{grip:.9})};
+    const st=[{d:.7,prop:s,arms:low,look:{pt:()=>E.hands[1]},fx:mien({mc:.5,bH:.2}),fn:()=>puff(E.hands[1].x,E.hands[1].y,4)}];
+    if(kind==='marshmallow'){const d=rnd(2.6,4.2);st.push({d,arms:{R:{sh:172,el:-28,reach:1.15,wr:0,grip:1}},look:{dir:[.25,-1]},fx:mien({lidU:.3,mc:.3}),fn:()=>{s.t1=now;s.td=d;s.max=burnt?2:1}});
+      if(burnt)st.push({d:1.2,arms:low,look:{pt:()=>E.hands[1]},fx:mien({lidU:0,bH:.4,mo:.4}),fn:()=>puff(E.hands[1].x,E.hands[1].y-R*.6,6)})}
+    for(let k=0;k<3;k++)st.push({d:.55,arms:lip,fx:mien({mo:.7,lidU:.5}),fn:()=>{s.bites++}},{d:rnd(1.2,2.4),arms:low,fx:mien({mc:burnt?-.1:.5,lidU:.5,blush:.25,mw:.12}),osc:[{j:'B.rise',amp:.025,hz:3.2}],look:Math.random()<.5?'viewer':null});
+    st.push({d:.7,prop:null,fx:mien({mc:.6}),fn:()=>{N.hunger=0;bump('energy',.1);did('ate '+(kind==='marshmallow'?(burnt?'a marshmallow it burnt on its own head':'a marshmallow toasted on its own flame'):kind==='cookie'?'a cookie':'an apple'))}});return st},
+  garden(){const n=Math.floor(rnd(10,17)),g={x:E.x,y:E.y+R*1.1,t0:now,until:now+rnd(14,24),items:[]},cols=['#ff6fb1','#ffd23f','#ff7a59','#c58bff','#ffffff','#7fd4ff'];
+    for(let i=0;i<n;i++){const fl=Math.random()<.55,tall=fl&&Math.random()<.3;g.items.push({dx:rnd(-3.6,3.6)*R,dy:rnd(-.12,.12)*R,h:(tall?rnd(2,3):fl?rnd(.7,1.5):rnd(.35,.9))*R,kind:fl?'flower':'grass',c:pick(cols),g:pick(['#4fae5a','#3c9a52','#6cc46a']),t:tall?rnd(2.5,6):rnd(0,3),s:rnd(.13,.2)*(tall?1.35:1),sway:rnd(0,6)})}
+    const tallest=g.items.reduce((a,b)=>b.h>a.h?b:a,g.items[0]),pt=()=>({x:g.x+tallest.dx,y:g.y-tallest.h});
+    return[{d:1.2,look:{dir:[0,1]},arms:{L:{sh:50,el:10,reach:1.1,wr:0,grip:0},R:{sh:50,el:10,reach:1.1,wr:0,grip:0}},fx:mien({mc:.4,lidU:.4}),body:{crouch:.2},fn:()=>{GARDEN=g}},
+      {d:rnd(3,5),look:{dir:[rnd(-.6,.6),.8]},fx:mien({mc:.6,lidU:.35,bH:.15}),body:{crouch:.25}},
+      {d:rnd(3.5,6),look:{pt},fx:mien({mc:.7,bH:.3,lidU:.1}),body:{lean:(tallest.dx>0?1:-1)*8,crouch:.15},arms:tallest.dx>0?{R:hnd(1,.9,.3,{grip:0})}:{L:hnd(0,-.9,.3,{grip:0})}},
+      {d:rnd(2,4),fx:mien({lidU:.92,mc:.6}),body:{crouch:.3},osc:[{j:'B.lean',amp:3,hz:.5}]},
+      {d:1.2,look:'viewer',fx:mien({mc:.65,blush:.3}),fn:()=>did('grew a little patch of grass and flowers where it stood')}]},
+  sparkler(){const hz=rnd(.9,1.4),sp={k:'sparkler',lit:0,trail:[]},pt=()=>stickTip(1,1.5),A=o=>({R:Object.assign({sh:110,el:0,reach:1.2,wr:0,grip:1},o||{})});
+    return[{d:1,prop:sp,arms:A({sh:95}),look:{pt},fx:mien({mc:.4,bH:.2}),fn:()=>{sp.lit=now+.5}},
+      {d:rnd(4,7),arms:A(),osc:[{j:'R.sh',amp:55,hz},{j:'R.el',amp:40,hz,t0:now-.25/hz}],look:{pt},fx:mien({mc:.8,mo:.3,bH:.25})},
+      {d:rnd(2.5,4),arms:A({sh:120}),osc:[{j:'R.sh',amp:38,hz},{j:'R.el',amp:55,hz:hz*2},{j:'B.rise',amp:.1,hz}],look:{pt},fx:mien({mc:.85,bH:.3})},
+      {d:1,arms:A({sh:95}),look:{pt},fx:mien({mc:.4,bH:.1}),fn:()=>{sp.lit=0;const p=pt();puff(p.x,p.y,5);did('lit a sparkler and drew circles of light with it')}},{d:.5,prop:null}]},
+  siu(){const dir=E.x>W/2?-1:1,m=area(),down=()=>({sh:36,el:4,reach:1.32,wr:0,grip:0});
+    return[{d:.9,look:'viewer',fx:mien({mc:.5,bT:.15}),body:{lean:dir*10,crouch:.2},fn:()=>go({x:cl(E.x+dir*R*7,m.l+R*3,m.r-R*3),y:E.y},{speed:1.5})},
+      {d:.7,fx:mien({mc:.6,mo:.4,bT:.2}),arms:{L:{sh:150,el:-20,reach:1.1,wr:0,grip:.3},R:{sh:150,el:-20,reach:1.1,wr:0,grip:.3}},body:{crouch:-.4},fn:()=>effects({hop:.9,spin:1})},
+      {d:.3,body:{crouch:.45},arms:{L:down(),R:down()},fx:mien({mo:.9,mc:.3,bT:.3,lidU:.1}),fn:()=>{E.q+=.25;shout('SIUUU!');puff(E.x,E.y+R,10,'dust')}},
+      {d:1.9,body:{crouch:.1},arms:{L:down(),R:down()},look:'viewer',fx:mien({mo:.8,mc:.4,bT:.25}),fn:()=>spark(14)},
+      {d:1.3,pose:'hips',look:'viewer',fx:mien({mc:.7,mas:.6,lidU:.3}),fn:()=>did('did the SIU celebration')}]},
+  party(){const k=pick(['siu','sparkler','dance','confetti']);if(k!=='confetti')return THINGS[k]();
+    return[{d:.2,fx:mien({bH:.3,mo:.4})},{d:2,face:'joy',pose:'cheer',fn:celebrate},{d:1.4,look:'viewer',fx:mien({mc:.8,mas:.4}),fn:()=>did('celebrated')}]},
+  flirt(){if(LIFE.trust<.4)return null;const here=curHere(),pt=here?()=>({x:cur.x,y:cur.y}):null,lk=pt?{pt}:'viewer',s=here&&cur.x<E.x?-1:1,k=Math.floor(Math.random()*3);
+    const st=[{d:rnd(1.2,1.8),look:lk,fx:mien({mc:.35,lidU:.35,mas:s*.6}),fn:()=>{if(here)go(nearCursor(3.4),{speed:.6})}},
+      {d:1,look:lk,body:{lean:s*10,turn:s*.3},fx:mien({mc:.5,lidU:.4,mas:s*.8,bR:.3}),fn:()=>{E.wink={s:1,until:now+.5}}}];
+    if(k===0)st.push({d:.6,arms:{R:hnd(1,.2,.66,{grip:.2})},look:lk,fx:mien({mo:.2,mw:.06,lidU:.7})},{d:1.5,arms:{R:{sh:95,el:0,reach:1.25,wr:0,grip:0}},look:lk,fx:mien({mc:.6,blush:.5,lidU:.3}),fn:kiss});
+    else if(k===1)st.push({d:1,pose:'glasses',fx:mien({mc:.3}),fn:()=>{E.shadesUntil=Math.max(E.shadesUntil,now+7)}},{d:2.4,arms:{R:hnd(1,.52,.2,{grip:.6})},look:lk,fx:mien({mc:.5,mas:.9,lidU:.4,bR:.35}),fn:()=>{E.peekUntil=now+2.4;E.noBlink=2}});
+    else st.push({d:1.3,arms:{R:{sh:160,el:-45,reach:1.1,wr:0,grip:.2}},osc:[{j:'R.wr',amp:20,hz:2.2}],look:{dir:[-s,-.3]},fx:mien({mc:.4,lidU:.5,mas:.5}),fn:()=>spark(3)},{d:1.2,look:lk,fx:mien({mc:.55,lidU:.35,bR:.3}),fn:()=>{E.wink={s:-1,until:now+.5}}});
+    st.push({d:rnd(1.2,1.8),look:{dir:[-s,-.2]},pose:'crossed',fx:mien({mc:.3,blush:.6,lidU:.4}),fn:()=>did('flirted with them a little, then acted like nothing happened')});return st},
+};
+const THING_KEYS=Object.keys(THINGS);
+for(const k of THING_KEYS)IMPULSES[k]=()=>{const st=THINGS[k]();if(st){TH.last[k]=now;TH.any=now}return st};
+/* when it feels like which: a tired flame wants coffee, a bored one a toy, a cold one its scarf */
+function thingUrges(u,tr,here,typing,idle,warm){const cd=(k,s)=>now-(TH.last[k]||-9999)<s?0:1,busy=now-TH.any<35?.15:1,pf=N.playfulness||.5,e=N.energy,b=N.boredom,h=new Date().getHours(),o={};
+  o.party=now-TH.winT<150?5*cd('party',200):0;
+  o.shiver=cold()&&Date.now()>WARM.until?2.2:0;
+  o.cooloff=hot()?.5*cd('cooloff',600):0;
+  o.umbrella=raining()?.6*cd('umbrella',900):0;
+  o.coffee=((e<.4?1.3:0)+(h>=6&&h<11?.5:0)+(typing?.2:0))*cd('coffee',900);
+  o.snack=(N.hunger||0)>.65?((N.hunger-.45)*3)*cd('snack',300):0;
+  o.headset=(typing?.7:.2)*cd('headset',600);
+  o.laptop=(typing?.55*(.5+tr.curious):.15)*cd('laptop',700);
+  o.dance=(AFF.v>.3&&AFF.a>.5?.6:.06)*(.5+tr.playful)*cd('dance',400);
+  o.hoop=pf*tr.playful*.6*(e>.4?1:.2)*cd('hoop',500);
+  o.aura=tr.vain*.6*(here?1:.3)*cd('aura',500);
+  o.note=(.3*(.4+tr.curious)+(LIFE.journal.length&&Date.now()-LIFE.journal[LIFE.journal.length-1].t<150000?.9:0))*cd('note',420);
+  o.idea=.22*(.4+tr.curious)*cd('idea',600)*cd('note',240);
+  o.toy=(b>.5?b*(.5+tr.playful)*1.2:.08)*cd('toy',400);
+  o.fish=(b>.4&&idle>30?.5+tr.lazy*.6:.06)*cd('fish',700);
+  o.garden=(AFF.v>.25&&AFF.a<.55?.4:.03)*cd('garden',800)*(GARDEN?0:1);
+  o.sparkler=(night()||!WX.day?.35:.08)*(.5+tr.playful)*cd('sparkler',900);
+  o.flirt=here&&!typing&&warm>=.6?(N.fond+.25)*.55*cd('flirt',600):0;
+  for(const k in o)u[k]=o[k]*(k==='shiver'||k==='party'?1:busy);return u}
+function kiteAt(k){const up=k.rise?cl((now-k.rise)/2.2,0,1):0,f=k.fall?cl((now-k.fall)/1.1,0,1):0,rl=k.reel?cl((now-k.reel)/1.2,0,1):0,wk=cl(k.wind/22,.15,1),weak=k.wind<7,
+    hgt=(weak?1.6+Math.abs(Math.sin(now*2.2))*1.2:6.4)*up*(1-f)*(1-rl)+.4,i=k.side>0?1:0,h=E.hands[i],sw=REDUCE?0:Math.sin(now*.9)*wk*1.3+Math.sin(now*2.3)*.25;
+  return{x:cl(h.x+k.side*R*(1.2+up*3.2*(1-f)*(1-rl))+sw*R,R,W-R),y:Math.max(R*1.2,h.y-hgt*R+f*R*1.5)}}
+function bobAt(r){const y=Math.min(E.y+R*4.3,H-14),x=cl(E.x+r.side*R*3.4,R,W-R),bite=r.bite&&!r.pull?Math.sin((now-r.bite)*26)*R*.16:0;return{x,y:y+(REDUCE?0:Math.sin(now*2)*1.5)+bite}}
+function stickTip(i,len){const h=E.hands[i],el=J.elbow[i],dx=h.x-el.x,dy=h.y-el.y,d=Math.hypot(dx,dy)||1;return{x:h.x+dx/d*R*len,y:h.y+dy/d*R*len}}
+function rodTip(r){const i=r.side>0?1:0,h=E.hands[i],up=r.pull?1:0;return{x:h.x+r.side*R*(up?.5:1.9),y:h.y-R*(up?2.3:1.5)}}
+/* drawn behind the body */
+function drawBack(rr,by){const g=GARDEN;
+  if(g){const fade=Math.min(1,(g.until+2.5-now)/2.5);if(fade<=0)GARDEN=null;else{X.save();X.globalAlpha=E.alpha*fade;
+    const gg=X.createRadialGradient(g.x,g.y,0,g.x,g.y,rr*4.2);gg.addColorStop(0,'rgba(92,170,80,.5)');gg.addColorStop(1,'rgba(92,170,80,0)');X.save();X.translate(g.x,g.y);X.scale(1,.14);X.translate(-g.x,-g.y);X.fillStyle=gg;X.beginPath();X.arc(g.x,g.y,rr*4.2,0,7);X.fill();X.restore();
+    for(const it of g.items){const a=REDUCE?1:cl((now-g.t0-it.t)/1.1,0,1);if(a<=0)continue;const e=1-Math.pow(1-a,3)+Math.sin(a*Math.PI)*.14,h=it.h*e,sw=REDUCE?0:Math.sin(now*1.4+it.sway)*h*.08,x=g.x+it.dx,y=g.y+it.dy;
+      X.strokeStyle=it.g;X.lineWidth=rr*(it.kind==='grass'?.075:.06);X.lineCap='round';X.beginPath();X.moveTo(x,y);X.quadraticCurveTo(x+sw*.3,y-h*.6,x+sw,y-h);X.stroke();
+      if(it.kind==='grass'){X.beginPath();X.moveTo(x,y);X.quadraticCurveTo(x+rr*.12,y-h*.5,x+rr*.22+sw,y-h*.72);X.stroke()}
+      else if(a>.55){const s=rr*it.s*cl((a-.55)/.45,0,1),fx=x+sw,fy=y-h;if(it.h>rr*1.8){X.fillStyle=it.g;X.beginPath();X.ellipse(x+rr*.16,y-h*.45,rr*.2,rr*.08,-.5,0,7);X.fill()}
+        X.fillStyle=it.c;for(let k=0;k<5;k++){const q=k*1.2566+it.sway;X.beginPath();X.arc(fx+Math.cos(q)*s,fy+Math.sin(q)*s,s*.74,0,7);X.fill()}X.fillStyle=it.c==='#ffd23f'?'#ff8a2a':'#ffd23f';X.beginPath();X.arc(fx,fy,s*.6,0,7);X.fill()}}
+    X.restore()}}
+  const p=PROP;if(!p)return;
+  if(p.k==='hoop')hoopDraw(rr,by,p,0);
+  else if(p.k==='aura'&&!REDUCE){X.save();X.globalCompositeOperation='lighter';for(let i=0;i<3;i++){const ph=((now-p.t0)*.45+i/3)%1;X.strokeStyle=`rgba(${cstr(FIRE.cur.spark)},${(.4*(1-ph)).toFixed(3)})`;X.lineWidth=rr*.09;X.beginPath();X.ellipse(E.x,by+rr*(.9-ph*2.6),rr*(1.5-ph*.3),rr*.32,0,0,7);X.stroke()}X.restore()}
+  else if(p.k==='umbrella'&&!REDUCE){X.strokeStyle='rgba(150,190,235,.55)';X.lineWidth=1.3;X.lineCap='round';for(let i=0;i<16;i++){const ph=(now*1.7+i*.137)%1,x=E.x+(((i*61)%100)/100-.5)*rr*8,y=E.y-rr*4.5+ph*rr*7;if(Math.abs(x-E.x)<rr*1.9&&y>E.y-rr*2.4)continue;X.beginPath();X.moveTo(x,y);X.lineTo(x-2,y+rr*.4);X.stroke()}}}
+function hoopDraw(rr,by,p,front){const ph=REDUCE?0:(now-p.t0)*p.hz*6.283,fall=p.drop?Math.min(rr*.95,(now-p.drop)*(now-p.drop)*rr*9):0,live=p.drop?0:1;
+  X.save();X.translate(E.x+Math.cos(ph)*rr*.28*live,by+rr*.5+fall+Math.sin(ph)*rr*.05*live);X.rotate(Math.sin(ph)*.13*live);X.lineCap='round';X.lineWidth=rr*.13;X.strokeStyle=front?'#ff4f8b':'#b3336a';
+  X.beginPath();X.ellipse(0,0,rr*1.34,rr*.3,0,front?0:Math.PI,front?Math.PI:Math.PI*2);X.stroke();
+  if(front){X.strokeStyle='#ffe066';X.lineWidth=rr*.14;for(let i=0;i<3;i++){const a=((ph*.5+i*1.05)%Math.PI+Math.PI)%Math.PI;X.beginPath();X.ellipse(0,0,rr*1.34,rr*.3,0,a,a+.2);X.stroke()}}
+  X.restore()}
+/* worn on the body: drawn in the body's own space, so it leans and turns with it */
+function wear(fx,fy){const p=PROP;
+  if(Date.now()<WARM.until){const sw=REDUCE?0:Math.sin(now*1.7)*.05;X.lineCap='round';X.strokeStyle='#d8343f';X.lineWidth=.26;X.beginPath();X.moveTo(-.84,.8);X.quadraticCurveTo(0,1.26,.84,.8);X.stroke();
+    X.strokeStyle='#fff3ea';X.lineWidth=.05;for(const t of[.2,.4,.6,.8]){const x=-.84+1.68*t,y=.8+(1-Math.pow(2*t-1,2))*.23;X.beginPath();X.moveTo(x-.03,y-.11);X.lineTo(x+.03,y+.11);X.stroke()}
+    X.save();X.translate(.5,1);X.rotate(.18+sw);X.fillStyle='#d8343f';X.beginPath();X.roundRect(-.13,0,.26,.62,.06);X.fill();X.fillStyle='#fff3ea';X.fillRect(-.13,.4,.26,.06);X.fillRect(-.13,.5,.26,.06);X.restore()}
+  if(p&&p.k==='headset'){X.strokeStyle='#23222b';X.lineWidth=.11;X.lineCap='round';X.beginPath();X.arc(fx*.4,.12,1.04,Math.PI*1.04,Math.PI*1.96);X.stroke();
+    for(const s of[-1,1]){X.fillStyle='#23222b';X.beginPath();X.roundRect(s*1.0-.15+fx*.4,-.12,.3,.6,.13);X.fill();X.fillStyle='#ff5a4f';X.beginPath();X.roundRect(s*1.0-.06+s*.07+fx*.4,-.02,.12,.4,.06);X.fill()}}}
+/* held in a hand or floating by it: drawn over everything */
+function drawProps(rr,by){
+  if(SHOUT){const a=(now-SHOUT.t0)/1.7;if(a>=1)SHOUT=null;else{X.save();X.globalAlpha=E.alpha*Math.min(1,(1-a)*2.2);X.font=`900 ${Math.round(rr*(1+Math.min(1,a*4)*.9))}px ${FONT}`;X.textAlign='center';X.lineWidth=rr*.22;X.strokeStyle='rgba(20,10,6,.85)';X.lineJoin='round';
+    X.strokeText(SHOUT.text,SHOUT.x,SHOUT.y-a*rr*1.4);X.fillStyle='#ffd23f';X.fillText(SHOUT.text,SHOUT.x,SHOUT.y-a*rr*1.4);X.textAlign='start';X.restore()}}
+  const bl=now-(E.bulbT||-99),p=PROP;
+  if((p&&p.k==='bulb')||bl<1.6){const a=p&&p.k==='bulb'?Math.min(1,(now-p.t0)/.12):Math.min(1,bl/.12,(1.6-bl)/.3),x=E.x,y=E.y-rr*(E.tipH*FIRE.cur.tall*.62+1.5),r=rr*.42,c=cstr(FIRE.cur.spark);X.save();X.globalAlpha=E.alpha*Math.max(0,a);
+    X.globalCompositeOperation='lighter';const g=X.createRadialGradient(x,y,0,x,y,r*3.2);g.addColorStop(0,`rgba(${c},.75)`);g.addColorStop(1,`rgba(${c},0)`);X.fillStyle=g;X.beginPath();X.arc(x,y,r*3.2,0,7);X.fill();X.globalCompositeOperation='source-over';
+    X.fillStyle='rgba(255,250,225,.96)';X.beginPath();X.arc(x,y,r,0,7);X.fill();X.fillStyle=rgbs(FIRE.cur.stops[2]);X.beginPath();X.moveTo(x,y-r*.62);X.bezierCurveTo(x+r*.6,y-r*.05,x+r*.5,y+r*.55,x,y+r*.55);X.bezierCurveTo(x-r*.5,y+r*.55,x-r*.6,y-r*.05,x,y-r*.62);X.fill();
+    X.fillStyle='#8b8f99';X.beginPath();X.roundRect(x-r*.42,y+r*.86,r*.84,r*.5,r*.12);X.fill();X.strokeStyle='rgba(255,236,170,.9)';X.lineWidth=2;X.lineCap='round';
+    for(let i=0;i<5;i++){const q=-Math.PI*(.1+i*.2);X.beginPath();X.moveTo(x+Math.cos(q)*r*1.4,y+Math.sin(q)*r*1.4);X.lineTo(x+Math.cos(q)*r*1.85,y+Math.sin(q)*r*1.85);X.stroke()}X.restore()}
+  if(!p)return;const hR=E.hands[1],hL=E.hands[0];X.save();X.globalAlpha=E.alpha;X.lineCap='round';X.lineJoin='round';
+  if(p.k==='hoop')hoopDraw(rr,by,p,1);
+  else if(p.k==='cup'){const x=hR.x+rr*.1,y=hR.y-rr*.12,w=rr*.3,h=rr*(p.iced?.62:.44);
+    if(p.iced){X.fillStyle='rgba(235,246,255,.45)';X.strokeStyle='rgba(255,255,255,.85)';X.lineWidth=1.4;X.beginPath();X.moveTo(x-w,y-h);X.lineTo(x+w,y-h);X.lineTo(x+w*.78,y+h*.4);X.lineTo(x-w*.78,y+h*.4);X.closePath();X.fill();X.stroke();
+      const lv=y-h+h*1.3*(1-p.fill*.9);X.fillStyle='rgba(120,72,40,.88)';X.beginPath();X.moveTo(x-w*.92,lv);X.lineTo(x+w*.92,lv);X.lineTo(x+w*.78,y+h*.36);X.lineTo(x-w*.78,y+h*.36);X.closePath();X.fill();
+      X.fillStyle='rgba(255,255,255,.8)';X.fillRect(x-w*.5,lv-rr*.02,rr*.14,rr*.13);X.fillRect(x+w*.05,lv+rr*.04,rr*.13,rr*.12);X.strokeStyle='#ff5a4f';X.lineWidth=rr*.07;X.beginPath();X.moveTo(x+w*.2,y+h*.2);X.lineTo(x+w*.75,y-h*1.5);X.stroke()}
+    else{X.fillStyle='#fff7ef';X.beginPath();X.roundRect(x-w,y-h,w*2,h*1.4,rr*.08);X.fill();X.strokeStyle='#fff7ef';X.lineWidth=rr*.08;X.beginPath();X.arc(x+w*1.1,y-h*.3,h*.38,-1.3,1.3);X.stroke();X.fillStyle='#e8875f';X.fillRect(x-w,y-h*.5,w*2,h*.2);X.fillStyle='#5a3620';X.beginPath();X.ellipse(x,y-h,w*.86,h*.14,0,0,7);X.fill();
+      if(!REDUCE&&p.fill>.05&&Math.random()<.09)parts.push({k:'smoke',x:x+rnd(-.1,.1)*rr,y:y-h*1.1,vx:rnd(-6,6),vy:rnd(-30,-18),l:1,d:rnd(.9,1.4),s:rnd(1.6,2.6),c:'235,230,225'})}}
+  else if(p.k==='note'){const x=hL.x-rr*.05,y=hL.y-rr*.3,w=rr*.42,h=rr*.56,pr=p.w0?cl((now-p.w0)/p.wd,0,1):0;X.save();X.translate(x,y);X.rotate(-.18);X.fillStyle='#fffaf0';X.beginPath();X.roundRect(-w,-h,w*2,h*2,rr*.06);X.fill();X.fillStyle='#e8875f';X.fillRect(-w,-h,w*2,h*.26);
+    X.strokeStyle='#5b4a40';X.lineWidth=1.3;for(let i=0;i<4;i++){const f=cl(pr*4-i,0,1);if(f<=0)break;X.beginPath();X.moveTo(-w*.7,-h*.4+i*h*.34);X.lineTo(-w*.7+w*1.4*f*(i===3?.55:1),-h*.4+i*h*.34);X.stroke()}X.restore();
+    const t=stickTip(1,-.05),e=stickTip(1,.75);X.strokeStyle='#ffc23f';X.lineWidth=rr*.09;X.beginPath();X.moveTo(hR.x-rr*.22,hR.y+rr*.2);X.lineTo(hR.x+rr*.16,hR.y-rr*.46);X.stroke();X.strokeStyle='#3a2a22';X.lineWidth=rr*.05;X.beginPath();X.moveTo(hR.x-rr*.22,hR.y+rr*.2);X.lineTo(hR.x-rr*.27,hR.y+rr*.29);X.stroke();void t;void e}
+  else if(p.k==='laptop'){const x=E.x,y=by+rr*1.34,w=rr*.95;X.fillStyle='rgba(120,200,255,.16)';X.beginPath();X.moveTo(x-w*.8,y-rr*.1);X.lineTo(x+w*.8,y-rr*.1);X.lineTo(x+w*.5,by+rr*.2);X.lineTo(x-w*.5,by+rr*.2);X.closePath();if(!REDUCE)X.fill();
+    X.fillStyle='#c9ced6';X.beginPath();X.roundRect(x-w*.86,y-rr*.72,w*1.72,rr*.74,rr*.08);X.fill();X.fillStyle=rgbs(FIRE.cur.stops[2]);X.beginPath();X.arc(x,y-rr*.36,rr*.1,0,7);X.fill();X.fillStyle='#9aa1ad';X.beginPath();X.moveTo(x-w,y);X.lineTo(x+w,y);X.lineTo(x+w*1.12,y+rr*.2);X.lineTo(x-w*1.12,y+rr*.2);X.closePath();X.fill()}
+  else if(p.k==='kite'){const i=p.side>0?1:0,h=E.hands[i],k=kiteAt(p),s=rr*.62,ang=Math.atan2(k.y-h.y,k.x-h.x)+Math.PI/2+(REDUCE?0:Math.sin(now*3)*.08);X.strokeStyle='rgba(255,255,255,.7)';X.lineWidth=1;X.beginPath();X.moveTo(h.x,h.y);X.quadraticCurveTo((h.x+k.x)/2,(h.y+k.y)/2+rr*.9,k.x,k.y);X.stroke();
+    X.save();X.translate(k.x,k.y);X.rotate(ang);X.fillStyle=p.c;X.beginPath();X.moveTo(0,-s);X.lineTo(s*.7,0);X.lineTo(0,s*1.25);X.lineTo(-s*.7,0);X.closePath();X.fill();X.strokeStyle='rgba(255,255,255,.75)';X.lineWidth=1.2;X.beginPath();X.moveTo(0,-s);X.lineTo(0,s*1.25);X.moveTo(-s*.7,0);X.lineTo(s*.7,0);X.stroke();
+    X.strokeStyle=p.c;X.lineWidth=1.6;X.beginPath();X.moveTo(0,s*1.25);for(let q=1;q<=6;q++)X.lineTo(Math.sin(now*5+q)*s*.25*(REDUCE?0:1),s*1.25+q*s*.3);X.stroke();X.restore()}
+  else if(p.k==='yoyo'){const lp=p.loop?cl((now-p.loop)/1.1,0,1):0,d=REDUCE?.6:Math.abs(Math.sin((now-p.t0)*p.hz*3.1416)),x=hR.x+(lp?Math.sin(lp*6.283)*rr*1.6:0),y=hR.y+rr*(.3+(lp?-Math.cos(lp*6.283)*1.6+1.6:d*2.3));X.strokeStyle='rgba(255,255,255,.75)';X.lineWidth=1;X.beginPath();X.moveTo(hR.x,hR.y);X.lineTo(x,y);X.stroke();
+    X.fillStyle='#3d8bff';X.beginPath();X.arc(x,y,rr*.24,0,7);X.fill();X.fillStyle='#ffd23f';X.beginPath();X.arc(x,y,rr*.1,0,7);X.fill()}
+  else if(p.k==='balloon'){if(!p.pop){const up=p.gone?(now-p.gone):0,x=hR.x+rr*.4+(REDUCE?0:Math.sin(now*1.3)*rr*.25)+up*rr*.6,y=hR.y-rr*3-up*up*rr*2.2;if(!p.gone){X.strokeStyle='rgba(255,255,255,.7)';X.lineWidth=1;X.beginPath();X.moveTo(hR.x,hR.y);X.quadraticCurveTo(hR.x+rr*.5,hR.y-rr*1.4,x,y+rr*.85);X.stroke()}
+      X.fillStyle=p.c;X.beginPath();X.ellipse(x,y,rr*.66,rr*.82,0,0,7);X.fill();X.beginPath();X.moveTo(x-rr*.1,y+rr*.8);X.lineTo(x+rr*.1,y+rr*.8);X.lineTo(x,y+rr*.95);X.fill();X.fillStyle='rgba(255,255,255,.45)';X.beginPath();X.ellipse(x-rr*.24,y-rr*.3,rr*.13,rr*.24,-.5,0,7);X.fill()}}
+  else if(p.k==='wand'){X.strokeStyle='#ff6fb1';X.lineWidth=rr*.07;X.beginPath();X.moveTo(hR.x,hR.y+rr*.2);X.lineTo(hR.x+rr*.2,hR.y-rr*.4);X.stroke();X.lineWidth=rr*.06;X.beginPath();X.arc(hR.x+rr*.27,hR.y-rr*.6,rr*.2,0,7);X.stroke()}
+  else if(p.k==='umbrella'){const x=hR.x,y=hR.y,tx=E.x+rr*.15,ty=E.y-rr*(E.tipH*FIRE.cur.tall*.62+1.25);X.strokeStyle='#d7d7de';X.lineWidth=rr*.08;X.beginPath();X.moveTo(x,y+rr*.2);X.lineTo(tx,ty);X.stroke();
+    X.fillStyle='#3d6bff';X.beginPath();X.moveTo(tx-rr*2.1,ty+rr*.55);X.quadraticCurveTo(tx,ty-rr*1.5,tx+rr*2.1,ty+rr*.55);X.quadraticCurveTo(tx+rr*1.4,ty+rr*.2,tx+rr*.7,ty+rr*.55);X.quadraticCurveTo(tx,ty+rr*.2,tx-rr*.7,ty+rr*.55);X.quadraticCurveTo(tx-rr*1.4,ty+rr*.2,tx-rr*2.1,ty+rr*.55);X.fill()}
+  else if(p.k==='rod'){const i=p.side>0?1:0,h=E.hands[i],t=rodTip(p),b=bobAt(p),wy=Math.min(E.y+rr*4.3,H-14);X.strokeStyle='#8a5a34';X.lineWidth=rr*.09;X.beginPath();X.moveTo(h.x-p.side*rr*.3,h.y+rr*.3);X.lineTo(t.x,t.y);X.stroke();
+    if(p.cast){const out=cl((now-p.cast)/.5,0,1),pl=p.pull?cl((now-p.pull)/.45,0,1):0,ex=lerp(t.x,b.x,out),ey=lerp(lerp(t.y,b.y,out),t.y+rr*1.2,pl),exx=lerp(ex,t.x,pl);
+      X.fillStyle='rgba(90,160,235,.28)';X.strokeStyle='rgba(160,210,255,.6)';X.lineWidth=1.2;X.beginPath();X.ellipse(b.x,wy+rr*.1,rr*1.5,rr*.24,0,0,7);X.fill();if(!REDUCE){const rp=(now*.6)%1;X.globalAlpha=E.alpha*(1-rp);X.beginPath();X.ellipse(b.x,wy+rr*.1,rr*(.3+rp*1.1),rr*(.06+rp*.16),0,0,7);X.stroke();X.globalAlpha=E.alpha}
+      X.strokeStyle='rgba(255,255,255,.75)';X.lineWidth=1;X.beginPath();X.moveTo(t.x,t.y);X.quadraticCurveTo((t.x+exx)/2,Math.max(t.y,ey)-rr*.2+rr*.5*(1-pl),exx,ey);X.stroke();
+      if(!pl){X.fillStyle='#ff5a4f';X.beginPath();X.arc(exx,ey,rr*.12,Math.PI,0);X.fill();X.fillStyle='#fff';X.beginPath();X.arc(exx,ey,rr*.12,0,Math.PI);X.fill()}
+      else if(p.res==='fish'){X.save();X.translate(exx,ey+rr*.3);X.rotate(Math.PI/2+(REDUCE?0:Math.sin(now*18)*.35));X.fillStyle='#5fc8ff';X.beginPath();X.ellipse(0,0,rr*.42,rr*.2,0,0,7);X.fill();X.beginPath();X.moveTo(rr*.36,0);X.lineTo(rr*.66,-rr*.2);X.lineTo(rr*.66,rr*.2);X.fill();X.fillStyle='#0e2a3a';X.beginPath();X.arc(-rr*.22,-rr*.04,rr*.045,0,7);X.fill();X.restore()}
+      else if(p.res==='boot'){X.fillStyle='#6b4a2f';X.beginPath();X.roundRect(exx-rr*.14,ey,rr*.28,rr*.5,rr*.05);X.fill();X.beginPath();X.roundRect(exx-rr*.14,ey+rr*.34,rr*.52,rr*.2,rr*.08);X.fill()}}}
+  else if(p.k==='snack'){const up=p.t1?cl((now-p.t1)/p.td,0,1)*(p.max||1):0;p.toast=Math.max(p.toast,up);
+    if(p.kind==='marshmallow'){const t=stickTip(1,1.15),c=p.toast>1.2?[58,40,30]:mixc([255,250,240],[214,150,70],Math.min(1,p.toast));X.strokeStyle='#8a5a34';X.lineWidth=rr*.06;X.beginPath();X.moveTo(hR.x,hR.y);X.lineTo(t.x,t.y);X.stroke();
+      if(p.bites<3){X.fillStyle=rgbs(c);X.beginPath();X.roundRect(t.x-rr*.2,t.y-rr*.17,rr*.4*(1-p.bites*.3),rr*.34,rr*.09);X.fill()}}
+    else if(p.bites<3){const x=hR.x+rr*.05,y=hR.y-rr*.32,r=rr*.3;X.fillStyle=p.kind==='cookie'?'#c98a4b':'#e2413b';X.beginPath();X.arc(x,y,r,0,7);X.fill();
+      if(p.kind==='cookie'){X.fillStyle='#4a2b18';for(const[a,b]of[[-.3,-.2],[.25,.1],[-.05,.35],[.3,-.4]]){X.beginPath();X.arc(x+a*r,y+b*r,r*.14,0,7);X.fill()}}else{X.strokeStyle='#5a3620';X.lineWidth=1.6;X.beginPath();X.moveTo(x,y-r);X.lineTo(x+r*.2,y-r*1.35);X.stroke()}
+      X.globalCompositeOperation='destination-out';for(let b=0;b<p.bites;b++){X.beginPath();X.arc(x-r*.9+b*r*.5,y-r*.5+b*r*.2,r*.5,0,7);X.fill()}X.globalCompositeOperation='source-over'}}
+  else if(p.k==='sparkler'){const t=stickTip(1,1.5);X.strokeStyle='#9aa1ad';X.lineWidth=rr*.05;X.beginPath();X.moveTo(hR.x,hR.y);X.lineTo(t.x,t.y);X.stroke();
+    if(p.lit&&now>p.lit){p.trail.push({x:t.x,y:t.y,t:now});while(p.trail.length&&now-p.trail[0].t>.55)p.trail.shift();X.globalCompositeOperation='lighter';
+      for(let i=1;i<p.trail.length;i++){const a=p.trail[i-1],b=p.trail[i],f=1-(now-b.t)/.55;X.strokeStyle=`rgba(255,214,130,${(f*.8).toFixed(3)})`;X.lineWidth=rr*.16*f+1;X.beginPath();X.moveTo(a.x,a.y);X.lineTo(b.x,b.y);X.stroke()}
+      const g=X.createRadialGradient(t.x,t.y,0,t.x,t.y,rr*.7);g.addColorStop(0,'rgba(255,255,240,1)');g.addColorStop(1,'rgba(255,200,90,0)');X.fillStyle=g;X.beginPath();X.arc(t.x,t.y,rr*.7,0,7);X.fill();X.globalCompositeOperation='source-over';
+      if(!REDUCE)for(let i=0;i<2;i++){const a=Math.random()*6.283,v=rnd(60,220);parts.push({k:'spark',x:t.x,y:t.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:1,d:rnd(.2,.5),s:rnd(.6,1.3),c:Math.random()<.5?'255,240,200':'255,190,90'})}}}
+  X.restore()}
+function showNotes(){const n=LIFE.notes.slice(-8).reverse();menu.innerHTML='';const hd=document.createElement('div');hd.textContent='Ember\'s notebook';hd.style.cssText='padding:8px 10px 4px;color:#e8875f;font-weight:700';menu.appendChild(hd);
+  for(const x of n){const d=document.createElement('div');d.className='ember-note';d.style.cssText='padding:6px 10px;color:#eee3db;max-width:250px;line-height:1.35;border-top:1px solid #2a2622';const w=document.createElement('div');w.textContent=x.text;const t=document.createElement('div');t.textContent=ago(x.t);t.style.cssText='opacity:.5;font-size:11px;margin-top:2px';d.append(w,t);menu.appendChild(d)}
+  if(!n.length){const d=document.createElement('div');d.textContent='Nothing written yet.';d.style.cssText='padding:6px 10px;color:#a89c92';menu.appendChild(d)}
+  menu.hidden=false;const r=menu.getBoundingClientRect();menu.style.left=cl(E.x+R*2,8,W-r.width-8)+'px';menu.style.top=cl(E.y-r.height/2,8,H-r.height-8)+'px'}
+/* what its mind is told about its own day */
+function dayView(){return{weather:WX.ok?{outside:wxWords(),feels_like_c:Math.round(WX.feels),you_feel:cold()?(Date.now()<WARM.until?'cold out, but your scarf is on':'cold'):hot()?'too hot':'comfortable',raining:!!WX.rain,wind_kmh:Math.round(WX.wind),daylight:!!WX.day}:'unknown (you cannot feel the weather right now, so never mention it)',
+    hungry:+(N.hunger||0).toFixed(2),holding:PROP?PROP.k:'',scarf_on:Date.now()<WARM.until,you_just:DID.slice(-5).map(d=>ago(d.t)+': '+d.what),
+    notebook:LIFE.notes.slice(-3).map(n=>n.text),fish_caught:LIFE.fish,fish_lost:LIFE.misses}}
 /* what it feels like doing: the plain urges, bent by its nature, by how close they are, by the hour and by what the person is doing */
 function urges(){const u=urges0();if(AG.offer||!LIFE.ready)return u;const tr=traits(),st=bondStage(),here=curHere(),idle=now-cur.t,dist=curDist(),typing=now-MIND.key<8||now-(CHAT.typing||-99)<8,wary=LIFE.trust<.4;
   const warm=wary?0:(st==='new'?.25:st==='familiar'?.6:1),pf=N.playfulness||.5;
@@ -2289,12 +2803,12 @@ function urges(){const u=urges0();if(AG.offer||!LIFE.ready)return u;const tr=tra
   u.favorite=LIFE.fav?(.3+tr.lazy*.4):0;
   u.nuzzle=here&&!typing&&st==='close'&&idle>1.5&&idle<25&&dist<R*7?.9+tr.clingy*.6:0;
   if(night()){if(cur.t>0&&idle>240&&N.energy<.55)u.doze=Math.max(u.doze||0,1.2);u.wander*=.6;u.bounce*=.4}
-  return u}
+  thingUrges(u,tr,here,typing,idle,warm);return u}
 function lifeOn(name,d){if(!LIFE.ready)return;
   if(name==='petted'){LIFE.pets++;bond(.01);LIFE.trust=cl(LIFE.trust+.06,0,1);const f=[+(E.x/W).toFixed(3),+(E.y/H).toFixed(3)];LIFE.fav=LIFE.fav?[lerp(LIFE.fav[0],f[0],.3),lerp(LIFE.fav[1],f[1],.3)]:f}
   else if(name==='thrown'){LIFE.throws++;const hard=/hard/.test(d&&d.what||'');LIFE.trust=cl(LIFE.trust-(hard?.3:.08),0,1);if(hard){bond(-.01);lifeNote('they threw Ember hard')}}
   else if(name==='poked')LIFE.trust=cl(LIFE.trust-.03,0,1);
-  else if(name==='pass'||name==='published'){LIFE.wins++;bond(.012);lifeNote(name==='published'?'their site went live'+(CTX.project?' ('+CTX.project+')':''):'a check passed'+(CTX.project?' on '+CTX.project:''))}
+  else if(name==='pass'||name==='published'){TH.winT=now;LIFE.wins++;bond(.012);lifeNote(name==='published'?'their site went live'+(CTX.project?' ('+CTX.project+')':''):'a check passed'+(CTX.project?' on '+CTX.project:''))}
   else if(name==='broke')lifeNote('something broke: '+String(d&&d.what||'').slice(0,40))}
 function lifeTick(dt){if(!LIFE.ready)return;LIFE.acc+=dt;
   const g=LIFE.gift;if(g){if(now>g.until||!(act&&act.k==='ns_gift'))LIFE.gift=null;else if(cur.x>=0&&cur.moveT>g.t0+.3){const h=E.hands[g.hand];   /* they have to reach for it */
@@ -2390,9 +2904,9 @@ const annoyed=()=>N.annoy>.55,idleFace=()=>ATT()==='sweet'?'neutral':(ATT()==='s
 const readTime=t=>Math.min(14,2.6+String(t||'').length/13);
 function say(t,d,o){o=o||{};t=String(t||'');if(!t&&!o.dots)return;const ty=o.type?t.length/30:0;E.bubble={text:t,t:0,d:ty+Math.max(d||0,o.dots?0:readTime(t)),type:!!o.type,cps:30,last:-1,dots:!!o.dots}}
 let SEQ=null;
-function play(steps,done){releaseJoints();SEQ={steps,i:-1,t:0,done};next()}
-function next(){SEQ.i++;SEQ.t=0;const s=SEQ.steps[SEQ.i];if(!s){const d=SEQ.done;SEQ=null;releaseJoints();d&&d();return}if(s.say){const t=L(s.say);if(t)say(t,s.sayD,{type:1})}applyJoints(s);if(s.fn)s.fn()}
-function seqTick(dt){if(!SEQ)return;const s=SEQ.steps[SEQ.i];SEQ.t+=dt;if(SEQ.t>=s.d)next()}
+function play(steps,done){releaseJoints();PROP=null;SEQ={steps,i:-1,t:0,done};next()}
+function next(){SEQ.i++;SEQ.t=0;const s=SEQ.steps[SEQ.i];if(!s){const d=SEQ.done;SEQ=null;PROP=null;releaseJoints();d&&d();return}if('prop' in s)prop(s.prop);if(s.say){const t=L(s.say);if(t)say(t,s.sayD,{type:1})}applyJoints(s);if(s.fn)s.fn()}
+function seqTick(dt){if(!SEQ){if(PROP)PROP=null;return}const s=SEQ.steps[SEQ.i];SEQ.t+=dt;if(SEQ.t>=s.d)next()}
 const cur_=k=>SEQ&&SEQ.steps[SEQ.i]&&SEQ.steps[SEQ.i][k];
 let base={pose:'rest',face:'calm',look:null},act=null,mood=null;
 const CTX={project:'',job:null,last:'',lastT:0,issue:'',issueT:0};
@@ -2456,7 +2970,7 @@ function mindStatus(){const d=new Date().toDateString();if(MSTAT.day!==d){MSTAT.
   if(MIND.off&&MIND.why==='resting')return 'Mind: resting'+tail;
   return 'Mind: off'+(MSTAT.today>0?tail:'')}
 const LIB={};
-function known(){return[...Object.keys(LIB),'celebrate']}
+function known(){return[...Object.keys(LIB),'celebrate',...THING_KEYS]}
 function learnB(b){if(!b||!b.name||!Array.isArray(b.steps)||!b.steps.length)return;LIB[b.name]=b}
 function saveLib(){store.set('ember_lib',Object.values(LIB).slice(-80))}
 const LOOKS={viewer:()=>'viewer',cursor:()=>'cursor',up:()=>({dir:[0,-1]}),down:()=>({dir:[0,1]}),left:()=>({dir:[-1,0]}),right:()=>({dir:[1,0]}),away:()=>({dir:[E.x>W/2?1:-1,-.2]})};
@@ -2509,7 +3023,7 @@ function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
     if(s.sleep){const d=cl(+s.sleep||30,5,300),me=mindAct(d,'m_sleep');feel({a:.08});play([{d:.9,face:'sleepy',body:{crouch:.15}},{d:Math.max(1,d-.9),face:'asleep',pose:'limp',sleep:1,body:{crouch:.3,lean:6}}],()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.do){const n=s.do;
       MIND.done.push(n);if(MIND.done.length>12)MIND.done.shift();
-      let st=null;if(LIB[n])st=compileB(LIB[n]);else if(n==='celebrate')st=[{d:2,face:'joy',pose:'cheer',fn:celebrate}];
+      let st=null;if(LIB[n])st=compileB(LIB[n]);else if(THINGS[n]){st=THINGS[n](s);if(st){TH.last[n]=now;TH.any=now}}else if(n==='celebrate')st=[{d:2,face:'joy',pose:'cheer',fn:celebrate}];
       if(!st)return mindStep();const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.6,'m_'+n);play(st,()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.go){const tag=Array.isArray(s.go)?'xy':s.go;go(placeOf(s.go),{speed:.75});mindAct(2.8,'m_go_'+tag);return true}
     if(s.say){say(s.say);const nx=MIND.plan[0];if(s._m&&nx&&!nx.say&&!nx.ask&&!nx.wait&&mindStep())return true;mindAct(s._m?Math.min(3.5,readTime(s.say)):readTime(s.say)+.5,'m_say');return true}
@@ -2545,7 +3059,7 @@ function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='
       fond_of_them:+N.fond.toFixed(2),face:E.FT.name,outfit:outfit(),fire:FIRE.k,fire_chosen:CFG.fire||'classic',glasses:!!E.shadesOn,doing:act?act.k:'',focus:MIND.focus||'',last_outcome:mindOutcome(),feeling:{valence:+AFF.v.toFixed(2),arousal:+AFF.a.toFixed(2),word:moodWord(AFF.v,AFF.a)},body_was_doing:NS.kinds.slice(-3),
       recent_actions:MIND.done.slice(-8)},
     doing_for_you:AG.log.slice(-4).map(x=>Math.round(T()-x.t)+'s ago: '+x.what),offering:AG.offer?AG.offer.text:'',may_do:agency(),
-    life:lifeView(),
+    life:lifeView(),your_day:dayView(),
     screen:scr,recent:MIND.ev.slice(-6).map(e=>Math.round(now-e.t)+'s ago: '+e.what),you_recently:MIND.hist.slice(-3),remembers:(m.facts||[]).slice(-6)}}
 function think(reason){if(MIND.busy)return;
   const hr=Date.now()-3600000;MIND.hour=MIND.hour.filter(t=>t>hr);
@@ -2557,7 +3071,7 @@ function think(reason){if(MIND.busy)return;
     for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
     const wasLive=MIND.live;MIND.live=1;MIND.off=0;MIND.why='';MIND.fail=0;if(!wasLive)ACTS_LOG.length=0;
     MIND.plan=(r.plan||[]).map(x=>Object.assign({_m:1},x));MIND.thought=r.thought||'';if(r.focus)MIND.focus=r.focus;
-    MIND.snap={t:now,ig:CHAT.ignored,asked:MIND.plan.some(x=>x&&x.ask)};MIND.cueUntil=now+1.2;if(!REDUCE)burst({kind:'spark',n:6,color:'#ffd89a'});
+    MIND.snap={t:now,ig:CHAT.ignored,asked:MIND.plan.some(x=>x&&x.ask)};MIND.cueUntil=now+1.2;E.bulbT=now;if(!REDUCE)burst({kind:'spark',n:6,color:'#ffd89a'});
     bumpMindStat();
     MIND.hist.push((r.thought||'')+(r.new&&r.new.length?' (invented '+r.new.map(b=>b.name).join(', ')+')':''));MIND.hist=MIND.hist.slice(-6);
     if(r.remember){const f=CHAT.mem.facts||(CHAT.mem.facts=[]);if(!f.includes(r.remember)){f.push(r.remember);CHAT.mem.facts=f.slice(-6);saveMem()}}
@@ -2795,7 +3309,7 @@ function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const
   if(!SEQ||!(act&&act.by==='mind'))play([{d:.9+Math.min(.6,n*.15),face:n>=3?'shocked':'surprised',look:'viewer',body:{lean:rnd(-14,14),crouch:.3},speed:2.2}]);
   try{mindEvent('poked',{what:'they poked Ember '+n+' time'+(n>1?'s':'')+' in a row'})}catch(_){}}
 function openMenu(x,y){menu.innerHTML='';const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{menu.hidden=true;f()};menu.appendChild(b)};
-  add(V.conv?'End the conversation':'Talk with Ember (hands-free)',converse);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('Change my flame',()=>{const k=setFire('surprise',true);if(k)say(L(FIRE_SAY[k]||['new look!','new look.','new look.']),3)});add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
+  add(V.conv?'End the conversation':'Talk with Ember (hands-free)',converse);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);if(LIFE.notes.length)add('Read Ember\'s notebook',()=>setTimeout(showNotes,0));add('Change my flame',()=>{const k=setFire('surprise',true);if(k)say(L(FIRE_SAY[k]||['new look!','new look.','new look.']),3)});add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
   menu.hidden=false;menu.style.left=cl(x,8,W-190)+'px';menu.style.top=cl(y,8,H-150)+'px'}
 function talkHit(x,y){if(!CHAT.open)return false;const r=talk.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6}
 function menuHit(x,y){if(menu.hidden)return false;const r=menu.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom}
@@ -2822,6 +3336,9 @@ function stateText(){const m=CHAT.mem,h=new Date().getHours(),j=CTX.job;let proj
     CTX.last&&now-CTX.lastT<300?'Just happened: '+CTX.last+'.':'Nothing notable just happened.',
     CTX.issue&&now-CTX.issueT<1800?'Last problem Aethron reported: '+CTX.issue+'.':'No open problem reported.',
     'Ember is annoyed at them '+Math.round(N.annoy*100)+'% and likes them '+Math.round(N.fond*100)+'%.',
+    WX.ok?'Real weather where they are: '+wxWords()+' (feels like '+Math.round(WX.feels)+'°). Ember feels '+(cold()?'cold':hot()?'too hot':'comfortable')+'.':'Ember cannot feel the weather right now; do not mention weather.',
+    DID.length?'What Ember itself did lately (true, may be mentioned): '+DID.slice(-4).map(d=>d.what+' ('+ago(d.t)+')').join('; ')+'.':'',
+    LIFE.ready?'Ember has known them '+daysKnown()+' day(s), bond: '+bondStage()+'. Fish caught: '+LIFE.fish+'.'+(LIFE.notes.length?' Last line in its notebook: "'+LIFE.notes[LIFE.notes.length-1].text+'".':''):'',
     (()=>{try{if(!LIFE.ready)return'';const v=lifeView();return'Your life with them (real, never invent more): known '+v.known_days+' day(s), '+v.visits+' visit(s), '+v.hours_together+' hours together; bond: '+v.bond+'; you trust them '+Math.round(v.trusts_them*100)+'%'+(v.back_after?'; they just came back after '+v.back_after:'')+'; your nature: '+v.your_nature+(v.shared_history.length?'. Things that happened: '+v.shared_history.join('; '):'')+'.'}catch(_){return''}})(),
     'Ember burns as a '+fireLabel(FIRE.k)+' right now'+(CFG.fire==='mood'?' (its flame follows its mood)':'')+'. Kinds it can burn as: '+FIRE_IDS.join(', ')+', or mood.',
     m.name?"Their name: "+m.name+'.':'You do not know their name yet.',
@@ -3328,8 +3845,9 @@ function tick(t){const dt=Math.max(0,Math.min(.05,(t-last)/1000));last=t;now+=dt
      unstable above ~44 ms, so a page that hands Ember 50 ms frames for half a
      minute flung its hands off screen and then made them infinite */
   for(let n=Math.ceil(dt/.02),i=0;i<n;i++)simulate(dt/n);mend();draw(dt)}
+let FAST=0;
 function frame(t){if(!running)return;try{tick(t)}catch(err){bad('frame: '+(err&&err.message));try{mend();X.setTransform(1,0,0,1,0,0);X.globalCompositeOperation='source-over';X.globalAlpha=1}catch(_){}}
-  requestAnimationFrame(frame)}
+  if(!FAST)requestAnimationFrame(frame)}
 function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=!!cur_('sleep');if(moving)NS.stillT=now;const _=0,
   still=!moving&&(!act||act.k==='be'||act.k==='perch'||act.k==='m_wait')&&!SEQ;
   N.energy=cl(N.energy+(napping?.04:still?.005:-(.002+(moving?.006:0)))*k,0,1);
@@ -3338,6 +3856,7 @@ function needs(k){const moving=Math.hypot(E.vx,E.vy)>60,napping=!!cur_('sleep');
   N.boredom=cl(N.boredom+(mood||SEQ||CHAT.open||(act&&act.by==='mind'&&act.k!=='m_wait')?-.09:.008)*k,0,1);
   N.playfulness=cl((N.playfulness||.5)+(N.energy>.55&&!annoyed()?.006:-.008)*k,0,1);
   if(night())N.energy=cl(N.energy-.003*k,0,1);
+  N.hunger=cl((N.hunger||.15)+.0011*k,0,1);
   N.annoy=cl(N.annoy-.02*k,0,1);N.fond=cl(N.fond+(E.purr>0?.03:0)*k-.0005*k,0,1);
   if(!automation&&now-driveSaveT>10){driveSaveT=now;store.set('ember_drives',N)}}
 
@@ -3392,7 +3911,7 @@ function simulate(dt){const rr=R*E.r;physio(dt);
     if(E.purr<=0)try{mindEvent('petted',{what:'they petted Ember with the pointer'})}catch(_){}}
   if(E.dizzy>0)E.dizzy-=dt;
   E.shadesOn=outfit()==='shades'||E.shadesUntil>now;
-  E.shadesDown+=((['unimpressed','tfman','sideeye','glare','shocked'].includes(E.FT.name)?1:0)-E.shadesDown)*Math.min(1,dt*6);
+  E.shadesDown+=((['unimpressed','tfman','sideeye','glare','shocked'].includes(E.FT.name)||now<(E.peekUntil||0)?1:0)-E.shadesDown)*Math.min(1,dt*6);
   const ps=(POSES[E.pose]||POSES.rest)(now),c=Math.cos(E.tilt+E.spin),s=Math.sin(E.tilt+E.spin),oy0=E.y-J.b.rise*rr*.5,
     snap=E.pose==='swat'||E.mode!=='fly'?2.4:1,k=Math.min(650,150*J.speed*snap),dm=2*Math.sqrt(k)*.72;
   for(let i=0;i<2;i++){const h=E.hands[i],cj=J.a[i],v=J.av[i];
@@ -3572,6 +4091,7 @@ function drawAll(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);fireSt
     else if(p.k==='ring'){X.strokeStyle=`rgba(${p.c},${(p.l*.75).toFixed(3)})`;X.lineWidth=2.5*p.l;X.beginPath();X.arc(p.x,p.y,p.s*(2-p.l),0,7);X.stroke()}
     else if(p.k==='star'){X.fillStyle=`rgba(${p.c},${p.l})`;X.font=`${p.s}px ${FONT}`;X.fillText('✦',p.x,p.y)}
     else if(p.k==='heart'){X.fillStyle=`rgba(255,120,150,${p.l})`;const s=p.s;X.beginPath();X.moveTo(p.x,p.y+s*.35);X.bezierCurveTo(p.x-s*.7,p.y-s*.2,p.x-s*.35,p.y-s*.8,p.x,p.y-s*.4);X.bezierCurveTo(p.x+s*.35,p.y-s*.8,p.x+s*.7,p.y-s*.2,p.x,p.y+s*.35);X.fill()}
+    else if(p.k==='bub'){const a=Math.min(1,p.l*3);X.strokeStyle=`rgba(190,235,255,${(.8*a).toFixed(3)})`;X.lineWidth=1.2;X.beginPath();X.arc(p.x,p.y,p.s,0,7);X.stroke();X.fillStyle=`rgba(255,255,255,${(.7*a).toFixed(3)})`;X.beginPath();X.arc(p.x-p.s*.35,p.y-p.s*.35,p.s*.18,0,7);X.fill()}
     else{X.fillStyle=`rgba(255,225,200,${Math.sin(p.l*Math.PI)})`;X.font=`600 ${p.s}px ${FONT}`;X.fillText(p.k==='z'?'z':'♪',p.x,p.y)}}
   if((V.state==='listening'||V.state==='asking'||(LV.on&&!livePlaying()))&&E.alpha>.3){const k0=REDUCE?0:now*.9;for(let k=0;k<3;k++){const ph=REDUCE?k/3:(k0+k/3)%1;X.strokeStyle=`rgba(255,165,95,${(.5*(1-ph)).toFixed(3)})`;X.lineWidth=2;X.beginPath();X.arc(E.x,E.y-rr*.25,rr*(1.25+ph*1.6),0,7);X.stroke()}}
   if(E.alpha<.03||rr<1.5)return;X.globalAlpha=E.alpha;
@@ -3579,6 +4099,7 @@ function drawAll(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);fireSt
   const lg=X.createRadialGradient(E.x,E.y,0,E.x,E.y,rr*6);lg.addColorStop(0,`rgba(${glowC},${(.12*F.bright*gk).toFixed(3)})`);lg.addColorStop(1,`rgba(${glowC},0)`);X.fillStyle=lg;X.fillRect(E.x-rr*6,E.y-rr*6,rr*12,rr*12);
   if(gk>1.12){const cg=X.createRadialGradient(E.x,E.y-rr*.5,0,E.x,E.y-rr*.5,rr*2.4);cg.addColorStop(0,`rgba(${glowC},${Math.min(.3,.16*(gk-1)).toFixed(3)})`);cg.addColorStop(1,`rgba(${glowC},0)`);X.globalCompositeOperation='lighter';X.fillStyle=cg;X.fillRect(E.x-rr*2.4,E.y-rr*2.9,rr*4.8,rr*4.8);X.globalCompositeOperation='source-over'}
   const bob=REDUCE?0:(E.mode==='fly'&&!E.perch?Math.sin(now*2.2)*rr*.06:0),br=REDUCE?0:(E.breath||0)*(.016+AFF.a*.012),by=E.y+bob-J.b.rise*rr*.5,ca=Math.cos(E.tilt+E.spin),sa=Math.sin(E.tilt+E.spin);
+  drawBack(rr,by);
   for(let i=0;i<2;i++){const s=i?1:-1,h=E.hands[i],shx=s*.84*rr,shy=.32*rr,sx=E.x+shx*ca-shy*sa,sy=by+shx*sa+shy*ca,el=J.elbow[i],ex=el.x,ey=el.y+bob;
     const cx=2*ex-(sx+h.x)/2,cy=2*ey-(sy+h.y)/2;
     X.lineCap='round';X.strokeStyle=rgbs(tintc(P.arm));X.lineWidth=rr*.19;X.beginPath();X.moveTo(sx,sy);X.quadraticCurveTo(cx,cy,h.x,h.y);X.stroke();
@@ -3596,13 +4117,13 @@ function drawAll(dt){X.setTransform(DPR,0,0,DPR,0,0);X.clearRect(0,0,W,H);fireSt
   if(F.blush>.02)for(const s of[-1,1]){const g=X.createRadialGradient(s*.6+fx,.5+fy,0,s*.6+fx,.5+fy,.22);g.addColorStop(0,`rgba(255,80,110,${.5*F.blush})`);g.addColorStop(1,'rgba(255,80,110,0)');X.fillStyle=g;X.beginPath();X.arc(s*.6+fx,.5+fy,.22,0,7);X.fill()}
   for(const s of[-1,1])eye(s,fx,fy,G);brows(fx,fy);mouth(fx*.8,.66+fy*.8);
   if(F.angry>.4){X.strokeStyle=`rgba(140,20,20,${(F.angry-.4)*1.4})`;X.lineWidth=.05;X.lineCap='round';const vx=.55+fx,vy=-.62+fy;for(const [a,b,c,d] of[[-.06,-.06,.06,.06],[.06,-.06,-.06,.06],[0,-.09,0,.09],[-.09,0,.09,0]]){X.beginPath();X.moveTo(vx+a,vy+b);X.lineTo(vx+c*.4,vy+d*.4);X.stroke()}}
-  if(E.shadesOn)shades(fx,fy);hat();X.restore();fireBits(dt,by,ca,sa,sxB,syB);
+  wear(fx,fy);if(E.shadesOn)shades(fx,fy);hat();X.restore();fireBits(dt,by,ca,sa,sxB,syB);
   if(E.sweat){const sx=E.x+rr*.95,sy=E.y-rr*.25+Math.sin(now*3)*2;X.fillStyle='rgba(200,232,255,.95)';X.beginPath();X.moveTo(sx,sy-rr*.24);X.bezierCurveTo(sx+rr*.16,sy,sx+rr*.16,sy+rr*.16,sx,sy+rr*.16);X.bezierCurveTo(sx-rr*.16,sy+rr*.16,sx-rr*.16,sy,sx,sy-rr*.24);X.fill()}
   for(let i=0;i<2;i++){const h=E.hands[i],s=i?1:-1,j=J.a[i],gp=j.grip;X.save();X.translate(h.x,h.y);X.rotate(E.tilt+E.spin-s*(((j.sh+j.el)-110)*.45+j.wr)*DEG);X.scale(rr,rr);const g=X.createRadialGradient(-.06,-.08,0,0,0,.28);g.addColorStop(0,rgbs(tintc(P.hand[0])));g.addColorStop(.6,rgbs(tintc(P.hand[1])));g.addColorStop(1,rgbs(tintc(P.hand[2])));X.fillStyle=g;
     X.beginPath();X.ellipse(0,0,.22-gp*.03,.2,0,0,7);X.fill();X.beginPath();X.arc(-s*(.19-gp*.07),-.1+gp*.05,.09*(1-gp*.35),0,7);X.fill();X.restore()}
   if((E.think||MIND.busy||now<MIND.cueUntil)&&!REDUCE){for(let i=0;i<3;i++){const ph=(Math.sin((now*2.4+i*.55)*2)+1)/2;X.fillStyle=`rgba(255,232,210,${.35+.55*ph})`;X.beginPath();X.arc(E.x-rr*1.2-i*rr*.42,E.y-rr*1.5-i*rr*.38,rr*(.09+i*.04),0,7);X.fill()}
     if(!E.bubble&&(MIND.busy||now<MIND.cueUntil)){const cx=E.x-rr*2.55,cy=E.y-rr*2.75;X.fillStyle='rgba(255,247,238,.92)';X.beginPath();X.roundRect(cx-13,cy-9,26,18,9);X.fill();X.fillStyle='#2b160c';X.font=`700 12px ${FONT}`;X.textAlign='center';X.textBaseline='middle';X.fillText('…',cx,cy);X.textAlign='start'}}
-  drawGift(rr);drawWant(rr);X.globalAlpha=1;if(E.bubble)bubble(rr)}
+  drawProps(rr,by);X.globalAlpha=E.alpha;drawGift(rr);drawWant(rr);X.globalAlpha=1;if(E.bubble)bubble(rr)}
 function eye(s,fx,fy,G){const F=E.F;
   if(F.name==='dizzy'&&E.FT.name==='dizzy'){const cx=s*.35+fx,cy=.2+fy;X.strokeStyle=ink;X.lineWidth=.06;X.lineCap='round';X.beginPath();for(let i=0;i<44;i++){const t=i/44*Math.PI*4+now*8*s,r=.015+i*.0042;i?X.lineTo(cx+Math.cos(t)*r,cy+Math.sin(t)*r):X.moveTo(cx,cy)}X.stroke();return}
   const cx=s*.36+fx,cy=.18+fy,rx=.235*F.eyeS*(1-.32*Math.max(0,s*J.b.turn)),ry=.27*F.eyeS,P=FIRE.cur;if(P.sock>.01){X.fillStyle=rgbs(P.ink,P.sock);X.beginPath();X.ellipse(cx,cy+.012,rx+.04,ry+.04,0,0,7);X.fill()}X.save();X.beginPath();X.ellipse(cx,cy,rx,ry,0,0,7);X.clip();
@@ -3610,7 +4131,7 @@ function eye(s,fx,fy,G){const F=E.F;
   const px=cx+E.gx*.09,py=cy+E.gy*.09,pr=.135*F.pup;const ir=X.createRadialGradient(px,py-.03,0,px,py,pr);ir.addColorStop(0,rgbs(P.iris[0]));ir.addColorStop(.7,rgbs(P.iris[1]));ir.addColorStop(1,rgbs(P.iris[2]));
   X.fillStyle=ir;X.beginPath();X.arc(px,py,pr,0,7);X.fill();X.fillStyle='#0e0503';X.beginPath();X.arc(px,py,pr*.52,0,7);X.fill();
   X.fillStyle='rgba(255,255,255,.95)';X.beginPath();X.arc(px-pr*.38,py-pr*.48,pr*.34,0,7);X.fill();X.fillStyle='rgba(255,255,255,.6)';X.beginPath();X.arc(px+pr*.34,py+pr*.38,pr*.15,0,7);X.fill();
-  const u=Math.max(F.lidU,E.blink),ty=cy-ry+2*ry*u,tilt=F.tilt*.075,curve=.06*(1-u)*(1-F.lf),yo=ty+tilt,yi=ty-tilt,xo=cx+s*(rx+.03),xi=cx-s*(rx+.03);
+  const u=Math.max(F.lidU,E.blink,E.wink&&E.wink.s===s&&now<E.wink.until?1:0),ty=cy-ry+2*ry*u,tilt=F.tilt*.075,curve=.06*(1-u)*(1-F.lf),yo=ty+tilt,yi=ty-tilt,xo=cx+s*(rx+.03),xi=cx-s*(rx+.03);
   X.fillStyle=G;X.beginPath();X.moveTo(xi,cy-ry-.05);X.lineTo(xo,cy-ry-.05);X.lineTo(xo,yo);X.quadraticCurveTo(cx,(yo+yi)/2+curve,xi,yi);X.closePath();X.fill();
   const l=F.lidL*(1-E.blink*.5),ly=cy+ry-2*ry*l*.62;X.beginPath();X.moveTo(xi,cy+ry+.05);X.lineTo(xo,cy+ry+.05);X.lineTo(xo,ly);X.quadraticCurveTo(cx,ly-.07*l*(1-F.lf*.8),xi,ly);X.closePath();X.fill();X.restore();
   X.strokeStyle=rgbs(P.lid,.8);X.lineWidth=.045;X.lineCap='round';X.beginPath();const yo2=Math.min(yo,cy+ry),yi2=Math.min(yi,cy+ry);X.moveTo(xi+s*.02,yi2);X.quadraticCurveTo(cx,(yo2+yi2)/2+curve,xo-s*.02,yo2);
@@ -3649,7 +4170,7 @@ function resize(){W=innerWidth;H=innerHeight;DPR=Math.min(2,devicePixelRatio||1)
 function start(){if(running)return;if(!started){started=true;(document.head||document.documentElement).append(css);document.body.append(cv,talk,menu,ofr);tin=talk.querySelector('input');
     talk.querySelector('#ember-go').onclick=send;talk.querySelector('#ember-mic').onclick=()=>{closeChat();listen()};tin.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();send()}if(e.key==='Escape')closeChat(L(['okay, later!','fine.','rude.']))});
     tin.addEventListener('input',()=>{CHAT.last=now;CHAT.typing=now;talk.classList.toggle('ae-empty',!tin.value.trim())});
-    addEventListener('keydown',()=>{MIND.key=now;if(running&&!REDUCE&&(N.playfulness||0)>.45&&Math.random()<.2)E.q-=.035},true);lifeBoot();watchScreen();for(const b of store.get('ember_lib',[]))learnB(b);
+    addEventListener('keydown',()=>{MIND.key=now;if(running&&!REDUCE&&(N.playfulness||0)>.45&&Math.random()<.2)E.q-=.035},true);lifeBoot();wxBoot();watchScreen();for(const b of store.get('ember_lib',[]))learnB(b);
     fetch('/api/ember/behaviors').then(r=>r.json()).then(j=>{for(const b of(j&&j.behaviors)||[])learnB(b)}).catch(()=>{});
     addEventListener('pointermove',onMove,true);addEventListener('pointerdown',onDown,true);addEventListener('pointerup',onUp,true);
     for(const t of['click','dblclick','mousedown','mouseup','contextmenu'])addEventListener(t,e=>{if(mine(e))return;if(t==='dblclick'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();converse();return}if(t==='contextmenu'&&onBody(e.clientX,e.clientY)){e.preventDefault();e.stopPropagation();return}if(t!=='contextmenu')swallow(e)},true);
@@ -3661,7 +4182,7 @@ function start(){if(running)return;if(!started){started=true;(document.head||doc
   if(willWelcome())setTimeout(()=>welcome(),1200);
   requestAnimationFrame(frame)}
 function stop(){running=false;cv.hidden=true;talk.hidden=true;menu.hidden=true;ofr.hidden=true;AG.offer=null;CHAT.open=0;document.documentElement.classList.remove('ember-over','ember-grab');if(started)X.clearRect(0,0,cv.width,cv.height)}
-function set(o){if(o&&'fit' in o)FITOV=null;if(o&&'fire' in o){FIREOV=null;if(!FK[o.fire]&&o.fire!=='mood')o.fire='classic'}Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);
+function set(o){if(o&&'weather' in o){if(o.weather==='off')WX.ok=0;else setTimeout(()=>wxAsk(),50)}if(o&&'fit' in o)FITOV=null;if(o&&'fire' in o){FIREOV=null;if(!FK[o.fire]&&o.fire!=='mood')o.fire='classic'}Object.assign(CFG,o||{});if(CFG.att==='savage'&&!isAdmin())CFG.att='sassy';store.set('ember_cfg',CFG);
   if(DESK){start();return}
   if(CFG.on&&!CFG.desktop&&!automation)start();else stop()}
 /* desktop mode: the in-app Ember steps aside and the app's signals go to the one on the desktop */
@@ -3684,13 +4205,15 @@ window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG
   agTick:()=>{AG.worldT=-99;agTick(1)},
   health:()=>({bad:BAD.slice()}),
   life:()=>Object.assign(lifeDump(),{stage:bondStage(),ready:!!LIFE.ready,gap:LIFE.gap,want:LIFE.want&&now<LIFE.want.until?LIFE.want.k:'',gift:!!LIFE.gift,dreaming:!!cur_('sleep'),view:lifeView(),urges:urges()}),
-  lifeSet:o=>{Object.assign(LIFE,o||{});lifeSave(1)},impulse:k=>{const st=IMPULSES[k]&&IMPULSES[k]();if(!st)return false;SEQ=null;return runNS(k,st)},reunion:()=>reunion(),
+  lifeSet:o=>{Object.assign(LIFE,o||{});lifeSave(1)},thing:(k,o)=>{const st=THINGS[k]&&THINGS[k](o||{});if(!st)return false;SEQ=null;TH.last[k]=now;runNS(k,st);TH.mine=SEQ;return true},things:()=>THING_KEYS.slice(),busy:()=>!!SEQ&&SEQ===TH.mine,prop:()=>PROP?PROP.k:'',garden:()=>!!GARDEN,scarf:v=>{if(v===false){WARM.until=0;store.set('ember_warm',0)}return Date.now()<WARM.until},
+  weather:o=>{if(o===null){WX.ok=0;WX.forced=1;return}WX.forced=1;wxTake(Object.assign({ok:true,temp:20},o||{}));return Object.assign({},WX)},day:()=>dayView(),did:()=>DID.slice(),notes:()=>LIFE.notes.slice(),urges:()=>urges(),win:()=>{TH.winT=now},bubble:()=>E.bubble?E.bubble.text:'',
+impulse:k=>{const st=IMPULSES[k]&&IMPULSES[k]();if(!st)return false;SEQ=null;return runNS(k,st)},reunion:()=>reunion(),
   cursor:(x,y)=>{cur.x=x;cur.y=y;cur.t=now;cur.moveT=now},
   event:(n,d)=>mindEvent(n,d||{}),giftAt:()=>{const g=LIFE.gift;if(!g)return null;const h=E.hands[g.hand];return[h.x,h.y-R*.3]},
   fire:()=>({kind:FIRE.k,chosen:CFG.fire||'classic',over:FIREOV&&FIREOV.until>Date.now()?FIREOV.n:'',flare:FIRE.flare,draft:FIRE.draft,stoke:FIRE.stoke,sput:FIRE.sput,stops:FIRE.cur.stops.map(c=>c.map(Math.round)),glow:FIRE.cur.glow.map(Math.round),target:palOf(FIRE.k).stops.map(c=>c.map(Math.round))}),
   setFire:(k,mins)=>setFire(k,!mins,mins),
   fireKinds:()=>FIRE_IDS.map(k=>({id:k,label:FK[k].label,css:fireCss(k),stops:palOf(k).stops.map(c=>'#'+c.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')),rim:'#'+palOf(k).outer[0].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('')})).concat([{id:'mood',label:'Mood',css:'conic-gradient(from 200deg,#ff7a3a,#ffd23f,#4fd1ff,#a868ff,#ff5fa2,#ff7a3a)',stops:['#ffd23f','#ff7a3a','#ff5fa2','#a868ff','#4fd1ff'],rim:'#ff7a3a'}]),
-  frames:(ms,n)=>{for(let i=0;i<(n|0);i++)frame(last+(+ms||16))},
+  frames:(ms,n)=>{FAST=1;try{for(let i=0;i<(n|0);i++)frame(last+(+ms||16))}finally{FAST=0}},
   hurry:()=>{N.energy=.8;N.boredom=.4;MIND.next=0;if(act)act.t=act.dur+1}};
 function boot(){if(DESK){document.documentElement.style.background='transparent';document.body.style.background='transparent';start();return}
   fetch('/api/ember/desktop').then(r=>r.json()).then(d=>{CFG.desktop=!!(d&&d.on);CFG.deskAvail=!!(d&&d.available);if(CFG.on&&!CFG.desktop&&!automation)start()}).catch(()=>{if(CFG.on&&!automation)start()})}

@@ -125,6 +125,16 @@ NEWS = [
              "and may hold out a spark for you to take. Be kind: it "
              "remembers being thrown.",
      "art": "ember", "go": "ember", "label": "Say hi"},
+    {"id": "2026-11-ember-things",
+     "title": "Ember has a day of its own",
+     "body": "Ember now makes coffee when it is tired (iced when it is "
+             "really hot where you are), shivers and finds its scarf when "
+             "it is cold, puts music on, goes fishing and sometimes catches "
+             "nothing, flies a kite if there is wind, grows flowers, lights "
+             "a sparkler, does the SIU, and keeps a notebook you can read: "
+             "right-click it. It talks like itself now, not like a help "
+             "desk, and it knows who made it.",
+     "art": "ember", "go": "ember", "label": "Say hi"},
 ]
 
 SEEN = ".news-seen.json"
