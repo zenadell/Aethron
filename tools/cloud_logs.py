@@ -124,7 +124,7 @@ if ctl:
     print("  control:", {k: c.get(k) for k in ("ai_mode", "managed_provider", "managed_model",
                                             "default_daily_usd", "global_daily_usd", "paused")})
 for uc in rows("user_controls", "limit=20"):
-    print("  user control:", {k: uc.get(k) for k in uc if k not in ("note",)})
+    print("  user control (a per-person ai_mode WINS over the global one):", {k: uc.get(k) for k in uc if k not in ("note",)})
 ms = sorted(int(u.get("ms") or 0) for u in us)
 if ms:
     print(f"  answer time ms: median {ms[len(ms)//2]}, 90% {ms[int(len(ms)*.9)]}, max {ms[-1]}")
