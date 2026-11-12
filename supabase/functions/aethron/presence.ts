@@ -101,7 +101,11 @@ export async function ping(req: Request): Promise<Response> {
     row.email = who.email;
     // a copy that signs in as SOMEONE ELSE does not keep the old person's token
     const changedUser = prev && prev.user_id && prev.user_id !== who.user_id;
-    if (who.kind === "user" && (!prev || !prev.token_hash || prev.revoked_at || changedUser || body.rotate)) {
+    // A person signing in (their own login, not a device token) always gets a
+    // fresh device token: the copy asks only when it has none, e.g. after a
+    // sign-out on this machine dropped it while the server still had one.
+    if (who.kind === "user") {
+      void changedUser;
       issued = randomToken("adt_");
       row.token_hash = await sha256(issued);
       row.revoked_at = null;

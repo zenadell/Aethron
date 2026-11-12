@@ -167,7 +167,7 @@ def ping(token: str = "", activity: dict = None) -> dict:
         body = {"machine": machine_id(), "version": version(),
                 "os": f"{platform.system()} {platform.release()}"[:60],
                 "arch": platform.machine()[:20], "tz": time.strftime("%Z"),
-                "activity": activity or {}}
+                "activity": activity or {}, "rotate": not dev}
         try:
             code, j = _request("POST", "/ping", body, dev or token)
             # a device token that was revoked: try once more as the person
