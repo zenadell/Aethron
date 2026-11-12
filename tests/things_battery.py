@@ -129,7 +129,7 @@ try:
         run(pg, "coffee"); run(pg, "kite"); d2 = [d["what"] for d in pg.evaluate("ember.did()")][-2:]
         check("mild and windy: hot coffee, and the kite flies", "a hot coffee" in d2[0] and "flew a kite" in d2[1], str(d2))
         # needs change what it wants
-        pg.evaluate("ember.frames(50,800)")
+        pg.evaluate("ember.frames(50,4400)")
         u0 = pg.evaluate("ember.urges()")
         pg.evaluate("ember.win()"); u1 = pg.evaluate("ember.urges()")
         check("something went well: it wants to celebrate", u0["party"] == 0 and u1["party"] > 1, str((u0["party"], u1["party"])))
@@ -140,6 +140,26 @@ try:
         for txt in ("What are you working on?", "How can I help?", "Let me know if you need anything."):
             if E.deai(txt): check("a help-desk line is taken out", False, txt); break
         else: check("help-desk lines are taken out, its own are kept", E.deai("caught two fish. you were not watching.") == "caught two fish. you were not watching.")
+        asks = {"can you go fishing": "fish", "do you know how to fish?": "fish", "do a wheelie": "hoop", "have a coffee": "coffee", "put some music on": "headset", "do the siuuu": "siu"}
+        miss = {q: E.thing_plan(q) for q, n in asks.items() if E.thing_plan(q) != [{"do": n}]}
+        check("asked in ordinary words, each thing is recognised", not miss, str(miss))
+        check("a request about the site, or a 'don't', is not taken for one", not E.thing_plan("add music to the hero section") and not E.thing_plan("don't go fishing"))
+        r = E.act_parse('{"kind":"send","prompt":"Go fishing","say":"sending that to Aethron"}', "can you go fishing")
+        check("a spoken wish the model sent to Aethron's agent is done by Ember instead", r["kind"] == "answer" and r["plan"] == [{"do": "fish"}] and "sending" not in r["say"], str(r))
+        r = E.parse('{"say":"My notebook stays with me.","face":"smug"}', "show me your notebook")
+        check("asked for its notebook, it shows it, whatever the model said", r["plan"] == [{"show": "notebook"}] and "stays with me" not in r["say"], str(r))
+        check("asked what it can do, it shows several", len(E.thing_plan("what can you do")) == 4)
+        check("a change to their site is still sent on", E.act_parse('{"kind":"send","prompt":"Change the hero headline to Hi","say":"sending"}', "change the hero headline to hi")["kind"] == "send")
+        # in the window: a typed wish runs with no model, the notebook opens, the menu runs any thing
+        pg.evaluate("ember.frames(50,60)"); pg.evaluate("ember.wish('can you go fishing')")
+        pg.evaluate("ember.frames(50,60)")
+        check("typed in the window with no model, the wish still runs", pg.evaluate("ember.prop()") == "rod", pg.evaluate("ember.prop()"))
+        pg.evaluate("ember.wish('show me your notebook')"); pg.wait_for_timeout(250)
+        check("the notebook opens when asked", pg.evaluate("!document.getElementById('ember-menu').hidden&&/notebook/i.test(document.getElementById('ember-menu').textContent)"))
+        pg.evaluate("ember.showThings()"); pg.wait_for_timeout(100)
+        n_btn = pg.evaluate("document.querySelectorAll('#ember-menu [data-thing]').length")
+        pg.evaluate("document.querySelector('#ember-menu [data-thing=hoop]').click()"); pg.evaluate("ember.frames(50,40)")
+        check("the menu lists every thing and runs the one pressed", n_btn == len(names) and pg.evaluate("ember.prop()") == "hoop", str(n_btn))
         check("every voice of Ember knows who made it", all("Jomiez" in t and "Tim" in t for t in (E.rules("sassy"), E.act_rules("sweet"), E.mind_rules("sassy", []))))
         ctx.close()
         # a new window: the notebook is still there

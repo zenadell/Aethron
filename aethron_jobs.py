@@ -106,7 +106,16 @@ def _write(project: str, st: dict):
     tmp = j / f"state.{os.getpid()}.tmp"
     tmp.write_text(json.dumps(st, indent=1, ensure_ascii=False),
                    encoding="utf-8")
-    os.replace(tmp, j / "state.json")
+    # Windows refuses to replace a file another process has open for a moment
+    # (the app reading the job's state): try again instead of failing the job.
+    for i in range(40):
+        try:
+            os.replace(tmp, j / "state.json")
+            break
+        except PermissionError:
+            if i == 39:
+                raise
+            time.sleep(0.05)
 
 
 def update(project: str, **kw) -> dict:

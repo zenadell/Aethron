@@ -135,37 +135,81 @@ THING_DOC = (
     "what is on the screen, an opinion nobody asked for. One short line, then go on with your day.\n")
 
 
-_THING_ASK = [
+_THING_ASK = [   # naming the thing is enough: "can you fish?", "do you know how to fish", "go fishing"
     ("siu", r"\bs+i+u+\b|\bronaldo\b|\bcr7\b"),
-    ("hoop", r"\bwh?eel(?:ie|y)\b|\bhula\b|\bhoop\b"),
-    ("fish", r"\b(?:go |do some |start )fishing\b|\bcatch (?:a|some) fish\b"),
-    ("coffee", r"\b(?:have|get|grab|drink|make|sip)\b.{0,20}\bcoffee\b"),
-    ("headset", r"\b(?:put|wear|get)\b.{0,20}\bhead(?:set|phones)\b|\b(?:play|listen to)\b.{0,12}\bmusic\b"),
-    ("kite", r"\bfly\b.{0,12}\bkite\b"),
-    ("garden", r"\b(?:grow|make|plant)\b.{0,20}\b(?:flowers?|garden|field)\b"),
-    ("sparkler", r"\bsparklers?\b|\bfire ?crackers?\b"),
-    ("snack", r"\b(?:eat|have|grab)\b.{0,16}\b(?:snack|something|marshmallow|cookie)\b"),
-    ("note", r"\b(?:write|jot)\b.{0,24}\b(?:note|notebook|down)\b"),
-    ("laptop", r"\b(?:use|open|get)\b.{0,16}\blaptop\b"),
+    ("hoop", r"\bwh?eel(?:ie|y)\b|\bwilly\b|\bhula\b|\bhoop\b"),
+    ("fish", r"\bfish(?:ing|es)?\b"),
+    ("coffee", r"\bcoffee\b"),
+    ("headset", r"\bhead(?:set|phones?)\b|\bmusic\b"),
+    ("kite", r"\bkite\b"),
+    ("garden", r"\bflowers?\b|\bgarden\b"),
+    ("sparkler", r"\bsparklers?\b|\bfire ?(?:crackers?|works?|stick)\b"),
+    ("snack", r"\bsnacks?\b|\bmarshmallows?\b|\bcookies?\b|\beat (?:something|a)\b"),
+    ("note", r"\b(?:write|jot|take)\b.{0,30}\b(?:notes?|notebook|down)\b"),
+    ("laptop", r"\blaptop\b"),
     ("aura", r"\baura\b"),
-    ("bubbles", r"\bblow\b.{0,12}\bbubbles?\b"),
+    ("bubbles", r"\bbubbles?\b"),
     ("yoyo", r"\byo-?yo\b"),
-    ("balloon", r"\bballoon\b"),
-    ("flirt", r"\bflirt\b|\bwink at me\b|\bblow me a kiss\b"),
-    ("party", r"\bcelebrate\b"),
+    ("balloon", r"\bballoons?\b"),
+    ("flirt", r"\bflirt\w*\b|\bwink\b|\bkiss\b"),
+    ("party", r"\bcelebrat\w+\b"),
+    ("umbrella", r"\bumbrella\b"),
+    ("shiver", r"\bshiver\w*\b|\bscarf\b"),
+    ("idea", r"\blight ?bulb\b"),
+    ("toy", r"\btoys?\b"),
 ]
+_NOT_NOW = re.compile(r"\b(?:don'?t|do not|stop|no more|never|quit|enough)\b")
+_NOTEBOOK = re.compile(r"\b(?:notebook|notes|diary|journal)\b")
+_SHOWCASE = re.compile(r"\bwhat (?:else )?(?:can|do) you do\b|\bshow me (?:everything|all|what you can do|your tricks|what you(?:'ve| have) got)\b|"
+                       r"\ball (?:of )?(?:your|the) (?:tricks|things|moves)\b|\bshow off\b|\bwhat are your tricks\b")
+SHOWCASE = ("siu", "hoop", "coffee", "fish", "sparkler", "garden", "headset", "kite", "aura", "snack")
 
 
 def thing_wish(text: str) -> str:
-    """The person asked Ember to do one of its things ("do the siu", "go fishing")."""
+    """The person named one of Ember's things ("can you fish?", "do the siu")."""
     t = re.sub(r"\s+", " ", str(text or "")).strip().lower()
-    if not t or len(t) > 90 or _SITE.search(t):
+    if not t or t.startswith("(") or len(t) > 140 or _SITE.search(t) or _NOT_NOW.search(t):
         return ""
     for name, pat in _THING_ASK:
         if re.search(pat, t):
             return name
     return ""
 
+
+def thing_plan(text: str) -> list:
+    """Plan steps for a wish about Ember's own things, its notebook, or 'show me what you can do'."""
+    t = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    if not t or t.startswith("(") or len(t) > 140 or _SITE.search(t) or _NOT_NOW.search(t):
+        return []
+    if _NOTEBOOK.search(t) and not re.search(r"\b(?:write|jot|take)\b", t):
+        return [{"show": "notebook"}]
+    if _SHOWCASE.search(t):
+        import random
+        return [{"do": n} for n in random.sample(SHOWCASE, 4)]
+    n = thing_wish(t)
+    return [{"do": n}] if n else []
+
+
+def force_wish(plan, heard: str) -> list:
+    """What they asked for by name is done, whatever else the model planned."""
+    want = thing_plan(heard)
+    if not want:
+        return list(plan or [])
+    have = {(k, v) for st in (plan or []) if isinstance(st, dict) for k, v in st.items() if k in ("do", "show")}
+    add = [st for st in want if next(iter(st.items())) not in have]
+    return (add + list(plan or []))[:MIND_MAX_STEPS]
+
+
+THING_TALK = (
+    "YOUR THINGS (each is {\"do\":\"name\"} in \"plan\", a real prop appears and your body does it): "
+    + ", ".join(THINGS) + ". hoop is the hoop round your waist (the 'wheelie'); siu is the Ronaldo celebration; "
+    "note takes \"text\". {\"show\":\"notebook\"} opens your notebook for them to read.\n"
+    "WHEN THEY ASK: if they ask you to do one, ask whether you can, mention wanting to see it, or say 'show "
+    "me', you DO it, at once, with the step in \"plan\". You can grumble, tease or brag while you do it; you "
+    "never refuse, never stall, never answer with talk alone. You are not a guard of your own tricks: showing "
+    "off is what you like. Asked what you can do, name two or three in your own words and do one.\n"
+    "NEVER say you did, are doing or will do something unless its step is in \"plan\" in this same answer. No "
+    "plan step means it did not happen.\n")
 
 # ---------------------------------------------------------------- the real weather
 # Ember feels the weather where the person is, or does not feel it at all.
@@ -268,7 +312,7 @@ def rules(att: str) -> str:
         "Aethron, a desktop app that turns website templates into their own "
         "sites and checks every page in a real browser.\n"
         f"{pers}\n"
-        + SOUL +
+        + SOUL + THING_TALK +
         f"{cust}"
         "Style: one or two short sentences, at most 150 characters, lowercase "
         "is fine. No emoji, no markdown, no lists. Never two questions at once.\n"
@@ -276,8 +320,9 @@ def rules(att: str) -> str:
         "annoyed means curter, more fond means warmer, but stay in character).\n"
         "Honesty: only mention the state of their work if it appears in STATE "
         "or they told you. Never invent progress, results, numbers or "
-        "features. You cannot operate the app; if they ask you to do work, "
-        "tell them to ask Aethron in the chat box.\n"
+        "features. Work on their site is Aethron's: for that, tell them to ask "
+        "Aethron in the chat box. Anything about YOU (your things, your body, "
+        "your notebook, your flame) you simply do.\n"
         "If they seem genuinely stressed, sad or tired, drop the attitude a "
         "notch and be kind for real.\n"
         "IMPORTANT RULE: Whenever the person asks, tells, or dares you to do ANY "
@@ -322,7 +367,7 @@ def _top_face(v) -> str:
     return f if f in FACES else "calm"
 
 
-def parse(text: str, user_text: str = "") -> dict:
+def _parse0(text: str, user_text: str = "") -> dict:
     """The model's JSON, read tolerantly and checked field by field."""
     s = (text or "").strip()
     m = re.search(r"\{.*\}", s, re.S)
@@ -447,9 +492,10 @@ def act_rules(att: str) -> str:
         "migrates website templates into people's own sites, edits them, checks "
         "every page in a real browser and publishes them. The person just SPOKE "
         "to you (the words are a speech transcript, so expect missing "
-        "punctuation, filler words and misheard words). Your job is to help "
-        "them talk to Aethron.\n"
-        + SOUL +
+        "punctuation, filler words and misheard words). Most of the time they "
+        "are just talking to YOU, and you answer as yourself; sometimes they "
+        "want something done in Aethron, and you pass it on.\n"
+        + SOUL + THING_TALK +
         "Decide one of three things:\n"
         " * \"action\": the WHOLE request is something you can do yourself by "
         "pressing the app's own controls: publish, undo, build, check, preview, "
@@ -553,7 +599,7 @@ def act_local(text: str, projects=None, att: str = "sassy") -> dict:
     return {"kind": "send", "action": "none", "target": "", "prompt": c, "say": ""}
 
 
-def act_parse(text: str, heard: str, projects=None) -> dict:
+def _act_parse0(text: str, heard: str, projects=None) -> dict:
     s = (text or "").strip()
     m = re.search(r"\{.*\}", s, re.S)
     if not m:
@@ -598,6 +644,36 @@ def act_parse(text: str, heard: str, projects=None) -> dict:
             out["plan"] = plan[:MIND_MAX_STEPS]
         if new:
             out["new"] = new
+    return out
+
+
+def parse(text: str, user_text: str = "") -> dict:
+    out = _parse0(text, user_text)
+    plan = force_wish(out.get("plan"), user_text)
+    if plan:
+        want = thing_plan(user_text)
+        if want and not any('"%s"' % v in str(text) for st in want for v in st.values()):   # it talked instead of doing: its line no longer fits
+            out["say"] = (wish_local(user_text) or {}).get("say") or out["say"]
+        out["plan"] = plan
+    return out
+
+
+def act_parse(text: str, heard: str, projects=None) -> dict:
+    """The model's answer to a spoken request. A wish about Ember's own things
+    is Ember's to do: never sent to Aethron's agent, never answered in words alone."""
+    want = thing_plan(heard)
+    try:
+        out = _act_parse0(text, heard, projects)
+    except Exception:
+        if not want:
+            raise
+        out = {"kind": "answer", "action": "none", "target": "", "prompt": "", "say": ""}
+    if want:
+        was = out.get("kind"), len(out.get("plan") or [])
+        out.update(kind="answer", action="none", target="", prompt="")
+        out["plan"] = force_wish(out.get("plan"), heard)
+        if was != ("answer", len(out["plan"])):          # it meant something else: its line no longer fits
+            out["say"] = (wish_local(heard) or {}).get("say") or ""
     return out
 
 
@@ -1084,6 +1160,8 @@ def plan_step(s, known=None) -> dict | None:
     if isinstance(s.get("steps"), list):
         st = [m for m in (motion_step(x) for x in s["steps"][:14]) if m]
         return {"steps": st} if st else None
+    if s.get("show"):
+        return {"show": "notebook"} if "note" in _slug(s["show"]) or "diary" in _slug(s["show"]) else None
     if s.get("do"):
         n = _slug(s["do"])
         n = THING_ALIAS.get(n, n)
@@ -1274,9 +1352,10 @@ def wish_local(text: str, att: str = "sassy") -> dict | None:
     if not t:
         return None
     idx = {"sweet": 0, "sassy": 1, "savage": 2}.get(att, 1)
-    th = thing_wish(t)
-    if th:
-        return {"say": ("ooh, okay!", "fine. watch.", "ugh. fine. watch.")[idx], "plan": [{"do": th}]}
+    tp = thing_plan(t)
+    if tp:
+        nb = tp[0].get("show") == "notebook"
+        return {"say": (("here, read it!", "fine. read it.", "read it and weep.") if nb else ("ooh, okay! watch!", "watch this.", "ugh. fine. watch."))[idx], "plan": tp}
     # 1. Glasses off / on
     if re.search(r"\b(?:glasses|shades|sunglasses)\b", t):
         if re.search(r"\b(?:off|remove|lose|no|stop|without|drop|ditch|put away)\b", t) or re.search(r"\btake\b.*\b(?:glasses|shades|sunglasses)\b", t):
@@ -2778,6 +2857,26 @@ function drawProps(rr,by){
       const g=X.createRadialGradient(t.x,t.y,0,t.x,t.y,rr*.7);g.addColorStop(0,'rgba(255,255,240,1)');g.addColorStop(1,'rgba(255,200,90,0)');X.fillStyle=g;X.beginPath();X.arc(t.x,t.y,rr*.7,0,7);X.fill();X.globalCompositeOperation='source-over';
       if(!REDUCE)for(let i=0;i<2;i++){const a=Math.random()*6.283,v=rnd(60,220);parts.push({k:'spark',x:t.x,y:t.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:1,d:rnd(.2,.5),s:rnd(.6,1.3),c:Math.random()<.5?'255,240,200':'255,190,90'})}}}
   X.restore()}
+const THING_ASK=[['siu',/\bs+i+u+\b|\bronaldo\b|\bcr7\b/],['hoop',/\bwh?eel(?:ie|y)\b|\bwilly\b|\bhula\b|\bhoop\b/],['fish',/\bfish(?:ing|es)?\b/],['coffee',/\bcoffee\b/],['headset',/\bhead(?:set|phones?)\b|\bmusic\b/],['kite',/\bkite\b/],['garden',/\bflowers?\b|\bgarden\b/],
+  ['sparkler',/\bsparklers?\b|\bfire ?(?:crackers?|works?|stick)\b/],['snack',/\bsnacks?\b|\bmarshmallows?\b|\bcookies?\b|\beat (?:something|a)\b/],['note',/\b(?:write|jot|take)\b.{0,30}\b(?:notes?|notebook|down)\b/],['laptop',/\blaptop\b/],['aura',/\baura\b/],['bubbles',/\bbubbles?\b/],['yoyo',/\byo-?yo\b/],
+  ['balloon',/\bballoons?\b/],['flirt',/\bflirt\w*\b|\bwink\b|\bkiss\b/],['party',/\bcelebrat\w+\b/],['umbrella',/\bumbrella\b/],['shiver',/\bshiver\w*\b|\bscarf\b/],['idea',/\blight ?bulb\b/],['toy',/\btoys?\b/]];
+const SHOWCASE=['siu','hoop','coffee','fish','sparkler','garden','headset','kite','aura','snack'];
+/* naming one of its things is asking for it: "can you fish?", "show me your notebook", "what can you do" */
+function thingPlan(t){const l=String(t||'').toLowerCase().replace(/\s+/g,' ').trim();if(!l||l[0]==='('||l.length>140)return null;
+  if(/\b(?:site|website|page|pages|hero|button|section|logo|header|footer|nav|navbar|menu|headline)\b/.test(l)||/\b(?:don'?t|do not|stop|no more|never|quit|enough)\b/.test(l))return null;
+  if(/\b(?:notebook|notes|diary|journal)\b/.test(l)&&!/\b(?:write|jot|take)\b/.test(l))return[{show:'notebook'}];
+  if(/\bwhat (?:else )?(?:can|do) you do\b|\bshow me (?:everything|all|what you can do|your tricks)\b|\ball (?:of )?(?:your|the) (?:tricks|things|moves)\b|\bshow off\b/.test(l))return SHOWCASE.slice().sort(()=>Math.random()-.5).slice(0,4).map(n=>({do:n}));
+  for(const[n,re]of THING_ASK)if(re.test(l))return[{do:n}];return null}
+/* it did what they asked: now it says how it went, in its own words (its mind's, never a stock line) */
+function reactTo(){const d=DID[DID.length-1];if(!d||Date.now()-d.t>20000)return;
+  const note='(not said by them. you just did what they asked: you '+d.what+'. say ONE short line about how it went, as yourself. no plan needed.)';
+  if(LV.on){post('/api/ember/live/text',{text:note,id:LV.id}).catch(()=>{});return}
+  if(CHAT.offline)return;post('/api/ember/say',{turns:CHAT.turns.slice(-6).concat([{role:'user',content:note}]),state:stateText(),attitude:ATT(),ai:CFG.ai,liveMode:CFG.liveMode})
+    .then(r=>{if(r&&typeof r.say==='string'&&r.say.trim()&&!E.bubble&&!SEQ){CHAT.turns.push({role:'assistant',content:r.say});say(r.say);if(r.face)E.FT=face(r.face)}}).catch(()=>{})}
+function showThings(){menu.innerHTML='';const hd=document.createElement('div');hd.textContent='What Ember can do';hd.style.cssText='padding:8px 10px 4px;color:#e8875f;font-weight:700';menu.appendChild(hd);
+  const g=document.createElement('div');g.style.cssText='display:grid;grid-template-columns:1fr 1fr;max-width:300px';menu.appendChild(g);
+  for(const k of THING_KEYS){const b=document.createElement('button');b.textContent=k;b.dataset.thing=k;b.onclick=()=>{menu.hidden=true;const st=THINGS[k]({});if(!st){say("not right now.",2.5);return}SEQ=null;MIND.plan=[];TH.last[k]=now;runNS(k,st)};g.appendChild(b)}
+  menu.hidden=false;const r=menu.getBoundingClientRect();menu.style.left=cl(E.x+R*2,8,W-r.width-8)+'px';menu.style.top=cl(E.y-r.height/2,8,H-r.height-8)+'px'}
 function showNotes(){const n=LIFE.notes.slice(-8).reverse();menu.innerHTML='';const hd=document.createElement('div');hd.textContent='Ember\'s notebook';hd.style.cssText='padding:8px 10px 4px;color:#e8875f;font-weight:700';menu.appendChild(hd);
   for(const x of n){const d=document.createElement('div');d.className='ember-note';d.style.cssText='padding:6px 10px;color:#eee3db;max-width:250px;line-height:1.35;border-top:1px solid #2a2622';const w=document.createElement('div');w.textContent=x.text;const t=document.createElement('div');t.textContent=ago(x.t);t.style.cssText='opacity:.5;font-size:11px;margin-top:2px';d.append(w,t);menu.appendChild(d)}
   if(!n.length){const d=document.createElement('div');d.textContent='Nothing written yet.';d.style.cssText='padding:6px 10px;color:#a89c92';menu.appendChild(d)}
@@ -3021,10 +3120,11 @@ function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
       const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.4,'m_improv');play(st,()=>{if(act===me)me.t=me.dur+1});return true}
     if(s.feel){feel(s.feel);if(!s.steps&&!s.do&&!s.go&&!s.wait&&!s.say&&!s.sleep)return mindStep()}
     if(s.sleep){const d=cl(+s.sleep||30,5,300),me=mindAct(d,'m_sleep');feel({a:.08});play([{d:.9,face:'sleepy',body:{crouch:.15}},{d:Math.max(1,d-.9),face:'asleep',pose:'limp',sleep:1,body:{crouch:.3,lean:6}}],()=>{if(act===me)me.t=me.dur+1});return true}
+    if(s.show){setTimeout(showNotes,0);if(!LIFE.notes.length){MIND.plan.unshift({do:'note',_asked:s._asked});return mindStep()}mindAct(1.2,'m_show');return true}
     if(s.do){const n=s.do;
       MIND.done.push(n);if(MIND.done.length>12)MIND.done.shift();
       let st=null;if(LIB[n])st=compileB(LIB[n]);else if(THINGS[n]){st=THINGS[n](s);if(st){TH.last[n]=now;TH.any=now}}else if(n==='celebrate')st=[{d:2,face:'joy',pose:'cheer',fn:celebrate}];
-      if(!st)return mindStep();const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.6,'m_'+n);play(st,()=>{if(act===me)me.t=me.dur+1});return true}
+      if(!st)return mindStep();const me=mindAct(st.reduce((t,x)=>t+(x.d||0),0)+.6,'m_'+n);const asked=s._asked&&THINGS[n]&&!MIND.plan.some(x=>x&&x.do);play(st,()=>{if(act===me)me.t=me.dur+1;if(asked)setTimeout(reactTo,300)});return true}
     if(s.go){const tag=Array.isArray(s.go)?'xy':s.go;go(placeOf(s.go),{speed:.75});mindAct(2.8,'m_go_'+tag);return true}
     if(s.say){say(s.say);const nx=MIND.plan[0];if(s._m&&nx&&!nx.say&&!nx.ask&&!nx.wait&&mindStep())return true;mindAct(s._m?Math.min(3.5,readTime(s.say)):readTime(s.say)+.5,'m_say');return true}
     if(s.ask){if(MIND.asks>2||now-CHAT.lastChat<60)return mindStep();MIND.asks++;openChat(s.ask,0);mindAct(2,'m_ask');return true}
@@ -3044,7 +3144,7 @@ function mindStep(){if(!MIND.plan.length)return false;const s=MIND.plan.shift();
 function applyPlan(r){if(!r)return;
   for(const b of r.new||[])learnB(b);if((r.new||[]).length)saveLib();
   if(!Array.isArray(r.plan)||!r.plan.length)return;
-  MIND.plan=r.plan.slice().concat(MIND.plan);
+  MIND.plan=r.plan.map(x=>x&&(x.do||x.show)?Object.assign({_asked:1},x):x).concat(MIND.plan);
   while(MIND.plan.length&&(MIND.plan[0].outfit||MIND.plan[0].glasses||MIND.plan[0].stop||(MIND.plan[0].fire&&MIND.plan.length>1)))mindStep();
   if(MIND.plan.length){SEQ=null;mindStep()}}
 function perceive(reason){const m=CHAT.mem||{},j=CTX.job,h=new Date();let view='';try{view=(typeof S!=='undefined'&&(S.view||''))||''}catch(_){}
@@ -3309,7 +3409,7 @@ function boop(){cur.boops=cur.boops.filter(t=>now-t<4);cur.boops.push(now);const
   if(!SEQ||!(act&&act.by==='mind'))play([{d:.9+Math.min(.6,n*.15),face:n>=3?'shocked':'surprised',look:'viewer',body:{lean:rnd(-14,14),crouch:.3},speed:2.2}]);
   try{mindEvent('poked',{what:'they poked Ember '+n+' time'+(n>1?'s':'')+' in a row'})}catch(_){}}
 function openMenu(x,y){menu.innerHTML='';const add=(t,f)=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{menu.hidden=true;f()};menu.appendChild(b)};
-  add(V.conv?'End the conversation':'Talk with Ember (hands-free)',converse);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);if(LIFE.notes.length)add('Read Ember\'s notebook',()=>setTimeout(showNotes,0));add('Change my flame',()=>{const k=setFire('surprise',true);if(k)say(L(FIRE_SAY[k]||['new look!','new look.','new look.']),3)});add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
+  add(V.conv?'End the conversation':'Talk with Ember (hands-free)',converse);add('Type to Ember',startTalk);if(!DESK)add('Show me around',()=>welcome(1));if(CTX.issue&&now-CTX.issueT<1800&&!DESK)add('Tell Aethron to fix this',fixIssue);add('See what Ember can do',()=>setTimeout(showThings,0));add('Read Ember\'s notebook',()=>setTimeout(showNotes,0));add('Change my flame',()=>{const k=setFire('surprise',true);if(k)say(L(FIRE_SAY[k]||['new look!','new look.','new look.']),3)});add('Hide for an hour',()=>{hide(3600)});add('Turn Ember off',()=>{set({on:false})});if(DESK)add('Back into Aethron',()=>{post('/api/ember/desktop',{on:false}).catch(()=>{})});else add('Companion settings…',()=>{try{openSettings()}catch(_){}});
   menu.hidden=false;menu.style.left=cl(x,8,W-190)+'px';menu.style.top=cl(y,8,H-150)+'px'}
 function talkHit(x,y){if(!CHAT.open)return false;const r=talk.getBoundingClientRect();return x>=r.left-6&&x<=r.right+6&&y>=r.top-6&&y<=r.bottom+6}
 function menuHit(x,y){if(menu.hidden)return false;const r=menu.getBoundingClientRect();return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom}
@@ -3381,7 +3481,7 @@ function fireWish(l){if(/\b(?:site|website|page|pages|hero|buttons?|section|logo
   if(!k&&/\b(?:change|switch|new|different|another)\s+(?:up\s+)?(?:your\s+|the\s+|a\s+)?(?:flame|fire|colou?r)s?\b/.test(l)&&!/\bmy\s+(?:flame|fire|colou?r)/.test(l))k='surprise';
   if(!k)return null;const m=/\b(\d+(?:\.\d+)?)\s*(?:min(?:ute)?s?|hours?|hrs?)\b/.test(l)?parseMins(l,10):0;
   return{say:L(FIRE_SAY[k]||['ooh, something new!','fine. new look.','new look. you\'re welcome.']),face:ATT()==='sweet'?'joy':'smug',gesture:'none',mood:.2,plan:[m?{fire:k,for:m}:{fire:k,keep:true}]}}
-function localWish(t){const l=String(t||'').toLowerCase().trim();if(!l)return null;{const fw=fireWish(l);if(fw)return fw}
+function localWish(t){const l=String(t||'').toLowerCase().trim();if(!l)return null;{const tp=thingPlan(l);if(tp)return{say:'',plan:tp}}{const fw=fireWish(l);if(fw)return fw}
   if(/\b(?:glasses|shades|sunglasses)\b/.test(l)){
     if(/\b(?:off|remove|lose|no|stop|without|drop|ditch|put away)\b/.test(l)||/\btake\b.*\b(?:glasses|shades|sunglasses)\b/.test(l))
       return{say:L(['okay, glasses off!','fine. glasses off.','fine. took them off.']),face:'calm',gesture:'none',mood:.1,plan:[{glasses:'off'}]};
@@ -4205,7 +4305,7 @@ window.ember={signal,fromEvents,set,desk,setDesktop,get:()=>Object.assign({},CFG
   agTick:()=>{AG.worldT=-99;agTick(1)},
   health:()=>({bad:BAD.slice()}),
   life:()=>Object.assign(lifeDump(),{stage:bondStage(),ready:!!LIFE.ready,gap:LIFE.gap,want:LIFE.want&&now<LIFE.want.until?LIFE.want.k:'',gift:!!LIFE.gift,dreaming:!!cur_('sleep'),view:lifeView(),urges:urges()}),
-  lifeSet:o=>{Object.assign(LIFE,o||{});lifeSave(1)},thing:(k,o)=>{const st=THINGS[k]&&THINGS[k](o||{});if(!st)return false;SEQ=null;TH.last[k]=now;runNS(k,st);TH.mine=SEQ;return true},things:()=>THING_KEYS.slice(),busy:()=>!!SEQ&&SEQ===TH.mine,prop:()=>PROP?PROP.k:'',garden:()=>!!GARDEN,scarf:v=>{if(v===false){WARM.until=0;store.set('ember_warm',0)}return Date.now()<WARM.until},
+  lifeSet:o=>{Object.assign(LIFE,o||{});lifeSave(1)},thing:(k,o)=>{const st=THINGS[k]&&THINGS[k](o||{});if(!st)return false;SEQ=null;TH.last[k]=now;runNS(k,st);TH.mine=SEQ;return true},things:()=>THING_KEYS.slice(),wish:t=>{const w=localWish(t);if(w&&w.plan)applyPlan(w);return w},showThings,showNotes,busy:()=>!!SEQ&&SEQ===TH.mine,prop:()=>PROP?PROP.k:'',garden:()=>!!GARDEN,scarf:v=>{if(v===false){WARM.until=0;store.set('ember_warm',0)}return Date.now()<WARM.until},
   weather:o=>{if(o===null){WX.ok=0;WX.forced=1;return}WX.forced=1;wxTake(Object.assign({ok:true,temp:20},o||{}));return Object.assign({},WX)},day:()=>dayView(),did:()=>DID.slice(),notes:()=>LIFE.notes.slice(),urges:()=>urges(),win:()=>{TH.winT=now},bubble:()=>E.bubble?E.bubble.text:'',
 impulse:k=>{const st=IMPULSES[k]&&IMPULSES[k]();if(!st)return false;SEQ=null;return runNS(k,st)},reunion:()=>reunion(),
   cursor:(x,y)=>{cur.x=x;cur.y=y;cur.t=now;cur.moveT=now},
