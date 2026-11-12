@@ -83,6 +83,17 @@ describe("public switches and the heartbeat", () => {
     expect(fake.geoCalls).toBe(0);
   });
 
+  test("signing in again on the same Mac after a sign-out gets a new device token", async () => {
+    const u = fake.addUser("rea@example.com");
+    const r1 = await ping({}, u.token);
+    expect(r1.body.device_token).toMatch(/^adt_/);
+    // the app dropped its token on sign-out; the server still has one
+    const r2 = await ping({}, u.token);   // the installed app sends no rotate flag
+    expect(r2.body.device_token).toMatch(/^adt_/);
+    expect(r2.body.device_token).not.toBe(r1.body.device_token);
+    expect((await ping({}, r2.body.device_token)).status).toBe(200);
+  });
+
   test("a signed-in copy gets a device token; the same address is not looked up twice", async () => {
     const u = fake.addUser("ada@example.com");
     const r1 = await ping({ activity: { view: "project", job: "build", project: "acme" } }, u.token);
