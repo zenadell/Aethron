@@ -7551,6 +7551,27 @@ the SIU, flirting; speech like a creature, not Gemini; and to know who made it.
 tests/things_battery.py (in run_all). NOT PROVEN: live model output in the new
 voice (no key here); the live VOICE cannot be filtered, only instructed.
 
+## "IT REFUSES, OR SAYS IT DID AND DID NOT" — naming a thing is asking for it — 2026-11-12
+Owner on 1.1.133: "can you go fishing" got talk; only the exact words "go
+fishing" ran it; "show me your notebook" got "my notebook stays with me";
+after catching a fish Ember said nothing; no way to try everything. Causes:
+the chat and voice rules never listed the things, the local matcher wanted
+exact phrasings, and nothing forced a named wish into the plan.
+- thing_plan(text) (Python) / thingPlan (window): naming a thing is enough
+  ("can you fish?", "do you know how to fish"), "show me your notebook" ->
+  {"show":"notebook"}, "what can you do" -> four things. Not for site words
+  or a "don't".
+- parse() and act_parse() are wrappers: a named wish is ALWAYS in the plan
+  (force_wish), is never sent to Aethron's agent, and a line that no longer
+  fits is replaced. The live voice does the wish at turn end when the model
+  only talked (Session.acted).
+- THING_TALK in rules() and act_rules(): do it at once, never refuse, never
+  claim without the plan step. act_rules no longer opens with "your job is
+  to help them talk to Aethron".
+- After a thing the person asked for, the window asks the model for one line
+  about how it went (reactTo: typed chat, or the live session's text turn).
+- Right-click -> "See what Ember can do": every thing as a button, no model.
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.

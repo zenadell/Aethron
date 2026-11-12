@@ -641,6 +641,7 @@ class Session:
                         threading.Timer(OUTCOME_S, self._outcome_late, args=(cid,)).start()
                         continue
                     self._emit("act", r=r, id=cid)
+                    self.acted = True
                     has_body = any(isinstance(x, dict) and set(x) & BODY_KEYS for x in (r.get("plan") or []))
                     result = ("done: Ember is doing that with its body on screen. Nothing in the app was "
                               "pressed or typed, so never say you changed, opened or sent anything."
@@ -658,6 +659,17 @@ class Session:
     def _turn_done(self):
         heard, said = self.heard.strip(), self.said.strip()
         self.heard = self.said = ""
+        if heard and not getattr(self, "acted", False):
+            # it talked and did nothing: what they named is done anyway
+            try:
+                import aethron_ember as AE
+                plan = AE.thing_plan(heard)
+                if plan:
+                    self._emit("act", r={"kind": "answer", "action": "none", "target": "", "prompt": "", "say": "",
+                                         "plan": plan, "by": "live"}, id=f"w{time.time():.3f}")
+            except Exception:
+                pass
+        self.acted = False
         self.turns += 1
         if self.usage:
             inp, out, usd = _cost(self.model, self.usage)
