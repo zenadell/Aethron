@@ -163,6 +163,21 @@ try:
         check("and the illustration is served as a picture that cannot run code",
               "image/svg+xml" in art.headers.get("Content-Type", "") and b"<script" not in art.read().lower())
 
+        def admin_call(t, args):
+            rq = urllib.request.Request(base + "/aethron/admin/call", data=json.dumps({"tool": t, "args": args}).encode(),
+                headers={"Authorization": "Bearer master-key-0123456789abcdefghij", "Content-Type": "application/json"})
+            return json.loads(urllib.request.urlopen(rq, timeout=5).read())
+        admin_call("set_user_ai_mode", {"user": "ada@example.com", "mode": "byok"})
+        pg.click("aside .nv:has-text('AI & models')")
+        pg.wait_for_selector("#aiown", timeout=10000)
+        check("a person whose own AI setting beats the switch is named on the AI page", "ada@example.com" in pg.inner_text("#aiown"))
+        pg.click("label.choice:has-text('Aethron')")
+        pg.click("text=Apply to everyone")
+        pg.click(".dlg [data-ok]")
+        pg.wait_for_function("!document.querySelector('#aiown')", timeout=10000)
+        left = admin_call("ai_overrides", {}).get("result", {}).get("people")
+        check("Apply to everyone brings them onto the switch", left == [])
+
         pg.click("aside .nv:has-text('Exports')")
         pg.wait_for_selector("text=Everything")
         with pg.expect_download() as dl:

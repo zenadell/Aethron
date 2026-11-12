@@ -7572,6 +7572,28 @@ exact phrasings, and nothing forced a named wish into the plan.
   about how it went (reactTo: typed chat, or the live session's text turn).
 - Right-click -> "See what Ember can do": every thing as a button, no model.
 
+## "IT SAYS AETHRON'S AI BUT USES MY OWN KEY" — a per-person setting won — 2026-11-12
+Owner: set Aethron's AI in the admin; their copy kept using their own key
+through restarts and sign-outs. Field logs: control.ai_mode = managed, and
+ONE account had user_controls.ai_mode = "byok" (set Nov 8). The server's
+effective mode is `uc.ai_mode || c.ai_mode`, so a per-person setting beats
+the global switch forever, and nothing in the console said so. Not an app
+delay: the app already picks a switch up within a minute (heartbeat quick
+look at control.updated_at; /api/control refresh(30); per-message session
+signature check).
+- set_ai_mode (the global switch) now clears every per-person ai_mode
+  (everyone follows), unless keep_people:true; it returns people_reset and,
+  when kept, people_with_own_setting. New read tool ai_overrides.
+- console AI page: "Apply to everyone", a note that it includes people set
+  separately, and an alert naming anyone whose own setting wins.
+- tools/cloud_logs.py says a per-person ai_mode wins.
+Tests: cloud 41 -> 43; admin console battery +2 (the alert, Apply to
+everyone clears it); control battery +4 — the app on C.check() (the cheap
+minute look, no restart) follows managed / byok / off after a person was
+set apart; the old server code FAILS the first and third.
+AFTER DEPLOY the owner's own override is cleared only when they press
+Apply once (deploying does not change data).
+
 ## Invariants (do not break)
 - `pristine/` is never modified; `site/` is never hand-edited; every
   change flows through `copy_map.json` + `build`.
@@ -7885,6 +7907,9 @@ exact phrasings, and nothing forced a named wish into the plan.
 - A VOICE MAY ONLY REPORT WHAT THE SCREEN REPORTED. An action is "done" only
   when the window says it happened; until then it is "trying".
 - A LIVE VIEW IS UPDATED, NEVER REPAINTED WHOLE on a timer.
+- A GLOBAL SWITCH MEANS EVERYONE. A setting that quietly beats it must be
+  shown where the switch is, and the switch brings everyone along unless
+  asked not to.
 - A SITE IS PUBLISHED ONLY WHEN THE HOST SAYS IT IS LIVE. Upload is not
   publish; "HTTPS ready" is measured, never assumed; a host token never
   reaches the page.
