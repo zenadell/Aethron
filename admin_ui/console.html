@@ -777,7 +777,8 @@ async function endAnn(){ if(!await dialog({title:'End this announcement?',body:'
   await act('end_announcement',{},'Announcement ended'); refreshView(); }
 
 VIEWS.ai = async () => {
-  const [m, c, em] = await Promise.all([T('list_models'), T('get_control'), T('ember_mind').catch(()=>null)]);
+  const [m, c, em, ov] = await Promise.all([T('list_models'), T('get_control'), T('ember_mind').catch(()=>null), T('ai_overrides').catch(()=>({people:[]}))]);
+  const own = (ov&&ov.people)||[];
   const w=can('write'), o=can('owner');
   const provs = m.providers;
   return head('AI & models','Who powers the AI inside Aethron, what it may spend, and the separate AI that helps you run this admin.')+`<div class="stack">
@@ -788,7 +789,9 @@ VIEWS.ai = async () => {
       <input type="radio" name="aim" value="${k}" ${c.ai_mode===k?'checked':''} ${w?'':'disabled'}><b>${ic(i)}${l}</b><div class="t3" style="margin-top:6px;font-size:12.5px">${d}</div></label>`).join('')}</div>
     <div class="row" style="margin-top:16px"><div><label class="f">Provider</label><select id="mprov">${provs.map(p=>`<option value="${p.id}" ${c.managed_provider===p.id?'selected':''}>${esc(p.label)}${p.keys.length?' — key set':''}</option>`).join('')}</select></div>
       <div><label class="f">Model</label><input id="mmod" value="${esc(c.managed_model)}" placeholder="Empty = the provider’s default"></div>
-      ${w?`<button class="btn primary tight" onclick="saveMode()">Apply</button>`:''}</div></div>
+      ${w?`<button class="btn primary tight" onclick="saveMode()">Apply to everyone</button>`:''}</div>
+    <div class="hint" style="margin-top:10px">Applying this switch puts <b>everyone</b> on it, including people you set separately before. A copy picks it up within a minute; no restart.</div>
+    ${own.length?`<div class="alert" style="margin-top:12px" id="aiown">${ic('info')}<div><b>${own.length} ${own.length===1?'person does':'people do'} not follow this switch</b> — their own setting wins: ${own.map(p=>esc(p.email||p.user_id)+' ('+esc(AIMODE[p.ai_mode]||p.ai_mode)+')').join(', ')}. Apply the switch to bring them back, or change them on their page.</div></div>`:''}</div>
   <div class="card"><div class="ch"><h3>Spending limits</h3><span class="sub">for Aethron’s AI</span></div>
     <div class="row"><div><label class="f">Each person, per day</label><input id="ldef" value="${c.default_daily_usd}"><div class="hint">Dollars. 0 = unlimited.</div></div>
       <div><label class="f">Everyone together, per day</label><input id="lglob" value="${c.global_daily_usd}"><div class="hint">Dollars. 0 = unlimited.</div></div>
@@ -817,7 +820,7 @@ VIEWS.ai = async () => {
 };
 async function saveMode(){ const mode=(document.querySelector('input[name=aim]:checked')||{}).value||(document.querySelector('.choice.on input')||{}).value;
   if(mode==='managed'&&!await dialog({title:'Switch everyone to Aethron’s AI?',body:'People’s own keys will not be used, and you pay for every request (within the limits you set).',ok:'Switch'}))return;
-  await act('set_ai_mode',{mode,provider:$('mprov').value,model:$('mmod').value.trim()},'Now: '+(AIMODE[mode]||mode)); refreshView(); }
+  const r=await act('set_ai_mode',{mode,provider:$('mprov').value,model:$('mmod').value.trim()},'Now: '+(AIMODE[mode]||mode)+' for everyone'); refreshView(); return r; }
 async function setKey(p,label){ const r=await dialog({title:'Add a '+label+' key',body:'Several keys: one per line. A busy key gives way to the next. Keys are never shown again.',
   fields:[{label:'Key(s)',area:true,placeholder:'Paste here'}],ok:'Save key'}); if(!r||!r[0].trim())return;
   await act('set_provider_key',{provider:p,keys:r[0]},'Key saved'); refreshView(); }

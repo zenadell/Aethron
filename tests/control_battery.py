@@ -180,6 +180,23 @@ try:
     check("switched back: the person's own key returns, untouched", B.resolve()["provider"] == "deepseek"
           and B.resolve()["key"] == "sk-PERSONS-OWN-KEY-999")
 
+    # ── a person set apart, then the global switch (the owner's report, 2026-11-12) ──
+    admin("set_user_ai_mode", user="una@example.com", mode="byok")
+    admin("set_ai_mode", mode="managed", provider="gemini", model="gemini-3.6-flash", keep_people=True)
+    C.ping()
+    check("a person set to their own key keeps it while the team keeps them apart", B.resolve()["provider"] == "deepseek")
+    admin("set_ai_mode", mode="managed", provider="gemini", model="gemini-3.6-flash")
+    C.check()          # what the running app does every minute: the cheap look, a full answer only if a switch changed
+    check("the global switch reaches them on the next minute's look, no restart", B.resolve()["provider"] == "aethron")
+    admin("set_ai_mode", mode="byok")
+    C.check()
+    check("and switching back reaches them the same way", B.resolve()["provider"] == "deepseek")
+    admin("set_ai_mode", mode="off")
+    C.check()
+    check("and so does switching it off", C.why("agent") == "Aethron's AI is switched off by the team for now.")
+    admin("set_ai_mode", mode="byok")
+    C.check()
+
     # ── people ──
     admin("block_user", user="una@example.com", reason="unpaid invoice")
     C.ping()

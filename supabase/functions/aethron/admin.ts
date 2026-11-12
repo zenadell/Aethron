@@ -357,6 +357,17 @@ async function exportReport(args: Row): Promise<{ filename: string; type: string
 
 // ── changing a person ───────────────────────────────────────────────
 
+async function aiOverrides(): Promise<Row[]> {
+  const rows = await db.select("user_controls", { select: "user_id,ai_mode", ai_mode: "in.(byok,managed,off)" });
+  const out: Row[] = [];
+  for (const r of rows) {
+    let email = "";
+    try { email = String((await findUser(String(r.user_id))).email || ""); } catch { /* deleted */ }
+    out.push({ user_id: r.user_id, email, ai_mode: r.ai_mode });
+  }
+  return out;
+}
+
 async function userControl(a: Admin, ref: string, patch: Row, action: string): Promise<Row> {
   const u = await findUser(ref);
   const [r] = await db.upsert("user_controls", { user_id: u.id, ...patch, updated_at: nowIso() }, "user_id");
@@ -393,6 +404,9 @@ export const TOOLS: Tool[] = [
     } },
   { name: "get_control", scope: "read", params: {}, description: "The switches every copy of Aethron obeys right now.",
     run: () => control(true) },
+  { name: "ai_overrides", scope: "read", params: {},
+    description: "People whose own AI setting wins over the global switch (email, their mode).",
+    run: async () => ({ people: await aiOverrides() }) },
   { name: "usage_report", scope: "read", params: { days: N("window (default 30)"), user: S("only this person (email or id)") },
     description: "Managed-AI spend and requests by user, model, day and purpose.", run: (a) => usageReport(a) },
   { name: "errors", scope: "read", params: { days: N("window (default 7)"), limit: N("groups (default 50)") },
@@ -477,19 +491,36 @@ export const TOOLS: Tool[] = [
       return c.features;
     } },
   { name: "set_ai_mode", scope: "write",
-    params: { mode: S("byok (people's own keys), managed (Aethron's key) or off"), provider: S("managed provider id"), model: S("managed model id") },
+    params: { mode: S("byok (people's own keys), managed (Aethron's key) or off"), provider: S("managed provider id"), model: S("managed model id"),
+      keep_people: B("leave people who have their own AI setting on it (default: false — everyone follows this switch)") },
     required: ["mode"],
-    description: "Who powers Aethron's AI. 'managed' runs every copy on Aethron's own key and model; people's own keys are no longer used.",
+    description: "Who powers Aethron's AI, for EVERYONE. 'managed' runs every copy on Aethron's own key and model; people's own keys are no longer used. " +
+      "A person's own AI setting would otherwise win over this switch, so it is cleared (everyone follows) unless keep_people is true.",
     run: async (a, ad) => {
       const patch: Row = { ai_mode: a.mode };
+      // A PER-PERSON SETTING WINS OVER THE GLOBAL ONE, invisibly: the owner
+      // switched everyone to Aethron's AI and their own copy kept using its
+      // own key, because their account had been set to "own keys" days
+      // before. The global switch now means everyone, unless asked not to.
+      let reset: string[] = [];
+      if (!a.keep_people) {
+        const had = await db.select("user_controls", { select: "user_id", ai_mode: "in.(byok,managed,off)" });
+        if (had.length) {
+          await db.update("user_controls", { ai_mode: "in.(byok,managed,off)" }, { ai_mode: null, updated_at: nowIso() });
+          reset = had.map((r) => String(r.user_id));
+        }
+      }
       if (a.provider) {
         if (!PROVIDERS[a.provider]) throw new HttpError(400, `unknown provider "${a.provider}" (known: ${Object.keys(PROVIDERS).join(", ")})`);
         patch.managed_provider = a.provider;
       }
       if (a.model) patch.managed_model = a.model;
       const c = await setControl(patch, ad.actor);
-      await audit(ad, "set_ai_mode", a.mode, patch);
-      return { ai_mode: c.ai_mode, provider: c.managed_provider, model: c.managed_model };
+      forget("");
+      await audit(ad, "set_ai_mode", a.mode, { ...patch, people_reset: reset.length });
+      const kept = a.keep_people ? await aiOverrides() : [];
+      return { ai_mode: c.ai_mode, provider: c.managed_provider, model: c.managed_model,
+               people_reset: reset.length, people_with_own_setting: kept };
     } },
   { name: "set_limits", scope: "write",
     params: { default_daily_usd: N("each person's daily AI allowance (0 = unlimited)"), global_daily_usd: N("everyone together, per day (0 = unlimited)") },

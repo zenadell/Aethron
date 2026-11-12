@@ -216,6 +216,33 @@ describe("the managed AI", () => {
     expect(g.body.error.message).toContain("own key");
   });
 
+  test("the global switch reaches a person who had their own setting (the owner's own copy kept their key)", async () => {
+    const d = await deviceFor("owner2@example.com");
+    await tool("set_user_ai_mode", { user: "owner2@example.com", mode: "byok" });
+    forget("");
+    let me = (await ping({}, d.token)).body.me;
+    expect(me.ai_mode).toBe("byok");
+    expect((await tool("ai_overrides")).body.result.people.map((p: any) => p.email)).toEqual(["owner2@example.com"]);
+    const before = fake.tables.control[0].updated_at;
+    const r = await tool("set_ai_mode", { mode: "managed", provider: "gemini" });
+    expect(r.body.result.people_reset).toBe(1);
+    expect(fake.tables.control[0].updated_at).not.toBe(before);          // copies notice within a minute
+    forget("");
+    me = (await ping({}, d.token)).body.me;
+    expect(me.ai_mode).toBe("managed");
+    expect((await tool("ai_overrides")).body.result.people).toEqual([]);
+  });
+
+  test("keep_people leaves a person's own setting in place, and says who", async () => {
+    const d = await deviceFor("bea@example.com");
+    await tool("set_user_ai_mode", { user: "bea@example.com", mode: "off" });
+    const r = await tool("set_ai_mode", { mode: "managed", keep_people: true });
+    expect(r.body.result.people_reset).toBe(0);
+    expect(r.body.result.people_with_own_setting.map((p: any) => p.email)).toEqual(["bea@example.com"]);
+    forget("");
+    expect((await ping({}, d.token)).body.me.ai_mode).toBe("off");
+  });
+
   test("managed: the admin's key and model are used, the person's request is metered", async () => {
     await managed("gemini-3.6-flash");
     const d = await deviceFor("ada@example.com");
